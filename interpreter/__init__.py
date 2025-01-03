@@ -1,4 +1,12 @@
 import sys
+import warnings
+
+# Suppress pydantic warning from litellm about fields being removed in V2
+warnings.filterwarnings(
+    "ignore",
+    message="Valid config keys have changed in V2:*",
+    module="pydantic.*"
+)
 
 if "--os" in sys.argv:
     from rich import print as rich_print
