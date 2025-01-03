@@ -27,6 +27,14 @@ interpreter.save_config("~/my_settings.json")
 
 # Use lazy imports to avoid loading heavy modules immediately
 from importlib import import_module
+import warnings
+
+# Suppress pydantic warning from litellm about fields being removed in V2
+warnings.filterwarnings(
+    "ignore",
+    message="Valid config keys have changed in V2:*",
+    module="pydantic.*"
+)
 
 
 def __getattr__(name):
