@@ -30,6 +30,14 @@ Save current settings:
 
 # Use lazy imports to avoid loading heavy modules immediately
 from importlib import import_module
+import warnings
+
+# Suppress pydantic warning from litellm about fields being removed in V2
+warnings.filterwarnings(
+    "ignore",
+    message="Valid config keys have changed in V2:*",
+    module="pydantic.*"
+)
 
 __version__ = "1.0.0"  # Single source of truth for version
 
