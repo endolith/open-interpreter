@@ -134,10 +134,53 @@ def query_reduce_chunks(responses, llm, chunk_size, query):
 
 
 class Ai:
+    """
+    Provides AI capabilities for text processing, chat, and summarization.
+
+    This class offers methods to interact with the language model for various text-based tasks
+    including chatting, querying specific information, and generating summaries.
+
+    Attributes:
+        computer: The parent Computer instance this AI is attached to
+    """
+
     def __init__(self, computer):
+        """
+        Initialize an AI instance.
+
+        Args:
+            computer: The parent Computer instance this AI will be attached to.
+                     Provides access to the interpreter, LLM, and other computer capabilities.
+
+        Example:
+            This is typically instantiated automatically when creating a Computer instance:
+            ```python
+            from interpreter import Computer
+            computer = Computer()  # Creates computer.ai internally
+            ```
+        """
         self.computer = computer
 
     def chat(self, text, base64=None):
+        """
+        Conducts a simple chat interaction with the AI.
+
+        This method creates a fresh chat context with minimal system instructions,
+        useful for getting direct responses without the full computer API context.
+
+        Args:
+            text (str): The message to send to the AI
+            base64 (str, optional): Base64-encoded image data to include with the message
+
+        Returns:
+            str: The AI's response text
+
+        Example:
+            ```python
+            response = computer.ai.chat("What is the capital of France?")
+            print(response)  # "The capital of France is Paris."
+            ```
+        """
         messages = [
             {
                 "role": "system",
@@ -185,6 +228,30 @@ class Ai:
             return response[-1].get("content")
 
     def query(self, text, query, custom_reduce_query=None):
+        """
+        Processes large text by breaking it into chunks and querying each chunk.
+
+        This method uses a map-reduce approach to handle large texts:
+        1. Splits text into overlapping chunks
+        2. Queries each chunk in parallel
+        3. Combines the responses into a single coherent answer
+
+        Args:
+            text (str): The large text to analyze
+            query (str): The system message/query to apply to each chunk
+            custom_reduce_query (str, optional): Custom query for the reduction phase.
+                                               If None, uses the same query as chunk processing.
+
+        Returns:
+            str: The final processed response
+
+        Example:
+            ```python
+            text = "... very long document ..."
+            query = "Extract all dates mentioned in the text"
+            result = computer.ai.query(text, query)
+            ```
+        """
         if custom_reduce_query == None:
             custom_reduce_query = query
 
@@ -207,6 +274,25 @@ class Ai:
         return response
 
     def summarize(self, text):
+        """
+        Generates a concise summary of the provided text.
+
+        Uses the query method internally with pre-configured prompts optimized for
+        summarization. Handles large texts by chunking and then combining summaries.
+
+        Args:
+            text (str): The text to summarize
+
+        Returns:
+            str: A concise summary of the input text
+
+        Example:
+            ```python
+            long_article = "... very long article ..."
+            summary = computer.ai.summarize(long_article)
+            print(summary)  # "This article discusses..."
+            ```
+        """
         query = "You are a highly skilled AI trained in language comprehension and summarization. I would like you to read the following text and summarize it into a concise abstract paragraph. Aim to retain the most important points, providing a coherent and readable summary that could help a person understand the main points of the discussion without needing to read the entire text. Please avoid unnecessary details or tangential points."
         custom_reduce_query = "You are tasked with taking multiple summarized texts and merging them into one unified and concise summary. Maintain the core essence of the content and provide a clear and comprehensive summary that encapsulates all the main points from the individual summaries."
         return self.query(text, query, custom_reduce_query)
