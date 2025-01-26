@@ -190,17 +190,20 @@ class Terminal:
                         shell_output += chunk["content"]
                         continue
 
-                # For non-shell output or non-output chunks, yield normally
-                yield chunk
+                    # For non-shell output or non-output chunks, yield normally
+                    yield chunk
 
-                # Print if display=True (but not for shell output which is handled separately)
-                if (
-                    display
-                    and chunk.get("format") != "active_line"
-                    and chunk.get("content")
-                    and language != "shell"
-                ):
-                    print(chunk["content"], end="")
+                    # Print if display=True (but not for shell output which is handled separately)
+                    if (
+                        display
+                        and chunk.get("format") != "active_line"
+                        and chunk.get("content")
+                        and language != "shell"
+                    ):
+                        print(chunk["content"], end="")
+
+                else:
+                    yield chunk
 
             # After collecting all shell output, yield it as one chunk for truncation
             if language == "shell" and shell_output:
