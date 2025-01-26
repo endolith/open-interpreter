@@ -163,6 +163,10 @@ class Terminal:
             else:
                 self._active_languages[language] = lang_class()
         try:
+            # Buffer for shell output - collect all output before displaying to prevent screen flicker
+            # Note: This means shell commands won't show progress until completion
+            shell_output = ""
+
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
@@ -180,15 +184,31 @@ class Terminal:
                             + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
                         )
 
+                    # For shell commands, buffer the output instead of streaming
+                    # This prevents screen flicker with large outputs like 'type' or 'cat'
+                    if language == "shell":
+                        shell_output += chunk["content"]
+                        continue
+
+                # For non-shell output or non-output chunks, yield normally
                 yield chunk
 
-                # Print it also if display = True
+                # Print if display=True (but not for shell output which is handled separately)
                 if (
                     display
                     and chunk.get("format") != "active_line"
                     and chunk.get("content")
+                    and language != "shell"
                 ):
                     print(chunk["content"], end="")
+
+            # After collecting all shell output, yield it as one chunk for truncation
+            if language == "shell" and shell_output:
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": shell_output
+                }
 
         except GeneratorExit:
             self.stop()
