@@ -163,8 +163,9 @@ class Terminal:
             else:
                 self._active_languages[language] = lang_class()
         try:
-            # Buffer for shell output - collect all output before displaying to prevent screen flicker
-            # Note: This means shell commands won't show progress until completion
+            # Buffer for shell output - collect output and update periodically to prevent terminal
+            # unresponsiveness with large outputs. Note: This means shell commands won't show
+            # progress until completion due to OS-level output buffering.
             shell_output = ""
 
             for chunk in self._active_languages[language].run(code):
@@ -187,6 +188,13 @@ class Terminal:
                     # For shell commands, buffer the output instead of streaming
                     # This prevents screen flicker with large outputs like 'type' or 'cat'
                     if language == "shell":
+                        # First shell command output - inform user about buffering
+                        if not shell_output:
+                            yield {
+                                "type": "console",
+                                "format": "output",
+                                "content": "Note: Shell command output will be shown after completion.\n\n"
+                            }
                         shell_output += chunk["content"]
                         continue
 
