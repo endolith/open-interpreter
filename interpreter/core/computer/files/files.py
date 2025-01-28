@@ -1,4 +1,5 @@
 import difflib
+import os
 import re
 from ...utils.lazy_import import lazy_import
 
@@ -87,14 +88,31 @@ class TextFileReader:
 
     def get_metadata(self):
         """Get basic metadata about the file."""
+        # Get file size in bytes
+        file_size = os.path.getsize(self.file_path)
+
+        # Count total characters (including whitespace)
+        total_chars = sum(len(line) for line in self.content)
+
+        # Count non-whitespace characters
+        non_whitespace_chars = sum(len(line.strip()) for line in self.content)
+
         metadata = {
+            'path': self.file_path, 'encoding': self.encoding,
             'line_count': len(self.content),
-            'file_size': len(self.content),  # This can be changed to actual file size in bytes
-        }
-        print(f"File: {self.file_path}")
+            'file_size_bytes': file_size, 'total_chars': total_chars,
+            'non_whitespace_chars': non_whitespace_chars,
+            'confidence': chardet.detect(open(self.file_path, 'rb').read())
+            ['confidence']}
+
+        print(f"File: {metadata['path']}")
+        print(f"Encoding: {metadata['encoding']} (confidence: {metadata['confidence']:.2%})")
         print(f"Lines: {metadata['line_count']}")
-        print(f"Size: {metadata['file_size']} lines")
+        print(f"Size: {metadata['file_size_bytes']:,} bytes")
+        print(f"Characters: {metadata['total_chars']:,} (non-whitespace: {metadata['non_whitespace_chars']:,})")
+
         return metadata
+
 
 class Files:
     def __init__(self, computer):
