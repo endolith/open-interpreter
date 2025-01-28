@@ -1,8 +1,8 @@
 import difflib
-
+import re
 from ...utils.lazy_import import lazy_import
 
-# Lazy import of aifs, imported when needed
+# Lazy imports
 aifs = lazy_import('aifs')
 chardet = lazy_import('chardet')
 
@@ -20,56 +20,81 @@ class TextFileReader:
             raw_data = file.read()
         return chardet.detect(raw_data)['encoding']
 
+    def _format_line(self, line_num, line, show_line_numbers=False):
+        """Helper to format a line consistently for printing and returning"""
+        line = line.strip()
+        if show_line_numbers:
+            print(f"{line_num}: {line}")
+            return (line_num, line)
+        print(line)
+        return line
+
     def read_lines(self, from_line, to_line, show_line_numbers=False):
         """Read lines from `from_line` to `to_line` (1-based index).
-        Optionally show line numbers."""
-        lines = self.content[from_line-1:to_line]
-        if show_line_numbers:
-            return [(i + from_line, line.strip()) for i, line in enumerate(lines)]
-        return [line.strip() for line in lines]
+        Prints lines immediately and returns them as a list."""
+        lines = []
+        for i, line in enumerate(self.content[from_line-1:to_line], start=from_line):
+            lines.append(self._format_line(i, line, show_line_numbers))
+        return lines
 
     def read_characters(self, from_char, to_char, show_line_numbers=False):
         """Read characters from `from_char` to `to_char` (0-based index).
-        Optionally show line numbers."""
+        Prints characters immediately and returns them."""
         with open(self.file_path, 'r', encoding=self.encoding) as file:
             content = file.read()
         content_chunk = content[from_char:to_char]
+
         if show_line_numbers:
-            return [(i, char) for i, char in enumerate(content_chunk)]
+            result = []
+            for i, char in enumerate(content_chunk):
+                print(f"{i}: {char}")
+                result.append((i, char))
+            return result
+
+        print(content_chunk)
         return content_chunk
 
     def search(self, pattern, show_line_numbers=False):
-        """Search for pattern in the file and return matching lines."""
+        """Search for pattern in the file and return matching lines.
+        Prints matches immediately and returns them as a list."""
         matches = []
-        for i, line in enumerate(self.content):
+        for i, line in enumerate(self.content, start=1):
             if re.search(pattern, line):
-                if show_line_numbers:
-                    matches.append((i + 1, line.strip()))  # Return 1-based line number
-                else:
-                    matches.append(line.strip())
+                matches.append(self._format_line(i, line, show_line_numbers))
         return matches
 
     def filter_lines(self, condition, show_line_numbers=False):
-        """Filter lines based on a condition."""
-        filtered = [line for line in self.content if condition(line)]
-        if show_line_numbers:
-            return [(i + 1, line.strip()) for i, line in enumerate(filtered)]
-        return [line.strip() for line in filtered]
+        """Filter lines based on a condition.
+        Prints matching lines immediately and returns them as a list."""
+        filtered = []
+        for i, line in enumerate(self.content, start=1):
+            if condition(line):
+                filtered.append(self._format_line(i, line, show_line_numbers))
+        return filtered
 
     def find_section(self, section_name, lines_after=10, show_line_numbers=False):
-        """Find a section by name (e.g., '### To do') and return subsequent lines."""
+        """Find a section by name (e.g., '### To do') and return subsequent lines.
+        Prints matching section immediately and returns lines as a list."""
+        result = []
         for i, line in enumerate(self.content):
             if section_name in line:
                 start = i + 1
-                return self.read_lines(start, start + lines_after, show_line_numbers)
-        return []  # Section not found
+                end = min(start + lines_after, len(self.content))
+                for j, section_line in enumerate(self.content[start:end], start=start):
+                    result.append(self._format_line(j, section_line, show_line_numbers))
+                break
+        return result
 
     def get_metadata(self):
         """Get basic metadata about the file."""
-        return {
+        metadata = {
             'line_count': len(self.content),
             'file_size': len(self.content),  # This can be changed to actual file size in bytes
         }
+        print(f"File: {self.file_path}")
+        print(f"Lines: {metadata['line_count']}")
+        print(f"Size: {metadata['file_size']} lines")
+        return metadata
 
 class Files:
     def __init__(self, computer):
