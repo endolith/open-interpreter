@@ -9,9 +9,9 @@ chardet = lazy_import('chardet')
 
 
 class TextFileReader:
-    def __init__(self, file_path, encoding=None):
+    def __init__(self, file_path, encoding='auto'):
         self.file_path = file_path
-        self.encoding = encoding or self._detect_encoding()
+        self.encoding = encoding if encoding != 'auto' else self._detect_encoding()
         with open(file_path, 'r', encoding=self.encoding) as file:
             self.content = file.readlines()
 
@@ -118,14 +118,14 @@ class Files:
     def __init__(self, computer):
         self.computer = computer
 
-    def get_reader(self, path, encoding=None):
+    def get_reader(self, path, encoding='auto'):
         """
         Get a TextFileReader instance for the specified file path.
         Provides convenient methods for reading and analyzing text files.
 
         Args:
             path (str): Path to the text file
-            encoding (str, optional): File encoding. Will auto-detect if not specified.
+            encoding (str, optional): File encoding. Use 'auto' for automatic detection (default).
 
         Returns:
             TextFileReader: A reader instance for the specified file
