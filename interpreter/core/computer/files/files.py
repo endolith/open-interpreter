@@ -77,8 +77,12 @@ class TextFileReader:
         return content_chunk
 
     def search(self, pattern, show_line_numbers=False):
-        """Search for pattern in the file and return matching lines.
-        Prints matches immediately and returns them as a list."""
+        """Search for lines matching a regex pattern.
+        Prints matches immediately and returns them as a list.
+
+        Example:
+            reader.search(r"TODO:.*")  # Find all TODO items
+        """
         matches = []
         for i, line in enumerate(self.content, start=1):
             if re.search(pattern, line):
@@ -86,8 +90,12 @@ class TextFileReader:
         return matches
 
     def filter_lines(self, condition, show_line_numbers=False):
-        """Filter lines based on a condition.
-        Prints matching lines immediately and returns them as a list."""
+        """Filter lines using a custom Python function/lambda.
+        Prints matching lines immediately and returns them as a list.
+
+        Example:
+            reader.filter_lines(lambda line: "TODO" in line and "urgent" in line.lower())
+        """
         filtered = []
         for i, line in enumerate(self.content, start=1):
             if condition(line):
@@ -95,8 +103,14 @@ class TextFileReader:
         return filtered
 
     def find_section(self, section_name, lines_after=10, show_line_numbers=False):
-        """Find a section by name (e.g., '### To do') and return subsequent lines.
-        Prints matching section immediately and returns lines as a list."""
+        """Find a line containing the given text and return subsequent lines.
+        Useful for finding sections in any text file (markdown headers, code comments, etc.).
+        Prints matching section immediately and returns lines as a list.
+
+        Example:
+            reader.find_section("### Installation", lines_after=5)  # Find markdown section
+            reader.find_section("# Configuration", lines_after=20)  # Find code comment section
+        """
         result = []
         for i, line in enumerate(self.content):
             if section_name in line:
