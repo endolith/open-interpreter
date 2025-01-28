@@ -5,8 +5,25 @@ from ...utils.lazy_import import lazy_import
 
 # Lazy imports
 aifs = lazy_import('aifs')
-chardet = lazy_import('chardet')
 
+def _simple_detect_encoding(raw_data):
+    """Simple encoding detection fallback when chardet isn't available.
+    Checks for UTF-8 BOM and common UTF-8 patterns, defaults to 'utf-8'."""
+    # Check for BOM
+    if raw_data.startswith(b'\xef\xbb\xbf'):
+        return {'encoding': 'utf-8', 'confidence': 1.0}
+    # Check if it's valid UTF-8
+    try:
+        raw_data.decode('utf-8')
+        return {'encoding': 'utf-8', 'confidence': 0.9}
+    except UnicodeDecodeError:
+        # If UTF-8 fails, try cp1252 (common on Windows)
+        try:
+            raw_data.decode('cp1252')
+            return {'encoding': 'cp1252', 'confidence': 0.7}
+        except UnicodeDecodeError:
+            # Last resort
+            return {'encoding': 'utf-8', 'confidence': 0.5}
 
 class TextFileReader:
     def __init__(self, file_path, encoding='auto'):
@@ -19,7 +36,11 @@ class TextFileReader:
         """Auto-detect file encoding if not specified."""
         with open(self.file_path, 'rb') as file:
             raw_data = file.read()
-        return chardet.detect(raw_data)['encoding']
+        try:
+            import chardet
+            return chardet.detect(raw_data)['encoding']
+        except ImportError:
+            return _simple_detect_encoding(raw_data)['encoding']
 
     def _format_line(self, line_num, line, show_line_numbers=False):
         """Helper to format a line consistently for printing and returning"""
@@ -97,13 +118,24 @@ class TextFileReader:
         # Count non-whitespace characters
         non_whitespace_chars = sum(len(line.strip()) for line in self.content)
 
+        # Try to get encoding confidence
+        with open(self.file_path, 'rb') as file:
+            raw_data = file.read()
+        try:
+            import chardet
+            confidence = chardet.detect(raw_data)['confidence']
+        except ImportError:
+            confidence = _simple_detect_encoding(raw_data)['confidence']
+
         metadata = {
-            'path': self.file_path, 'encoding': self.encoding,
+            'path': self.file_path,
+            'encoding': self.encoding,
             'line_count': len(self.content),
-            'file_size_bytes': file_size, 'total_chars': total_chars,
+            'file_size_bytes': file_size,
+            'total_chars': total_chars,
             'non_whitespace_chars': non_whitespace_chars,
-            'confidence': chardet.detect(open(self.file_path, 'rb').read())
-            ['confidence']}
+            'confidence': confidence
+        }
 
         print(f"File: {metadata['path']}")
         print(f"Encoding: {metadata['encoding']} (confidence: {metadata['confidence']:.2%})")
