@@ -137,6 +137,8 @@ class Files:
             matches = reader.search("TODO:")
             ```
         """
+        # Print helpful usage message
+        print(f"\nCreated reader for '{path}'. Methods: read_lines(from, to), read_characters(from, to), search(pattern), filter_lines(condition), find_section(name), get_metadata() - all support show_line_numbers=False and print+return results")
         return TextFileReader(path, encoding)
 
     def search(self, *args, **kwargs):
