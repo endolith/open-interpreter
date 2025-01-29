@@ -363,8 +363,9 @@ def terminal_interface(interpreter, message):
                         or ("format" in chunk and chunk["format"] == "javascript")
                     )
                 ):
-                    # In OS mode, only show content if verbose is on
                     if (interpreter.os == True) and (interpreter.verbose == False):
+                        # We don't display things to the user in OS control mode, since we use vision to communicate the screen to the LLM so much.
+                        # But if verbose is true, we do display it!
                         continue
 
                     # Never display HTML/JS in browser, just show as plain text
