@@ -369,7 +369,7 @@ def terminal_interface(interpreter, message):
                         continue
 
                     # Never display HTML/JS in browser, just show as plain text
-                    if "content" in chunk:
+                    if ("format" in chunk and (chunk["format"] == "html" or chunk["format"] == "javascript")):
                         print(chunk["content"])
                         continue
 
