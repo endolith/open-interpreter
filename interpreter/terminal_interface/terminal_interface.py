@@ -363,7 +363,11 @@ def terminal_interface(interpreter, message):
                         or ("format" in chunk and chunk["format"] == "javascript")
                     )
                 ):
-                    # Never display HTML/JS content, just show as plain text
+                    # In OS mode, only show content if verbose is on
+                    if (interpreter.os == True) and (interpreter.verbose == False):
+                        continue
+
+                    # Never display HTML/JS in browser, just show as plain text
                     if "content" in chunk:
                         print(chunk["content"])
                         continue
