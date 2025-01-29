@@ -8,6 +8,10 @@ def display_markdown_message(message):
     Display markdown message. Works with multiline strings with lots of indentation.
     Will automatically make single line > tags beautiful.
     """
+    # If this looks like an error message, force plain text
+    if "traceback" in message.lower() or "error" in message.lower():
+        print(message)
+        return
 
     for line in message.split("\n"):
         line = line.strip()
