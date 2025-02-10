@@ -154,6 +154,8 @@ class Terminal:
             return self._streaming_run(language, code, display=display)
 
     def _streaming_run(self, language, code, display=False):
+        start_time = time.time()
+
         if language not in self._active_languages:
             # Get the language. Pass in self.computer *if it takes a single argument*
             # but pass in nothing if not. This makes custom languages easier to add / understand.
@@ -172,6 +174,11 @@ class Terminal:
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
                 if chunk["type"] == "console" and chunk.get("format") == "output":
+                    # Add timing to the end of the output
+                    if "end" in chunk:
+                        elapsed = round(time.time() - start_time, 2)
+                        chunk["content"] = f"{chunk['content'].strip()}\n\nTime elapsed: {elapsed}s"
+
                     recipient, content = parse_for_recipient(chunk["content"])
                     if recipient:
                         chunk["recipient"] = recipient
@@ -213,12 +220,13 @@ class Terminal:
                 else:
                     yield chunk
 
-            # After collecting all shell output, yield it as one chunk for truncation
-            if language == "shell" and shell_output:
+            # After the loop, if there was shell output, yield it with timing
+            if shell_output:
+                elapsed = round(time.time() - start_time, 2)
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": shell_output
+                    "content": f"{shell_output.strip()}\n\nTime elapsed: {elapsed}s"
                 }
 
         except GeneratorExit:
