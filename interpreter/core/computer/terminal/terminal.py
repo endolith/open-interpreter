@@ -170,6 +170,13 @@ class Terminal:
             # progress until completion due to OS-level output buffering.
             shell_output = ""
 
+            if language == "shell":
+                # Get the actual shell working directory first
+                for chunk in self._active_languages[language].run("pwd"):
+                    if chunk["type"] == "console" and chunk.get("format") == "output":
+                        cwd = chunk["content"].strip()
+                        break
+
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
@@ -224,7 +231,6 @@ class Terminal:
             if shell_output:
                 elapsed = round(time.time() - start_time, 2)
                 current_time = time.strftime("%Y-%m-%d %H:%M")
-                cwd = os.getcwd()
                 yield {
                     "type": "console",
                     "format": "output",
