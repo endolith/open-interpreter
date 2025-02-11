@@ -223,10 +223,14 @@ class Terminal:
             # After the loop, if there was shell output, yield it with timing
             if shell_output:
                 elapsed = round(time.time() - start_time, 2)
+                current_time = time.strftime("%Y-%m-%d %H:%M")
+                cwd = os.getcwd()
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": f"{shell_output.strip()}\n\nTime elapsed: {elapsed}s"
+                    "content": (f"{shell_output.strip()}\n\n"
+                                f"Time elapsed: {elapsed}s | CWD: {cwd} | "
+                                f"{current_time}")
                 }
 
         except GeneratorExit:
