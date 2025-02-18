@@ -93,13 +93,10 @@ def terminal_interface(interpreter, message):
             else:
                 ### This is the primary input for Open Interpreter.
                 try:
-                    # Get current working directory of the interpreter environment
-                    cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
-
                     message = (
-                        cli_input(f"[{cwd}]> ").strip()
+                        cli_input("> ").strip()
                         if interpreter.multi_line
-                        else input(f"[{cwd}]> ").strip()
+                        else input("> ").strip()
                     )
                 except (KeyboardInterrupt, EOFError):
                     # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
@@ -160,10 +157,6 @@ def terminal_interface(interpreter, message):
                         "format": "path",
                         "content": image_path,
                     }
-
-            # Add CWD context to the message
-            cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
-            message = f"Current working directory: {cwd}\n\nUser request: {message}"
 
         try:
             for chunk in interpreter.chat(message, display=False, stream=True):
