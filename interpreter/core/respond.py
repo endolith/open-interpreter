@@ -460,4 +460,31 @@ def respond(interpreter):
             # Doesn't want to run code. We're done!
             break
 
+        # Add CWD context to the last user message if it exists
+        if messages_for_llm and messages_for_llm[-1]["role"] == "user":
+            cwds = []
+
+            # Get Python CWD if Python is active
+            if "python" in interpreter.computer.terminal._active_languages:
+                python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
+                cwds.append(f"Python: {python_cwd}")
+
+            # Get Shell CWD if shell is active
+            if "shell" in interpreter.computer.terminal._active_languages:
+                shell_cwd = interpreter.computer.run("shell", "pwd", display=False)[0]["content"]
+                # Clean up shell output - take just the last line that's not empty
+                shell_cwd = [line for line in shell_cwd.split('\n') if line.strip()][-1]
+                cwds.append(f"Shell: {shell_cwd}")
+
+            # Get Node.js CWD if JavaScript is active
+            if "javascript" in interpreter.computer.terminal._active_languages:
+                js_cwd = interpreter.computer.run("javascript", "process.cwd()", display=False)[0]["content"].strip()
+                cwds.append(f"JavaScript: {js_cwd}")
+
+            cwd_context = "Current working directories:\n" + "\n".join(cwds)
+
+            print(f"\n[Debug] Adding CWD to message: {cwd_context}")
+            original_content = messages_for_llm[-1]["content"]
+            messages_for_llm[-1]["content"] = f"{cwd_context}\n\nUser request: {original_content}"
+
     return
