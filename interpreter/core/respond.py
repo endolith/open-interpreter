@@ -63,7 +63,7 @@ def respond(interpreter):
 
         # Add CWD context to the last user message if it exists
         if messages_for_llm and messages_for_llm[-1]["role"] == "user":
-            cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
+            cwd = interpreter.computer.run("shell", "pwd", display=False)[0]["content"].strip()
             print(f"\n[Debug] Adding CWD to message: {cwd}")  # Debug line
             original_content = messages_for_llm[-1]["content"]
             messages_for_llm[-1]["content"] = f"Current working directory: {cwd}\n\nUser request: {original_content}"
