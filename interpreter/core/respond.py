@@ -471,15 +471,15 @@ def respond(interpreter):
 
             # Get Shell CWD if shell is active
             if "shell" in interpreter.computer.terminal._active_languages:
-                shell_cwd = interpreter.computer.run("shell", "pwd", display=False)[0]["content"]
-                # Clean up shell output - take just the last line that's not empty
-                shell_cwd = [line for line in shell_cwd.split('\n') if line.strip()][-1]
-                cwds.append(f"Shell: {shell_cwd}")
-
-            # Get Node.js CWD if JavaScript is active
-            if "javascript" in interpreter.computer.terminal._active_languages:
-                js_cwd = interpreter.computer.run("javascript", "process.cwd()", display=False)[0]["content"].strip()
-                cwds.append(f"JavaScript: {js_cwd}")
+                # Add markers around pwd output
+                shell_cwd = interpreter.computer.run("shell", 'echo "##pwd_marker_start##" && pwd && echo "##pwd_marker_end##"', display=False)[0]["content"]
+                # Extract just the pwd output between markers
+                try:
+                    shell_cwd = shell_cwd.split("##pwd_marker_start##")[1].split("##pwd_marker_end##")[0].strip()
+                    cwds.append(f"Shell: {shell_cwd}")
+                except IndexError:
+                    # If markers aren't found, skip shell CWD
+                    pass
 
             cwd_context = "Current working directories:\n" + "\n".join(cwds)
 
