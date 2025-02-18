@@ -60,6 +60,12 @@ def respond(interpreter):
 
         # Create the version of messages that we'll send to the LLM
         messages_for_llm = interpreter.messages.copy()
+
+        # Add CWD context to the last user message if it exists
+        if messages_for_llm and messages_for_llm[-1]["role"] == "user":
+            cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
+            messages_for_llm[-1]["content"] = f"Current working directory: {cwd}\n\nUser request: {messages_for_llm[-1]['content']}"
+
         messages_for_llm = [rendered_system_message] + messages_for_llm
 
         if insert_loop_message:
