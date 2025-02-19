@@ -527,4 +527,11 @@ def respond(interpreter):
             original_content = messages_for_llm[-1]["content"]
             messages_for_llm[-1]["content"] = f"{cwd_context}\n\nUser request: {original_content}"
 
+            # Display the CWD context to the user too
+            yield {
+                "role": "computer",
+                "type": "message",
+                "content": cwd_context
+            }
+
     return
