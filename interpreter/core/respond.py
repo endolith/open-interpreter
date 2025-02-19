@@ -464,6 +464,8 @@ def respond(interpreter):
         if messages_for_llm and messages_for_llm[-1]["role"] == "user":
             cwds = []
 
+            print("\n[Debug] Active languages:", list(interpreter.computer.terminal._active_languages.keys()))
+
             # Get Python CWD if Python is active
             if "python" in interpreter.computer.terminal._active_languages:
                 python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
@@ -471,13 +473,16 @@ def respond(interpreter):
 
             # Get Shell CWD if shell is active
             if "shell" in interpreter.computer.terminal._active_languages:
+                print("[Debug] Shell is active, getting CWD")
                 # Add markers around pwd output
                 shell_cwd = interpreter.computer.run("shell", 'echo "##pwd_marker_start##" && pwd && echo "##pwd_marker_end##"', display=False)[0]["content"]
+                print(f"[Debug] Raw shell output: {shell_cwd}")
                 # Extract just the pwd output between markers
                 try:
                     shell_cwd = shell_cwd.split("##pwd_marker_start##")[1].split("##pwd_marker_end##")[0].strip()
                     cwds.append(f"Shell: {shell_cwd}")
                 except IndexError:
+                    print("[Debug] Failed to find markers in shell output")
                     # If markers aren't found, skip shell CWD
                     pass
 
