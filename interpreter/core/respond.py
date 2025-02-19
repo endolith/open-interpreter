@@ -484,27 +484,30 @@ def respond(interpreter):
                     shell_cmd = 'pwd'
 
                 # Add markers without quotes and on same line as command
-                shell_cwd = interpreter.computer.run("shell", f'echo ##cwd_start##&&{shell_cmd}&&echo ##cwd_end##', display=False)[0]["content"]
+                shell_cwd = interpreter.computer.run("shell", f'{shell_cmd} && echo ##cwd_end##', display=False)[0]["content"]
                 print(f"[Debug] Raw shell output: {shell_cwd}")
-                # Extract just the cwd output between markers and remove timing info
+                # Extract just the cwd output before marker and remove timing info
                 try:
-                    shell_cwd = shell_cwd.split("##cwd_start##")[1].split("##cwd_end##")[0].strip()
+                    shell_cwd = shell_cwd.split("##cwd_end##")[0].strip()
                     shell_cwd = shell_cwd.split("\n\nTime elapsed:")[0].strip()
+                    # Take last line if multiple lines (to skip shell prompts)
+                    shell_cwd = shell_cwd.split('\n')[-1].strip()
                     cwds.append(f"Shell: {shell_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in shell output")
-                    # If markers aren't found, skip shell CWD
                     pass
 
             # Get PowerShell CWD if powershell is active
             if "powershell" in interpreter.computer.terminal._active_languages:
                 print("[Debug] PowerShell is active, getting CWD")
                 # Use Get-Location for PowerShell
-                ps_cwd = interpreter.computer.run("powershell", "Write-Output '##cwd_start##'; (Get-Location).Path; Write-Output '##cwd_end##'", display=False)[0]["content"]
+                ps_cwd = interpreter.computer.run("powershell", "(Get-Location).Path; Write-Output '##cwd_end##'", display=False)[0]["content"]
                 print(f"[Debug] Raw PowerShell output: {ps_cwd}")
                 try:
-                    ps_cwd = ps_cwd.split("##cwd_start##")[1].split("##cwd_end##")[0].strip()
+                    ps_cwd = ps_cwd.split("##cwd_end##")[0].strip()
                     ps_cwd = ps_cwd.split("\n\nTime elapsed:")[0].strip()
+                    # Take last line if multiple lines
+                    ps_cwd = ps_cwd.split('\n')[-1].strip()
                     cwds.append(f"PowerShell: {ps_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in PowerShell output")
