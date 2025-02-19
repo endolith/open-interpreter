@@ -3,6 +3,7 @@ import os
 import re
 import time
 import traceback
+import platform
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
@@ -474,12 +475,18 @@ def respond(interpreter):
             # Get Shell CWD if shell is active
             if "shell" in interpreter.computer.terminal._active_languages:
                 print("[Debug] Shell is active, getting CWD")
-                # Add markers around pwd output
-                shell_cwd = interpreter.computer.run("shell", 'echo "##pwd_marker_start##" && pwd && echo "##pwd_marker_end##"', display=False)[0]["content"]
+                # Use cd on Windows, pwd on Unix
+                if platform.system() == "Windows":
+                    shell_cmd = 'cd'
+                else:
+                    shell_cmd = 'pwd'
+
+                # Add markers like the Shell class does for end_of_execution
+                shell_cwd = interpreter.computer.run("shell", f'echo "##cwd_start##" && {shell_cmd} && echo "##cwd_end##"', display=False)[0]["content"]
                 print(f"[Debug] Raw shell output: {shell_cwd}")
-                # Extract just the pwd output between markers
+                # Extract just the cwd output between markers
                 try:
-                    shell_cwd = shell_cwd.split("##pwd_marker_start##")[1].split("##pwd_marker_end##")[0].strip()
+                    shell_cwd = shell_cwd.split("##cwd_start##")[1].split("##cwd_end##")[0].strip()
                     cwds.append(f"Shell: {shell_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in shell output")
