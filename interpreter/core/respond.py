@@ -490,8 +490,12 @@ def respond(interpreter):
                 try:
                     shell_cwd = shell_cwd.split("##cwd_end##")[0].strip()
                     shell_cwd = shell_cwd.split("\n\nTime elapsed:")[0].strip()
-                    # Take last line if multiple lines (to skip shell prompts)
-                    shell_cwd = shell_cwd.split('\n')[-1].strip()
+                    # Take the line that's not empty and doesn't start with a prompt
+                    for line in shell_cwd.split('\n'):
+                        line = line.strip()
+                        if line and not line.startswith('(') and not line.startswith('>'):
+                            shell_cwd = line
+                            break
                     cwds.append(f"Shell: {shell_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in shell output")
@@ -506,8 +510,12 @@ def respond(interpreter):
                 try:
                     ps_cwd = ps_cwd.split("##cwd_end##")[0].strip()
                     ps_cwd = ps_cwd.split("\n\nTime elapsed:")[0].strip()
-                    # Take last line if multiple lines
-                    ps_cwd = ps_cwd.split('\n')[-1].strip()
+                    # Take the line that's not empty and doesn't start with PS
+                    for line in ps_cwd.split('\n'):
+                        line = line.strip()
+                        if line and not line.startswith('PS '):
+                            ps_cwd = line
+                            break
                     cwds.append(f"PowerShell: {ps_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in PowerShell output")
