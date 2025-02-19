@@ -470,6 +470,8 @@ def respond(interpreter):
             # Get Python CWD if Python is active
             if "python" in interpreter.computer.terminal._active_languages:
                 python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
+                # Remove any timing information
+                python_cwd = python_cwd.split("\n\nTime elapsed:")[0].strip()
                 cwds.append(f"Python: {python_cwd}")
 
             # Get Shell CWD if shell is active
@@ -481,12 +483,13 @@ def respond(interpreter):
                 else:
                     shell_cmd = 'pwd'
 
-                # Add markers like the Shell class does for end_of_execution
-                shell_cwd = interpreter.computer.run("shell", f'echo "##cwd_start##" && {shell_cmd} && echo "##cwd_end##"', display=False)[0]["content"]
+                # Add markers without quotes and on same line as command
+                shell_cwd = interpreter.computer.run("shell", f'echo ##cwd_start##&&{shell_cmd}&&echo ##cwd_end##', display=False)[0]["content"]
                 print(f"[Debug] Raw shell output: {shell_cwd}")
-                # Extract just the cwd output between markers
+                # Extract just the cwd output between markers and remove timing info
                 try:
                     shell_cwd = shell_cwd.split("##cwd_start##")[1].split("##cwd_end##")[0].strip()
+                    shell_cwd = shell_cwd.split("\n\nTime elapsed:")[0].strip()
                     cwds.append(f"Shell: {shell_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in shell output")
@@ -501,6 +504,7 @@ def respond(interpreter):
                 print(f"[Debug] Raw PowerShell output: {ps_cwd}")
                 try:
                     ps_cwd = ps_cwd.split("##cwd_start##")[1].split("##cwd_end##")[0].strip()
+                    ps_cwd = ps_cwd.split("\n\nTime elapsed:")[0].strip()
                     cwds.append(f"PowerShell: {ps_cwd}")
                 except IndexError:
                     print("[Debug] Failed to find markers in PowerShell output")
