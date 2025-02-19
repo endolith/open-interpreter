@@ -493,6 +493,19 @@ def respond(interpreter):
                     # If markers aren't found, skip shell CWD
                     pass
 
+            # Get PowerShell CWD if powershell is active
+            if "powershell" in interpreter.computer.terminal._active_languages:
+                print("[Debug] PowerShell is active, getting CWD")
+                # Use Get-Location for PowerShell
+                ps_cwd = interpreter.computer.run("powershell", "Write-Output '##cwd_start##'; (Get-Location).Path; Write-Output '##cwd_end##'", display=False)[0]["content"]
+                print(f"[Debug] Raw PowerShell output: {ps_cwd}")
+                try:
+                    ps_cwd = ps_cwd.split("##cwd_start##")[1].split("##cwd_end##")[0].strip()
+                    cwds.append(f"PowerShell: {ps_cwd}")
+                except IndexError:
+                    print("[Debug] Failed to find markers in PowerShell output")
+                    pass
+
             cwd_context = "Current working directories:\n" + "\n".join(cwds)
 
             print(f"\n[Debug] Adding CWD to message: {cwd_context}")
