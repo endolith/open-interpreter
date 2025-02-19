@@ -3,7 +3,6 @@ import os
 import re
 import time
 import traceback
-import platform
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
@@ -460,78 +459,5 @@ def respond(interpreter):
 
             # Doesn't want to run code. We're done!
             break
-
-        # Add CWD context to the last user message if it exists
-        if messages_for_llm and messages_for_llm[-1]["role"] == "user":
-            cwds = []
-
-            print("\n[Debug] Active languages:", list(interpreter.computer.terminal._active_languages.keys()))
-
-            # Get Python CWD if Python is active
-            if "python" in interpreter.computer.terminal._active_languages:
-                python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
-                # Remove any timing information
-                python_cwd = python_cwd.split("\n\nTime elapsed:")[0].strip()
-                cwds.append(f"Python: {python_cwd}")
-
-            # Get Shell CWD if shell is active
-            if "shell" in interpreter.computer.terminal._active_languages:
-                print("[Debug] Shell is active, getting CWD")
-                # Use cd on Windows, pwd on Unix
-                if platform.system() == "Windows":
-                    shell_cmd = 'cd'
-                else:
-                    shell_cmd = 'pwd'
-
-                # Add markers without quotes and on same line as command
-                shell_cwd = interpreter.computer.run("shell", f'{shell_cmd} && echo ##cwd_end##', display=False)[0]["content"]
-                print(f"[Debug] Raw shell output: {shell_cwd}")
-                # Extract just the cwd output before marker and remove timing info
-                try:
-                    shell_cwd = shell_cwd.split("##cwd_end##")[0].strip()
-                    shell_cwd = shell_cwd.split("\n\nTime elapsed:")[0].strip()
-                    # Take the line that's not empty and doesn't start with a prompt
-                    for line in shell_cwd.split('\n'):
-                        line = line.strip()
-                        if line and not line.startswith('(') and not line.startswith('>'):
-                            shell_cwd = line
-                            break
-                    cwds.append(f"Shell: {shell_cwd}")
-                except IndexError:
-                    print("[Debug] Failed to find markers in shell output")
-                    pass
-
-            # Get PowerShell CWD if powershell is active
-            if "powershell" in interpreter.computer.terminal._active_languages:
-                print("[Debug] PowerShell is active, getting CWD")
-                # Use Get-Location for PowerShell
-                ps_cwd = interpreter.computer.run("powershell", "(Get-Location).Path; Write-Output '##cwd_end##'", display=False)[0]["content"]
-                print(f"[Debug] Raw PowerShell output: {ps_cwd}")
-                try:
-                    ps_cwd = ps_cwd.split("##cwd_end##")[0].strip()
-                    ps_cwd = ps_cwd.split("\n\nTime elapsed:")[0].strip()
-                    # Take the line that's not empty and doesn't start with PS
-                    for line in ps_cwd.split('\n'):
-                        line = line.strip()
-                        if line and not line.startswith('PS '):
-                            ps_cwd = line
-                            break
-                    cwds.append(f"PowerShell: {ps_cwd}")
-                except IndexError:
-                    print("[Debug] Failed to find markers in PowerShell output")
-                    pass
-
-            cwd_context = "Current working directories:\n" + "\n".join(cwds)
-
-            print(f"\n[Debug] Adding CWD to message: {cwd_context}")
-            original_content = messages_for_llm[-1]["content"]
-            messages_for_llm[-1]["content"] = f"{cwd_context}\n\nUser request: {original_content}"
-
-            # Display the CWD context to the user too
-            yield {
-                "role": "computer",
-                "type": "message",
-                "content": cwd_context
-            }
 
     return
