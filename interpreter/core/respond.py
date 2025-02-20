@@ -361,6 +361,10 @@ def respond(interpreter):
 
                 ## ↑ CODE IS RUN HERE
 
+                # Now that Python context exists (if it was Python code), add CWD to next message
+                if language == "python":
+                    interpreter._python_initialized = True
+
                 # sync up your computer with the interpreter's computer
                 try:
                     if interpreter.sync_computer and language == "python":
@@ -458,18 +462,13 @@ def respond(interpreter):
 
         # Add CWD context to the last user message if it exists
         if messages_for_llm and messages_for_llm[-1]["role"] == "user":
-            # Check if Python has ever been used in this session
-            if any(msg.get("format", "").lower() == "python" for msg in interpreter.messages if msg.get("type") == "code"):
+            # Check if Python has been initialized
+            if getattr(interpreter, "_python_initialized", False):
                 # Get Python CWD
-                print("\n[Debug] Checking Python CWD...")
-                result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"]
-                print(f"[Debug] Raw result: {repr(result)}")
-                python_cwd = result.strip()
-                print(f"[Debug] Processed CWD: {repr(python_cwd)}")
+                python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
 
                 # Add CWD context to the user's message
                 original_content = messages_for_llm[-1]["content"]
                 messages_for_llm[-1]["content"] = f"Python CWD: {python_cwd}\n\nUser request: {original_content}"
-                print(f"[Debug] Modified message: {repr(messages_for_llm[-1]['content'])}")
 
     return
