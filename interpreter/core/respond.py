@@ -456,4 +456,17 @@ def respond(interpreter):
             # Doesn't want to run code. We're done!
             break
 
+        # Add CWD context to the last user message if it exists
+        if messages_for_llm and messages_for_llm[-1]["role"] == "user":
+            # Only check Python CWD if Python context exists
+            if "python" in interpreter.computer.terminal._active_languages:
+                # Get Python CWD
+                result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"]
+                # Remove timing info that Terminal adds
+                python_cwd = result.split("\n\nTime elapsed:")[0].strip()
+
+                # Add CWD context to the user's message
+                original_content = messages_for_llm[-1]["content"]
+                messages_for_llm[-1]["content"] = f"Python CWD: {python_cwd}\n\nUser request: {original_content}"
+
     return
