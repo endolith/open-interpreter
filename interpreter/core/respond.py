@@ -462,8 +462,8 @@ def respond(interpreter):
 
         # Add CWD context to the last user message if it exists
         if messages_for_llm and messages_for_llm[-1]["role"] == "user":
-            # Only check Python CWD if Python context exists
-            if "python" in interpreter.computer.terminal._active_languages:
+            # Check if Python has ever been used in this session
+            if any(msg.get("format", "").lower() == "python" for msg in interpreter.messages if msg.get("type") == "code"):
                 # Get Python CWD
                 result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"]
                 # Remove timing info that Terminal adds
