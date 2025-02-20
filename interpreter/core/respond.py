@@ -461,9 +461,7 @@ def respond(interpreter):
             # Check if Python has ever been used in this session
             if any(msg.get("format", "").lower() == "python" for msg in interpreter.messages if msg.get("type") == "code"):
                 # Get Python CWD
-                result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"]
-                # Remove timing info that Terminal adds
-                python_cwd = result.split("\n\nTime elapsed:")[0].strip()
+                python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
 
                 # Add CWD context to the user's message
                 original_content = messages_for_llm[-1]["content"]
