@@ -465,10 +465,15 @@ def respond(interpreter):
             # Check if Python has ever been used in this session
             if any(msg.get("format", "").lower() == "python" for msg in interpreter.messages if msg.get("type") == "code"):
                 # Get Python CWD
-                python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
+                print("\n[Debug] Checking Python CWD...")
+                result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"]
+                print(f"[Debug] Raw result: {repr(result)}")
+                python_cwd = result.strip()
+                print(f"[Debug] Processed CWD: {repr(python_cwd)}")
 
                 # Add CWD context to the user's message
                 original_content = messages_for_llm[-1]["content"]
                 messages_for_llm[-1]["content"] = f"Python CWD: {python_cwd}\n\nUser request: {original_content}"
+                print(f"[Debug] Modified message: {repr(messages_for_llm[-1]['content'])}")
 
     return
