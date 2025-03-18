@@ -22,6 +22,6 @@ User's Name: {getpass.getuser()}
 User's OS: {platform.system()}
 
 # Available Python Packages
-The following Python packages are installed and available for import:
+IMPORTANT: ONLY the following Python packages are installed and available:
 {' '.join(get_installed_packages())}
 """.strip()
