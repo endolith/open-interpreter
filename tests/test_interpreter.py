@@ -119,7 +119,7 @@ def test_authenticated_acknowledging_breaking_server():
             post_url = "http://localhost:8000/settings"
             settings = {
                 "llm": {
-                    "model": "gpt-4o",
+                    "model": "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
