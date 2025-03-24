@@ -10,9 +10,6 @@ Licensed under GNU AGPL v3.0
 
 A modern command-line assistant.
 
-Usage: i [prompt]
-   or: interpreter [options]
-
 Documentation: docs.openinterpreter.com
 Run 'interpreter --help' for all options
 """
