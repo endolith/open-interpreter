@@ -359,6 +359,8 @@ class Interpreter:
                         first_token = False
 
                     if isinstance(chunk, BetaRawContentBlockStartEvent):
+                        if chunk.content_block.type == "tool_use":
+                            print("\n\033[38;5;240m[LLM using native tool calls]\033[0m")
                         current_block = chunk.content_block
                     elif isinstance(chunk, BetaRawContentBlockDeltaEvent):
                         if chunk.delta.type == "text_delta":
@@ -822,12 +824,30 @@ Notes for using the `str_replace` command:
                 message = None
                 first_token = True
 
+                # For non-Anthropic responses
+                tool_call_seen = False
+                code_block_seen = False
+
                 for chunk in raw_response:
                     yield chunk
 
                     if first_token:
                         self._spinner.stop()
                         first_token = False
+
+                    # Detect function calls
+                    if (not tool_call_seen and
+                        chunk.choices[0].delta.tool_calls and
+                        self.tool_calling):
+                        print("\n\033[38;5;240m[LLM using function calling]\033[0m")
+                        tool_call_seen = True
+
+                    # Detect code blocks in text response
+                    if (not code_block_seen and
+                        chunk.choices[0].delta.content and
+                        "```" in chunk.choices[0].delta.content):
+                        print("\n\033[38;5;240m[LLM using code blocks]\033[0m")
+                        code_block_seen = True
 
                     if message is None:
                         message = chunk.choices[0].delta
