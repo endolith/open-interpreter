@@ -772,6 +772,8 @@ Notes for using the `str_replace` command:
                     )
 
                     # Extract code blocks from non-tool-calling response
+                    # (If tool-calling is enabled and LLM writes a code block,
+                    # it will not trigger a tool call)
                     content = raw_response[0].choices[0].delta.content
                     message = raw_response[0].choices[0].delta
                     message.tool_calls = []
