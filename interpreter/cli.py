@@ -232,12 +232,14 @@ async def async_main(args):
         spinner.stop()
     print()
 
-    # Send initial user message and get first response
+    # Set initial user message and get first response
     global_interpreter.messages = [{"role": "user", "content": message}]
     try:
         async for _ in global_interpreter.async_respond():
             pass
-    except (KeyboardInterrupt, asyncio.CancelledError):
+    except KeyboardInterrupt:
+        global_interpreter._spinner.stop()
+    except asyncio.CancelledError:
         global_interpreter._spinner.stop()
     print()
 
@@ -317,8 +319,12 @@ def main():
             return
 
         asyncio.run(async_main(args))
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        # Handle Ctrl+C during startup or event loop cancellation during shutdown
+    except KeyboardInterrupt:
+        # Handle Ctrl+C during startup or in server mode
+        # (Interactive interpreter handles its own Ctrl+C in async_chat)
+        sys.exit(0)
+    except asyncio.CancelledError:
+        # Handle event loop cancellation during shutdown
         sys.exit(0)
 
 
