@@ -558,7 +558,7 @@ class Interpreter:
                                 * You do have access to a mirror of common linux and python packages via apt and pip.\n
                                 * State is persistent across command calls and discussions with the user.\n
                                 * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.\n
-                                * Please avoid commands that may produce a very large amount of output.\n
+                                * Please avoid commands that may produce a very large amount of output. Use `head`, `tail`, etc. to limit it.\n
                                 * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.""",
                                 "parameters": {
                                     "type": "object",
