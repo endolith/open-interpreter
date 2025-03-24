@@ -237,6 +237,8 @@ class Interpreter:
 
         return system_message
 
+    # TODO: This is a huge function, and should be refactored to call
+    # smaller functions.
     async def async_respond(self, user_input=None):
         """
         Agentic sampling loop for the assistant/tool interaction.
@@ -545,7 +547,7 @@ class Interpreter:
             else:
                 tools = []
                 if "interpreter" in self.tools:
-                    tools.append(
+                    tools.append(  # MOVE THESE ELSEWHERE, NOT INLINE
                         {
                             "type": "function",
                             "function": {
