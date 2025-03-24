@@ -187,6 +187,8 @@ async def async_load_interpreter(args):
 async def async_main(args):
     global global_interpreter
 
+    # Show welcome message only when running in interactive mode with full terminal
+    # (not when piping input or using with direct prompt arguments)
     if (
         args["input"] is None
         and sys.stdin.isatty()
@@ -196,6 +198,11 @@ async def async_main(args):
 
         welcome_message()
 
+    # get first user prompt from interactive input or from command line tectcetectetcec
+    # Interactive input handling:
+    # - When no input is provided via --input
+    # - When stdin is a terminal (not piped input)
+    # - When interactive mode isn't explicitly disabled
     if args["input"] is None and (
         sys.stdin.isatty() and args.get("no_interactive") is not True
     ):
@@ -214,12 +221,18 @@ async def async_main(args):
         # Wait for the thread to finish
         thread.join()
     else:
+        # Non-interactive mode:
+        # - When using --input to provide a direct prompt
+        # - When stdin is being piped (e.g., echo "prompt" | interpreter)
+        # - When --no-interactive is explicitly set
         spinner = SimpleSpinner()
         spinner.start()
         global_interpreter = await async_load_interpreter(args)
         message = args["input"] if args["input"] is not None else sys.stdin.read()
         spinner.stop()
     print()
+
+    # Set initial user message and get first response
     global_interpreter.messages = [{"role": "user", "content": message}]
     try:
         async for _ in global_interpreter.async_respond():
@@ -230,6 +243,7 @@ async def async_main(args):
         global_interpreter._spinner.stop()
     print()
 
+    # Start interactive chat loop if in interactive mode
     if global_interpreter.interactive:
         await global_interpreter.async_chat()
 
