@@ -307,8 +307,13 @@ class Interpreter:
 
             self._spinner.start()
 
+            # Beta features flag for Anthropic's Claude to enable advanced tool
+            # use capabilities
             betas = [COMPUTER_USE_BETA_FLAG]
 
+            # Initialize a renderer that handles displaying/formatting tool
+            # execution (particularly code blocks and their output) in a
+            # user-friendly way
             edit = ToolRenderer()
 
             if (
