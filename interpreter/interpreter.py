@@ -999,7 +999,7 @@ Notes for using the `str_replace` command:
             while True:
                 try:
                     user_input = await async_get_input()
-                except KeyboardInterrupt:
+                except (KeyboardInterrupt, EOFError):
                     print()
                     return self.messages[original_message_length:]
 

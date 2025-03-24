@@ -306,8 +306,11 @@ def main():
 
         asyncio.run(async_main(args))
     except KeyboardInterrupt:
+        # Handle Ctrl+C during startup or in server mode
+        # (Interactive interpreter handles its own Ctrl+C in async_chat)
         sys.exit(0)
     except asyncio.CancelledError:
+        # Handle event loop cancellation during shutdown
         sys.exit(0)
 
 
