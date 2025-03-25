@@ -93,7 +93,9 @@ options:
         --tools <list>             comma-separated tools: interpreter,editor,gui
         --allowed-commands <list>  commands the model can execute
         --allowed-paths <list>     paths the model can access
-        --no-tool-calling          disable tool calling (instead parse markdown code)
+        --no-tool-calling          disable tool calling (by default, assistant
+                                   proposes commands first; when disabled, runs
+                                   code blocks directly)
         --auto-run, -y             auto-run suggested commands
         --interactive              force interactive mode (true if sys.stdin.isatty())
         --no-interactive           disable interactive mode

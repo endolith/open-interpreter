@@ -119,7 +119,7 @@ def _profile_to_arg_params(profile: Profile) -> Dict[str, Dict[str, Any]]:
             "action": "store_false",
             "default": profile.tool_calling,
             "dest": "tool_calling",
-            "help": "Disable tool calling (enabled by default)",
+            "help": "Disable tool calling. By default (tool calling on), assistant proposes commands before responding. When disabled, assistant provides responses with executable code blocks embedded.",
         },
         "interactive": {
             "flags": ["--interactive"],
