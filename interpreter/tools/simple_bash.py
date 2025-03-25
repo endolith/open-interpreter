@@ -10,7 +10,7 @@ from .base import BaseAnthropicTool, CLIResult, ToolError, ToolResult
 
 
 class BashTool(BaseAnthropicTool):
-    """A tool that executes bash commands and returns their output."""
+    """A non-interactive bash tool that executes single commands in isolation and returns their output. Cannot maintain state between commands."""
 
     name: ClassVar[Literal["bash"]] = "bash"
     api_type: ClassVar[Literal["bash_20241022"]] = "bash_20241022"
