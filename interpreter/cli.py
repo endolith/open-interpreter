@@ -93,7 +93,7 @@ def _profile_to_arg_params(profile: Profile) -> Dict[str, Dict[str, Any]]:
         "tools": {
             "flags": ["--tools"],
             "default": profile.tools,
-            "help": "Specify enabled tools (comma-separated or JSON list)",
+            "help": "Specify enabled tools (comma-separated or JSON list) (default: interpreter,editor)",
             "type": _parse_list_arg,
         },
         "allowed_commands": {

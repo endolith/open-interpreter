@@ -91,6 +91,7 @@ options:
         --temperature <float>      sampling temperature (default: 0)
 
         --tools <list>             comma-separated tools: interpreter,editor,gui
+                                   default: interpreter,editor
         --allowed-commands <list>  commands the model can execute
         --allowed-paths <list>     paths the model can access
         --no-tool-calling          disable tool calling (by default, assistant
