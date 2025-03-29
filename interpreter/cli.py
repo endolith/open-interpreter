@@ -1,4 +1,5 @@
 import sys
+import litellm.exceptions
 
 # Help message
 if "--help" in sys.argv:
@@ -23,6 +24,7 @@ from typing import Any, Dict
 from .misc.get_input import async_get_input
 from .misc.spinner import SimpleSpinner
 from .profiles import Profile
+import litellm
 
 # Global interpreter object
 global_interpreter = None
@@ -326,6 +328,28 @@ def main():
     except asyncio.CancelledError:
         # Handle event loop cancellation during shutdown
         sys.exit(0)
+    except (litellm.exceptions.AuthenticationError, TypeError) as e:
+        # Handle authentication errors gracefully
+        error_msg = str(e)
+        print("\nAuthentication Error: API key required")
+
+        print("\nTo set your API key:")
+        print("1. Use environment variables (recommended):")
+        print("   Export the appropriate environment variable for your model/provider")
+        print("   Example: export ANTHROPIC_API_KEY=your_key")
+
+        print("\n2. Command line:")
+        print("   interpreter --api-key YOUR_API_KEY")
+        print("   interpreter --api-key YOUR_API_KEY --model MODEL_NAME")
+        print("   interpreter --api-key YOUR_API_KEY --model MODEL_NAME --provider PROVIDER")
+
+        print("\n3. Add to your profile (~/.openinterpreter/default_profile.py):")
+        print('interpreter.api_key = "YOUR_API_KEY"')
+
+        print("\nTo open the profiles directory, run: interpreter --profiles")
+        print("\nFor a list of supported models and providers, visit:")
+        print("https://docs.litellm.ai/docs/providers/")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
