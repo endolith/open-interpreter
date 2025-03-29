@@ -856,51 +856,48 @@ Notes for using the `str_replace` command:
 
                     # Handle content updates
                     if chunk.choices[0].delta.content:
-                        content = chunk.choices[0].delta.content
-                        md.feed(content)
+                        md.feed(chunk.choices[0].delta.content)
                         await asyncio.sleep(0)
 
                         # Initialize or append content
                         if message.content is None:
-                            message.content = content
-                        elif content is not None:
-                            message.content += content
+                            message.content = chunk.choices[0].delta.content
+                        elif chunk.choices[0].delta.content is not None:
+                            message.content += chunk.choices[0].delta.content
 
                     # Handle tool call updates
                     if chunk.choices[0].delta.tool_calls:
-                        tool_calls = chunk.choices[0].delta.tool_calls
-
-                        # If we have a new tool call ID
-                        if tool_calls[0].id:
-                            # Create new tool call if needed
-                            if (message.tool_calls is None or
-                                tool_calls[0].id not in
-                                [t.id for t in message.tool_calls]):
+                        if chunk.choices[0].delta.tool_calls[0].id:
+                            if message.tool_calls is None or chunk.choices[
+                                0
+                            ].delta.tool_calls[0].id not in [
+                                t.id for t in message.tool_calls
+                            ]:
                                 edit.close()
                                 edit = ToolRenderer()
                                 if message.tool_calls is None:
                                     message.tool_calls = []
-                                message.tool_calls.append(tool_calls[0])
-
-                            # Get reference to current tool call
+                                message.tool_calls.append(
+                                    chunk.choices[0].delta.tool_calls[0]
+                                )
                             current_tool_call = [
                                 t
                                 for t in message.tool_calls
-                                if t.id == tool_calls[0].id
+                                if t.id == chunk.choices[0].delta.tool_calls[0].id
                             ][0]
 
-                        # If we have function name/args updates
-                        if tool_calls[0].function.name:
-                            tool_name = tool_calls[0].function.name
-                            # Initialize names if needed
+                        if chunk.choices[0].delta.tool_calls[0].function.name:
+                            tool_name = (
+                                chunk.choices[0].delta.tool_calls[0].function.name
+                            )
                             if edit.name is None:
                                 edit.name = tool_name
                             if current_tool_call.function.name is None:
                                 current_tool_call.function.name = tool_name
-
-                            # Handle argument updates
-                            if tool_calls[0].function.arguments:
-                                arguments_delta = tool_calls[0].function.arguments
+                        if chunk.choices[0].delta.tool_calls[0].function.arguments:
+                            arguments_delta = (
+                                chunk.choices[0].delta.tool_calls[0].function.arguments
+                            )
                             edit.feed(arguments_delta)
 
                             if chunk.choices[0].delta != message:
