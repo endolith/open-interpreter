@@ -32,11 +32,19 @@ Save current settings:
 from importlib import import_module
 import warnings
 
-# Suppress pydantic warning from litellm about fields being removed in V2
+# Suppress all pydantic deprecation warnings from dependencies
 warnings.filterwarnings(
     "ignore",
-    message="Valid config keys have changed in V2:*",
+    category=DeprecationWarning,
     module="pydantic.*"
+)
+
+# Suppress importlib.resources deprecation warnings from litellm
+warnings.filterwarnings(
+    "ignore",
+    message="open_text is deprecated*",
+    category=DeprecationWarning,
+    module="litellm.*"
 )
 
 __version__ = "1.0.0"  # Single source of truth for version
