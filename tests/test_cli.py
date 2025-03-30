@@ -41,9 +41,9 @@ def test_parse_list_arg():
 
 def test_model_flag():
     # Test --model flag
-    with patch.object(sys, "argv", ["interpreter", "--model", "gpt-4"]):
+    with patch.object(sys, "argv", ["interpreter", "--model", "gpt-4o"]):
         args = parse_args()
-        assert args["model"] == "gpt-4"
+        assert args["model"] == "gpt-4o"
 
 
 def test_api_key_flag():
@@ -105,10 +105,10 @@ def test_direct_input():
 @pytest.mark.asyncio
 async def test_load_interpreter():
     # Test interpreter loading with custom settings
-    args = {"model": "gpt-4", "temperature": 0.7, "auto_run": True, "debug": True}
+    args = {"model": "gpt-4o", "temperature": 0.7, "auto_run": True, "debug": True}
     interpreter = load_interpreter(args)
 
-    assert interpreter.model == "gpt-4"
+    assert interpreter.model == "gpt-4o"
     assert interpreter.temperature == 0.7
     assert interpreter.auto_run is True
     assert interpreter.debug is True
