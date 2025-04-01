@@ -775,7 +775,24 @@ Notes for using the `str_replace` command:
                     # (If tool-calling is enabled and LLM writes a code block,
                     # it will not trigger a tool call)
                     content = raw_response[0].choices[0].delta.content
-                    message = raw_response[0].choices[0].delta
+
+                    # Create a properly structured response object
+                    response_obj = type("Response", (), {
+                        "id": raw_response[0].id,
+                        "object": raw_response[0].object,
+                        "created": raw_response[0].created,
+                        "model": raw_response[0].model,
+                        "choices": [type("Choice", (), {
+                            "index": 0,
+                            "delta": type("Delta", (), {
+                                "content": "",
+                                "tool_calls": []
+                            }),
+                            "finish_reason": raw_response[0].choices[0].finish_reason
+                        })]
+                    })
+
+                    message = response_obj.choices[0].delta
                     message.tool_calls = []
                     message.content = ""
 
@@ -821,7 +838,7 @@ Notes for using the `str_replace` command:
 
                     # Add any remaining content after the last code block
                     message.content += content
-                    raw_response = [raw_response[0]]
+                    raw_response = [response_obj]
 
                 message = None
                 first_token = True
