@@ -65,6 +65,7 @@ if "--os" in sys.argv:
 from .core.async_core import AsyncInterpreter
 from .core.computer.terminal.base_language import BaseLanguage
 from .core.core import OpenInterpreter
+from .core.computer.ai2 import ai2
 
 interpreter = OpenInterpreter()
 computer = interpreter.computer

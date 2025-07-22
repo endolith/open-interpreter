@@ -2,6 +2,7 @@ import inspect
 import json
 
 from .ai.ai import Ai
+from .ai2 import Ai2
 from .browser.browser import Browser
 from .calendar.calendar import Calendar
 from .clipboard.clipboard import Clipboard
@@ -43,6 +44,7 @@ class Computer:
         self.skills = Skills(self)
         self.docs = Docs(self)
         self.ai = Ai(self)
+        self.ai2 = Ai2(self)
         self.files = Files(self)
 
         self.emit_images = True
@@ -101,6 +103,7 @@ Do not import the computer module, or any of its sub-modules. They are already i
             self.skills,
             self.docs,
             self.ai,
+            self.ai2,
             self.files,
         ]
 
