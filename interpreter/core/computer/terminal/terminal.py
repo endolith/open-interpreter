@@ -24,7 +24,7 @@ os.environ["INTERPRETER_COMPUTER_API"] = "False" # To prevent infinite recurring
 
 import time
 import datetime
-from interpreter import interpreter
+from interpreter import interpreter, ai2
 
 computer = interpreter.computer
 """.strip()
@@ -92,7 +92,7 @@ class Terminal:
             if (
                 self.computer.import_computer_api
                 and not self.computer._has_imported_computer_api
-                and "computer" in code
+                and ("computer" in code or "ai2" in code)
                 and os.getenv("INTERPRETER_COMPUTER_API", "True") != "False"
             ):
                 self.computer._has_imported_computer_api = True
