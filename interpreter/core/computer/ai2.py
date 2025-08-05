@@ -60,8 +60,8 @@ class Ai2:
         # on it.
         self.computer = computer
         # Prefer newest model capable of structured outputs
-        self.default_model = default_model or os.getenv("AI2_MODEL",
-                                                        "gpt-4.1-nano")
+        self._default_model = default_model or os.getenv("AI2_MODEL",
+                                                         "gpt-4.1-nano")
         self.temperature = temperature
 
         # Re-use the same API key the main interpreter is using (or env var)
@@ -78,11 +78,11 @@ class Ai2:
         try:
             models_response = self.client.models.list()
             # Each item has an .id attribute – store as simple list[str]
-            self.available_models: List[str] = [model.id for model in models_response.data]
+            self._available_models: List[str] = [model.id for model in models_response.data]
         except Exception:
             # Swallow errors (network issues, permissions) – callers can still
             # pass any valid model ID even if pre-fetch failed.
-            self.available_models = []
+            self._available_models = []
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -230,6 +230,19 @@ class Ai2:
         )
 
         return str(response.output_parsed.answer.value)
+
+    # ------------------------------------------------------------------
+    # Read-only properties exposed for tool discovery
+    # ------------------------------------------------------------------
+    @property
+    def available_models(self) -> List[str]:
+        """List[str]: Cached list of model IDs returned when Ai2 was instantiated."""
+        return self._available_models
+
+    @property
+    def default_model(self) -> str:
+        """str: The model used when no `model=` override is provided to a helper."""
+        return self._default_model
 
 
 # Convenience singleton
