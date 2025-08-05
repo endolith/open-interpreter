@@ -185,6 +185,22 @@ Do not import the computer module, or any of its sub-modules. They are already i
                         "description": method_description.strip(),
                     }
                 )
+
+        # ------------------------------------------------------------------
+        # Include read-only @property attributes (e.g., ai2.available_models)
+        # ------------------------------------------------------------------
+        for attr_name, attr_value in inspect.getmembers(tool.__class__):
+            if isinstance(attr_value, property) and not attr_name.startswith("_"):
+                full_signature = (
+                    f"computer.{tool.__class__.__name__.lower()}.{attr_name}"
+                )
+                prop_doc = attr_value.fget.__doc__ or ""
+                tool_info["methods"].append(
+                    {
+                        "signature": full_signature,
+                        "description": prop_doc.strip(),
+                    }
+                )
         return tool_info
 
     def run(self, *args, **kwargs):
