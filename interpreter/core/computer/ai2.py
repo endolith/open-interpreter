@@ -19,13 +19,9 @@ class Ai2:
       messages and sends *one* request to the model.
     • Always calls remote APIs – no attempt is made to start or manage local
       models.
-    • Provides a handful of strongly-typed convenience helpers so other tools
-      (or your own scripts) can *delegate* cognitive subtasks without having to
-      worry about prompt engineering or token limits.
-
-    The helpers are **synchronous** and block until the model returns.  If you
-    need concurrency you can wrap them in `ThreadPoolExecutor`/`asyncio` as you
-    would any other blocking I/O call.
+    • Provides a handful of strongly-typed convenience helpers so your scripts
+      can *delegate* cognitive subtasks without having to worry about prompt
+      engineering or token limits.
 
     ----------------------------------------------------------------------
     Public interface
