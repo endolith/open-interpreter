@@ -26,6 +26,35 @@ class Ai2:
     The helpers are **synchronous** and block until the model returns.  If you
     need concurrency you can wrap them in `ThreadPoolExecutor`/`asyncio` as you
     would any other blocking I/O call.
+
+    ----------------------------------------------------------------------
+    Public interface
+    ----------------------------------------------------------------------
+    Attributes
+    ----------
+    available_models : list[str]
+        Cached list of model IDs returned from ``client.models.list()`` at
+        instantiation time.  Use this to inspect which hosted models your API
+        key has access to.
+
+    default_model : str
+        The model ID used when a helper call does not explicitly provide a
+        ``model=`` argument.  Defaults to ``"gpt-4.1-nano"`` (or the value of
+        the ``AI2_MODEL`` environment variable).
+
+    Methods
+    -------
+    single_response(instruction, content, \*, model=None, temperature=0.0)
+        Send a single user message under a custom system prompt and return the
+        raw text output.
+
+    boolean_query(instruction, content, \*, model=None, temperature=0.0)
+        Return a strict boolean result using OpenAI Structured Outputs. Helpful
+        for yes/no validations where free-form text would be hard to parse.
+
+    choice_query(instruction, content, choices, \*, model=None, temperature=0.0)
+        Force the model to pick exactly one item from ``choices`` and return it
+        as a string.
     """
 
     def __init__(self, computer=None, default_model: str = None,
