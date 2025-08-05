@@ -36,7 +36,7 @@ class Ai2:
         self.computer = computer
         # Prefer newest model capable of structured outputs
         self.default_model = default_model or os.getenv("AI2_MODEL",
-                                                        "gpt-4.1-mini")
+                                                        "gpt-4.1-nano")
         self.temperature = temperature
 
         # Re-use the same API key the main interpreter is using (or env var)
@@ -46,6 +46,18 @@ class Ai2:
         self.api_key = self.api_key or os.getenv("OPENAI_API_KEY")
 
         self.client = OpenAI(api_key=self.api_key)
+
+        # ------------------------------------------------------------------
+        # Fetch & cache model list
+        # ------------------------------------------------------------------
+        try:
+            models_response = self.client.models.list()
+            # Each item has an .id attribute – store as simple list[str]
+            self.available_models: List[str] = [model.id for model in models_response.data]
+        except Exception:
+            # Swallow errors (network issues, permissions) – callers can still
+            # pass any valid model ID even if pre-fetch failed.
+            self.available_models = []
 
     # ------------------------------------------------------------------
     # Public helpers
