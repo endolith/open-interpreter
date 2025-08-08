@@ -84,6 +84,17 @@ class Ai2:
             # pass any valid model ID even if pre-fetch failed.
             self._available_models = []
 
+    def _get_temperature_for_model(self, model: str, requested_temperature: float) -> float:
+        """Get the appropriate temperature for a given model.
+
+        Reasoning models (GPT-5, O1, O3, etc.) only support temperature=1.0,
+        so we override any other value. For other models, we use the requested temperature.
+        """
+        # TODO: Verify this
+        if model and (model.startswith("gpt-5") or model.startswith("o1") or model.startswith("o3")):
+            return 1.0
+        return requested_temperature
+
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
@@ -116,10 +127,14 @@ class Ai2:
             {"role": "system", "content": instruction},
             {"role": "user", "content": content},
         ]
+        model = kwargs.get("model", self.default_model)
+        temperature = self._get_temperature_for_model(
+            model, kwargs.get("temperature", self.temperature)
+        )
         response = self.client.chat.completions.create(
-            model=kwargs.get("model", self.default_model),
+            model=model,
             messages=messages,
-            temperature=kwargs.get("temperature", self.temperature),
+            temperature=temperature,
         )
         return response.choices[0].message.content.strip()
 
@@ -157,14 +172,18 @@ class Ai2:
             thoughts: str = Field(..., description="Reasoning")
             value: bool = Field(..., description="Query result")
 
+        model = kwargs.get("model", self.default_model)
+        temperature = self._get_temperature_for_model(
+            model, kwargs.get("temperature", self.temperature)
+        )
         response = self.client.responses.parse(
-            model=kwargs.get("model", self.default_model),
+            model=model,
             input=[
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": content},
             ],
             text_format=_BoolResp,
-            temperature=kwargs.get("temperature", self.temperature),
+            temperature=temperature,
         )
 
         return bool(response.output_parsed.value)
@@ -219,14 +238,18 @@ class Ai2:
             __base__=BaseModel,
         )
 
+        model = kwargs.get("model", self.default_model)
+        temperature = self._get_temperature_for_model(
+            model, kwargs.get("temperature", self.temperature)
+        )
         response = self.client.responses.parse(
-            model=kwargs.get("model", self.default_model),
+            model=model,
             input=[
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": content},
             ],
             text_format=_ChoiceResp,
-            temperature=kwargs.get("temperature", self.temperature),
+            temperature=temperature,
         )
 
         return str(response.output_parsed.answer.value)
