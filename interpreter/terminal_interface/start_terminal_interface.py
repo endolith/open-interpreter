@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
 
 from interpreter.terminal_interface.contributing_conversations import (
     contribute_conversation_launch_logic,
@@ -409,9 +409,9 @@ Use """ to write multi-line messages.
         return
 
     if args.version:
-        version = pkg_resources.get_distribution("open-interpreter").version
+        oi_version = version("open-interpreter")
         update_name = "Developer Preview"  # Change this with each major update
-        print(f"Open Interpreter {version} {update_name}")
+        print(f"Open Interpreter {oi_version} {update_name}")
         return
 
     if args.no_highlight_active_line:

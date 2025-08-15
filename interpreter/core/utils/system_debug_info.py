@@ -1,7 +1,8 @@
 import platform
 import subprocess
 
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import distributions
 import psutil
 import toml
 
@@ -25,8 +26,11 @@ def get_oi_version():
         )
     except Exception as e:
         oi_version_cmd = str(e)
-    oi_version_pkg = pkg_resources.get_distribution("open-interpreter").version
-    oi_version = oi_version_cmd, oi_version_pkg
+    try:
+        pkg_ver = version("open-interpreter")
+    except PackageNotFoundError:
+        pkg_ver = None
+    oi_version = oi_version_cmd, pkg_ver
     return oi_version
 
 
@@ -53,8 +57,10 @@ def get_package_mismatches(file_path="pyproject.toml"):
     dev_dependencies = pyproject["tool"]["poetry"]["group"]["dev"]["dependencies"]
     dependencies.update(dev_dependencies)
 
-    installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
-
+    installed_packages = {
+        dist.metadata["Name"].lower(): dist.version
+        for dist in distributions()
+    }
     mismatches = []
     for package, version_info in dependencies.items():
         if isinstance(version_info, dict):

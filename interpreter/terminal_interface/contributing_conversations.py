@@ -3,7 +3,7 @@ import os
 import time
 from typing import List, TypedDict
 
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
 import requests
 
 from interpreter.terminal_interface.profiles.profiles import write_key_to_profile
@@ -173,12 +173,12 @@ def contribute_conversations(
         return None
 
     url = "https://api.openinterpreter.com/v0/contribute/"
-    version = pkg_resources.get_distribution("open-interpreter").version
+    oi_version = version("open-interpreter")
 
     payload = {
         "conversation_id": conversation_id,
         "conversations": conversations,
-        "oi_version": version,
+        "oi_version": oi_version,
         "feedback": feedback,
     }
 

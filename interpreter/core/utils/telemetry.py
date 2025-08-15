@@ -15,7 +15,7 @@ import os
 import threading
 import uuid
 
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
 import requests
 
 
@@ -47,9 +47,7 @@ user_id = get_or_create_uuid()
 def send_telemetry(event_name, properties=None):
     if properties is None:
         properties = {}
-    properties["oi_version"] = pkg_resources.get_distribution(
-        "open-interpreter"
-    ).version
+    properties["oi_version"] = version("open-interpreter")
     try:
         url = "https://app.posthog.com/capture"
         headers = {"Content-Type": "application/json"}

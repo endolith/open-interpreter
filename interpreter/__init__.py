@@ -36,7 +36,7 @@ if "--os" in sys.argv:
             # Aesthetic choice. For these tags, they need a space below them
             print("")
 
-    import pkg_resources
+    from importlib.metadata import version
     import requests
     from packaging import version
 
@@ -45,8 +45,8 @@ if "--os" in sys.argv:
         response = requests.get(f"https://pypi.org/pypi/open-interpreter/json")
         latest_version = response.json()["info"]["version"]
 
-        # Get the current version using pkg_resources
-        current_version = pkg_resources.get_distribution("open-interpreter").version
+        # Get the current version using importlib.metadata
+        current_version = version("open-interpreter")
 
         return version.parse(latest_version) > version.parse(current_version)
 

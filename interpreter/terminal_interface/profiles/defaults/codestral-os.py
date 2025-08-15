@@ -4,7 +4,7 @@ This is an Open Interpreter profile. It configures Open Interpreter to run `llam
 Images sent to the model will be described with `moondream`. The model will be instructed how to control your mouse and keyboard.
 """
 
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
 
 REQUIRED_PACKAGES = [
     "opencv-python",
@@ -23,8 +23,8 @@ missing_packages = []
 
 for package in REQUIRED_PACKAGES:
     try:
-        dist = pkg_resources.get_distribution(package)
-    except pkg_resources.DistributionNotFound:
+        dist = version(package)
+    except PackageNotFoundError:
         missing_packages.append(package)
 
 if missing_packages:
