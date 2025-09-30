@@ -1,15 +1,46 @@
 #!/usr/bin/env python3
 """
 Example script demonstrating how to print complex markdown-formatted text
-using the rich library. This includes code blocks, tables, nested elements,
-and various markdown features.
+using the rich library with streaming simulation. This includes code blocks,
+tables, nested elements, and various markdown features.
 """
 
+import time
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.live import Live
+
+def stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1):
+    """
+    Stream markdown text with live formatting updates using Rich's Live object.
+
+    Args:
+        console: Rich Console instance
+        markdown_text: The markdown text to stream
+        chunk_size: Number of characters per chunk (default: 10)
+        delay: Delay between chunks in seconds (default: 0.1)
+    """
+    accumulated_text = ""
+
+    with Live(console=console, refresh_per_second=10) as live:
+        for i in range(0, len(markdown_text), chunk_size):
+            chunk = markdown_text[i:i + chunk_size]
+            accumulated_text += chunk
+
+            # Try to update with markdown, ignore parsing errors
+            try:
+                live.update(Markdown(accumulated_text))
+            except (IndexError, ValueError, TypeError):
+                # If markdown parsing fails, just skip this update
+                pass
+
+            time.sleep(delay)
 
 def main():
     console = Console()
+
+    print("Streaming markdown text with live formatting updates...")
+    print("=" * 60)
 
     # Complex markdown text with various elements
     markdown_text = """
@@ -199,8 +230,11 @@ console = Console(theme=custom_theme)
 *End of example*
 """
 
-    # Print the markdown using rich
-    console.print(Markdown(markdown_text))
+    # Stream the markdown text with live formatting updates
+    stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1)
+
+    print("\n" + "=" * 60)
+    print("Streaming complete!")
 
 if __name__ == "__main__":
     main()
