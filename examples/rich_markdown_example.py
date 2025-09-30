@@ -78,9 +78,6 @@ def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
 def main():
     console = Console()
 
-    print("Streaming markdown text with live formatting updates...")
-    print("=" * 60)
-
     # Complex markdown text with various elements
     markdown_text = """
 # Rich Markdown Example
@@ -271,9 +268,6 @@ console = Console(theme=custom_theme)
 
     # Stream the markdown text block by block
     stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1)
-
-    print("\n" + "=" * 60)
-    print("Streaming complete!")
 
 
 if __name__ == "__main__":
