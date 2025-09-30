@@ -9,48 +9,58 @@ import time
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
+from markdown_it import MarkdownIt
+
+
+def parse_markdown_into_blocks(markdown_text):
+    """
+    Parse markdown into blocks using markdown-it-py's token stream.
+    Extract complete blocks by processing tokens in order and grouping related tokens.
+    """
+    md = MarkdownIt().enable("strikethrough").enable("table")
+    tokens = md.parse(markdown_text)
+
+    lines = markdown_text.split('\n')
+    blocks = []
+
+    # Process tokens sequentially to build complete blocks
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+
+        # Process block-level tokens (both opening and self-closing)
+        if token.block and token.map and (token.nesting == 1 or token.nesting == 0):
+            line_begin, line_end = token.map
+
+            # Extract the complete block from original source
+            block_lines = lines[line_begin:line_end]
+            block_text = '\n'.join(block_lines)
+
+            if block_text.strip():
+                blocks.append(block_text)
+
+            # Skip to the end of this block to avoid processing nested content
+            if token.nesting == 1:  # Only skip for opening tokens
+                nesting_level = 1
+                i += 1
+                while i < len(tokens) and nesting_level > 0:
+                    if tokens[i].nesting == 1:
+                        nesting_level += 1
+                    elif tokens[i].nesting == -1:
+                        nesting_level -= 1
+                    i += 1
+                continue
+
+        i += 1
+
+    return blocks
 
 
 def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
     """
-    Stream markdown text block by block, creating a new Live object for each block.
+    Stream markdown text block by block using markdown-it-py token parsing.
     """
-    # Hardcoded block boundaries - split the text into independent blocks
-    blocks = [
-        "# Rich Markdown Example",
-
-        "This is a comprehensive example of markdown formatting using the **rich** library.",
-
-        "## Features Demonstrated\n\n- **Bold text** and *italic text*\n- `inline code` and code blocks\n- Tables with various formatting\n- Nested quotes and lists\n- Links and images\n- Horizontal rules",
-
-        "### Code Examples\n\nHere's a simple Python function:",
-
-        "```python\ndef fibonacci(n):\n    \"\"\"Calculate the nth Fibonacci number.\"\"\"\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\n# Example usage\nfor i in range(10):\n    print(f\"F({i}) = {fibonacci(i)}\")\n```",
-
-        "And here's some JavaScript code:",
-
-        "```javascript\n// Async function example\nasync function fetchUserData(userId) {\n    try {\n        const response = await fetch(`/api/users/${userId}`);\n        const userData = await response.json();\n        return userData;\n    } catch (error) {\n        console.error('Error fetching user data:', error);\n        throw error;\n    }\n}\n\n// Usage\nfetchUserData(123)\n    .then(data => console.log('User data:', data))\n    .catch(error => console.error('Failed to fetch user:', error));\n```",
-
-        "### Nested Code Blocks\n\nSometimes you need to show code that contains other code blocks:",
-
-        "````markdown\nHere's how to create a code block in markdown:\n\n```python\nprint(\"Hello, World!\")\n```\n\nThe syntax is three backticks followed by the language name.\n````",
-
-        "### Tables\n\n| Feature | Status | Priority | Notes |\n|---------|--------|----------|-------|\n| Authentication | ✅ Complete | High | Uses JWT tokens |\n| Database | 🔄 In Progress | High | PostgreSQL implementation |\n| API Documentation | ❌ Not Started | Medium | Will use OpenAPI |\n| Testing | ✅ Complete | High | 95% code coverage |\n| Deployment | 🔄 In Progress | Medium | Docker containers |",
-
-        "### Complex Nested Lists\n\n1. **Frontend Development**\n   - React Components\n     - Functional components\n     - Class components\n     - Hooks usage\n   - State Management\n     - Redux\n     - Context API\n     - Local state\n   - Styling\n     - CSS Modules\n     - Styled Components\n     - Tailwind CSS\n\n2. **Backend Development**\n   - API Design\n     - REST endpoints\n     - GraphQL queries\n     - WebSocket connections\n   - Database\n     - Schema design\n     - Migrations\n     - Query optimization\n   - Authentication\n     - JWT tokens\n     - OAuth integration\n     - Role-based access",
-
-        "### Blockquotes\n\n> This is a simple blockquote.\n\n> This is a blockquote with **bold text** and `inline code`.\n>\n> It can span multiple lines and contain various formatting.\n\n> #### Nested Quote\n>\n> > This is a nested quote inside another quote.\n> >\n> > It demonstrates how quotes can be nested:\n> >\n> > ```python\n> > # Code can even be inside quotes\n> > def example():\n> >     return \"Hello from nested quote!\"\n> > ```",
-
-        "### Links and References\n\n- [Rich Documentation](https://rich.readthedocs.io/)\n- [Markdown Guide](https://www.markdownguide.org/)\n- [Python.org](https://www.python.org/)",
-
-        "### Mathematical Expressions\n\nWhile rich doesn't support LaTeX math, you can still show mathematical concepts:\n\n- The quadratic formula: `x = (-b ± √(b² - 4ac)) / 2a`\n- Euler's identity: `e^(iπ) + 1 = 0`\n- The golden ratio: `φ = (1 + √5) / 2 ≈ 1.618`",
-
-        "### Task Lists\n\n- [x] Set up development environment\n- [x] Create basic project structure\n- [x] Implement core functionality\n- [ ] Write comprehensive tests\n- [ ] Add documentation\n- [ ] Deploy to production\n- [ ] Monitor performance",
-
-        "### Horizontal Rule\n\n---",
-
-        "### Final Notes\n\nThis example demonstrates the power of the `rich` library for displaying\ncomplex markdown content in the terminal. The library handles:\n\n- Syntax highlighting for code blocks\n- Proper table formatting\n- Nested list indentation\n- Blockquote styling\n- Link formatting\n- And much more!\n\n> **Tip**: You can customize the appearance by modifying the Console\n> configuration or using different themes.\n\n```python\n# Example of custom console configuration\nfrom rich.console import Console\nfrom rich.theme import Theme\n\ncustom_theme = Theme({\n    \"markdown.code\": \"bold blue\",\n    \"markdown.heading\": \"bold magenta\",\n    \"markdown.strong\": \"bold red\"\n})\n\nconsole = Console(theme=custom_theme)\n```\n\n---\n\n*End of example*"
-    ]
+    blocks = parse_markdown_into_blocks(markdown_text)
 
     for block in blocks:
         # Create a new Live object for each block
