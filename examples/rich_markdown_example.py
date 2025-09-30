@@ -11,32 +11,68 @@ from rich.markdown import Markdown
 from rich.live import Live
 
 
-def stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1):
+def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
     """
-    Stream markdown text with live formatting updates using Rich's Live object.
-
-    Args:
-        console: Rich Console instance
-        markdown_text: The markdown text to stream
-        chunk_size: Number of characters per chunk (default: 10)
-        delay: Delay between chunks in seconds (default: 0.1)
+    Stream markdown text block by block, creating a new Live object for each block.
     """
-    accumulated_text = ""
+    # Hardcoded block boundaries - split the text into independent blocks
+    blocks = [
+        "# Rich Markdown Example",
 
-    with Live(console=console, refresh_per_second=10,
-              vertical_overflow="visible") as live:
-        for i in range(0, len(markdown_text), chunk_size):
-            chunk = markdown_text[i:i + chunk_size]
-            accumulated_text += chunk
+        "This is a comprehensive example of markdown formatting using the **rich** library.",
 
-            # Try to update with markdown, ignore parsing errors
-            try:
-                live.update(Markdown(accumulated_text))
-            except (IndexError, ValueError, TypeError):
-                # If markdown parsing fails, just skip this update
-                pass
+        "## Features Demonstrated\n\n- **Bold text** and *italic text*\n- `inline code` and code blocks\n- Tables with various formatting\n- Nested quotes and lists\n- Links and images\n- Horizontal rules",
 
-            time.sleep(delay)
+        "### Code Examples\n\nHere's a simple Python function:",
+
+        "```python\ndef fibonacci(n):\n    \"\"\"Calculate the nth Fibonacci number.\"\"\"\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\n# Example usage\nfor i in range(10):\n    print(f\"F({i}) = {fibonacci(i)}\")\n```",
+
+        "And here's some JavaScript code:",
+
+        "```javascript\n// Async function example\nasync function fetchUserData(userId) {\n    try {\n        const response = await fetch(`/api/users/${userId}`);\n        const userData = await response.json();\n        return userData;\n    } catch (error) {\n        console.error('Error fetching user data:', error);\n        throw error;\n    }\n}\n\n// Usage\nfetchUserData(123)\n    .then(data => console.log('User data:', data))\n    .catch(error => console.error('Failed to fetch user:', error));\n```",
+
+        "### Nested Code Blocks\n\nSometimes you need to show code that contains other code blocks:",
+
+        "````markdown\nHere's how to create a code block in markdown:\n\n```python\nprint(\"Hello, World!\")\n```\n\nThe syntax is three backticks followed by the language name.\n````",
+
+        "### Tables\n\n| Feature | Status | Priority | Notes |\n|---------|--------|----------|-------|\n| Authentication | ✅ Complete | High | Uses JWT tokens |\n| Database | 🔄 In Progress | High | PostgreSQL implementation |\n| API Documentation | ❌ Not Started | Medium | Will use OpenAPI |\n| Testing | ✅ Complete | High | 95% code coverage |\n| Deployment | 🔄 In Progress | Medium | Docker containers |",
+
+        "### Complex Nested Lists\n\n1. **Frontend Development**\n   - React Components\n     - Functional components\n     - Class components\n     - Hooks usage\n   - State Management\n     - Redux\n     - Context API\n     - Local state\n   - Styling\n     - CSS Modules\n     - Styled Components\n     - Tailwind CSS\n\n2. **Backend Development**\n   - API Design\n     - REST endpoints\n     - GraphQL queries\n     - WebSocket connections\n   - Database\n     - Schema design\n     - Migrations\n     - Query optimization\n   - Authentication\n     - JWT tokens\n     - OAuth integration\n     - Role-based access",
+
+        "### Blockquotes\n\n> This is a simple blockquote.\n\n> This is a blockquote with **bold text** and `inline code`.\n>\n> It can span multiple lines and contain various formatting.\n\n> #### Nested Quote\n>\n> > This is a nested quote inside another quote.\n> >\n> > It demonstrates how quotes can be nested:\n> >\n> > ```python\n> > # Code can even be inside quotes\n> > def example():\n> >     return \"Hello from nested quote!\"\n> > ```",
+
+        "### Links and References\n\n- [Rich Documentation](https://rich.readthedocs.io/)\n- [Markdown Guide](https://www.markdownguide.org/)\n- [Python.org](https://www.python.org/)",
+
+        "### Mathematical Expressions\n\nWhile rich doesn't support LaTeX math, you can still show mathematical concepts:\n\n- The quadratic formula: `x = (-b ± √(b² - 4ac)) / 2a`\n- Euler's identity: `e^(iπ) + 1 = 0`\n- The golden ratio: `φ = (1 + √5) / 2 ≈ 1.618`",
+
+        "### Task Lists\n\n- [x] Set up development environment\n- [x] Create basic project structure\n- [x] Implement core functionality\n- [ ] Write comprehensive tests\n- [ ] Add documentation\n- [ ] Deploy to production\n- [ ] Monitor performance",
+
+        "### Horizontal Rule\n\n---",
+
+        "### Final Notes\n\nThis example demonstrates the power of the `rich` library for displaying\ncomplex markdown content in the terminal. The library handles:\n\n- Syntax highlighting for code blocks\n- Proper table formatting\n- Nested list indentation\n- Blockquote styling\n- Link formatting\n- And much more!\n\n> **Tip**: You can customize the appearance by modifying the Console\n> configuration or using different themes.\n\n```python\n# Example of custom console configuration\nfrom rich.console import Console\nfrom rich.theme import Theme\n\ncustom_theme = Theme({\n    \"markdown.code\": \"bold blue\",\n    \"markdown.heading\": \"bold magenta\",\n    \"markdown.strong\": \"bold red\"\n})\n\nconsole = Console(theme=custom_theme)\n```\n\n---\n\n*End of example*"
+    ]
+
+    for block in blocks:
+        # Create a new Live object for each block
+        with Live(console=console, refresh_per_second=10,
+                  vertical_overflow="visible") as live:
+
+            # Stream the current block character by character
+            block_accumulated = ""
+            for i in range(0, len(block), chunk_size):
+                chunk = block[i:i + chunk_size]
+                block_accumulated += chunk
+
+                # Update with just the current block content
+                try:
+                    live.update(Markdown(block_accumulated))
+                except (IndexError, ValueError, TypeError):
+                    # If markdown parsing fails, just skip this update
+                    pass
+
+                time.sleep(delay)
+
+        # Block is complete, move to next (no need to print again)
 
 
 def main():
@@ -233,8 +269,8 @@ console = Console(theme=custom_theme)
 *End of example*
 """
 
-    # Stream the markdown text with live formatting updates
-    stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1)
+    # Stream the markdown text block by block
+    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1)
 
     print("\n" + "=" * 60)
     print("Streaming complete!")
