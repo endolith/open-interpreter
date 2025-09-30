@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
 
+
 def stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1):
     """
     Stream markdown text with live formatting updates using Rich's Live object.
@@ -22,7 +23,8 @@ def stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1):
     """
     accumulated_text = ""
 
-    with Live(console=console, refresh_per_second=10) as live:
+    with Live(console=console, refresh_per_second=10,
+              vertical_overflow="visible") as live:
         for i in range(0, len(markdown_text), chunk_size):
             chunk = markdown_text[i:i + chunk_size]
             accumulated_text += chunk
@@ -35,6 +37,7 @@ def stream_markdown_with_live(console, markdown_text, chunk_size=10, delay=0.1):
                 pass
 
             time.sleep(delay)
+
 
 def main():
     console = Console()
@@ -235,6 +238,7 @@ console = Console(theme=custom_theme)
 
     print("\n" + "=" * 60)
     print("Streaming complete!")
+
 
 if __name__ == "__main__":
     main()
