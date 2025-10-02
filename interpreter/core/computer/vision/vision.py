@@ -114,9 +114,11 @@ class Vision:
             text = " ".join([item[1] for item in result])
             return text.strip()
         except ImportError:
-            print(
-                "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-            )
+            # Don't show installation message for computer-generated images
+            if not (lmc and lmc.get("role") == "computer"):
+                print(
+                    "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
+                )
             return ""
 
     def query(
@@ -135,9 +137,11 @@ class Vision:
             try:
                 success = self.load(load_easyocr=False)
             except ImportError:
-                print(
-                    "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-                )
+                # Don't show installation message for computer-generated images
+                if not (lmc and lmc.get("role") == "computer"):
+                    print(
+                        "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
+                    )
                 return ""
             if not success:
                 return ""
