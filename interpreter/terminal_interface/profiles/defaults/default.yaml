@@ -4,7 +4,7 @@
 
 # LLM Settings
 llm:
-  model: "gpt-4o"
+  model: "gpt-4.1-mini"
   temperature: 0
   # reasoning_effort: "low"  # Model-specific; DeepSeek V4 accepts low/high/max
   # api_key: ...  # Your API key, if the API requires it
@@ -28,7 +28,7 @@ computer:
 
 # To use a separate model for the `wtf` command:
 # wtf:
-#   model: "gpt-4o-mini"
+#   model: "gpt-4.1-nano"
 
 # Documentation
 # All options: https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx
