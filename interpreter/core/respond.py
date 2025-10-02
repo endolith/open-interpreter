@@ -110,8 +110,21 @@ def respond(interpreter):
                     # we encounter that error (Many people writing GitHub
                     # issues were struggling with this)
                     output = traceback.format_exc()
+
+                    # Generic hint: a hard-coded llm.api_key can conflict with CLI-provided model/provider
+                    api_key_in_config = bool(getattr(interpreter.llm, "api_key", None))
+                    provider_hint = ""
+                    if api_key_in_config:
+                        provider_hint = (
+                            "\n\nHint: You have `llm.api_key` set in your profile/config. "
+                            "If you pass `--model` (or `--api_key`) on the command line and they don't match the same provider, you'll get 401 Unauthorized. "
+                            "Either remove `llm.api_key` from your profile/default.yaml so your command-line selection takes effect, "
+                            "or pass both `--model` and `--api_key` together on the command line to ensure they match."
+                        )
+
                     raise Exception(
-                        f"{output}\n\nThere might be an issue with your API key(s).\n\nTo reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
+                        f"{output}\n\nThere might be an issue with your API key(s).{provider_hint}\n\n"
+                        "To reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
                     )
                 elif (
                     isinstance(e, litellm.exceptions.RateLimitError)
