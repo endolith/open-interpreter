@@ -36,6 +36,19 @@ def convert_to_openai_messages(
         if "recipient" in message and message["recipient"] != "assistant":
             continue
 
+        # For OpenRouter, remap computer role to user to avoid invalid roles
+        is_openrouter = False
+        try:
+            model_name = getattr(getattr(interpreter, "llm", None), "model", None)
+            if isinstance(model_name, str) and model_name.startswith("openrouter/"):
+                is_openrouter = True
+        except Exception:
+            pass
+
+        if is_openrouter and message.get("role") == "computer":
+            message = message.copy()  # Don't modify original
+            message["role"] = "user"
+
         new_message = {}
 
         if message["type"] == "message":
