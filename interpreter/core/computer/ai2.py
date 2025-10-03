@@ -40,15 +40,15 @@ class Ai2:
 
     Methods
     -------
-    single_response(instruction, content, \*, model=None, temperature=0.0)
+    single_response(instruction, content, *, model=None, temperature=0.0)
         Send a single user message under a custom system prompt and return the
         raw text output.
 
-    boolean_query(instruction, content, \*, model=None, temperature=0.0)
-        Return a strict boolean result using OpenAI Structured Outputs. Helpful
-        for yes/no validations where free-form text would be hard to parse.
+    boolean_query(instruction, content, *, model=None, temperature=0.0)
+        Return a strict boolean result. Helpful for yes/no validations where
+        free-form text would be hard to parse.
 
-    choice_query(instruction, content, choices, \*, model=None, temperature=0.0)
+    choice_query(instruction, content, choices, *, model=None, temperature=0.0)
         Force the model to pick exactly one item from ``choices`` and return it
         as a string.
     """
