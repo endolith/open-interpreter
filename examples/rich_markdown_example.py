@@ -37,7 +37,8 @@ def parse_markdown_into_blocks(markdown_text):
             block_text = '\n'.join(block_lines)
 
             if block_text.strip():
-                blocks.append(block_text)
+                # Return the original block text along with token type and tag
+                blocks.append((block_text, token.type, token.tag))
 
             # Skip to the end of this block to avoid processing nested content
             if token.nesting == 1:  # Only skip for opening tokens
@@ -62,15 +63,22 @@ def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
     """
     blocks = parse_markdown_into_blocks(markdown_text)
 
-    for block in blocks:
+    prev_element_new_line = False
+
+    for block_text, token_type, token_tag in blocks:
+        # Insert a blank line BEFORE this block if the previous element requested a newline
+        # Matches Rich's renderer behavior where most elements set new_line=True
+        if prev_element_new_line:
+            console.print()
+
         # Create a new Live object for each block
         with Live(console=console, refresh_per_second=10,
                   vertical_overflow="visible") as live:
 
             # Stream the current block character by character
             block_accumulated = ""
-            for i in range(0, len(block), chunk_size):
-                chunk = block[i:i + chunk_size]
+            for i in range(0, len(block_text), chunk_size):
+                chunk = block_text[i:i + chunk_size]
                 block_accumulated += chunk
 
                 # Update with just the current block content
@@ -82,7 +90,9 @@ def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
 
                 time.sleep(delay)
 
-        # Block is complete, move to next (no need to print again)
+        # Decide if a newline should be inserted BEFORE the next element
+        # In Rich, HorizontalRule sets new_line=False, everything else True
+        prev_element_new_line = (token_type != "hr")
 
 
 def main():
