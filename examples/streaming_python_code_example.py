@@ -9,6 +9,7 @@ import time
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
+from rich.syntax import Syntax
 
 
 def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, window_lines=16):
@@ -28,7 +29,10 @@ def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, 
     # Extract the actual Python code (remove the markdown code block markers)
     code_content = code_text.replace("```python\n", "").replace("```", "")
 
-    with Live(console=console, refresh_per_second=20,
+    # Create a console with highlighting disabled for streaming
+    plain_console = Console(highlight=False)
+
+    with Live(console=plain_console, refresh_per_second=20,
               vertical_overflow="ellipsis") as live:
         for i in range(0, len(code_content), chunk_size):
             chunk = code_content[i:i + chunk_size]
@@ -49,7 +53,8 @@ def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, 
 
         # After streaming is complete, show the full syntax-highlighted version
         time.sleep(0.5)  # Brief pause before final display
-        live.update(Markdown(code_text))
+        syntax = Syntax(code_content, "python", theme="default", background_color=None)
+        live.update(syntax)
 
 
 # Python code block for streaming demonstration
