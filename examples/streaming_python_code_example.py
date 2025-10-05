@@ -53,7 +53,7 @@ def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, 
 
         # After streaming is complete, show the full syntax-highlighted version
         time.sleep(0.5)  # Brief pause before final display
-        syntax = Syntax(code_content, "python", theme="default", background_color=None)
+        syntax = Syntax(code_content, "python", theme="ansi_dark", background_color="default")
         live.update(syntax)
 
 
