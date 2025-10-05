@@ -303,7 +303,7 @@ console = Console(theme=custom_theme)
 """
 
     # Stream the markdown text block by block with sliding window
-    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.01, window_lines=16)
+    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, window_lines=16)
 
 
 if __name__ == "__main__":
