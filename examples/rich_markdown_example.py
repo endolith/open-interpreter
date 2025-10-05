@@ -57,9 +57,10 @@ def parse_markdown_into_blocks(markdown_text):
     return blocks
 
 
-def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
+def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, window_lines=16):
     """
-    Stream markdown text block by block using markdown-it-py token parsing.
+    Stream markdown text block by block using sliding window approach.
+    Each block streams with a sliding window, then renders the complete block.
     """
     blocks = parse_markdown_into_blocks(markdown_text)
 
@@ -71,24 +72,39 @@ def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1):
         if prev_element_new_line:
             console.print()
 
-        # Create a new Live object for each block
-        with Live(console=console, refresh_per_second=10,
-                  vertical_overflow="visible") as live:
+        # Create a console with highlighting disabled for streaming
+        plain_console = Console(highlight=False)
 
-            # Stream the current block character by character
+        # Create a new Live object for each block
+        with Live(console=plain_console, refresh_per_second=20,
+                  vertical_overflow="ellipsis") as live:
+
+            # Stream the current block with sliding window
             block_accumulated = ""
             for i in range(0, len(block_text), chunk_size):
                 chunk = block_text[i:i + chunk_size]
                 block_accumulated += chunk
 
-                # Update with just the current block content
-                try:
-                    live.update(Markdown(block_accumulated))
-                except (IndexError, ValueError, TypeError):
-                    # If markdown parsing fails, just skip this update
-                    pass
+                # Split into lines and keep only the last window_lines
+                current_lines = block_accumulated.split('\n')
+                if len(current_lines) > window_lines:
+                    display_lines = current_lines[-window_lines:]
+                    # Add ellipsis to indicate there's more content above
+                    display_text = "...\n" + '\n'.join(display_lines)
+                else:
+                    display_text = '\n'.join(current_lines)
 
+                # Update with plain text (no syntax highlighting during streaming)
+                live.update(display_text)
                 time.sleep(delay)
+
+            # After streaming is complete, show the full rendered block
+            time.sleep(0.2)  # Brief pause before final display
+            try:
+                live.update(Markdown(block_text))
+            except (IndexError, ValueError, TypeError):
+                # If markdown parsing fails, show plain text
+                live.update(block_text)
 
         # Decide if a newline should be inserted BEFORE the next element
         # In Rich, HorizontalRule sets new_line=False, everything else True
@@ -286,8 +302,8 @@ console = Console(theme=custom_theme)
 *End of example*
 """
 
-    # Stream the markdown text block by block
-    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.01)
+    # Stream the markdown text block by block with sliding window
+    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.01, window_lines=16)
 
 
 if __name__ == "__main__":
