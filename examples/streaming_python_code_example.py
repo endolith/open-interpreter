@@ -11,32 +11,45 @@ from rich.markdown import Markdown
 from rich.live import Live
 
 
-def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05):
+def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, window_lines=16):
     """
-    Stream Python code with live formatting updates using Rich's Live object.
+    Stream Python code with a sliding window of the last N lines, then show full result.
 
     Args:
         console: Rich Console instance
         code_text: The Python code text to stream
         chunk_size: Number of characters per chunk (default: 15)
         delay: Delay between chunks in seconds (default: 0.05)
+        window_lines: Number of lines to show in the sliding window (default: 16)
     """
     accumulated_text = ""
+    lines = []
+
+    # Extract the actual Python code (remove the markdown code block markers)
+    code_content = code_text.replace("```python\n", "").replace("```", "")
 
     with Live(console=console, refresh_per_second=20,
-              vertical_overflow="visible") as live:
-        for i in range(0, len(code_text), chunk_size):
-            chunk = code_text[i:i + chunk_size]
+              vertical_overflow="ellipsis") as live:
+        for i in range(0, len(code_content), chunk_size):
+            chunk = code_content[i:i + chunk_size]
             accumulated_text += chunk
 
-            # Try to update with markdown, ignore parsing errors
-            try:
-                live.update(Markdown(accumulated_text))
-            except (IndexError, ValueError, TypeError):
-                # If markdown parsing fails, just skip this update
-                pass
+            # Split into lines and keep only the last window_lines
+            current_lines = accumulated_text.split('\n')
+            if len(current_lines) > window_lines:
+                display_lines = current_lines[-window_lines:]
+                # Add ellipsis to indicate there's more content above
+                display_text = "...\n" + '\n'.join(display_lines)
+            else:
+                display_text = '\n'.join(current_lines)
 
+            # Update with plain text (no syntax highlighting during streaming)
+            live.update(display_text)
             time.sleep(delay)
+
+        # After streaming is complete, show the full syntax-highlighted version
+        time.sleep(0.5)  # Brief pause before final display
+        live.update(Markdown(code_text))
 
 
 # Python code block for streaming demonstration
@@ -210,8 +223,9 @@ if __name__ == "__main__":
 
 def main():
     console = Console()
-    # Stream the Python code with live formatting updates
-    stream_python_code_with_live(console, python_code, chunk_size=15, delay=0.01)
+
+    # Stream the Python code with sliding window, then show full result
+    stream_python_code_with_live(console, python_code, chunk_size=15, delay=0.01, window_lines=16)
 
 if __name__ == "__main__":
     main()
