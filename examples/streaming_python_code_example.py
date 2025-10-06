@@ -194,8 +194,7 @@ class DataProcessor:
             'duration': self.metrics.duration,
             'records_processed': self.metrics.records_processed,
             'errors_count': self.metrics.errors_count,
-            'success_rate': (self.metrics.records_processed - self.metrics.errors_count)
-                          / max(self.metrics.records_processed, 1) * 100
+            'success_rate': (self.metrics.records_processed - self.metrics.errors_count) / max(self.metrics.records_processed, 1) * 100
         }
 
 
@@ -210,11 +209,7 @@ async def main():
     processor.add_validator(validator)
 
     # Sample data
-    sample_data = [
-        {'id': 1, 'name': 'Item 1', 'value': 10.5},
-        {'id': 2, 'name': 'Item 2', 'value': 20.3},
-        {'id': 3, 'name': 'Item 3', 'value': 15.7}
-    ]
+    sample_data = [{'id': 1, 'name': 'Item 1', 'value': 10.5}, {'id': 2, 'name': 'Item 2', 'value': 20.3}, {'id': 3, 'name': 'Item 3', 'value': 15.7}]
 
     # Process data
     try:
