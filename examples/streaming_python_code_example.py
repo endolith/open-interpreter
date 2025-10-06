@@ -12,7 +12,7 @@ from rich.live import Live
 from rich.syntax import Syntax
 
 
-def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, window_lines=16):
+def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, window_fraction=0.4):
     """
     Stream Python code with a sliding window of the last N lines, then show full result.
 
@@ -21,13 +21,17 @@ def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, 
         code_text: The Python code text to stream
         chunk_size: Number of characters per chunk (default: 15)
         delay: Delay between chunks in seconds (default: 0.05)
-        window_lines: Number of lines to show in the sliding window (default: 16)
+        window_fraction: Fraction of terminal height to use for sliding window (default: 0.4 = 40%)
     """
     accumulated_text = ""
     lines = []
 
     # Extract the actual Python code (remove the markdown code block markers)
     code_content = code_text.replace("```python\n", "").replace("```", "")
+
+    # Calculate window size based on terminal height
+    terminal_height = console.size.height
+    window_lines = max(8, int(terminal_height * window_fraction))  # Minimum 8 lines
 
     # Create a console with highlighting disabled for streaming
     plain_console = Console(highlight=False)
@@ -230,7 +234,7 @@ def main():
     console = Console()
 
     # Stream the Python code with sliding window, then show full result
-    stream_python_code_with_live(console, python_code, chunk_size=15, delay=0.01, window_lines=16)
+    stream_python_code_with_live(console, python_code, chunk_size=15, delay=0.1, window_fraction=0.75)
 
 if __name__ == "__main__":
     main()

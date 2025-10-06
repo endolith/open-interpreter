@@ -57,12 +57,23 @@ def parse_markdown_into_blocks(markdown_text):
     return blocks
 
 
-def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, window_lines=16):
+def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, window_fraction=0.4):
     """
     Stream markdown text block by block using sliding window approach.
     Each block streams with a sliding window, then renders the complete block.
+
+    Args:
+        console: Rich Console instance
+        markdown_text: The markdown text to stream
+        chunk_size: Number of characters per chunk
+        delay: Delay between chunks in seconds
+        window_fraction: Fraction of terminal height to use for sliding window (default: 0.4 = 40%)
     """
     blocks = parse_markdown_into_blocks(markdown_text)
+
+    # Calculate window size based on terminal height
+    terminal_height = console.size.height
+    window_lines = max(8, int(terminal_height * window_fraction))  # Minimum 8 lines
 
     prev_element_new_line = False
 
@@ -303,8 +314,7 @@ console = Console(theme=custom_theme)
 """
 
     # Stream the markdown text block by block with sliding window
-    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, window_lines=16)
-
+    stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, window_fraction=0.75)
 
 if __name__ == "__main__":
     main()
