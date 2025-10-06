@@ -9,6 +9,7 @@ import time
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
+from rich.text import Text
 from markdown_it import MarkdownIt
 
 
@@ -100,12 +101,18 @@ def stream_markdown_blocks(console, markdown_text, chunk_size=10, delay=0.1, win
                 current_lines = block_accumulated.split('\n')
                 if len(current_lines) > window_lines:
                     display_lines = current_lines[-window_lines:]
-                    # Add ellipsis to indicate there's more content above
-                    display_text = "...\n" + '\n'.join(display_lines)
+                    # Create a single Text object with centered red ellipsis
+                    display_text = Text()
+                    # Add centered ellipsis by padding it
+                    terminal_width = console.size.width
+                    ellipsis_padding = (terminal_width - 3) // 2  # Center the 3-character "..."
+                    display_text.append(" " * ellipsis_padding + "...", style="red")
+                    display_text.append("\n")
+                    display_text.append('\n'.join(display_lines))
                 else:
-                    display_text = '\n'.join(current_lines)
+                    display_text = Text('\n'.join(current_lines))
 
-                # Update with plain text (no syntax highlighting during streaming)
+                # Update with styled text
                 live.update(display_text)
                 time.sleep(delay)
 

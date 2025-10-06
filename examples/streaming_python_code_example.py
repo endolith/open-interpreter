@@ -10,6 +10,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
 from rich.syntax import Syntax
+from rich.text import Text
+from rich.align import Align
 
 
 def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, window_fraction=0.4):
@@ -46,12 +48,18 @@ def stream_python_code_with_live(console, code_text, chunk_size=15, delay=0.05, 
             current_lines = accumulated_text.split('\n')
             if len(current_lines) > window_lines:
                 display_lines = current_lines[-window_lines:]
-                # Add ellipsis to indicate there's more content above
-                display_text = "...\n" + '\n'.join(display_lines)
+                # Create a single Text object with centered red ellipsis
+                display_text = Text()
+                # Add centered ellipsis by padding it
+                terminal_width = console.size.width
+                ellipsis_padding = (terminal_width - 3) // 2  # Center the 3-character "..."
+                display_text.append(" " * ellipsis_padding + "...", style="red")
+                display_text.append("\n")
+                display_text.append('\n'.join(display_lines))
             else:
-                display_text = '\n'.join(current_lines)
+                display_text = Text('\n'.join(current_lines))
 
-            # Update with plain text (no syntax highlighting during streaming)
+            # Update with styled text
             live.update(display_text)
             time.sleep(delay)
 
