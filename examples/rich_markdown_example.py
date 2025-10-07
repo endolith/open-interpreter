@@ -24,7 +24,7 @@ def detect_complete_block(markdown_text):
 
         lines = markdown_text.split('\n')
 
-        # Find all top-level opening tokens (nesting level 1)
+        # Find all top-level tokens (nesting level 1 or self-closing)
         top_level_tokens = []
         nesting_level = 0
 
@@ -39,6 +39,10 @@ def detect_complete_block(markdown_text):
 
             elif token.nesting == -1:  # Closing token
                 nesting_level -= 1
+
+            elif token.nesting == 0:  # Self-closing token (like fence)
+                if nesting_level == 0:  # Only if we're at top level
+                    top_level_tokens.append(token)
 
         # If we have at least 2 top-level blocks, the first one is complete
         if len(top_level_tokens) >= 2:
