@@ -15,8 +15,8 @@ from markdown_it import MarkdownIt
 
 def detect_complete_block(markdown_text):
     """
-    Detect complete blocks by finding when the next block starts.
-    Returns (complete_block_text, block_type) when a complete block is found.
+    Detect complete blocks by finding when a new top-level block starts.
+    Returns (complete_block_text, block_type, line_begin, line_end) when a complete block is found.
     """
     try:
         md = MarkdownIt().enable("strikethrough").enable("table")
@@ -24,42 +24,30 @@ def detect_complete_block(markdown_text):
 
         lines = markdown_text.split('\n')
 
-        # Find top-level blocks by looking for opening tokens at the root level
-        # A token is top-level if it's a block token with nesting=1 (opening) and no parent block
-        top_level_blocks = []
+        # Find all top-level opening tokens (nesting level 1)
+        top_level_tokens = []
+        nesting_level = 0
 
         for token in tokens:
-            # Look for opening tokens of block-level elements
-            if (token.block and token.map and
-                token.nesting == 1 and  # Opening token
-                token.type != 'inline'):  # Not inline content
+            if not token.block or token.type == 'inline':
+                continue
 
-                line_begin, line_end = token.map
-                block_lines = lines[line_begin:line_end]
-                block_text = '\n'.join(block_lines)
-                if block_text.strip():
-                    top_level_blocks.append((block_text, token.type, line_begin, line_end))
+            if token.nesting == 1:  # Opening token
+                nesting_level += 1
+                if nesting_level == 1:  # Top-level opening
+                    top_level_tokens.append(token)
 
-        # Group by line range to avoid duplicates
-        block_ranges = {}
-        for block_text, block_type, line_begin, line_end in top_level_blocks:
-            range_key = (line_begin, line_end)
-            if range_key not in block_ranges:
-                block_ranges[range_key] = (block_text, block_type, line_begin, line_end)
+            elif token.nesting == -1:  # Closing token
+                nesting_level -= 1
 
-        block_tokens = list(block_ranges.values())
-
-        # If we have at least 2 blocks, check if the first one is complete
-        # A block is complete when the next block is of a different type
-        if len(block_tokens) >= 2:
-            first_block_text, first_block_type, line_begin, line_end = block_tokens[0]
-
-            # Find the first block of a different type
-            for i in range(1, len(block_tokens)):
-                _, block_type, _, _ = block_tokens[i]
-                if first_block_type != block_type:
-                    # Found a different block type, so the first block is complete
-                    return first_block_text, first_block_type, line_begin, line_end
+        # If we have at least 2 top-level blocks, the first one is complete
+        if len(top_level_tokens) >= 2:
+            first_token = top_level_tokens[0]
+            line_begin, line_end = first_token.map
+            block_lines = lines[line_begin:line_end]
+            block_text = '\n'.join(block_lines)
+            if block_text.strip():
+                return block_text, first_token.type, line_begin, line_end
 
         return None
     except Exception:
@@ -156,7 +144,7 @@ def stream_markdown_words(console, words, delay=0.1, window_fraction=0.4):
                 display_text = create_display_text(buffer, window_lines, console)
                 live.update(display_text)
 
-            time.sleep(delay)
+                time.sleep(delay)
 
         # Final cleanup - render any remaining content
         time.sleep(0.5)
