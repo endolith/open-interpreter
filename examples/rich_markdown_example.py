@@ -94,7 +94,7 @@ def create_display_text(buffer, window_lines, console):
 
 
 def process_word(buffer, word, console):
-    """Process a single word: add to buffer, detect blocks, render complete blocks."""
+    """Process a single word: add to buffer, detect blocks, return complete blocks."""
     # Add word to buffer
     buffer += word
 
@@ -104,19 +104,18 @@ def process_word(buffer, word, console):
     if block_result:
         block_text, block_type, line_begin, line_end = block_result
 
-        # Render the complete block directly to console (outside Live window)
-        console.print(Markdown(block_text))
-
         # Remove the rendered block from buffer using line numbers
         lines = buffer.split('\n')
         remaining_lines = lines[line_end:]
         buffer = '\n'.join(remaining_lines)
 
-        # Remove leading newlines but preserve at least one for spacing
-        while buffer.startswith('\n\n'):
-            buffer = buffer[1:]  # Remove extra newlines, keep one
+        # Don't remove newlines - preserve spacing between blocks
 
-    return buffer
+        # Return the complete block to be rendered
+        # Don't add extra newlines - the block text already has proper spacing
+        return buffer, Markdown(block_text)
+
+    return buffer, None
 
 
 def stream_markdown_words(console, words, delay=0.1, window_fraction=0.4):
@@ -135,13 +134,28 @@ def stream_markdown_words(console, words, delay=0.1, window_fraction=0.4):
     window_lines = max(8, int(terminal_height * window_fraction))  # Minimum 8 lines
 
     buffer = ""
+    prev_element_new_line = False
 
     with Live(console=console, refresh_per_second=20,
               vertical_overflow="ellipsis") as live:
 
         for word in words:
-            # Process the word (add to buffer, detect blocks, render complete blocks)
-            buffer = process_word(buffer, word, console)
+            # Process the word (add to buffer, detect blocks, return complete blocks)
+            buffer, complete_block = process_word(buffer, word, console)
+
+            # If we have a complete block, render it and clear the live window
+            if complete_block:
+                # Insert a blank line BEFORE this block if the previous element requested a newline
+                if prev_element_new_line:
+                    console.print()
+
+                # Clear the live window and render the complete block
+                live.update("")
+                console.print(complete_block)
+
+                # Decide if a newline should be inserted BEFORE the next element
+                # In Rich, HorizontalRule sets new_line=False, everything else True
+                prev_element_new_line = True  # Most elements need newlines
 
             # Stream the remaining buffer content
             if buffer.strip():
