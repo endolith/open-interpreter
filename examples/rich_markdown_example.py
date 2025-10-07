@@ -48,10 +48,18 @@ def detect_complete_block(markdown_text):
         if len(top_level_tokens) >= 2:
             first_token = top_level_tokens[0]
             line_begin, line_end = first_token.map
-            block_lines = lines[line_begin:line_end]
+            
+            # Include trailing empty lines to preserve spacing between blocks
+            # Look for empty lines immediately after the block
+            extended_line_end = line_end
+            while extended_line_end < len(lines) and lines[extended_line_end].strip() == '':
+                extended_line_end += 1
+            
+            # Always include the extended block to preserve spacing
+            block_lines = lines[line_begin:extended_line_end]
             block_text = '\n'.join(block_lines)
             if block_text.strip():
-                return block_text, first_token.type, line_begin, line_end
+                return block_text, first_token.type, line_begin, extended_line_end
 
         return None
     except Exception:
@@ -106,13 +114,14 @@ def process_word(buffer, word, console):
 
         # Remove the rendered block from buffer using line numbers
         lines = buffer.split('\n')
+        
+        # Preserve empty lines that follow the block to maintain proper spacing
+        # The block ends at line_end, so we need to keep everything from line_end onwards
+        # This includes any empty lines that exist between blocks in the original markdown
         remaining_lines = lines[line_end:]
         buffer = '\n'.join(remaining_lines)
 
-        # Don't remove newlines - preserve spacing between blocks
-
         # Return the complete block to be rendered
-        # Don't add extra newlines - the block text already has proper spacing
         return buffer, Markdown(block_text)
 
     return buffer, None
@@ -145,17 +154,10 @@ def stream_markdown_words(console, words, delay=0.1, window_fraction=0.4):
 
             # If we have a complete block, render it and clear the live window
             if complete_block:
-                # Insert a blank line BEFORE this block if the previous element requested a newline
-                if prev_element_new_line:
-                    console.print()
-
                 # Clear the live window and render the complete block
+                # Rich handles spacing between blocks automatically when rendered together
                 live.update("")
                 console.print(complete_block)
-
-                # Decide if a newline should be inserted BEFORE the next element
-                # In Rich, HorizontalRule sets new_line=False, everything else True
-                prev_element_new_line = True  # Most elements need newlines
 
             # Stream the remaining buffer content
             if buffer.strip():
