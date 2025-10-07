@@ -24,21 +24,38 @@ def detect_complete_block(markdown_text):
 
         lines = markdown_text.split('\n')
 
-        # Find block-level tokens (exclude inline tokens)
-        block_tokens = []
+        # Find only top-level block tokens (exclude inline and nested tokens)
+        block_ranges = {}
         for token in tokens:
-            if token.block and token.map and (token.nesting == 1 or token.nesting == 0) and token.type != 'inline':
+            # Only consider tokens that are:
+            # 1. Block-level (token.block = True)
+            # 2. Have a map (line range)
+            # 3. Are not inline tokens
+            # 4. Are top-level block types (not nested items)
+            top_level_types = {'heading_open', 'paragraph_open', 'bullet_list_open', 'ordered_list_open',
+                             'blockquote_open', 'fence', 'hr', 'table_open'}
+
+            if (token.block and token.map and
+                token.type != 'inline' and
+                token.type in top_level_types):
+
                 line_begin, line_end = token.map
                 block_lines = lines[line_begin:line_end]
                 block_text = '\n'.join(block_lines)
                 if block_text.strip():
-                    block_tokens.append((block_text, token.type, line_begin, line_end))
+                    # Group tokens by line range
+                    range_key = (line_begin, line_end)
+                    if range_key not in block_ranges:
+                        block_ranges[range_key] = (block_text, token.type, line_begin, line_end)
+
+        # Convert to list of unique blocks
+        block_tokens = list(block_ranges.values())
 
         # If we have at least 2 blocks, the first one is complete
         if len(block_tokens) >= 2:
             first_block_text, first_block_type, line_begin, line_end = block_tokens[0]
             return first_block_text, first_block_type, line_begin, line_end
-        
+
         return None
     except Exception:
         return None
@@ -83,21 +100,25 @@ def process_word(buffer, word, console):
     """Process a single word: add to buffer, detect blocks, render complete blocks."""
     # Add word to buffer
     buffer += word
-
+    
     # Try to detect a complete block
     block_result = detect_complete_block(buffer)
-
+    
     if block_result:
         block_text, block_type, line_begin, line_end = block_result
         
-        # Render the complete block
+        # Render the complete block directly to console (outside Live window)
         console.print(Markdown(block_text))
         
         # Remove the rendered block from buffer using line numbers
         lines = buffer.split('\n')
         remaining_lines = lines[line_end:]
         buffer = '\n'.join(remaining_lines)
-
+        
+        # Only remove leading newlines, not all whitespace
+        while buffer.startswith('\n'):
+            buffer = buffer[1:]
+    
     return buffer
 
 
@@ -116,12 +137,9 @@ def stream_markdown_words(console, words, delay=0.1, window_fraction=0.4):
     terminal_height = console.size.height
     window_lines = max(8, int(terminal_height * window_fraction))  # Minimum 8 lines
 
-    # Create a console with highlighting disabled for streaming
-    plain_console = Console(highlight=False)
-
     buffer = ""
 
-    with Live(console=plain_console, refresh_per_second=20,
+    with Live(console=console, refresh_per_second=20,
               vertical_overflow="ellipsis") as live:
 
         for word in words:
@@ -133,7 +151,7 @@ def stream_markdown_words(console, words, delay=0.1, window_fraction=0.4):
                 display_text = create_display_text(buffer, window_lines, console)
                 live.update(display_text)
 
-                time.sleep(delay)
+            time.sleep(delay)
 
         # Final cleanup - render any remaining content
         time.sleep(0.5)
