@@ -36,9 +36,9 @@ def detect_complete_block(markdown_text):
 
         # If we have at least 2 blocks, the first one is complete
         if len(block_tokens) >= 2:
-            first_block_text, first_block_type, _, _ = block_tokens[0]
-            return first_block_text, first_block_type
-
+            first_block_text, first_block_type, line_begin, line_end = block_tokens[0]
+            return first_block_text, first_block_type, line_begin, line_end
+        
         return None
     except Exception:
         return None
@@ -88,13 +88,15 @@ def process_word(buffer, word, console):
     block_result = detect_complete_block(buffer)
 
     if block_result:
-        block_text, block_type = block_result
-
+        block_text, block_type, line_begin, line_end = block_result
+        
         # Render the complete block
         console.print(Markdown(block_text))
-
-        # Remove the rendered block from buffer
-        buffer = buffer[len(block_text):]
+        
+        # Remove the rendered block from buffer using line numbers
+        lines = buffer.split('\n')
+        remaining_lines = lines[line_end:]
+        buffer = '\n'.join(remaining_lines)
 
     return buffer
 
