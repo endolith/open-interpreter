@@ -24,37 +24,42 @@ def detect_complete_block(markdown_text):
 
         lines = markdown_text.split('\n')
 
-        # Find only top-level block tokens (exclude inline and nested tokens)
-        block_ranges = {}
-        for token in tokens:
-            # Only consider tokens that are:
-            # 1. Block-level (token.block = True)
-            # 2. Have a map (line range)
-            # 3. Are not inline tokens
-            # 4. Are top-level block types (not nested items)
-            top_level_types = {'heading_open', 'bullet_list_open', 'ordered_list_open',
-                             'blockquote_open', 'fence', 'hr', 'table_open'}
+        # Find top-level blocks by looking for opening tokens at the root level
+        # A token is top-level if it's a block token with nesting=1 (opening) and no parent block
+        top_level_blocks = []
 
+        for token in tokens:
+            # Look for opening tokens of block-level elements
             if (token.block and token.map and
-                token.type != 'inline' and
-                token.type in top_level_types):
+                token.nesting == 1 and  # Opening token
+                token.type != 'inline'):  # Not inline content
 
                 line_begin, line_end = token.map
                 block_lines = lines[line_begin:line_end]
                 block_text = '\n'.join(block_lines)
                 if block_text.strip():
-                    # Group tokens by line range
-                    range_key = (line_begin, line_end)
-                    if range_key not in block_ranges:
-                        block_ranges[range_key] = (block_text, token.type, line_begin, line_end)
+                    top_level_blocks.append((block_text, token.type, line_begin, line_end))
 
-        # Convert to list of unique blocks
+        # Group by line range to avoid duplicates
+        block_ranges = {}
+        for block_text, block_type, line_begin, line_end in top_level_blocks:
+            range_key = (line_begin, line_end)
+            if range_key not in block_ranges:
+                block_ranges[range_key] = (block_text, block_type, line_begin, line_end)
+
         block_tokens = list(block_ranges.values())
 
-        # If we have at least 2 blocks, the first one is complete
+        # If we have at least 2 blocks, check if the first one is complete
+        # A block is complete when the next block is of a different type
         if len(block_tokens) >= 2:
             first_block_text, first_block_type, line_begin, line_end = block_tokens[0]
-            return first_block_text, first_block_type, line_begin, line_end
+
+            # Find the first block of a different type
+            for i in range(1, len(block_tokens)):
+                _, block_type, _, _ = block_tokens[i]
+                if first_block_type != block_type:
+                    # Found a different block type, so the first block is complete
+                    return first_block_text, first_block_type, line_begin, line_end
 
         return None
     except Exception:
