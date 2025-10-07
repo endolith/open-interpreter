@@ -32,7 +32,7 @@ def detect_complete_block(markdown_text):
             # 2. Have a map (line range)
             # 3. Are not inline tokens
             # 4. Are top-level block types (not nested items)
-            top_level_types = {'heading_open', 'paragraph_open', 'bullet_list_open', 'ordered_list_open',
+            top_level_types = {'heading_open', 'bullet_list_open', 'ordered_list_open',
                              'blockquote_open', 'fence', 'hr', 'table_open'}
 
             if (token.block and token.map and
@@ -100,25 +100,25 @@ def process_word(buffer, word, console):
     """Process a single word: add to buffer, detect blocks, render complete blocks."""
     # Add word to buffer
     buffer += word
-    
+
     # Try to detect a complete block
     block_result = detect_complete_block(buffer)
-    
+
     if block_result:
         block_text, block_type, line_begin, line_end = block_result
-        
+
         # Render the complete block directly to console (outside Live window)
         console.print(Markdown(block_text))
-        
+
         # Remove the rendered block from buffer using line numbers
         lines = buffer.split('\n')
         remaining_lines = lines[line_end:]
         buffer = '\n'.join(remaining_lines)
-        
-        # Only remove leading newlines, not all whitespace
-        while buffer.startswith('\n'):
-            buffer = buffer[1:]
-    
+
+        # Remove leading newlines but preserve at least one for spacing
+        while buffer.startswith('\n\n'):
+            buffer = buffer[1:]  # Remove extra newlines, keep one
+
     return buffer
 
 
