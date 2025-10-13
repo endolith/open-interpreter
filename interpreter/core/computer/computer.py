@@ -14,6 +14,7 @@ from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse
 from .os.os import Os
+from .search.search import Search
 from .skills.skills import Skills
 from .sms.sms import SMS
 from .terminal.terminal import Terminal
@@ -40,6 +41,7 @@ class Computer:
         self.contacts = Contacts(self)
         self.browser = Browser(self)
         self.os = Os(self)
+        self.search = Search(self)
         self.vision = Vision(self)
         self.skills = Skills(self)
         self.docs = Docs(self)
@@ -99,6 +101,7 @@ Do not import the computer module, or any of its sub-modules. They are already i
             self.contacts,
             self.browser,
             self.os,
+            self.search,
             self.vision,
             self.skills,
             self.docs,
