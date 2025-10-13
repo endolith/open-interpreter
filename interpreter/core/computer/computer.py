@@ -123,8 +123,13 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
         tools_signature_and_description = []
         for tool in tools:
             tool_info = self._extract_tool_info(tool)
+
+            # Add module docstring as section header if available
+            if tool_info.get("module_doc"):
+                tools_signature_and_description.append(f"\n# {tool.__class__.__name__}: {tool_info['module_doc']}")
+
             for method in tool_info["methods"]:
-                # Format as tool_signature # tool_description
+                # Format as tool_signature # tool_description (first line only)
                 formatted_info = f"{method['signature']} # {method['description']}"
                 tools_signature_and_description.append(formatted_info)
         return tools_signature_and_description
@@ -134,6 +139,19 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
         Helper function to extract the signature and description of a tool's methods.
         """
         tool_info = {"signature": tool.__class__.__name__, "methods": []}
+
+        # Extract module docstring (first line only)
+        if tool.__class__.__module__:
+            try:
+                import sys
+                module = sys.modules.get(tool.__class__.__module__)
+                if module and module.__doc__:
+                    # Get first line of module docstring
+                    first_line = module.__doc__.strip().split('\n')[0].strip()
+                    if first_line:
+                        tool_info["module_doc"] = first_line
+            except:
+                pass
         if tool.__class__.__name__ == "Browser":
             methods = []
             for name in dir(tool):
@@ -154,13 +172,13 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
                         ]
                     )
                     full_signature = f"computer.{tool.__class__.__name__.lower()}.{name}({param_str})"
-                    # Get the method description
-                    method_description = attr.__doc__ or ""
+                    # Get the method description (first line only)
+                    method_description = self._get_first_line(attr.__doc__)
                     # Append the method details
                     tool_info["methods"].append(
                         {
                             "signature": full_signature,
-                            "description": method_description.strip(),
+                            "description": method_description,
                         }
                     )
             return tool_info
@@ -181,13 +199,13 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
                 full_signature = (
                     f"computer.{tool.__class__.__name__.lower()}.{name}({param_str})"
                 )
-                # Get the method description
-                method_description = method.__doc__ or ""
+                # Get the method description (first line only)
+                method_description = self._get_first_line(method.__doc__)
                 # Append the method details
                 tool_info["methods"].append(
                     {
                         "signature": full_signature,
-                        "description": method_description.strip(),
+                        "description": method_description,
                     }
                 )
 
@@ -199,14 +217,22 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
                 full_signature = (
                     f"computer.{tool.__class__.__name__.lower()}.{attr_name}"
                 )
-                prop_doc = attr_value.fget.__doc__ or ""
+                prop_doc = self._get_first_line(attr_value.fget.__doc__)
                 tool_info["methods"].append(
                     {
                         "signature": full_signature,
-                        "description": prop_doc.strip(),
+                        "description": prop_doc,
                     }
                 )
         return tool_info
+
+    def _get_first_line(self, docstring):
+        """Extract the first line of a docstring for concise documentation."""
+        if not docstring:
+            return ""
+        # Split on double newline (paragraph break) or single newline
+        first_line = docstring.strip().split('\n\n')[0].split('\n')[0].strip()
+        return first_line
 
     def run(self, *args, **kwargs):
         """
