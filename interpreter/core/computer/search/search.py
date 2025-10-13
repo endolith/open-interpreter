@@ -56,7 +56,11 @@ class Search:
         """
         api_key = os.getenv("BRAVE_API_KEY")
         if not api_key:
-            raise Exception("BRAVE_API_KEY environment variable not set")
+            return {
+                "error": "BRAVE_API_KEY environment variable not set",
+                "message": "To use Brave Search API, set the BRAVE_API_KEY environment variable. Get your API key at https://brave.com/search/api/",
+                "alternative": "Try using a different search method instead"
+            }
 
         url = "https://api.search.brave.com/res/v1/web/search"
 
@@ -74,10 +78,16 @@ class Search:
             "safesearch": safesearch
         }
 
-        response = requests.get(url, headers=headers, params=params)
-        response.raise_for_status()
-
-        return response.json()
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"Brave Search API request failed: {str(e)}",
+                "message": "The API request encountered an error. Check your API key and internet connection.",
+                "alternative": "Try using a different search method instead"
+            }
 
     def serper(self, query, num=10, gl="us", hl="en", autocorrect=True):
         """
@@ -100,7 +110,11 @@ class Search:
         """
         api_key = os.getenv("SERPER_API_KEY")
         if not api_key:
-            raise Exception("SERPER_API_KEY environment variable not set")
+            return {
+                "error": "SERPER_API_KEY environment variable not set",
+                "message": "To use Serper API, set the SERPER_API_KEY environment variable. Get your API key at https://serper.dev/",
+                "alternative": "Try using a different search method instead"
+            }
 
         url = "https://google.serper.dev/search"
 
@@ -117,8 +131,14 @@ class Search:
             "autocorrect": autocorrect
         }
 
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-
-        return response.json()
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {
+                "error": f"Serper API request failed: {str(e)}",
+                "message": "The API request encountered an error. Check your API key and internet connection.",
+                "alternative": "Try using a different search method instead"
+            }
 
