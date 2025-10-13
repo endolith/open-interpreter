@@ -78,6 +78,8 @@ A python `computer` module is ALREADY IMPORTED, and can be used for many tasks:
 
 Do not import the computer module, or any of its sub-modules. They are already imported.
 
+Use help(computer.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.
+
     """.strip()
 
     # Shortcut for computer.terminal.languages
