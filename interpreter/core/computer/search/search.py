@@ -49,9 +49,6 @@ class Search:
         Returns:
             dict: Search results from Brave API
 
-        Raises:
-            Exception: If BRAVE_API_KEY environment variable is not set
-
         Example:
             results = computer.search.brave("artificial intelligence", count=5)
             for result in results.get("web", {}).get("results", []):
@@ -95,9 +92,6 @@ class Search:
 
         Returns:
             dict: Search results from Serper API
-
-        Raises:
-            Exception: If SERPER_API_KEY environment variable is not set
 
         Example:
             results = computer.search.serper("machine learning tutorials")
