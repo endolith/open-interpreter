@@ -28,6 +28,7 @@ Example usage with external libraries:
 
 import os
 import json
+import locale
 import requests
 
 
@@ -35,15 +36,41 @@ class Search:
     def __init__(self, computer):
         self.computer = computer
 
-    def brave(self, query, count=10, country="US", search_lang="en", safesearch="moderate"):
+        # Get locale-based defaults for language and country
+        try:
+            # Try getdefaultlocale first (returns format like 'en_US')
+            loc = locale.getdefaultlocale()[0]
+            if loc and '_' in loc:
+                self._default_lang, self._default_country = loc.split('_')
+                self._default_lang = self._default_lang.lower()
+                self._default_country = self._default_country.upper()
+            else:
+                # Fallback to mapping common locale strings
+                loc_str = str(locale.getlocale()[0] or "")
+                if "English" in loc_str:
+                    self._default_lang = "en"
+                    if "United States" in loc_str:
+                        self._default_country = "US"
+                    elif "United Kingdom" in loc_str or "UK" in loc_str:
+                        self._default_country = "GB"
+                    else:
+                        self._default_country = "US"
+                else:
+                    self._default_lang = "en"
+                    self._default_country = "US"
+        except:
+            self._default_lang = "en"
+            self._default_country = "US"
+
+    def brave(self, query, count=10, country=None, search_lang=None, safesearch="moderate"):
         """
         Search using Brave Search API.
 
         Args:
             query (str): The search query
             count (int): Number of results to return (default: 10, max: 20)
-            country (str): Country code for localized results (default: "US")
-            search_lang (str): Language code for search (default: "en")
+            country (str): Country code for localized results (default: system locale)
+            search_lang (str): Language code for search (default: system locale)
             safesearch (str): Safe search level: "off", "moderate", or "strict" (default: "moderate")
 
         Returns:
@@ -54,6 +81,12 @@ class Search:
             for result in results.get("web", {}).get("results", []):
                 print(result["title"], result["url"])
         """
+        # Use locale-based defaults if not specified
+        if country is None:
+            country = self._default_country
+        if search_lang is None:
+            search_lang = self._default_lang
+
         api_key = os.getenv("BRAVE_API_KEY")
         if not api_key:
             return {
@@ -89,15 +122,15 @@ class Search:
                 "alternative": "Try using a different search method instead"
             }
 
-    def serper(self, query, num=10, gl="us", hl="en", autocorrect=True):
+    def serper(self, query, num=10, gl=None, hl=None, autocorrect=True):
         """
         Search using Serper API (Google search).
 
         Args:
             query (str): The search query
             num (int): Number of results to return (default: 10)
-            gl (str): Country code for localized results (default: "us")
-            hl (str): Language code for interface (default: "en")
+            gl (str): Country code for localized results (default: system locale)
+            hl (str): Language code for interface (default: system locale)
             autocorrect (bool): Whether to autocorrect the query (default: True)
 
         Returns:
@@ -108,6 +141,12 @@ class Search:
             for result in results.get("organic", []):
                 print(result["title"], result["link"])
         """
+        # Use locale-based defaults if not specified
+        if gl is None:
+            gl = self._default_country.lower()
+        if hl is None:
+            hl = self._default_lang
+
         api_key = os.getenv("SERPER_API_KEY")
         if not api_key:
             return {
