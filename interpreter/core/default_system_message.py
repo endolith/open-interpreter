@@ -1,9 +1,51 @@
 import getpass
 import platform
 import importlib.metadata
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import time
 
 def get_installed_packages():
     return sorted([dist.name.lower().replace('-', '_') for dist in importlib.metadata.distributions()])
+
+def get_location_info():
+    """
+    Attempts to get geographic location from the machine using multiple methods.
+    Returns a string with location and timezone information.
+    """
+    location_parts = []
+
+    # Get local timezone information (always available)
+    try:
+        local_tz = datetime.now().astimezone().tzinfo
+        tz_name = str(local_tz)
+        utc_offset = time.strftime('%z')
+        location_parts.append(f"Timezone: {tz_name} (UTC{utc_offset})")
+    except Exception:
+        pass
+
+    # Try IP-based geolocation (requires internet, non-blocking)
+    try:
+        import urllib.request
+        import json
+
+        # Use a fast, free geolocation API with short timeout
+        response = urllib.request.urlopen('http://ip-api.com/json/', timeout=1)
+        data = json.loads(response.read().decode())
+
+        if data.get('status') == 'success':
+            city = data.get('city', '')
+            region = data.get('regionName', '')
+            country = data.get('country', '')
+
+            geo_location = ', '.join(filter(None, [city, region, country]))
+            if geo_location:
+                location_parts.insert(0, f"IP-derived rough location: {geo_location} (verify location for accuracy before providing location-specific results)")
+    except Exception:
+        # Silently fail if no internet or API is down
+        pass
+
+    return '\n'.join(location_parts) if location_parts else "Location: Unknown"
 
 default_system_message = f"""
 # General Instructions
@@ -22,6 +64,7 @@ You are capable of **any** task.
 
 User's Name: {getpass.getuser()}
 User's OS: {platform.system()}
+{get_location_info()}
 
 # Available Python Packages
 
