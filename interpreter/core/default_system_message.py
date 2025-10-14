@@ -34,13 +34,9 @@ def get_location_info():
         data = json.loads(response.read().decode())
 
         if data.get('status') == 'success':
-            city = data.get('city', '')
-            region = data.get('regionName', '')
             country = data.get('country', '')
-
-            geo_location = ', '.join(filter(None, [city, region, country]))
-            if geo_location:
-                location_parts.insert(0, f"IP-derived rough location: {geo_location} (verify location for accuracy before providing location-specific results)")
+            if country:
+                location_parts.insert(0, f"Country: {country} (estimated from IP address)")
     except Exception:
         # Silently fail if no internet or API is down
         pass
