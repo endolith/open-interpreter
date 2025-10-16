@@ -74,6 +74,18 @@ import matplotlib.pyplot as plt
         for _ in self.run(code):
             pass
 
+        # Configure IPython display formatter to prefer markdown or plain text
+        # so that pandas doesn't output dataframes as HTML tables (which are
+        # then themselves executed).
+        ipython_config = """
+from IPython import get_ipython
+ip = get_ipython()
+ip.display_formatter.active_types = ['text/markdown', 'text/plain']
+""".strip()
+
+        for _ in self.run(ipython_config):
+            pass
+
         # DISABLED because it doesn't work??
         # Disable color outputs in the terminal, which don't look good in OI and aren't useful
         # code = """
