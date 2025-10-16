@@ -64,7 +64,9 @@ User's OS: {platform.system()}
 
 # Available Python Packages
 
-IMPORTANT: ONLY the following Python packages are installed and available:
+The following Python packages are installed and available for you to use:
 
 {' '.join(get_installed_packages())}
+
+You can also install other packages if necessary.
 """.strip()
