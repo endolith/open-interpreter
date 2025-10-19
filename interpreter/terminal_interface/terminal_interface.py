@@ -548,7 +548,34 @@ def terminal_interface(interpreter, message):
                 continue
             else:
                 break
-        except:
-            if interpreter.debug:
-                system_info(interpreter)
-            raise
+        except Exception as e:
+            # Handle specific LLM errors gracefully
+            from interpreter.core.llm.llm import FunctionCallingNotSupportedError, ModelNotFoundError, AccessDeniedError
+
+            if isinstance(e, FunctionCallingNotSupportedError):
+                # This should have been handled by the LLM fallback, but if it reaches here, show a clean message
+                print(f"\nError: Model doesn't support function calling. Please try with --no-llm_supports_functions flag.\n")
+                continue
+            elif isinstance(e, (ModelNotFoundError, AccessDeniedError)):
+                # Show clean error message without traceback
+                error_msg = str(e)
+                # Extract just the essential error message
+                if "OpenrouterException" in error_msg:
+                    # Extract JSON from OpenRouter error
+                    import json
+                    try:
+                        start = error_msg.find('{"error":')
+                        if start != -1:
+                            json_part = error_msg[start:]
+                            error_data = json.loads(json_part)
+                            error_msg = error_data.get("error", {}).get("message", error_msg)
+                    except:
+                        pass
+
+                print(f"\nError: {error_msg}\n")
+                continue
+            else:
+                # For other errors, show debug info if enabled and re-raise
+                if interpreter.debug:
+                    system_info(interpreter)
+                raise

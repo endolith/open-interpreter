@@ -100,6 +100,33 @@ def respond(interpreter):
                 break
 
             except Exception as e:
+                # Handle our custom exceptions first
+                from interpreter.core.llm.llm import FunctionCallingNotSupportedError, ModelNotFoundError, AccessDeniedError
+
+                if isinstance(e, FunctionCallingNotSupportedError):
+                    # This should have been handled by the LLM fallback, but if it reaches here, show a clean message
+                    interpreter.display_message(f"\nModel doesn't support function calling. Please try with --no-llm_supports_functions flag.\n")
+                    return
+                elif isinstance(e, (ModelNotFoundError, AccessDeniedError)):
+                    # Show clean error message without traceback
+                    error_msg = str(e)
+                    # Extract just the essential error message
+                    if "OpenrouterException" in error_msg:
+                        # Extract JSON from OpenRouter error
+                        import json
+                        try:
+                            start = error_msg.find('{"error":')
+                            if start != -1:
+                                json_part = error_msg[start:]
+                                error_data = json.loads(json_part)
+                                error_msg = error_data.get("error", {}).get("message", error_msg)
+                        except:
+                            pass
+
+                    interpreter.display_message(f"\nError: {error_msg}\n")
+                    return
+
+                # Continue with existing error handling
                 error_message = str(e).lower()
                 if (
                     interpreter.offline == False
