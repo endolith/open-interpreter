@@ -344,8 +344,7 @@ Continuing...
                     yield from run_tool_calling_llm(self, params)
                 except FunctionCallingNotSupportedError as e:
                     # Model doesn't support function calling, fall back to text mode
-                    if self.interpreter.verbose:
-                        print(f"Model doesn't support function calling, falling back to text mode: {e}")
+                    print(f"\nModel doesn't support function calling, falling back to text mode.\n")
                     self.supports_functions = False
                     # Re-convert messages for text mode
                     messages = convert_to_openai_messages(
@@ -506,15 +505,17 @@ def fixed_litellm_completions(**params):
                 first_error = e
 
             # Check if this is a function calling not supported error
-            error_message = str(e).lower()
-            if any(phrase in error_message for phrase in [
-                "no endpoints found that support tool use",
-                "tool use",
-                "function calling",
-                "tool calling"
-            ]):
-                # This is a function calling not supported error - raise it as a special exception
-                raise FunctionCallingNotSupportedError(str(e)) from e
+            # Only check for this if we're actually trying to use function calling (tools parameter present)
+            if "tools" in params:
+                error_message = str(e).lower()
+                if any(phrase in error_message for phrase in [
+                    "no endpoints found that support tool use",
+                    "tool use",
+                    "function calling",
+                    "tool calling"
+                ]):
+                    # This is a function calling not supported error - raise it as a special exception
+                    raise FunctionCallingNotSupportedError(str(e)) from e
 
             # Check for other common API errors that should be shown cleanly
             if isinstance(e, litellm.exceptions.NotFoundError):
