@@ -500,15 +500,8 @@ def fixed_litellm_completions(**params):
                     raise FunctionCallingNotSupportedError(str(e)) from e
 
             # Check for other common API errors that should be shown cleanly
-            if isinstance(e, litellm.exceptions.NotFoundError):
-                # Extract the actual error message from the exception
-                error_str = str(e)
-                if "model" in error_str.lower() and ("does not exist" in error_str.lower() or "not found" in error_str.lower()):
-                    # This is a model not found error - show clean message
-                    raise ModelNotFoundError(error_str) from e
-                elif "access" in error_str.lower():
-                    # This is an access denied error - show clean message
-                    raise AccessDeniedError(error_str) from e
+            # Don't convert these errors - let them bubble up to respond.py for proper handling
+            # The existing fallback logic in respond.py handles model access issues
 
             if (
                 isinstance(e, litellm.exceptions.AuthenticationError)
