@@ -100,17 +100,6 @@ def respond(interpreter):
                 break
 
             except Exception as e:
-                # Handle our custom exceptions first
-                from interpreter.core.llm.llm import FunctionCallingNotSupportedError, ModelNotFoundError, AccessDeniedError
-
-                if isinstance(e, FunctionCallingNotSupportedError):
-                    # This should have been handled by the LLM fallback, but if it reaches here, show a clean message
-                    interpreter.display_message(f"\n▌ Model doesn't support function calling. Please try with --no-llm_supports_functions flag.\n")
-                    return
-                elif isinstance(e, (ModelNotFoundError, AccessDeniedError)):
-                    # Let the existing fallback logic handle these errors
-                    pass
-
                 # Continue with existing error handling
                 error_message = str(e).lower()
                 if (
