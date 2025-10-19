@@ -30,7 +30,7 @@ def get_oi_version():
         pkg_ver = version("open-interpreter")
     except PackageNotFoundError:
         pkg_ver = None
-    oi_version = oi_version_cmd, pkg_ver
+    oi_version = oi_version_cmd.strip(), pkg_ver.strip()
     return oi_version
 
 
@@ -99,8 +99,7 @@ def interpreter_info(interpreter):
             messages_to_display.append(message)
 
         return f"""
-
-# Interpreter Info
+## Interpreter Info
 
 Vision: {interpreter.llm.supports_vision}
 Model: {interpreter.llm.model}
@@ -115,9 +114,15 @@ Offline: {interpreter.offline}
 
 Curl output: {curl}
 
-# Messages
+## Messages
 
-System Message: {interpreter.system_message}
+System Message:
+
+----
+
+{interpreter.system_message}
+
+----
 
 """ + "\n\n".join(
             [str(m) for m in messages_to_display]
@@ -130,9 +135,13 @@ def system_info(interpreter):
     oi_version = get_oi_version()
     print(
         f"""
+## System Debug Info
+
 Python Version: {get_python_version()}
 Pip Version: {get_pip_version()}
-Open-interpreter Version: cmd: {oi_version[0]}, pkg: {oi_version[1]}
+Open-interpreter Version:
+- cmd: {oi_version[0]}
+- pkg: {oi_version[1]}
 OS Version and Architecture: {get_os_version()}
 CPU Info: {get_cpu_info()}
 RAM Info: {get_ram_info()}
