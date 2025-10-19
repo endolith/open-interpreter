@@ -100,26 +100,26 @@ def interpreter_info(interpreter):
 
         return f"""
 
-        # Interpreter Info
-        
-        Vision: {interpreter.llm.supports_vision}
-        Model: {interpreter.llm.model}
-        Function calling: {interpreter.llm.supports_functions}
-        Context window: {interpreter.llm.context_window}
-        Max tokens: {interpreter.llm.max_tokens}
-        Computer API: {interpreter.computer.import_computer_api}
+# Interpreter Info
 
-        Auto run: {interpreter.auto_run}
-        API base: {interpreter.llm.api_base}
-        Offline: {interpreter.offline}
+Vision: {interpreter.llm.supports_vision}
+Model: {interpreter.llm.model}
+Function calling: {interpreter.llm.supports_functions}
+Context window: {interpreter.llm.context_window}
+Max tokens: {interpreter.llm.max_tokens}
+Computer API: {interpreter.computer.import_computer_api}
 
-        Curl output: {curl}
+Auto run: {interpreter.auto_run}
+API base: {interpreter.llm.api_base}
+Offline: {interpreter.offline}
 
-        # Messages
+Curl output: {curl}
 
-        System Message: {interpreter.system_message}
+# Messages
 
-        """ + "\n\n".join(
+System Message: {interpreter.system_message}
+
+""" + "\n\n".join(
             [str(m) for m in messages_to_display]
         )
     except:
@@ -130,14 +130,14 @@ def system_info(interpreter):
     oi_version = get_oi_version()
     print(
         f"""
-        Python Version: {get_python_version()}
-        Pip Version: {get_pip_version()}
-        Open-interpreter Version: cmd: {oi_version[0]}, pkg: {oi_version[1]}
-        OS Version and Architecture: {get_os_version()}
-        CPU Info: {get_cpu_info()}
-        RAM Info: {get_ram_info()}
-        {interpreter_info(interpreter)}
-    """
+Python Version: {get_python_version()}
+Pip Version: {get_pip_version()}
+Open-interpreter Version: cmd: {oi_version[0]}, pkg: {oi_version[1]}
+OS Version and Architecture: {get_os_version()}
+CPU Info: {get_cpu_info()}
+RAM Info: {get_ram_info()}
+{interpreter_info(interpreter)}
+"""
     )
 
     # Removed the following, as it causes `FileNotFoundError: [Errno 2] No such file or directory: 'pyproject.toml'`` on prod
