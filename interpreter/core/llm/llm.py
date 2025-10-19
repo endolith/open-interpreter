@@ -337,45 +337,27 @@ Continuing...
                 print("\n")
             print("\n\n\n")
 
-        try:
-            if self.supports_functions:
-                # yield from run_function_calling_llm(self, params)
-                try:
-                    yield from run_tool_calling_llm(self, params)
-                except FunctionCallingNotSupportedError as e:
-                    # Model doesn't support function calling, fall back to text mode
-                    print(f"\nModel doesn't support function calling, falling back to text mode.\n")
-                    self.supports_functions = False
-                    # Re-convert messages for text mode
-                    messages = convert_to_openai_messages(
-                        self.interpreter.messages,
-                        function_calling=False,
-                        vision=self.supports_vision,
-                        shrink_images=self.interpreter.shrink_images,
-                        interpreter=self.interpreter,
-                    )
-                    params["messages"] = messages
-                    yield from run_text_llm(self, params)
-            else:
+        if self.supports_functions:
+            # yield from run_function_calling_llm(self, params)
+            try:
+                yield from run_tool_calling_llm(self, params)
+            except FunctionCallingNotSupportedError as e:
+                # Model doesn't support function calling, fall back to text mode
+                print(f"\n▌ Model doesn't support function calling, falling back to text mode.\n")
+                self.supports_functions = False
+                # Re-convert messages for text mode
+                messages = convert_to_openai_messages(
+                    self.interpreter.messages,
+                    function_calling=False,
+                    vision=self.supports_vision,
+                    shrink_images=self.interpreter.shrink_images,
+                    interpreter=self.interpreter,
+                )
+                params["messages"] = messages
                 yield from run_text_llm(self, params)
-        except (ModelNotFoundError, AccessDeniedError) as e:
-            # Show clean error message without traceback
-            error_msg = str(e)
-            # Extract just the essential error message
-            if "OpenrouterException" in error_msg:
-                # Extract JSON from OpenRouter error
-                import json
-                try:
-                    start = error_msg.find('{"error":')
-                    if start != -1:
-                        json_part = error_msg[start:]
-                        error_data = json.loads(json_part)
-                        error_msg = error_data.get("error", {}).get("message", error_msg)
-                except:
-                    pass
-
-            print(f"\nError: {error_msg}\n")
-            raise
+        else:
+            yield from run_text_llm(self, params)
+        # Let ModelNotFoundError and AccessDeniedError bubble up to respond.py for proper handling
 
     # If you change model, set _is_loaded to false
     @property
