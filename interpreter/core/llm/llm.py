@@ -23,6 +23,21 @@ from .run_text_llm import run_text_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 
+
+class FunctionCallingNotSupportedError(Exception):
+    """Raised when a model doesn't support function calling"""
+    pass
+
+
+class ModelNotFoundError(Exception):
+    """Raised when a model doesn't exist or isn't accessible"""
+    pass
+
+
+class AccessDeniedError(Exception):
+    """Raised when access to a model is denied"""
+    pass
+
 # Create or get the logger
 logger = logging.getLogger("LiteLLM")
 
@@ -322,11 +337,46 @@ Continuing...
                 print("\n")
             print("\n\n\n")
 
-        if self.supports_functions:
-            # yield from run_function_calling_llm(self, params)
-            yield from run_tool_calling_llm(self, params)
-        else:
-            yield from run_text_llm(self, params)
+        try:
+            if self.supports_functions:
+                # yield from run_function_calling_llm(self, params)
+                try:
+                    yield from run_tool_calling_llm(self, params)
+                except FunctionCallingNotSupportedError as e:
+                    # Model doesn't support function calling, fall back to text mode
+                    if self.interpreter.verbose:
+                        print(f"Model doesn't support function calling, falling back to text mode: {e}")
+                    self.supports_functions = False
+                    # Re-convert messages for text mode
+                    messages = convert_to_openai_messages(
+                        self.interpreter.messages,
+                        function_calling=False,
+                        vision=self.supports_vision,
+                        shrink_images=self.interpreter.shrink_images,
+                        interpreter=self.interpreter,
+                    )
+                    params["messages"] = messages
+                    yield from run_text_llm(self, params)
+            else:
+                yield from run_text_llm(self, params)
+        except (ModelNotFoundError, AccessDeniedError) as e:
+            # Show clean error message without traceback
+            error_msg = str(e)
+            # Extract just the essential error message
+            if "OpenrouterException" in error_msg:
+                # Extract JSON from OpenRouter error
+                import json
+                try:
+                    start = error_msg.find('{"error":')
+                    if start != -1:
+                        json_part = error_msg[start:]
+                        error_data = json.loads(json_part)
+                        error_msg = error_data.get("error", {}).get("message", error_msg)
+                except:
+                    pass
+
+            print(f"\nError: {error_msg}\n")
+            raise
 
     # If you change model, set _is_loaded to false
     @property
@@ -454,6 +504,29 @@ def fixed_litellm_completions(**params):
             if attempt == 0:
                 # Store the first error
                 first_error = e
+
+            # Check if this is a function calling not supported error
+            error_message = str(e).lower()
+            if any(phrase in error_message for phrase in [
+                "no endpoints found that support tool use",
+                "tool use",
+                "function calling",
+                "tool calling"
+            ]):
+                # This is a function calling not supported error - raise it as a special exception
+                raise FunctionCallingNotSupportedError(str(e)) from e
+
+            # Check for other common API errors that should be shown cleanly
+            if isinstance(e, litellm.exceptions.NotFoundError):
+                # Extract the actual error message from the exception
+                error_str = str(e)
+                if "model" in error_str.lower() and ("does not exist" in error_str.lower() or "not found" in error_str.lower()):
+                    # This is a model not found error - show clean message
+                    raise ModelNotFoundError(error_str) from e
+                elif "access" in error_str.lower():
+                    # This is an access denied error - show clean message
+                    raise AccessDeniedError(error_str) from e
+
             if (
                 isinstance(e, litellm.exceptions.AuthenticationError)
                 and "api_key" not in params
