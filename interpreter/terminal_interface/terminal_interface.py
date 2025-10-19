@@ -549,15 +549,7 @@ def terminal_interface(interpreter, message):
             else:
                 break
         except Exception as e:
-            # Handle specific LLM errors gracefully
-            from interpreter.core.llm.llm import FunctionCallingNotSupportedError
-
-            if isinstance(e, FunctionCallingNotSupportedError):
-                # This should have been handled by the LLM fallback, but if it reaches here, show a clean message
-                print(f"\n▌ Model doesn't support function calling. Please try with --no-llm_supports_functions flag.\n")
-                continue
-            else:
-                # For other errors, show debug info if enabled and re-raise
-                if interpreter.debug:
-                    system_info(interpreter)
-                raise
+            # For errors, show debug info if enabled and re-raise
+            if interpreter.debug:
+                system_info(interpreter)
+            raise
