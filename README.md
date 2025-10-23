@@ -197,7 +197,7 @@ interpreter.llm.model = "gpt-3.5-turbo"
 
 ### Running Open Interpreter locally
 
-#### Terminal
+#### Running with Local Models
 
 Open Interpreter can use OpenAI-compatible server to run models locally (in LM Studio, Jan.ai, Ollama, etc.)
 
