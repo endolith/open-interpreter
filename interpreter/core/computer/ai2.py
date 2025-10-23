@@ -136,9 +136,7 @@ class Ai2:
             if self.litellm_api_key:
                 break
 
-        # Set up LiteLLM with the API key
-        if self.litellm_api_key:
-            litellm.api_key = self.litellm_api_key
+        # Don't set litellm.api_key globally - pass it per request instead
 
         # ------------------------------------------------------------------
         # Fetch & cache model list
@@ -203,11 +201,16 @@ class Ai2:
 
         # Use LiteLLM for basic text generation (supports any compatible model)
         try:
-            response = litellm.completion(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-            )
+            # Pass API key directly to avoid global interference
+            completion_kwargs = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if self.litellm_api_key:
+                completion_kwargs["api_key"] = self.litellm_api_key
+
+            response = litellm.completion(**completion_kwargs)
             return response.choices[0].message.content.strip()
         except Exception as e:
             # If LiteLLM fails, fall back to OpenAI if available
