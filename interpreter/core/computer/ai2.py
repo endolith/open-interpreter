@@ -192,6 +192,36 @@ class Ai2:
                     return key
             return None
 
+    def _get_max_tokens_for_model(self, model: str) -> int:
+        """Get appropriate max_tokens for a given model to avoid context window issues.
+
+        Parameters
+        ----------
+        model : str
+            The model identifier
+
+        Returns
+        -------
+        int
+            Maximum tokens to request for this model
+        """
+        if not model:
+            return 1000
+
+        # Conservative defaults for different model types
+        if "qwen" in model.lower():
+            return 500  # Qwen models often have smaller context windows
+        elif "llama" in model.lower():
+            return 800
+        elif "claude" in model.lower():
+            return 1000
+        elif "gpt" in model.lower():
+            return 1000
+        elif "gemini" in model.lower():
+            return 1000
+        else:
+            return 500  # Conservative default for unknown models
+
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
@@ -231,14 +261,16 @@ class Ai2:
 
         # Use LiteLLM for basic text generation (supports any compatible model)
         try:
-            # Get the appropriate API key for this model
+            # Get the appropriate API key and max_tokens for this model
             api_key = self._get_api_key_for_model(model)
+            max_tokens = self._get_max_tokens_for_model(model)
 
             # Pass API key directly to avoid global interference
             completion_kwargs = {
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
+                "max_tokens": max_tokens,
             }
             if api_key:
                 completion_kwargs["api_key"] = api_key
@@ -253,6 +285,7 @@ class Ai2:
                         model=model,
                         messages=messages,
                         temperature=temperature,
+                        max_tokens=self._get_max_tokens_for_model(model),
                     )
                     return response.choices[0].message.content.strip()
                 except Exception as openai_error:
