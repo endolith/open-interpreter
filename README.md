@@ -1,4 +1,4 @@
-<h1 align="center">● Open Interpreter</h1>
+# ● Open Interpreter
 
 <p align="center">
     <a href="https://discord.gg/Hvz9Axh84z">
@@ -12,8 +12,6 @@
     <br>
     <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentation</a><br>
 </p>
-
-<br>
 
 <img alt="local_explorer" src="https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a">
 
@@ -32,17 +30,15 @@ This provides a natural-language interface to your computer's general-purpose ca
 
 **⚠️ Note: You'll be asked to approve code before it's run.**
 
-<br>
-
 ## Demo
 
 https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
 
-#### An interactive demo is also available on Google Colab:
+### An interactive demo is also available on Google Colab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WKmRXZgsErej2xUriKzxrEAXdxMSgWbb?usp=sharing)
 
-#### Along with an example voice interface, inspired by _Her_:
+### Along with an example voice interface, inspired by _Her_
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1NojYGHDgxH6Y1G1oxThEBBb2AtyODBIK)
 
@@ -284,7 +280,7 @@ This provides a flexible way to configure the interpreter without changing comma
 
 Run the following command to open the profiles directory:
 
-```
+```shell
 interpreter --profiles
 ```
 
@@ -294,7 +290,7 @@ You can add `yaml` files there. The default profile is named `default.yaml`.
 
 Open Interpreter supports multiple `yaml` files, allowing you to easily switch between configurations:
 
-```
+```shell
 interpreter --profile my_profile.yaml
 ```
 
@@ -355,7 +351,7 @@ Open Interpreter equips a [function-calling language model](https://platform.ope
 
 We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
 
-# Access Documentation Offline
+## Access Documentation Offline
 
 The full [documentation](https://docs.openinterpreter.com/) is accessible on-the-go without the need for an internet connection.
 
@@ -383,13 +379,13 @@ mintlify dev
 
 A new browser window should open. The documentation will be available at [http://localhost:3000](http://localhost:3000) as long as the documentation server is running.
 
-# Contributing
+## Contributing
 
 Thank you for your interest in contributing! We welcome involvement from the community.
 
 Please see our [contributing guidelines](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/CONTRIBUTING.md) for more details on how to get involved.
 
-# Roadmap
+## Roadmap
 
 Visit [our roadmap](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) to preview the future of Open Interpreter.
 
@@ -400,5 +396,3 @@ Visit [our roadmap](https://github.com/OpenInterpreter/open-interpreter/blob/mai
 > Having access to a junior programmer working at the speed of your fingertips ... can make new workflows effortless and efficient, as well as open the benefits of programming to new audiences.
 >
 > — _OpenAI's Code Interpreter Release_
-
-<br>
