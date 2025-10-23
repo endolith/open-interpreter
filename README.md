@@ -1,4 +1,4 @@
-<h1 align="center">● Open Interpreter</h1>
+# ● Open Interpreter
 
 <p align="center">
     <a href="https://discord.gg/Hvz9Axh84z">
@@ -16,8 +16,6 @@
     <br>
     <br><a href="https://www.openinterpreter.com/">Desktop App</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href="docs">Documentation</a><br>
 </p>
-
-<br>
 
 ![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
@@ -301,7 +299,7 @@ This provides a flexible way to configure the interpreter without changing comma
 
 Run the following command to open the profiles directory:
 
-```
+```shell
 interpreter --profiles
 ```
 
@@ -311,7 +309,7 @@ You can add `yaml` files there. The default profile is named `default.yaml`.
 
 Open Interpreter supports multiple `yaml` files, allowing you to easily switch between configurations:
 
-```
+```shell
 interpreter --profile my_profile.yaml
 ```
 
