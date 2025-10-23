@@ -2,6 +2,7 @@ import os
 from enum import Enum
 from typing import Dict, List
 
+import litellm
 from openai import OpenAI
 from pydantic import BaseModel, Field, create_model
 
@@ -9,7 +10,8 @@ from pydantic import BaseModel, Field, create_model
 class Ai2:
     """
     Lightweight helper for delegating small, *stateless* AI tasks to a hosted
-    LLM (OpenAI, OpenRouter, etc.) using OpenAI API.
+    LLM using a hybrid approach: LiteLLM for basic text generation, OpenAI for
+    structured outputs.
 
     Unlike the existing `computer.ai` which preserves the full Open Interpreter
     conversation and supports chunk-level map-reduce workflows, **Ai2** is
@@ -22,6 +24,32 @@ class Ai2:
     • Provides a handful of strongly-typed convenience helpers so your scripts
       can *delegate* cognitive subtasks without having to worry about prompt
       engineering or token limits.
+    • Uses hybrid approach: LiteLLM for basic responses, OpenAI for structured outputs
+
+    ----------------------------------------------------------------------
+    Supported Models and Methods
+    ----------------------------------------------------------------------
+    • single_response(): Works with ANY LiteLLM compatible model including:
+      - OpenAI models: gpt-4o-mini, gpt-4o, gpt-3.5-turbo, etc.
+      - OpenRouter models: openrouter/qwen/qwen3-4b:free, etc.
+      - Anthropic models: claude-3-haiku-20240307, etc.
+      - Google models: gemini-pro, etc.
+      - And many more providers supported by LiteLLM
+
+    • boolean_query() and choice_query(): Require OpenAI models with structured
+      output support (gpt-4o, gpt-4o-mini, etc.) due to OpenRouter limitations
+
+    ----------------------------------------------------------------------
+    API Key Configuration
+    ----------------------------------------------------------------------
+    Ai2 automatically detects API keys from environment variables:
+    • OPENAI_API_KEY - for OpenAI models (required for structured outputs)
+    • OPENROUTER_API_KEY - for OpenRouter models (get free key at https://openrouter.ai/)
+    • ANTHROPIC_API_KEY - for Anthropic models
+    • GOOGLE_API_KEY - for Google models
+    • COHERE_API_KEY - for Cohere models
+    • HUGGINGFACE_API_KEY - for Hugging Face models
+    • LITELLM_API_KEY - for general LiteLLM usage
 
     ----------------------------------------------------------------------
     Public interface
@@ -29,7 +57,7 @@ class Ai2:
     Attributes
     ----------
     available_models : list[str]
-        Cached list of model IDs returned from ``client.models.list()`` at
+        Cached list of model IDs returned from LiteLLM model list at
         instantiation time.  Use this to inspect which hosted models your API
         key has access to.
 
@@ -42,15 +70,33 @@ class Ai2:
     -------
     single_response(instruction, content, *, model=None, temperature=0.0)
         Send a single user message under a custom system prompt and return the
-        raw text output.
+        raw text output. Works with ANY LiteLLM compatible model.
 
     boolean_query(instruction, content, *, model=None, temperature=0.0)
-        Return a strict boolean result. Helpful for yes/no validations where
-        free-form text would be hard to parse.
+        Return a strict boolean result using OpenAI structured outputs.
+        Requires OpenAI models (gpt-4o, gpt-4o-mini, etc.).
 
     choice_query(instruction, content, choices, *, model=None, temperature=0.0)
-        Force the model to pick exactly one item from ``choices`` and return it
-        as a string.
+        Force the model to pick exactly one item from ``choices`` using OpenAI
+        structured outputs. Requires OpenAI models (gpt-4o, gpt-4o-mini, etc.).
+
+    Examples
+    --------
+    >>> from interpreter.core.computer.ai2 import ai2
+    >>>
+    >>> # Use OpenRouter free model for basic text generation
+    >>> response = ai2.single_response(
+    ...     instruction="Summarize this text",
+    ...     content="Long text here...",
+    ...     model="openrouter/qwen/qwen3-4b:free"
+    ... )
+    >>>
+    >>> # Use OpenAI model for structured outputs
+    >>> is_valid = ai2.boolean_query(
+    ...     instruction="Is this text about AI?",
+    ...     content="Machine learning is fascinating",
+    ...     model="gpt-4o-mini"  # Must use OpenAI model
+    ... )
     """
 
     def __init__(self, computer=None, default_model: str = None,
@@ -65,20 +111,43 @@ class Ai2:
         self.temperature = temperature
 
         # Re-use the same API key the main interpreter is using (or env var)
-        self.api_key = None
+        self.openai_api_key = None
         if computer and hasattr(computer.interpreter, "llm") and computer.interpreter.llm:
-            self.api_key = getattr(computer.interpreter.llm, "api_key", None) or None
-        self.api_key = self.api_key or os.getenv("OPENAI_API_KEY")
+            self.openai_api_key = getattr(computer.interpreter.llm, "api_key", None) or None
+        self.openai_api_key = self.openai_api_key or os.getenv("OPENAI_API_KEY")
 
-        self.client = OpenAI(api_key=self.api_key)
+        # Set up OpenAI client for structured outputs
+        self.client = OpenAI(api_key=self.openai_api_key) if self.openai_api_key else None
+
+        # Set up LiteLLM for basic text generation
+        # Try different API key environment variables for different providers
+        self.litellm_api_key = None
+        api_key_vars = [
+            "OPENAI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "COHERE_API_KEY",
+            "HUGGINGFACE_API_KEY",
+            "LITELLM_API_KEY"
+        ]
+        for var in api_key_vars:
+            self.litellm_api_key = os.getenv(var)
+            if self.litellm_api_key:
+                break
+
+        # Set up LiteLLM with the API key
+        if self.litellm_api_key:
+            litellm.api_key = self.litellm_api_key
 
         # ------------------------------------------------------------------
         # Fetch & cache model list
         # ------------------------------------------------------------------
         try:
-            models_response = self.client.models.list()
-            # Each item has an .id attribute – store as simple list[str]
-            self._available_models: List[str] = [model.id for model in models_response.data]
+            # Get available models from LiteLLM
+            models_response = litellm.model_list()
+            # Extract model IDs from the response
+            self._available_models: List[str] = [model.get("id", model.get("model_name", "")) for model in models_response if model.get("id") or model.get("model_name")]
         except Exception:
             # Swallow errors (network issues, permissions) – callers can still
             # pass any valid model ID even if pre-fetch failed.
@@ -131,12 +200,29 @@ class Ai2:
         temperature = self._get_temperature_for_model(
             model, kwargs.get("temperature", self.temperature)
         )
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-        )
-        return response.choices[0].message.content.strip()
+
+        # Use LiteLLM for basic text generation (supports any compatible model)
+        try:
+            response = litellm.completion(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            # If LiteLLM fails, fall back to OpenAI if available
+            if self.client and model.startswith("gpt-"):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                    )
+                    return response.choices[0].message.content.strip()
+                except Exception as openai_error:
+                    raise RuntimeError(f"Both LiteLLM and OpenAI failed. LiteLLM error: {e}, OpenAI error: {openai_error}") from e
+            else:
+                raise RuntimeError(f"LiteLLM error with model '{model}': {e}") from e
 
     def boolean_query(self, instruction: str, content: str, **kwargs) -> bool:
         """Call an LLM to return a strict boolean.
@@ -168,6 +254,10 @@ class Ai2:
         False
         """
 
+        # Check if OpenAI client is available for structured outputs
+        if not self.client:
+            raise RuntimeError("OpenAI API key required for boolean_query. Please set OPENAI_API_KEY environment variable.")
+
         class _BoolResp(BaseModel):
             thoughts: str = Field(..., description="Reasoning")
             value: bool = Field(..., description="Query result")
@@ -176,17 +266,20 @@ class Ai2:
         temperature = self._get_temperature_for_model(
             model, kwargs.get("temperature", self.temperature)
         )
-        response = self.client.responses.parse(
-            model=model,
-            input=[
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": content},
-            ],
-            text_format=_BoolResp,
-            temperature=temperature,
-        )
 
-        return bool(response.output_parsed.value)
+        try:
+            response = self.client.responses.parse(
+                model=model,
+                input=[
+                    {"role": "system", "content": instruction},
+                    {"role": "user", "content": content},
+                ],
+                text_format=_BoolResp,
+                temperature=temperature,
+            )
+            return bool(response.output_parsed.value)
+        except Exception as e:
+            raise RuntimeError(f"OpenAI structured output error with model '{model}': {e}") from e
 
     # ------------------------------------------------------------------
     # Multiple-choice helper
@@ -228,6 +321,10 @@ class Ai2:
         'Cat'
         """
 
+        # Check if OpenAI client is available for structured outputs
+        if not self.client:
+            raise RuntimeError("OpenAI API key required for choice_query. Please set OPENAI_API_KEY environment variable.")
+
         # Dynamically create an Enum for pydantic
         _ChoiceEnum = Enum("AnswerEnum", {c: c for c in choices})
 
@@ -242,17 +339,20 @@ class Ai2:
         temperature = self._get_temperature_for_model(
             model, kwargs.get("temperature", self.temperature)
         )
-        response = self.client.responses.parse(
-            model=model,
-            input=[
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": content},
-            ],
-            text_format=_ChoiceResp,
-            temperature=temperature,
-        )
 
-        return str(response.output_parsed.answer.value)
+        try:
+            response = self.client.responses.parse(
+                model=model,
+                input=[
+                    {"role": "system", "content": instruction},
+                    {"role": "user", "content": content},
+                ],
+                text_format=_ChoiceResp,
+                temperature=temperature,
+            )
+            return str(response.output_parsed.answer.value)
+        except Exception as e:
+            raise RuntimeError(f"OpenAI structured output error with model '{model}': {e}") from e
 
     # ------------------------------------------------------------------
     # Read-only properties exposed for tool discovery
