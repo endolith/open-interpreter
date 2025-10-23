@@ -119,22 +119,16 @@ class Ai2:
         # Set up OpenAI client for structured outputs
         self.client = OpenAI(api_key=self.openai_api_key) if self.openai_api_key else None
 
-        # Set up LiteLLM for basic text generation
-        # Try different API key environment variables for different providers
-        self.litellm_api_key = None
-        api_key_vars = [
-            "OPENAI_API_KEY",
-            "OPENROUTER_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "COHERE_API_KEY",
-            "HUGGINGFACE_API_KEY",
-            "LITELLM_API_KEY"
-        ]
-        for var in api_key_vars:
-            self.litellm_api_key = os.getenv(var)
-            if self.litellm_api_key:
-                break
+        # Store all available API keys for different providers
+        self.api_keys = {
+            "openai": os.getenv("OPENAI_API_KEY"),
+            "openrouter": os.getenv("OPENROUTER_API_KEY"),
+            "anthropic": os.getenv("ANTHROPIC_API_KEY"),
+            "google": os.getenv("GOOGLE_API_KEY"),
+            "cohere": os.getenv("COHERE_API_KEY"),
+            "huggingface": os.getenv("HUGGINGFACE_API_KEY"),
+            "litellm": os.getenv("LITELLM_API_KEY")
+        }
 
         # Don't set litellm.api_key globally - pass it per request instead
 
@@ -161,6 +155,42 @@ class Ai2:
         if model and (model.startswith("gpt-5") or model.startswith("o1") or model.startswith("o3")):
             return 1.0
         return requested_temperature
+
+    def _get_api_key_for_model(self, model: str) -> str:
+        """Get the appropriate API key for a given model.
+
+        Parameters
+        ----------
+        model : str
+            The model identifier
+
+        Returns
+        -------
+        str
+            The API key for the model's provider, or None if not available
+        """
+        if not model:
+            return None
+
+        # Determine provider based on model name
+        if model.startswith("openrouter/"):
+            return self.api_keys["openrouter"]
+        elif model.startswith("claude-") or model.startswith("anthropic/"):
+            return self.api_keys["anthropic"]
+        elif model.startswith("gemini-") or model.startswith("google/"):
+            return self.api_keys["google"]
+        elif model.startswith("command") or model.startswith("cohere/"):
+            return self.api_keys["cohere"]
+        elif model.startswith("gpt-") or model.startswith("openai/"):
+            return self.api_keys["openai"]
+        elif model.startswith("huggingface/") or model.startswith("hf/"):
+            return self.api_keys["huggingface"]
+        else:
+            # For unknown models, try to find any available API key
+            for key in self.api_keys.values():
+                if key:
+                    return key
+            return None
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -201,14 +231,17 @@ class Ai2:
 
         # Use LiteLLM for basic text generation (supports any compatible model)
         try:
+            # Get the appropriate API key for this model
+            api_key = self._get_api_key_for_model(model)
+
             # Pass API key directly to avoid global interference
             completion_kwargs = {
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
             }
-            if self.litellm_api_key:
-                completion_kwargs["api_key"] = self.litellm_api_key
+            if api_key:
+                completion_kwargs["api_key"] = api_key
 
             response = litellm.completion(**completion_kwargs)
             return response.choices[0].message.content.strip()
