@@ -32,7 +32,7 @@ This provides a natural-language interface to your computer's general-purpose ca
 
 ## Demo
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+<https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60>
 
 ### An interactive demo is also available on Google Colab
 
