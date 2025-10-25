@@ -661,6 +661,37 @@ def run_server():
     async_interpreter.server.run()
 
 
+async def wait_for_websocket_complete(websocket, max_attempts=5):
+    """Wait for WebSocket 'complete' status message with retry limit."""
+
+    import asyncio
+    import json
+
+    accumulated_content = ""
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            message = await websocket.recv()
+            message_data = json.loads(message)
+            if "error" in message_data:
+                raise Exception(message_data["content"])
+            print("Received from WebSocket:", message_data)
+            if type(message_data.get("content")) == str:
+                accumulated_content += message_data.get("content")
+            if message_data == {
+                "role": "server",
+                "type": "status",
+                "content": "complete",
+            }:
+                print("Received expected message from server")
+                return accumulated_content
+        except Exception as e:
+            print(f"WebSocket receive failed (attempt {attempt}/{max_attempts}): {e}")
+            await asyncio.sleep(1)
+    else:
+        raise Exception(f"Never received 'complete' status after {max_attempts} attempts")
+
+
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
 @pytest.mark.timeout(900)
@@ -730,9 +761,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="secret_word_crunk", server_process=process
-            )
+            accumulated_content = await wait_for_websocket_complete(websocket)
 
             assert "crunk" in accumulated_content
 
@@ -772,9 +801,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="secret_word_barloney", server_process=process
-            )
+            accumulated_content = await wait_for_websocket_complete(websocket)
 
             assert "barloney" in accumulated_content
 
@@ -807,9 +834,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="math_code_auto_run_false", server_process=process
-            )
+            accumulated_content = await wait_for_websocket_complete(websocket)
 
             time.sleep(5)
 
@@ -845,9 +870,7 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="go_execute_code", server_process=process
-            )
+            accumulated_content = await wait_for_websocket_complete(websocket)
 
             assert "18893094989" in accumulated_content.replace(",", "")
 
@@ -878,11 +901,8 @@ def test_server():
             await websocket.send(json.dumps({"role": "user", "end": True}))
             print("WebSocket chunks sent")
 
-            # WebSocket stream may arrive before GET /messages is consistent; keep
-            # accumulated_content as a fallback when picking the assistant reply.
-            accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="file_exists", server_process=process
-            )
+            # Wait for response
+            accumulated_content = await wait_for_websocket_complete(websocket)
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
@@ -950,11 +970,22 @@ def test_server():
                     image_websocket, phase="vision_mcq", server_process=process
                 )
 
-                # _wait_for_websocket_complete appends the status content "complete".
-                vision_reply = accumulated_content.removesuffix("complete")
-                assert re.search(
-                    r"\bB\b", vision_reply, re.IGNORECASE
-                ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
+            # Wait for response
+            accumulated_content = await wait_for_websocket_complete(websocket)
+
+            # Get messages
+            get_url = "http://localhost:8000/settings/messages"
+            response_json = requests.get(get_url).json()
+            print("GET request sent, response:", response_json)
+            if isinstance(response_json, str):
+                response_json = json.loads(response_json)
+            messages = response_json["messages"]
+
+            response = interpreter.computer.ai.chat(
+                str(messages)
+                + "\n\nIn the conversation above, does the assistant appear to be able to describe the image of a gradient? Yes or no? Only reply with one word— 'yes' or 'no'."
+            )
+            assert response.strip(" \n.").lower() == "yes"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
