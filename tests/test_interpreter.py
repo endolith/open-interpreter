@@ -18,16 +18,18 @@ from interpreter.terminal_interface.utils.count_tokens import (
 
 interpreter = OpenInterpreter()
 
-# Configure LLM for tests: change model and API key check here if needed
+# Configure LLM for tests: change models and API key check here if needed
 # (e.g., switch to OpenRouter free models, local models, etc.)
-# Note: setup_function() uses TEST_MODEL for each test
-TEST_MODEL = os.environ.get("TEST_MODEL", "gpt-4o-mini")  # Default: gpt-4o-mini
+# Note: setup_function() uses TEST_MODEL_MINI for each test (line 1047)
+# Some tests use TEST_MODEL_MAIN for costlier operations
+TEST_MODEL_MINI = os.environ.get("TEST_MODEL_MINI", "gpt-4o-mini")  # Default cheaper model
+TEST_MODEL_MAIN = os.environ.get("TEST_MODEL_MAIN", "gpt-4o")  # Default smarter model
 TEST_API_KEY_ENV = os.environ.get("TEST_API_KEY_ENV", "OPENAI_API_KEY")  # Which env var to check
 
 # Skip tests that require LLM API access when no API key is available
 requires_api_key = pytest.mark.skipif(
     not os.environ.get(TEST_API_KEY_ENV),
-    reason=f"No {TEST_API_KEY_ENV} available - requires LLM access (model: {TEST_MODEL})"
+    reason=f"No {TEST_API_KEY_ENV} available - requires LLM access (models: {TEST_MODEL_MINI}/{TEST_MODEL_MAIN})"
 )
 #####
 
@@ -535,7 +537,7 @@ def test_authenticated_acknowledging_breaking_server():
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
-                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "model": TEST_MODEL_MAIN,  # This test needs the smarter model
                     "execution_instructions": "",
                     "supports_functions": False,
                     "max_tokens": SERVER_MAX_TOKENS,
@@ -719,7 +721,7 @@ def test_server():
             # Sending POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": TEST_MODEL},  # Use centralized model config
+                "llm": {"model": TEST_MODEL_MINI},  # Use centralized model config
                 "messages": [
                     {
                         "role": "user",
@@ -763,7 +765,7 @@ def test_server():
             # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": TEST_MODEL},  # Use centralized model config
+                "llm": {"model": TEST_MODEL_MINI},  # Use centralized model config
                 "messages": [
                     {
                         "role": "user",
@@ -1058,7 +1060,7 @@ def test_ai_chat():
 def test_generator():
     """Sends two messages, makes sure everything is correct with display both on and off."""
 
-    interpreter.llm.model = TEST_MODEL  # Use centralized model config
+    interpreter.llm.model = TEST_MODEL_MINI  # Use centralized model config
 
     for tests in [
         {"query": "What's 38023*40334? Use Python", "display": True},
@@ -1168,7 +1170,7 @@ def test_m_vision():
     ]
 
     interpreter.llm.supports_vision = False
-    interpreter.llm.model = TEST_MODEL  # Use centralized model config
+    interpreter.llm.model = TEST_MODEL_MINI  # Use centralized model config
     interpreter.llm.supports_functions = True
     interpreter.llm.context_window = 110000
     interpreter.llm.max_tokens = 4096
@@ -1209,7 +1211,7 @@ def test_skills():
 
     import json
 
-    interpreter.llm.model = TEST_MODEL  # Use centralized model config
+    interpreter.llm.model = TEST_MODEL_MINI  # Use centralized model config
 
     messages = ["USER: Hey can you search the web for me?\nAI: Sure!"]
 
@@ -1487,7 +1489,7 @@ def setup_function():
     interpreter.reset()
     interpreter.llm.temperature = 0
     interpreter.auto_run = True
-    interpreter.llm.model = TEST_MODEL  # Use centralized model config
+    interpreter.llm.model = TEST_MODEL_MINI  # Use centralized model config (default to cheaper model)
     interpreter.llm.context_window = 123000
     interpreter.llm.max_tokens = 4096
     interpreter.llm.supports_functions = True
@@ -1572,7 +1574,7 @@ def test_vision():
     ]
 
     interpreter.llm.supports_vision = True
-    interpreter.llm.model = TEST_MODEL  # Use centralized model config
+    interpreter.llm.model = TEST_MODEL_MINI  # Use centralized model config
     interpreter.system_message += "\nThe user will show you an image of the code you write. You can view images directly.\n\nFor HTML: This will be run STATELESSLY. You may NEVER write '<!-- previous code here... --!>' or `<!-- header will go here -->` or anything like that. It is CRITICAL TO NEVER WRITE PLACEHOLDERS. Placeholders will BREAK it. You must write the FULL HTML CODE EVERY TIME. Therefore you cannot write HTML piecemeal—write all the HTML, CSS, and possibly Javascript **in one step, in one code block**. The user will help you review it visually.\nIf the user submits a filepath, you will also see the image. The filepath and user image will both be in the user's message.\n\nIf you use `plt.show()`, the resulting image will be sent to you. However, if you use `PIL.Image.show()`, the resulting image will NOT be sent to you."
     interpreter.llm.supports_functions = True
     interpreter.llm.context_window = 110000
