@@ -17,26 +17,11 @@ from interpreter.terminal_interface.utils.count_tokens import (
 )
 
 interpreter = OpenInterpreter()
-interpreter.conversation_history = False
 
-# Integration tests normally run on OpenAI (gpt-4o, or gpt-4o-mini where a test
-# pins it). OI_INTEGRATION_MODEL points them at another provider without editing
-# the tests. CI sets it to a cheap OpenRouter model; unset keeps each test's
-# historical default.
-INTEGRATION_MODEL = os.environ.get("OI_INTEGRATION_MODEL")
-if INTEGRATION_MODEL:
-    interpreter.llm.model = INTEGRATION_MODEL
-
-# A reasoning model can spend thousands of tokens thinking before it emits the
-# answer. Leave room for both; the server tests otherwise execute a code line
-# truncated at the token boundary. Keep the smaller cap for text-only models.
-SERVER_MAX_TOKENS = (
-    16384
-    if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower()
-    else 4096
-)
-SERVER_REASONING_EFFORT = (
-    "low" if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower() else None
+# Skip tests that require LLM API access when no API key is available
+requires_api_key = pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="No OPENAI_API_KEY available - requires LLM access"
 )
 #####
 
@@ -1197,6 +1182,7 @@ def test_point():
 
 
 @pytest.mark.skip(reason="Aifs not ready")
+@requires_api_key
 def test_skills():
     """Manual skills.search integration (Python 3.11 only; skipped on 3.12)."""
 
@@ -1498,6 +1484,7 @@ def setup_function():
 @pytest.mark.skip(
     reason="Not working consistently, I think GPT related changes? It worked recently"
 )
+@requires_api_key
 def test_long_message():
     """Integration: a very long user message is handled within a tiny context window.
 
