@@ -15,10 +15,9 @@ from interpreter.terminal_interface.utils.count_tokens import (
 
 interpreter = OpenInterpreter()
 
-# Configure LLM for tests: change models and API key check here if needed
-# (e.g., switch to OpenRouter free models, local models, etc.)
-# Note: setup_function() uses TEST_MODEL_MINI for each test (line 1047)
-# Some tests use TEST_MODEL_MAIN for costlier operations
+# Configure LLM for tests: Change models and API key check here if needed
+# (e.g., switch to OpenRouter free models, etc.)
+# Some tests need TEST_MODEL_MAIN for more complex operations
 TEST_MODEL_MINI = os.environ.get("TEST_MODEL_MINI", "gpt-4o-mini")  # Default cheaper model
 TEST_MODEL_MAIN = os.environ.get("TEST_MODEL_MAIN", "gpt-4o")  # Default smarter model
 TEST_API_KEY_ENV = os.environ.get("TEST_API_KEY_ENV", "OPENAI_API_KEY")  # Which env var to check (for both models)
