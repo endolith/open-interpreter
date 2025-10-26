@@ -14,6 +14,12 @@ from interpreter.terminal_interface.utils.count_tokens import (
 )
 
 interpreter = OpenInterpreter()
+
+# Skip tests that require LLM API access when no API key is available
+requires_api_key = pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="No OPENAI_API_KEY available - requires LLM access"
+)
 #####
 
 import multiprocessing
@@ -268,6 +274,7 @@ async def wait_for_websocket_complete(websocket, max_attempts=5):
 
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
+@requires_api_key
 def test_server():
     # Start the server in a new process
 
@@ -626,10 +633,12 @@ def test_pytes():
     assert False
 
 
+@requires_api_key
 def test_ai_chat():
     print(interpreter.computer.ai.chat("hi"))
 
 
+@requires_api_key
 def test_generator():
     """
     Sends two messages, makes sure everything is correct with display both on and off.
@@ -762,6 +771,7 @@ def test_point():
 
 
 @pytest.mark.skip(reason="Aifs not ready")
+@requires_api_key
 def test_skills():
     import sys
 
@@ -960,6 +970,7 @@ def test_i():
     assert full_response != ""
 
 
+@requires_api_key
 def test_async():
     interpreter.chat("Hello!", blocking=False)
     print(interpreter.wait())
@@ -1037,6 +1048,7 @@ def setup_function():
 @pytest.mark.skip(
     reason="Not working consistently, I think GPT related changes? It worked recently"
 )
+@requires_api_key
 def test_long_message():
     messages = [
         {
@@ -1063,6 +1075,7 @@ def test_spotlight():
     interpreter.computer.keyboard.hotkey("command", "space")
 
 
+@requires_api_key
 def test_files():
     messages = [
         {"role": "user", "type": "message", "content": "Does this file exist?"},
@@ -1114,6 +1127,7 @@ def test_multiple_instances():
     assert agent_2.system_message == "u"
 
 
+@requires_api_key
 def test_hello_world():
     hello_world_response = "Hello, World!"
 
@@ -1126,6 +1140,7 @@ def test_hello_world():
     ]
 
 
+@requires_api_key
 def test_math():
     # we'll generate random integers between this min and max in our math tests
     min_number = randint(1, 99)
@@ -1202,18 +1217,21 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
+@requires_api_key
 def test_delayed_exec():
     interpreter.chat(
         """Can you write a single block of code and execute it that prints something, then delays 1 second, then prints something else? No talk just code, execute the code. Thanks!"""
     )
 
 
+@requires_api_key
 def test_nested_loops_and_multiple_newlines():
     interpreter.chat(
         """Can you write a nested for loop in python and shell and run them? Don't forget to properly format your shell script and use semicolons where necessary. Also put 1-3 newlines between each line in the code. Only generate and execute the code. Yes, execute the code instantly! No explanations. Thanks!"""
     )
 
 
+@requires_api_key
 def test_write_to_file():
     interpreter.chat(
         """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
@@ -1226,6 +1244,7 @@ def test_write_to_file():
     assert "Washington" in messages[-1]["content"]
 
 
+@requires_api_key
 def test_markdown():
     interpreter.chat(
         """Hi, can you test out a bunch of markdown features? Try writing a fenced code block, a table, headers, everything. DO NOT write the markdown inside a markdown code block, just write it raw."""
