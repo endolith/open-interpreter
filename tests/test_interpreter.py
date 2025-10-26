@@ -14,6 +14,12 @@ from interpreter.terminal_interface.utils.count_tokens import (
 )
 
 interpreter = OpenInterpreter()
+
+# Skip tests that require LLM API access when no API key is available
+requires_api_key = pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="No OPENAI_API_KEY available - requires LLM access"
+)
 #####
 
 import multiprocessing
@@ -766,6 +772,7 @@ def test_point():
 
 
 @pytest.mark.skip(reason="Aifs not ready")
+@requires_api_key
 def test_skills():
     import sys
 
@@ -1042,6 +1049,7 @@ def setup_function():
 @pytest.mark.skip(
     reason="Not working consistently, I think GPT related changes? It worked recently"
 )
+@requires_api_key
 def test_long_message():
     messages = [
         {
