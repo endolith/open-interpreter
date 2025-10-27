@@ -279,6 +279,10 @@ def run_tool_calling_llm(llm, request_params):
                 arguments = accumulated_deltas["function_call"]["arguments"]
                 arguments = parse_partial_json(arguments)
 
+                # Ensure arguments is a dictionary, not a string or None
+                if not isinstance(arguments, dict):
+                    arguments = None
+
                 if arguments:
                     if (
                         language is None
