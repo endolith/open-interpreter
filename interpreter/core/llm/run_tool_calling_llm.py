@@ -378,6 +378,10 @@ def run_tool_calling_llm(llm, request_params):
                         )
                     arguments = unescaped
 
+                # Ensure arguments is a dictionary, not a string or None
+                if not isinstance(arguments, dict):
+                    arguments = None
+
                 if arguments:
                     if (
                         language is None
