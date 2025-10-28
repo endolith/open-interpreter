@@ -108,16 +108,26 @@ def respond(interpreter):
                 # Continue with existing error handling
                 error_message = str(e).lower()
 
-                # Check for clean API error messages
+                # Check for API errors - display them in a panel without tracebacks
+                # Also check for our formatted errors (containing |||)
                 error_str = str(e)
-                # Display clean error messages without tracebacks
-                if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
+                if isinstance(e, (
+                    litellm.exceptions.APIError,
+                    litellm.exceptions.OpenAIError,
+                    litellm.exceptions.NotFoundError,
+                    litellm.exceptions.BadRequestError,
+                    litellm.exceptions.RateLimitError,
+                    litellm.exceptions.AuthenticationError,
+                )) or "|||" in error_str:
                     # Format with Rich Panel with red border for errors
-                    if "OpenRouterException|||" in error_str:
+                    # Check if this is an OpenRouter error with JSON structure
+                    if "openrouter" in error_str.lower() and "{" in error_str and "}" in error_str:
                         # Parse the JSON structure and format it nicely
                         try:
-                            _, json_str = error_str.split("|||", 1)
-                            error_data = json.loads(json_str)
+                            # Extract JSON from error string
+                            json_start = error_str.find("{")
+                            json_end = error_str.rfind("}") + 1
+                            error_data = json.loads(error_str[json_start:json_end])
 
                             # Build text content with nested structure
                             lines = ["[bold]OpenRouterException:[/bold]"]
@@ -137,7 +147,11 @@ def respond(interpreter):
                                             for item in value:
                                                 result.extend(format_value(item, indent + 1))
                                         else:
-                                            result.append(f"{prefix}• {key}: {value}")
+                                            # For certain fields, show the value directly if it's already a helpful message
+                                            if key == "raw" or (key == "message" and isinstance(value, str) and len(value) < 100):
+                                                result.append(f"{prefix}• {key}: {value}")
+                                            else:
+                                                result.append(f"{prefix}• {key}: {value}")
                                     return result
                                 else:
                                     return [f"{prefix}• {val}"]
@@ -163,8 +177,8 @@ def respond(interpreter):
                             )
                             rich_print(panel)
                             print("")
-                    elif "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str:
-                        # Format non-JSON errors in a Panel
+                    else:
+                        # Format all other API errors in a Panel
                         panel = Panel(
                             error_str,
                             border_style="red",
@@ -173,8 +187,6 @@ def respond(interpreter):
                         )
                         rich_print(panel)
                         print("")  # Add space after error
-                    else:
-                        print(f"\n{error_str}\n")
                     sys.exit(1)
 
                 if (
