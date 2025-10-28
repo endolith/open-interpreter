@@ -102,6 +102,13 @@ def respond(interpreter):
             except Exception as e:
                 # Continue with existing error handling
                 error_message = str(e).lower()
+
+                # Check for clean API error messages
+                error_str = str(e)
+                if "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower():
+                    print(f"\n{error_str}\n")
+                    break
+
                 if (
                     interpreter.offline == False
                     and ("auth" in error_message or

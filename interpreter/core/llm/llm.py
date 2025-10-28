@@ -11,6 +11,7 @@ import litellm
 litellm.suppress_debug_info = True
 litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
 
+import json
 import logging
 import uuid
 
@@ -354,6 +355,8 @@ Continuing...
                     interpreter=self.interpreter,
                 )
                 params["messages"] = messages
+                # Remove tools parameter if present (it was added by run_tool_calling_llm)
+                params.pop("tools", None)
                 yield from run_text_llm(self, params)
         else:
             yield from run_text_llm(self, params)
@@ -517,4 +520,23 @@ def fixed_litellm_completions(**params):
                 params["temperature"] = params.get("temperature", 0.0) + 0.1
 
     if first_error is not None:
+        # Handle NotFoundError for OpenRouter and extract clean error message
+        if isinstance(first_error, litellm.exceptions.NotFoundError):
+            error_str = str(first_error)
+            if "openrouter" in error_str.lower() or "no endpoints found" in error_str.lower():
+                try:
+                    # Try to parse the error JSON if present
+                    if "{" in error_str and "}" in error_str:
+                        # Extract JSON from error string
+                        json_start = error_str.find("{")
+                        json_end = error_str.rfind("}") + 1
+                        error_json = json.loads(error_str[json_start:json_end])
+                        # Get the actual message from nested error
+                        if "error" in error_json and "message" in error_json["error"]:
+                            error_message = error_json["error"]["message"]
+                            raise Exception(error_message)
+                except:
+                    pass
+                # If we can't parse, just show a clean message
+                raise Exception("No compatible endpoints found for this model. Please check your model selection or try a different model.")
         raise first_error  # If all attempts fail, raise the first error
