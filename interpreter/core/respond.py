@@ -112,8 +112,47 @@ def respond(interpreter):
                 # Display clean error messages without tracebacks
                 if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
                     # Format with markdown blockquote and code formatting, using Rich for proper rendering
-                    if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str:
-                        # Split the error into prefix and message for better formatting
+                    if "OpenRouterException|||" in error_str:
+                        # Parse the JSON structure and format it nicely
+                        try:
+                            _, json_str = error_str.split("|||", 1)
+                            error_data = json.loads(json_str)
+
+                            # Build markdown with nested structure
+                            lines = ["> OpenRouterException:"]
+                            lines.append(">")
+
+                            def format_value(val, indent=0):
+                                """Format a value with proper indentation and backticks for strings/numbers"""
+                                prefix = ">   " + "  " * indent
+                                if isinstance(val, dict):
+                                    result = []
+                                    for key, value in val.items():
+                                        if isinstance(value, dict):
+                                            result.append(f"{prefix}- {key}:")
+                                            result.extend(format_value(value, indent + 1))
+                                        elif isinstance(value, list):
+                                            result.append(f"{prefix}- {key}:")
+                                            for item in value:
+                                                result.extend(format_value(item, indent + 1))
+                                        else:
+                                            result.append(f"{prefix}- {key}: `{value}`")
+                                    return result
+                                else:
+                                    return [f"{prefix}- `{val}`"]
+
+                            lines.extend(format_value(error_data))
+
+                            formatted_error = "\n".join(lines)
+                            rich_print(Markdown(formatted_error))
+                            print("")  # Add space after error
+                        except:
+                            # Fallback if JSON parsing fails
+                            formatted_error = f"> `{error_str}`"
+                            rich_print(Markdown(formatted_error))
+                            print("")
+                    elif "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str:
+                        # Old style formatting for non-JSON errors
                         if ": " in error_str:
                             prefix, message = error_str.split(": ", 1)
                             formatted_error = f"> {prefix}: `{message}`"
