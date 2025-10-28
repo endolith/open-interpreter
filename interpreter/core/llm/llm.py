@@ -536,16 +536,41 @@ def fixed_litellm_completions(**params):
                             error_data = error_json["error"]
                             error_message = error_data.get("message", "")
                             error_code = error_data.get("code", "")
-
+                            
                             # Create a formatted exception with all the info
                             formatted_message = f"OpenRouterException"
                             if error_code:
                                 formatted_message += f" (code: {error_code})"
                             formatted_message += f": {error_message}"
-
+                            
                             # Re-raise with the formatted message
                             raise Exception(formatted_message) from first_error
                 except Exception as extracted_error:
                     # If we successfully extracted a message, use that
+                    raise extracted_error
+            elif isinstance(first_error, litellm.exceptions.BadRequestError) and "provider not provided" in error_str.lower():
+                # Extract the error message for LiteLLM provider errors
+                try:
+                    if "{" in error_str and "}" in error_str:
+                        json_start = error_str.find("{")
+                        json_end = error_str.rfind("}") + 1
+                        error_json = json.loads(error_str[json_start:json_end])
+                        if "error" in error_json:
+                            error_data = error_json["error"]
+                            error_message = error_data.get("message", "")
+                            # Extract model name if present
+                            model_match = None
+                            if "model=" in error_str:
+                                import re
+                                model_match = re.search(r"model=(.*?)[,\s]", error_str)
+                                if model_match:
+                                    model_name = model_match.group(1)
+                                    formatted_message = f"LiteLLM BadRequestError: {error_message}"
+                                else:
+                                    formatted_message = f"LiteLLM BadRequestError: {error_message}"
+                            else:
+                                formatted_message = f"LiteLLM BadRequestError: {error_message}"
+                            raise Exception(formatted_message) from first_error
+                except Exception as extracted_error:
                     raise extracted_error
         raise first_error  # If all attempts fail, raise the first error
