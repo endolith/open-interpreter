@@ -118,10 +118,10 @@ def respond(interpreter):
                     litellm.exceptions.BadRequestError,
                     litellm.exceptions.RateLimitError,
                     litellm.exceptions.AuthenticationError,
-                )) or "|||" in error_str:
+                )):
                     # Format with Rich Panel with red border for errors
-                    # Check if this is an OpenRouter error with JSON structure
-                    if "openrouter" in error_str.lower() and "{" in error_str and "}" in error_str:
+                    # Check if this is an error with JSON structure that can be parsed
+                    if "{" in error_str and "}" in error_str:
                         # Parse the JSON structure and format it nicely
                         try:
                             # Extract JSON from error string
