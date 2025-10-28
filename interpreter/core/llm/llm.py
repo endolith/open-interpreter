@@ -536,13 +536,13 @@ def fixed_litellm_completions(**params):
                             error_data = error_json["error"]
                             error_message = error_data.get("message", "")
                             error_code = error_data.get("code", "")
-                            
+
                             # Create a formatted exception with all the info
                             formatted_message = f"OpenRouterException"
                             if error_code:
                                 formatted_message += f" (code: {error_code})"
                             formatted_message += f": {error_message}"
-                            
+
                             # Re-raise with the formatted message
                             raise Exception(formatted_message) from first_error
                 except Exception as extracted_error:
