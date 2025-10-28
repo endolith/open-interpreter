@@ -524,35 +524,8 @@ def fixed_litellm_completions(**params):
                 params["temperature"] = params.get("temperature", 0.0) + 0.1
 
     if first_error is not None:
-        # Handle API errors and extract clean error messages
+        # Handle OpenRouter errors and extract clean error message
         error_str = str(first_error)
-
-        # Handle AuthenticationError
-        if isinstance(first_error, litellm.exceptions.AuthenticationError):
-            try:
-                # Try to parse the error JSON if present
-                if "{" in error_str and "}" in error_str:
-                    # Extract JSON from error string
-                    json_start = error_str.find("{")
-                    json_end = error_str.rfind("}") + 1
-                    error_json = json.loads(error_str[json_start:json_end])
-
-                    # Determine the provider from the error string
-                    provider = "API"
-                    if "mistral" in error_str.lower():
-                        provider = "Mistral"
-                    elif "openai" in error_str.lower():
-                        provider = "OpenAI"
-                    elif "anthropic" in error_str.lower():
-                        provider = "Anthropic"
-
-                    # Store the full JSON as a string so respond.py can format it
-                    formatted_message = f"{provider}AuthenticationError|||{json.dumps(error_json)}"
-                    raise Exception(formatted_message) from first_error
-            except Exception as extracted_error:
-                # If we successfully extracted a message, use that
-                raise extracted_error
-
         if isinstance(first_error, (litellm.exceptions.NotFoundError, litellm.exceptions.BadRequestError)):
             if "openrouter" in error_str.lower():
                 try:

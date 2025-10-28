@@ -10,6 +10,7 @@ import litellm
 import openai
 from rich import print as rich_print
 from rich.markdown import Markdown
+from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
@@ -110,61 +111,95 @@ def respond(interpreter):
                 # Check for clean API error messages
                 error_str = str(e)
                 # Display clean error messages without tracebacks
-                if "OpenRouterException" in error_str or "AuthenticationError" in error_str or "LiteLLM BadRequestError" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
-                    # Format with markdown blockquote and code formatting, using Rich for proper rendering
-                    if "OpenRouterException|||" in error_str or "AuthenticationError|||" in error_str:
+                if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
+                    # Format with Rich Panel with red border for errors
+                    if "OpenRouterException|||" in error_str:
                         # Parse the JSON structure and format it nicely
                         try:
-                            exception_type, json_str = error_str.split("|||", 1)
+                            _, json_str = error_str.split("|||", 1)
                             error_data = json.loads(json_str)
 
-                            # Build markdown with nested structure
-                            lines = [f"> {exception_type}:"]
-                            lines.append(">")
+                            # Build text content with nested structure
+                            lines = ["[bold]OpenRouterException:[/bold]"]
+                            lines.append("")
 
                             def format_value(val, indent=0):
-                                """Format a value with proper indentation and backticks for strings/numbers"""
-                                prefix = ">   " + "  " * indent
+                                """Format a value with proper indentation"""
+                                prefix = "  " * indent
                                 if isinstance(val, dict):
                                     result = []
                                     for key, value in val.items():
                                         if isinstance(value, dict):
-                                            result.append(f"{prefix}- {key}:")
+                                            result.append(f"{prefix}• {key}:")
                                             result.extend(format_value(value, indent + 1))
                                         elif isinstance(value, list):
-                                            result.append(f"{prefix}- {key}:")
+                                            result.append(f"{prefix}• {key}:")
                                             for item in value:
                                                 result.extend(format_value(item, indent + 1))
                                         else:
-                                            result.append(f"{prefix}- {key}: `{value}`")
+                                            result.append(f"{prefix}• {key}: {value}")
                                     return result
                                 else:
-                                    return [f"{prefix}- `{val}`"]
+                                    return [f"{prefix}• {val}"]
 
                             lines.extend(format_value(error_data))
 
                             formatted_error = "\n".join(lines)
-                            rich_print(Markdown(formatted_error))
+                            panel = Panel(
+                                formatted_error,
+                                border_style="red",
+                                title="Error",
+                                title_align="left"
+                            )
+                            rich_print(panel)
                             print("")  # Add space after error
                         except:
                             # Fallback if JSON parsing fails
-                            formatted_error = f"> `{error_str}`"
-                            rich_print(Markdown(formatted_error))
+                            panel = Panel(
+                                error_str,
+                                border_style="red",
+                                title="Error",
+                                title_align="left"
+                            )
+                            rich_print(panel)
                             print("")
                     elif "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str:
-                        # Old style formatting for non-JSON errors
-                        if ": " in error_str:
-                            prefix, message = error_str.split(": ", 1)
-                            formatted_error = f"> {prefix}: `{message}`"
-                        else:
-                            formatted_error = f"> `{error_str}`"
-                        rich_print(Markdown(formatted_error))
+                        # Format non-JSON errors in a Panel
+                        panel = Panel(
+                            error_str,
+                            border_style="red",
+                            title="Error",
+                            title_align="left"
+                        )
+                        rich_print(panel)
                         print("")  # Add space after error
                     else:
                         print(f"\n{error_str}\n")
                     sys.exit(1)
 
                 if (
+                    interpreter.offline == False
+                    and ("auth" in error_message or
+                         "api key" in error_message)
+                ):
+                    output = traceback.format_exc()
+
+                    # Generic hint: a hard-coded llm.api_key can conflict with CLI-provided model/provider
+                    api_key_in_config = bool(getattr(interpreter.llm, "api_key", None))
+                    provider_hint = ""
+                    if api_key_in_config:
+                        provider_hint = (
+                            "\n\nHint: You have `llm.api_key` set in your profile/config. "
+                            "If you pass `--model` (or `--api_key`) on the command line and they don't match the same provider, you'll get 401 Unauthorized. "
+                            "Either remove `llm.api_key` from your profile/default.yaml so your command-line selection takes effect, "
+                            "or pass both `--model` and `--api_key` together on the command line to ensure they match."
+                        )
+
+                    raise Exception(
+                        f"{output}\n\nThere might be an issue with your API key(s).{provider_hint}\n\n"
+                        "To reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
+                    )
+                elif (
                     isinstance(e, litellm.exceptions.RateLimitError)
                     and ("exceeded" in str(e).lower() or
                          "insufficient_quota" in str(e).lower())
