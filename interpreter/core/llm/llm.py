@@ -520,10 +520,10 @@ def fixed_litellm_completions(**params):
                 params["temperature"] = params.get("temperature", 0.0) + 0.1
 
     if first_error is not None:
-        # Handle NotFoundError for OpenRouter and extract clean error message
-        if isinstance(first_error, litellm.exceptions.NotFoundError):
-            error_str = str(first_error)
-            if "openrouter" in error_str.lower() or "no endpoints found" in error_str.lower():
+        # Handle OpenRouter errors and extract clean error message
+        error_str = str(first_error)
+        if isinstance(first_error, (litellm.exceptions.NotFoundError, litellm.exceptions.BadRequestError)):
+            if "openrouter" in error_str.lower():
                 try:
                     # Try to parse the error JSON if present
                     if "{" in error_str and "}" in error_str:
@@ -534,9 +534,9 @@ def fixed_litellm_completions(**params):
                         # Get the actual message from nested error
                         if "error" in error_json and "message" in error_json["error"]:
                             error_message = error_json["error"]["message"]
-                            raise Exception(error_message)
-                except:
-                    pass
-                # If we can't parse, just show a clean message
-                raise Exception("No compatible endpoints found for this model. Please check your model selection or try a different model.")
+                            # Re-raise with the clean message
+                            raise Exception(error_message) from first_error
+                except Exception as extracted_error:
+                    # If we successfully extracted a message, use that
+                    raise extracted_error
         raise first_error  # If all attempts fail, raise the first error
