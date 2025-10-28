@@ -111,9 +111,16 @@ def respond(interpreter):
                 error_str = str(e)
                 # Display clean error messages without tracebacks
                 if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
-                    # Format with ▌ prefix like other system messages, using Rich for proper formatting
+                    # Format with markdown blockquote and code formatting, using Rich for proper rendering
                     if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str:
-                        rich_print(Markdown(f"▌ {error_str}"))
+                        # Split the error into prefix and message for better formatting
+                        if ": " in error_str:
+                            prefix, message = error_str.split(": ", 1)
+                            formatted_error = f"> {prefix}: `{message}`"
+                        else:
+                            formatted_error = f"> `{error_str}`"
+                        rich_print(Markdown(formatted_error))
+                        print("")  # Add space after error
                     else:
                         print(f"\n{error_str}\n")
                     sys.exit(1)

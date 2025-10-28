@@ -13,6 +13,7 @@ litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
 
 import json
 import logging
+import re
 import uuid
 
 import requests
@@ -561,7 +562,6 @@ def fixed_litellm_completions(**params):
                             # Extract model name if present
                             model_match = None
                             if "model=" in error_str:
-                                import re
                                 model_match = re.search(r"model=(.*?)[,\s]", error_str)
                                 if model_match:
                                     model_name = model_match.group(1)
