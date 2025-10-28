@@ -18,6 +18,8 @@ import uuid
 
 import requests
 import tokentrim as tt
+from rich import print as rich_print
+from rich.markdown import Markdown
 
 from .run_text_llm import run_text_llm
 
@@ -345,7 +347,8 @@ Continuing...
                 yield from run_tool_calling_llm(self, params)
             except FunctionCallingNotSupportedError as e:
                 # Model doesn't support function calling, fall back to text mode
-                print(f"\n▌ Model doesn't support function calling, falling back to text mode.\n")
+                rich_print(Markdown("> Model doesn't support function calling, falling back to text mode."))
+                print("")  # Add space after message
                 self.supports_functions = False
                 # Re-convert messages for text mode
                 messages = convert_to_openai_messages(
