@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 
@@ -107,7 +108,7 @@ def respond(interpreter):
                 error_str = str(e)
                 if "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower():
                     print(f"\n{error_str}\n")
-                    break
+                    sys.exit(1)
 
                 if (
                     interpreter.offline == False
