@@ -106,7 +106,8 @@ def respond(interpreter):
 
                 # Check for clean API error messages
                 error_str = str(e)
-                if "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower():
+                # Display clean error messages without tracebacks
+                if "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
                     print(f"\n{error_str}\n")
                     sys.exit(1)
 
