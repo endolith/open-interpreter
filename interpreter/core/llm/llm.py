@@ -20,6 +20,7 @@ import requests
 import tokentrim as tt
 from rich import print as rich_print
 from rich.markdown import Markdown
+from rich.panel import Panel
 
 from .run_text_llm import run_text_llm
 
@@ -347,7 +348,17 @@ Continuing...
                 yield from run_tool_calling_llm(self, params)
             except FunctionCallingNotSupportedError as e:
                 # Model doesn't support function calling, fall back to text mode
-                rich_print(Markdown("> Model doesn't support function calling, falling back to text mode."))
+                message = (
+                    "Model doesn't support function calling, falling back to text mode.\n\n"
+                    "Tip: Use `--no-llm_supports_functions` to skip function calling and avoid this message."
+                )
+                panel = Panel(
+                    message,
+                    border_style="yellow",
+                    title="Warning",
+                    title_align="left"
+                )
+                rich_print(panel)
                 print("")  # Add space after message
                 self.supports_functions = False
                 # Re-convert messages for text mode
