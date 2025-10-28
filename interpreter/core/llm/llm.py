@@ -532,20 +532,12 @@ def fixed_litellm_completions(**params):
                         json_start = error_str.find("{")
                         json_end = error_str.rfind("}") + 1
                         error_json = json.loads(error_str[json_start:json_end])
-                        # Get the actual message from nested error
-                        if "error" in error_json:
-                            error_data = error_json["error"]
-                            error_message = error_data.get("message", "")
-                            error_code = error_data.get("code", "")
 
-                            # Create a formatted exception with all the info
-                            formatted_message = f"OpenRouterException"
-                            if error_code:
-                                formatted_message += f" (code: {error_code})"
-                            formatted_message += f": {error_message}"
+                        # Store the full JSON as a string so respond.py can format it
+                        formatted_message = f"OpenRouterException|||{json.dumps(error_json)}"
 
-                            # Re-raise with the formatted message
-                            raise Exception(formatted_message) from first_error
+                        # Re-raise with the formatted message
+                        raise Exception(formatted_message) from first_error
                 except Exception as extracted_error:
                     # If we successfully extracted a message, use that
                     raise extracted_error
