@@ -7,6 +7,9 @@ import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
+import openai
+from rich import print as rich_print
+from rich.markdown import Markdown
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
@@ -107,10 +110,10 @@ def respond(interpreter):
                 # Check for clean API error messages
                 error_str = str(e)
                 # Display clean error messages without tracebacks
-                if "OpenRouterException" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
-                    # Format with ▌ prefix like other system messages
-                    if "OpenRouterException" in error_str:
-                        print(f"\n▌ {error_str}\n")
+                if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
+                    # Format with ▌ prefix like other system messages, using Rich for proper formatting
+                    if "OpenRouterException" in error_str or "LiteLLM BadRequestError" in error_str:
+                        rich_print(Markdown(f"▌ {error_str}"))
                     else:
                         print(f"\n{error_str}\n")
                     sys.exit(1)
