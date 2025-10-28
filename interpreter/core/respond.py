@@ -107,8 +107,12 @@ def respond(interpreter):
                 # Check for clean API error messages
                 error_str = str(e)
                 # Display clean error messages without tracebacks
-                if "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
-                    print(f"\n{error_str}\n")
+                if "OpenRouterException" in error_str or "no endpoints found" in error_str.lower() or "no compatible endpoints" in error_str.lower() or "is not a valid model" in error_str.lower():
+                    # Format with ▌ prefix like other system messages
+                    if "OpenRouterException" in error_str:
+                        print(f"\n▌ {error_str}\n")
+                    else:
+                        print(f"\n{error_str}\n")
                     sys.exit(1)
 
                 if (
