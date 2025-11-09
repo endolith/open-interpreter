@@ -11,8 +11,17 @@ def get_installed_packages():
     # This gives us the actual importable names (e.g., "sklearn" not "scikit-learn")
     try:
         packages_map = importlib.metadata.packages_distributions()
-        # Get all unique importable module names
-        return sorted(set(packages_map.keys()))
+        # Filter out invalid entries (path-like entries with slashes/backslashes)
+        valid_packages = []
+        for name in packages_map.keys():
+            # Skip entries with path separators (backslash or forward slash) - these are file paths, not module names
+            if '\\' in name or '/' in name:
+                continue
+            # Skip entries that start with a dot (hidden/private modules)
+            if name.startswith('.'):
+                continue
+            valid_packages.append(name)
+        return sorted(set(valid_packages))
     except AttributeError:
         # Fallback for Python < 3.10: use distribution names directly
         # (This won't be perfect but is better than nothing)
