@@ -6,7 +6,29 @@ from zoneinfo import ZoneInfo
 import time
 
 def get_installed_packages():
-    return sorted([dist.name.lower().replace('-', '_') for dist in importlib.metadata.distributions()])
+    """Get a list of importable Python package names from installed distributions."""
+    packages = set()
+    for dist in importlib.metadata.distributions():
+        # Distribution name should always exist - fail loudly if it doesn't
+        if dist.name is None:
+            raise ValueError(f"Found distribution with no name. Distribution: {dist}, metadata files: {list(dist.files) if hasattr(dist, 'files') else 'N/A'}")
+
+        # Try to get top-level modules from the distribution
+        # This gives us the actual importable module names, not the distribution name
+        try:
+            top_level = dist.read_text('top_level.txt')
+            if top_level:
+                for module in top_level.strip().split('\n'):
+                    module = module.strip()
+                    if module:
+                        packages.add(module)
+        except (FileNotFoundError, AttributeError, TypeError):
+            # If top_level.txt doesn't exist, the distribution name might work as import
+            # but often it won't (e.g., "scikit-learn" vs "sklearn")
+            # We'll include it anyway as a best-effort fallback
+            packages.add(dist.name)
+
+    return sorted(packages)
 
 def get_location_info():
     """
