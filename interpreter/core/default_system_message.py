@@ -7,11 +7,20 @@ import time
 
 def is_valid_package_name(name):
     """Check if a package name is a valid importable module name."""
-    # Skip entries with path separators - these are file paths, not module names
+    # Skip entries with path separators (backslash or forward slash) - these are file paths, not module names
     if '\\' in name or '/' in name:
         return False
-    # Skip private/internal modules (start with _ or .)
-    if name.startswith('_') or name.startswith('.'):
+    # Skip entries that start with a dot (hidden/private modules)
+    if name.startswith('.'):
+        return False
+    # Skip entries that start with underscore (private/internal modules like _cffi_backend, _pytest)
+    if name.startswith('_'):
+        return False
+    # Skip Python cache directories
+    if name == '__pycache__':
+        return False
+    # Skip hash-like entries (long hex strings that look like build artifacts)
+    if len(name) > 20 and all(c in '0123456789abcdef' for c in name.lower()):
         return False
     return True
 
