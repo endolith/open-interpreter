@@ -1,45 +1,9 @@
 import getpass
 import platform
-import importlib.metadata
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import time
 
-def is_valid_package_name(name):
-    """Check if a package name is a valid importable module name."""
-    # Skip entries with path separators (backslash or forward slash) - these are file paths, not module names
-    if '\\' in name or '/' in name:
-        return False
-    # Skip entries that start with a dot (hidden/private modules)
-    if name.startswith('.'):
-        return False
-    # Skip entries that start with underscore (private/internal modules like _cffi_backend, _pytest)
-    if name.startswith('_'):
-        return False
-    # Skip Python cache directories
-    if name == '__pycache__':
-        return False
-    # Skip hash-like entries (long hex strings that look like build artifacts, e.g., "629853fdff261ed89b74__mypyc")
-    if '__' in name:
-        prefix = name.split('__')[0]
-        if len(prefix) >= 20 and all(c in '0123456789abcdef' for c in prefix.lower()):
-            return False
-    elif len(name) >= 20 and all(c in '0123456789abcdef' for c in name.lower()):
-        return False
-    return True
-
-def get_installed_packages():
-    """Get a list of importable Python package names from installed distributions."""
-    # Use packages_distributions() which maps importable module names to distribution names
-    # This gives us the actual importable names (e.g., "sklearn" not "scikit-learn")
-    try:
-        packages_map = importlib.metadata.packages_distributions()
-        valid_packages = [name for name in packages_map.keys() if is_valid_package_name(name)]
-        return sorted(set(valid_packages))
-    except AttributeError:
-        # Fallback for Python < 3.10: use distribution names directly
-        # (This won't be perfect but is better than nothing)
-        return sorted([dist.name for dist in importlib.metadata.distributions() if dist.name is not None])
 
 def get_location_info():
     """
@@ -59,8 +23,8 @@ def get_location_info():
 
     # Try IP-based geolocation (requires internet, non-blocking)
     try:
-        import urllib.request
         import json
+        import urllib.request
 
         # Use a fast, free geolocation API with short timeout
         response = urllib.request.urlopen('http://ip-api.com/json/', timeout=1)
@@ -69,12 +33,14 @@ def get_location_info():
         if data.get('status') == 'success':
             country = data.get('country', '')
             if country:
-                location_parts.insert(0, f"Country: {country} (estimated from IP address)")
+                location_parts.insert(
+                    0, f"Country: {country} (estimated from IP address)")
     except Exception:
         # Silently fail if no internet or API is down
         pass
 
     return '\n'.join(location_parts) if location_parts else "Location: Unknown"
+
 
 default_system_message = f"""
 ## General Instructions
@@ -109,9 +75,5 @@ User's OS: {platform.system()}
 
 ## Available Python Packages
 
-The following Python packages are installed and available for you to use:
-
-{' '.join(get_installed_packages())}
-
-You can also install other packages if necessary.
+Many Python packages are installed, such as matplotlib, pydantic, selenium, fastapi, litellm, anthropic, google-generativeai, jupyter, pyyaml, psutil, and pyautogui. To see the complete list of available modules, use `help('modules')` or search with `help('modules keyword')` in Python. You can also install additional packages if needed.
 """.strip()
