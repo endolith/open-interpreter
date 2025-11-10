@@ -19,8 +19,12 @@ def is_valid_package_name(name):
     # Skip Python cache directories
     if name == '__pycache__':
         return False
-    # Skip hash-like entries (long hex strings that look like build artifacts)
-    if len(name) > 20 and all(c in '0123456789abcdef' for c in name.lower()):
+    # Skip hash-like entries (long hex strings that look like build artifacts, e.g., "629853fdff261ed89b74__mypyc")
+    if '__' in name:
+        prefix = name.split('__')[0]
+        if len(prefix) > 20 and all(c in '0123456789abcdef' for c in prefix.lower()):
+            return False
+    elif len(name) > 20 and all(c in '0123456789abcdef' for c in name.lower()):
         return False
     return True
 
