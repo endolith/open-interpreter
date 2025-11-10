@@ -5,31 +5,23 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
 
+def is_valid_package_name(name):
+    """Check if a package name is a valid importable module name."""
+    # Skip entries with path separators - these are file paths, not module names
+    if '\\' in name or '/' in name:
+        return False
+    # Skip private/internal modules (start with _ or .)
+    if name.startswith('_') or name.startswith('.'):
+        return False
+    return True
+
 def get_installed_packages():
     """Get a list of importable Python package names from installed distributions."""
     # Use packages_distributions() which maps importable module names to distribution names
     # This gives us the actual importable names (e.g., "sklearn" not "scikit-learn")
     try:
         packages_map = importlib.metadata.packages_distributions()
-        # Filter out invalid entries (path-like entries, private modules, cache dirs, etc.)
-        valid_packages = []
-        for name in packages_map.keys():
-            # Skip entries with path separators (backslash or forward slash) - these are file paths, not module names
-            if '\\' in name or '/' in name:
-                continue
-            # Skip entries that start with a dot (hidden/private modules)
-            if name.startswith('.'):
-                continue
-            # Skip entries that start with underscore (private/internal modules like _cffi_backend, _pytest)
-            if name.startswith('_'):
-                continue
-            # Skip Python cache directories
-            if name == '__pycache__':
-                continue
-            # Skip hash-like entries (long hex strings that look like build artifacts)
-            if len(name) > 20 and all(c in '0123456789abcdef' for c in name.lower()):
-                continue
-            valid_packages.append(name)
+        valid_packages = [name for name in packages_map.keys() if is_valid_package_name(name)]
         return sorted(set(valid_packages))
     except AttributeError:
         # Fallback for Python < 3.10: use distribution names directly
