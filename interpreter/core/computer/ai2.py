@@ -116,8 +116,8 @@ class Ai2:
             self.openai_api_key = getattr(computer.interpreter.llm, "api_key", None) or None
         self.openai_api_key = self.openai_api_key or os.getenv("OPENAI_API_KEY")
 
-        # Set up OpenAI client for structured outputs
-        self.client = OpenAI(api_key=self.openai_api_key) if self.openai_api_key else None
+        # Set up OpenAI client for structured outputs (lazy initialization)
+        self._client = None
 
         # Store all available API keys for different providers
         self.api_keys = {
@@ -221,6 +221,31 @@ class Ai2:
             return 1000
         else:
             return 500  # Conservative default for unknown models
+
+    @property
+    def client(self):
+        """Lazily initialize OpenAI client to avoid SSL errors at import time."""
+        if self._client is None and self.openai_api_key:
+            try:
+                self._client = OpenAI(api_key=self.openai_api_key)
+            except (FileNotFoundError, OSError) as e:
+                # Handle SSL certificate file issues gracefully
+                # If SSL_CERT_FILE is set but file doesn't exist, try without it
+                ssl_cert_file = os.environ.get("SSL_CERT_FILE")
+                if ssl_cert_file and not os.path.exists(ssl_cert_file):
+                    # Temporarily unset SSL_CERT_FILE and retry
+                    ssl_cert_file_backup = os.environ.pop("SSL_CERT_FILE", None)
+                    try:
+                        self._client = OpenAI(api_key=self.openai_api_key)
+                    except Exception:
+                        # Restore the env var if retry also fails
+                        if ssl_cert_file_backup:
+                            os.environ["SSL_CERT_FILE"] = ssl_cert_file_backup
+                        raise
+                    # Don't restore if successful - the env var was pointing to a non-existent file
+                else:
+                    raise
+        return self._client
 
     # ------------------------------------------------------------------
     # Public helpers
