@@ -75,6 +75,9 @@ def interpreter_info(interpreter):
                 message = message[:1000]
             messages_to_display.append(message)
 
+        # Use the actual rendered system message that was sent to the LLM
+        system_message_to_show = interpreter._last_rendered_system_message
+
         return f"""
 ## Interpreter Info
 
@@ -97,7 +100,7 @@ System Message:
 
 ----
 
-{interpreter.system_message}
+{system_message_to_show}
 
 ----
 
