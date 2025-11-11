@@ -137,6 +137,7 @@ class OpenInterpreter:
         self.code_output_template = code_output_template
         self.empty_code_output_template = empty_code_output_template
         self.code_output_sender = code_output_sender
+        self._last_rendered_system_message = None  # Stores the actual rendered system message sent to LLM
 
     def local_setup(self):
         """
