@@ -57,6 +57,9 @@ def respond(interpreter):
         rendered_system_message = render_message(interpreter, system_message)
         ## Rendering ↑
 
+        # Store the actual rendered system message for %info command (before converting to dict)
+        interpreter._last_rendered_system_message = rendered_system_message
+
         rendered_system_message = {
             "role": "system",
             "type": "message",
