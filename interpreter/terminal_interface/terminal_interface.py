@@ -137,26 +137,51 @@ def terminal_interface(interpreter, message):
                 or interpreter.llm.vision_renderer != None
             ):
                 # Is the input a path to an image? Like they just dragged it into the terminal?
-                image_path = find_image_path(message)
+                image_paths = find_image_path(message)
 
-                ## If we found an image, add it to the message
-                if image_path:
-                    # Add the text interpreter's message history
-                    interpreter.messages.append(
-                        {
+                ## If we found images, ask for approval before uploading
+                if image_paths:
+                    # Ask for approval before uploading images
+                    if len(image_paths) == 1:
+                        prompt = f"  Found image: {image_paths[0]}\n  Upload this image to the vision model? (y/n)\n\n  "
+                    else:
+                        paths_list = "\n".join(f"  - {path}" for path in image_paths)
+                        prompt = f"  Found {len(image_paths)} images:\n{paths_list}\n  Upload these images to the vision model? (y/n)\n\n  "
+
+                    response = input(prompt)
+                    print("")  # Aesthetic choice
+
+                    if response.strip().lower() == "y":
+                        # Add the text message to interpreter's message history
+                        interpreter.messages.append(
+                            {
+                                "role": "user",
+                                "type": "message",
+                                "content": message,
+                            }
+                        )
+
+                        # Add remaining image messages (first one will be added by chat() when we pass it)
+                        for image_path in image_paths[1:]:
+                            interpreter.messages.append(
+                                {
+                                    "role": "user",
+                                    "type": "image",
+                                    "format": "path",
+                                    "content": image_path,
+                                }
+                            )
+
+                        # Pass the first image dict to chat to trigger processing
+                        message = {
                             "role": "user",
-                            "type": "message",
-                            "content": message,
+                            "type": "image",
+                            "format": "path",
+                            "content": image_paths[0],
                         }
-                    )
-
-                    # Pass in the image to interpreter in a moment
-                    message = {
-                        "role": "user",
-                        "type": "image",
-                        "format": "path",
-                        "content": image_path,
-                    }
+                    else:
+                        # User declined, just process the text message normally
+                        pass
 
         try:
             for chunk in interpreter.chat(message, display=False, stream=True):
