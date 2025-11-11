@@ -67,6 +67,33 @@ def respond(interpreter):
         messages_for_llm = interpreter.messages.copy()
         messages_for_llm = [rendered_system_message] + messages_for_llm
 
+        # Add CWD context as a separate computer message if it exists
+        if interpreter.messages and interpreter.messages[-1]["role"] == "user":
+            # Check if CWD message was already added (avoid duplicates)
+            if not (len(interpreter.messages) > 1 and
+                    interpreter.messages[-2].get("role") == "computer" and
+                    interpreter.messages[-2].get("content", "").startswith("Python CWD:")):
+                # Try to get Python CWD - if Python is available, this will work
+                try:
+                    python_cwd_result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)
+                    if python_cwd_result and len(python_cwd_result) > 0:
+                        python_cwd = python_cwd_result[0]["content"].strip()
+
+                        # Insert CWD as a computer role message before the user message
+                        cwd_message = {
+                            "role": "computer",
+                            "type": "console",
+                            "format": "output",
+                            "content": f"Python CWD: {python_cwd}"
+                        }
+                        # Add to both interpreter.messages (for storage) and messages_for_llm (for LLM)
+                        interpreter.messages.insert(-1, cwd_message)
+                        # Insert CWD message before the last message (user message) in messages_for_llm
+                        messages_for_llm.insert(-1, cwd_message)
+                except Exception:
+                    # Python not available or error getting CWD, skip adding CWD message
+                    pass
+
         if insert_loop_message:
             messages_for_llm.append(
                 {
@@ -459,9 +486,40 @@ def respond(interpreter):
 
                 ## ↑ CODE IS RUN HERE
 
-                # Now that Python context exists (if it was Python code), add CWD to next message
+                # Now that Python context exists (if it was Python code), add CWD message before the user message that triggered it
                 if language == "python":
                     interpreter._python_initialized = True
+                    # Add CWD message before the last user message if not already present
+                    if interpreter.messages and len(interpreter.messages) > 0:
+                        # Find the last user message
+                        last_user_idx = None
+                        for i in range(len(interpreter.messages) - 1, -1, -1):
+                            if interpreter.messages[i].get("role") == "user":
+                                last_user_idx = i
+                                break
+
+                        if last_user_idx is not None:
+                            # Check if CWD message was already added before this user message
+                            if not (last_user_idx > 0 and
+                                    interpreter.messages[last_user_idx - 1].get("role") == "computer" and
+                                    interpreter.messages[last_user_idx - 1].get("content", "").startswith("Python CWD:")):
+                                # Get Python CWD
+                                try:
+                                    python_cwd_result = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)
+                                    if python_cwd_result and len(python_cwd_result) > 0:
+                                        python_cwd = python_cwd_result[0]["content"].strip()
+
+                                        # Insert CWD as a computer role message before the user message
+                                        cwd_message = {
+                                            "role": "computer",
+                                            "type": "console",
+                                            "format": "output",
+                                            "content": f"Python CWD: {python_cwd}"
+                                        }
+                                        interpreter.messages.insert(last_user_idx, cwd_message)
+                                except Exception:
+                                    # Error getting CWD, skip
+                                    pass
 
                 # sync up your computer with the interpreter's computer
                 try:
@@ -557,16 +615,5 @@ def respond(interpreter):
 
             # Doesn't want to run code. We're done!
             break
-
-        # Add CWD context to the last user message if it exists
-        if messages_for_llm and messages_for_llm[-1]["role"] == "user":
-            # Check if Python has been initialized
-            if getattr(interpreter, "_python_initialized", False):
-                # Get Python CWD
-                python_cwd = interpreter.computer.run("python", "import os; print(os.getcwd())", display=False)[0]["content"].strip()
-
-                # Add CWD context to the user's message
-                original_content = messages_for_llm[-1]["content"]
-                messages_for_llm[-1]["content"] = f"Python CWD: {python_cwd}\n\nUser request: {original_content}"
 
     return
