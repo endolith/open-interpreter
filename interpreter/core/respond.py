@@ -224,6 +224,9 @@ def respond(interpreter):
                     and ("auth" in error_message or
                          "api key" in error_message)
                 ):
+                    # Provide extra information on how to change API keys, if
+                    # we encounter that error (Many people writing GitHub
+                    # issues were struggling with this)
                     output = traceback.format_exc()
 
                     # Generic hint: a hard-coded llm.api_key can conflict with CLI-provided model/provider
