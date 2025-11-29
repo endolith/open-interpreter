@@ -197,7 +197,7 @@ Alternatively you can use Llamafile without installing any third party software 
 interpreter --local
 ```
 
-for a more detailed guide check out [this video by Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
+for a more detailed guide check out [this video by Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU)
 
 **How to run LM Studio in the background.**
 
