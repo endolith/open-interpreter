@@ -57,6 +57,12 @@ def render_past_conversation(messages):
         if chunk["type"] == "console":
             ran_code_block = True
             render_cursor = False
+            # Console output should be associated with a code block
+            if active_block is None:
+                active_block = CodeBlock()
+            if active_block.type != "code":
+                active_block.end()
+                active_block = CodeBlock()
             active_block.output += "\n" + chunk["content"]
             active_block.output = active_block.output.strip()  # <- Aesthetic choice
 
