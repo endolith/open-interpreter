@@ -63,7 +63,7 @@ class Ai2:
 
     default_model : str
         The model ID used when a helper call does not explicitly provide a
-        ``model=`` argument.  Defaults to ``"gpt-5-nano"`` (or the value of
+        ``model=`` argument.  Defaults to ``"gpt-4.1-nano"`` (or the value of
         the ``AI2_MODEL`` environment variable).
 
     Methods
@@ -107,7 +107,7 @@ class Ai2:
         self.computer = computer
         # Prefer newest model capable of structured outputs
         self._default_model = default_model or os.getenv("AI2_MODEL",
-                                                         "gpt-5-nano")
+                                                         "gpt-4.1-nano")
         self.temperature = temperature
 
         # Re-use the same API key the main interpreter is using (or env var)
