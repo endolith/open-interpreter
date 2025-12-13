@@ -30,7 +30,34 @@ tool_schema = {
 }
 
 
-def process_messages(messages):
+def generate_tool_id(tool_id_num, model=None):
+    """
+    Generate a tool call ID. For Mistral models, uses 9-character alphanumeric format.
+    For other models, uses the original format.
+
+    Mistral requires tool call IDs to match: ^[a-zA-Z0-9]{9}$
+    See: https://github.com/mistralai/mistral-common/blob/21ee9f6cee3441e9bb1e6ed2d10173f90bd9b94b/src/mistral_common/protocol/instruct/validator.py#L309
+    """
+    # Check if this is a Mistral model
+    is_mistral = model and ("mistral" in model.lower() or "devstral" in model.lower())
+
+    if is_mistral:
+        # Mistral requires exactly 9 alphanumeric characters
+        import string
+        # Base36: 0-9, a-z (36 characters total)
+        base36_chars = string.digits + string.ascii_lowercase
+        num = tool_id_num
+        suffix = ""
+        for _ in range(5):  # 5 digits to make total 9 chars (4 for "tool" + 5 for number)
+            suffix = base36_chars[num % 36] + suffix
+            num //= 36
+        return f"tool{suffix}"
+    else:
+        # Original format for other models
+        return f"toolu_{tool_id_num}"
+
+
+def process_messages(messages, model=None):
     processed_messages = []
     last_tool_id = 0
 
@@ -40,7 +67,7 @@ def process_messages(messages):
 
         if message.get("function_call"):
             last_tool_id += 1
-            tool_id = f"toolu_{last_tool_id}"
+            tool_id = generate_tool_id(last_tool_id, model)
 
             # Convert function_call to tool_calls
             function = message.pop("function_call")
@@ -65,7 +92,7 @@ def process_messages(messages):
         elif message.get("role") == "function":
             # This handles orphaned function responses
             last_tool_id += 1
-            tool_id = f"toolu_{last_tool_id}"
+            tool_id = generate_tool_id(last_tool_id, model)
 
             # Add a tool call before this orphaned tool response
             processed_messages.append(
@@ -107,7 +134,7 @@ def run_tool_calling_llm(llm, request_params):
     ]
     request_params["tools"] = [tool_schema]
 
-    request_params["messages"] = process_messages(request_params["messages"])
+    request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
     # # This makes any role: tool have the ID of the last tool call
     # last_tool_id = 0
