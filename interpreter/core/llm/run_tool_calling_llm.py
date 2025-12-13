@@ -309,16 +309,19 @@ def run_tool_calling_llm(llm, request_params):
                 language = "python"
 
             # Pull the code string straight out of the "arguments" string
-            code_delta = accumulated_deltas["function_call"]["arguments"][len(code) :]
-            # Update the code
-            code = accumulated_deltas["function_call"]["arguments"]
-            # Yield the delta
-            if code_delta:
-                yield {
-                    "type": "code",
-                    "format": language,
-                    "content": code_delta,
-                }
+            arguments_str = accumulated_deltas["function_call"]["arguments"]
+            # Ensure arguments is a string before slicing
+            if isinstance(arguments_str, str):
+                code_delta = arguments_str[len(code) :]
+                # Update the code
+                code = arguments_str
+                # Yield the delta
+                if code_delta:
+                    yield {
+                        "type": "code",
+                        "format": language,
+                        "content": code_delta,
+                    }
 
         if (
             accumulated_deltas.get("function_call")
@@ -344,10 +347,15 @@ def run_tool_calling_llm(llm, request_params):
                         language = arguments["language"]
 
                     if language is not None and "code" in arguments:
+                        # Ensure code is a string (some models may return other types)
+                        code_value = arguments["code"]
+                        if not isinstance(code_value, str):
+                            # If code is not a string, skip this chunk
+                            continue
                         # Calculate the delta (new characters only)
-                        code_delta = arguments["code"][len(code) :]
+                        code_delta = code_value[len(code) :]
                         # Update the code
-                        code = arguments["code"]
+                        code = code_value
                         # Yield the delta
                         if code_delta:
                             yield {
