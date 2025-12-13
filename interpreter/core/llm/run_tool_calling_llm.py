@@ -1,7 +1,7 @@
 import os
 import re
 
-from .utils.merge_deltas import merge_deltas
+from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 
 tool_schema = {
@@ -207,23 +207,46 @@ def run_tool_calling_llm(llm, request_params):
             # This happens sometimes
             continue
 
-        delta = chunk["choices"][0]["delta"]
+        raw_delta = chunk["choices"][0]["delta"]
+
+        # Normalize delta to dict immediately - LiteLLM may return Pydantic objects
+        # This ensures all code paths work with plain dicts consistently
+        delta = normalize_delta_to_dict(raw_delta)
 
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
             function_call_detected = True
 
-            # import pdb; pdb.set_trace()
-            if len(delta["tool_calls"]) > 0 and delta["tool_calls"][0].function:
+            # Handle different tool_calls formats
+            # Some models return tool_calls as a list of dicts, others as objects
+            tool_call = delta["tool_calls"][0]
+            if isinstance(tool_call, dict):
+                # Dict format: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+                if "function" in tool_call and isinstance(tool_call["function"], dict):
+                    delta = {
+                        "function_call": {
+                            "name": tool_call["function"].get("name", ""),
+                            "arguments": tool_call["function"].get("arguments", ""),
+                        }
+                    }
+                else:
+                    # If tool_calls is a list but not in expected format, skip conversion
+                    # and let merge_deltas handle it
+                    pass
+            elif hasattr(tool_call, "function"):
+                # Object format with .function attribute
                 delta = {
-                    # "id": delta["tool_calls"][0],
                     "function_call": {
-                        "name": delta["tool_calls"][0].function.name,
-                        "arguments": delta["tool_calls"][0].function.arguments,
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
                     }
                 }
+            else:
+                # Unknown format, skip conversion
+                pass
 
         # Accumulate deltas
+        # Note: merge_deltas now handles lists (like tool_calls) properly
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
         if "content" in delta and delta["content"]:

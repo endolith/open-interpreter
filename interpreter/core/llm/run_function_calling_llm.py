@@ -1,4 +1,4 @@
-from .utils.merge_deltas import merge_deltas
+from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 
 function_schema = {
@@ -50,7 +50,9 @@ def run_function_calling_llm(llm, request_params):
             # This happens sometimes
             continue
 
-        delta = chunk["choices"][0]["delta"]
+        raw_delta = chunk["choices"][0]["delta"]
+        # Normalize delta to dict - LiteLLM may return Pydantic objects
+        delta = normalize_delta_to_dict(raw_delta)
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
