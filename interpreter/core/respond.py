@@ -168,10 +168,14 @@ def respond(interpreter):
                                 title="Error",
                                 title_align="left"
                             )
+                            # Yield a special chunk to stop Live display before printing error panel
+                            # This prevents Live display from overwriting the error panel
+                            yield {"type": "stop_live_display"}
                             rich_print(panel)
                             print("")  # Add space after error
                         except:
                             # Fallback if JSON parsing fails
+                            yield {"type": "stop_live_display"}
                             panel = Panel(
                                 error_str,
                                 border_style="red",
@@ -182,6 +186,8 @@ def respond(interpreter):
                             print("")
                     else:
                         # Format all other API errors in a Panel
+                        # Yield a special chunk to stop Live display before printing error panel
+                        yield {"type": "stop_live_display"}
                         panel = Panel(
                             error_str,
                             border_style="red",
