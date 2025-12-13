@@ -127,10 +127,13 @@ def convert_to_openai_messages(
 
         elif message["type"] == "image":
             if message.get("format") == "description":
-                # A description is plain text describing an image; emit it as a
-                # user message. The source role is often 'computer' (screenshot
-                # tool output), which is not a valid OpenAI Chat Completions role.
-                new_message["role"] = "user"
+                # Convert computer role to user for Mistral models (Mistral only accepts: system, user, assistant, tool)
+                role = message["role"]
+                if role == "computer" and interpreter and interpreter.llm:
+                    model = interpreter.llm.model
+                    if model and ("mistral" in model.lower() or "devstral" in model.lower()):
+                        role = "user"
+                new_message["role"] = role
                 new_message["content"] = message["content"]
             else:
                 if vision == False:
