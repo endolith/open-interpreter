@@ -15,10 +15,10 @@ def normalize_delta_to_dict(delta):
         return delta
 
     # Convert Pydantic Delta object to dict
-    if hasattr(delta, "model_dump"):
+    if hasattr(delta, 'model_dump'):
         # Pydantic v2
         return delta.model_dump(exclude_unset=True)
-    elif hasattr(delta, "dict"):
+    elif hasattr(delta, 'dict'):
         # Pydantic v1
         return delta.dict(exclude_unset=True)
     else:
@@ -28,83 +28,6 @@ def normalize_delta_to_dict(delta):
         except (TypeError, ValueError):
             # If conversion fails, return empty dict
             return {}
-
-
-def _tool_call_slot(accumulated_calls, new_tool_call):
-    """Which accumulated call this delta continues, or None when it opens a new one.
-
-    ``index`` is not an identity. litellm's ``Delta.__init__`` numbers index-less
-    tool calls from zero *per chunk*, so a provider that streams two finished
-    calls in two chunks — litellm's native Ollama path does exactly this — hands
-    both of them index 0. Merging on that alone concatenated the second call's
-    arguments onto the first, producing
-    ``{"language":"python",...}{"language":"bash",...}`` inside one arguments
-    string: the "malformed call" the model was then blamed for was built here.
-
-    The call id is the identity that holds. Providers send it once, on the delta
-    that opens a call, and never reuse it for another, so a delta whose id differs
-    from the call sitting at its index has opened a second call no matter what the
-    index says. An id is still allowed to arrive after the call has started (some
-    providers send the function name in the opening delta and the id with the
-    first arguments fragment), which is why a call that has no id yet still
-    absorbs one rather than being treated as a different call.
-    """
-    new_id = new_tool_call.get("id")
-    if new_id:
-        for i, call in enumerate(accumulated_calls):
-            if isinstance(call, dict) and call.get("id") == new_id:
-                return i
-
-    index = new_tool_call.get("index", 0)
-    slot = None
-    for i, call in enumerate(accumulated_calls):
-        if not isinstance(call, dict) or call.get("index", 0) != index:
-            continue
-        if new_id and call.get("id") and call["id"] != new_id:
-            # Same stamped index, different call: keep looking rather than
-            # appending this call's arguments onto that one.
-            continue
-        # The last match is the call that opened most recently at this slot.
-        # Providers that re-stamp every chunk's index from zero reuse the slot
-        # for consecutive calls, so an ID-less tail after a collision belongs
-        # to the newer call, not the first one.
-        slot = i
-    return slot
-
-
-def _append_tool_call(accumulated_calls, new_tool_call):
-    """Start a new accumulated call, preserving the provider's slot.
-
-    Two calls can arrive carrying the same stamped index (see _tool_call_slot).
-    Keep it rather than renumbering: a later ID-less fragment defaults to that
-    index, and the last-match rule routes it to the call that opened most
-    recently, which is the one whose stream is active.
-    """
-    accumulated_calls.append(new_tool_call)
-
-
-def _merge_tool_call(existing, new_tool_call):
-    """Fold one delta into the call it continues."""
-    # Merge id (use non-null value)
-    if new_tool_call.get("id") and not existing.get("id"):
-        existing["id"] = new_tool_call["id"]
-    # Merge function
-    if "function" in new_tool_call and isinstance(new_tool_call["function"], dict):
-        if "function" not in existing:
-            existing["function"] = {}
-        func = existing["function"]
-        new_func = new_tool_call["function"]
-        # Merge name (use non-null value)
-        if new_func.get("name") and not func.get("name"):
-            func["name"] = new_func["name"]
-        # Accumulate arguments (string concatenation). Providers can send an
-        # explicit null, and a first chunk stored unchanged may hold None;
-        # both are treated as empty so the next fragment still appends.
-        if new_func.get("arguments") is not None:
-            func["arguments"] = (func.get("arguments") or "") + new_func["arguments"]
-    # Merge type
-    if new_tool_call.get("type") and not existing.get("type"):
-        existing["type"] = new_tool_call["type"]
 
 
 def merge_deltas(original, delta):
@@ -130,9 +53,9 @@ def merge_deltas(original, delta):
                     original[key] = value
                 else:
                     merge_deltas(original[key], value)
-            elif hasattr(value, "model_dump") or hasattr(value, "dict"):
+            elif hasattr(value, 'model_dump') or hasattr(value, 'dict'):
                 # Pydantic object - convert to dict first
-                if hasattr(value, "model_dump"):
+                if hasattr(value, 'model_dump'):
                     value = value.model_dump(exclude_unset=True)
                 else:
                     value = value.dict(exclude_unset=True)
@@ -142,28 +65,16 @@ def merge_deltas(original, delta):
                     merge_deltas(original[key], value)
             elif isinstance(value, list):
                 # Handle lists (e.g., tool_calls, reasoning_content arrays)
-                # Special handling for tool_calls: merge each delta into the call
-                # it continues (identified by id, falling back to index), not extend
-                if key == "tool_calls" and key in original and isinstance(original[key], list):
-                    for new_tool_call in value:
-                        if isinstance(new_tool_call, dict):
-                            slot = _tool_call_slot(original[key], new_tool_call)
-                            if slot is not None:
-                                _merge_tool_call(original[key][slot], new_tool_call)
-                            else:
-                                _append_tool_call(original[key], new_tool_call)
-                        else:
-                            # Not a dict, just append
-                            original[key].append(new_tool_call)
+                # For lists, we typically want to extend/append, not replace
+                if key not in original:
+                    original[key] = value
                 else:
-                    # For other lists, extend/append
-                    if key not in original:
-                        original[key] = value
+                    # Extend the existing list with new items
+                    if isinstance(original[key], list):
+                        original[key].extend(value)
                     else:
-                        if isinstance(original[key], list):
-                            original[key].extend(value)
-                        else:
-                            original[key] = value
+                        # If original wasn't a list, replace it
+                        original[key] = value
             else:
                 # Try to convert to dict, but handle cases where it can't be converted
                 # (e.g., reasoning tokens, or other non-standard formats)
