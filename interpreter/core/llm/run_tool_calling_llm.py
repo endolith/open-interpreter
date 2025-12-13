@@ -1,7 +1,7 @@
 import os
 import re
 
-from .utils.merge_deltas import merge_deltas
+from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 
 tool_schema = {
@@ -207,7 +207,11 @@ def run_tool_calling_llm(llm, request_params):
             # This happens sometimes
             continue
 
-        delta = chunk["choices"][0]["delta"]
+        raw_delta = chunk["choices"][0]["delta"]
+
+        # Normalize delta to dict immediately - LiteLLM may return Pydantic objects
+        # This ensures all code paths work with plain dicts consistently
+        delta = normalize_delta_to_dict(raw_delta)
 
         # Thinking-model reasoning must reach history even when this delta
         # carries no usable content (a reasoning-only delta, or one the
@@ -217,50 +221,38 @@ def run_tool_calling_llm(llm, request_params):
 
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
-            # import pdb; pdb.set_trace()
-            converted_call = None
-            for tool_call in delta["tool_calls"]:
-                # Entries arrive as objects (with .function) or plain dicts
-                # depending on the provider/litellm version.
-                if isinstance(tool_call, dict):
-                    function = tool_call.get("function")
+            function_call_detected = True
+
+            # Handle different tool_calls formats
+            # Some models return tool_calls as a list of dicts, others as objects
+            tool_call = delta["tool_calls"][0]
+            if isinstance(tool_call, dict):
+                # Dict format: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+                if "function" in tool_call and isinstance(tool_call["function"], dict):
+                    delta = {
+                        "function_call": {
+                            "name": tool_call["function"].get("name", ""),
+                            "arguments": tool_call["function"].get("arguments", ""),
+                        }
+                    }
                 else:
-                    function = getattr(tool_call, "function", None)
-                if not function:
-                    continue
-                # A nameless continuation still belongs to a call in
-                # progress: merge_deltas skips its None name and appends
-                # the arguments to the accumulated call.
-                if isinstance(function, dict):
-                    name = function.get("name")
-                    arguments = function.get("arguments")
-                else:
-                    name = getattr(function, "name", None)
-                    arguments = getattr(function, "arguments", None)
-                if name is None and arguments is None:
-                    # An entry with neither a name nor arguments carries
-                    # nothing to merge; keep scanning the list for a usable
-                    # entry rather than selecting this one.
-                    continue
-                converted_call = {"name": name, "arguments": arguments}
-                break
-            if converted_call is not None:
-                function_call_detected = True
+                    # If tool_calls is a list but not in expected format, skip conversion
+                    # and let merge_deltas handle it
+                    pass
+            elif hasattr(tool_call, "function"):
+                # Object format with .function attribute
                 delta = {
-                    # "id": delta["tool_calls"][0],
-                    "function_call": converted_call,
+                    "function_call": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                    }
                 }
             else:
-                # No entry carried a usable function, and the raw tool_calls
-                # list is nothing the merge step can consume (merge_deltas
-                # cannot dict() it), so drop the key and let the chunk pass
-                # through empty rather than crashing (#254). dict() works on
-                # plain dicts and litellm Delta objects alike; .items() only
-                # works on the former (#267).
-                delta = dict(delta)
-                delta.pop("tool_calls", None)
+                # Unknown format, skip conversion
+                pass
 
         # Accumulate deltas
+        # Note: merge_deltas now handles lists (like tool_calls) properly
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
         if reasoning and not (
