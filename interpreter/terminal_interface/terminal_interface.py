@@ -306,6 +306,12 @@ def terminal_interface(interpreter, message):
                         print(chunk.get("content", ""), end="", flush=True)
                     continue
 
+                # Handle special chunk to stop Live display before error panel
+                if chunk.get("type") == "stop_live_display":
+                    if active_block and hasattr(active_block, 'live') and active_block.live.is_started:
+                        active_block.live.stop()
+                    continue
+
                 if "end" in chunk and active_block:
                     # For message blocks, finalize before ending (skip refresh to avoid duplication)
                     if chunk["type"] == "message" and hasattr(active_block, 'finalize'):

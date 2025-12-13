@@ -322,7 +322,7 @@ class OpenInterpreter:
                     print("Open Interpreter stopping.")
                     break
 
-                if chunk["content"] == "":
+                if chunk.get("content") == "":
                     continue
 
                 # If active_line is None, we finished running code.
@@ -340,6 +340,12 @@ class OpenInterpreter:
                                 "content": "",
                             }
                         )
+
+                # Handle special chunks that don't need normal processing
+                if chunk.get("type") == "stop_live_display":
+                    # Pass through to terminal interface for handling
+                    yield chunk
+                    continue
 
                 # Handle the special "confirmation" chunk, which neither triggers a flag or creates a message
                 if chunk["type"] == "confirmation":
@@ -427,6 +433,10 @@ class OpenInterpreter:
                 yield {**last_flag_base, "end": True}
         except GeneratorExit:
             raise  # gotta pass this up!
+        except SystemExit:
+            # Don't yield final end flag when exiting due to sys.exit()
+            # This prevents duplicate output when error panel is displayed
+            raise
 
     def reset(self):
         self.computer.terminate()  # Terminates all languages
