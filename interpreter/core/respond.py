@@ -22,10 +22,6 @@ def respond(interpreter):
     Responds until it decides not to run any more code or say anything else.
     """
 
-    # Debug: Check verbose at respond() entry
-    print(f"[DEBUG_RESPOND] Entry: interpreter ID={id(interpreter)}, verbose={interpreter.verbose}, debug={interpreter.debug}", flush=True)
-    print(f"[DEBUG_RESPOND] llm.interpreter ID={id(interpreter.llm.interpreter)}, same object? {id(interpreter) == id(interpreter.llm.interpreter)}", flush=True)
-
     last_unsupported_code = ""
     insert_loop_message = False
 

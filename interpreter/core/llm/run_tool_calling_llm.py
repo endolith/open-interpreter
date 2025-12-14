@@ -128,14 +128,11 @@ def process_messages(messages, model=None):
 def run_tool_calling_llm(llm, request_params):
     ## Setup
 
-    # TODO: Figure out why llm.interpreter.verbose is False even when --verbose is passed.
-    # For now, check both verbose and debug flags. This might be related to profile loading
-    # or interpreter instance replacement.
+    # Check verbose flag for debug output
     verbose = llm.interpreter.verbose or llm.interpreter.debug
 
     if verbose:
         print(f"[DEBUG] run_tool_calling_llm called with model: {llm.model}", flush=True)
-        print(f"[DEBUG] request_params keys: {list(request_params.keys())}", flush=True)
         if "reasoning" in request_params:
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
