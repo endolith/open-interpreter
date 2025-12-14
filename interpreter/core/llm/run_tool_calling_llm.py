@@ -403,134 +403,31 @@ def run_tool_calling_llm(llm, request_params):
             reasoning_preview = str(accumulated_deltas.get("reasoning_content", ""))[:200]
             print(f"[DEBUG] reasoning_content preview: {repr(reasoning_preview)}", flush=True)
 
-    if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
-        if not accumulated_deltas.get("function_call"):
-            # Try to convert tool_calls to function_call format now that stream is complete
-            tool_calls = accumulated_deltas["tool_calls"]
+    # POST-STREAM PROCESSING: Yield in order: reasoning → content → code
+    # This ensures the model's thought process is shown before actions
 
-            # Debug: log what we received (only in verbose mode)
-            if llm.interpreter.verbose:
-                print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
+    # 1. REASONING: Yield reasoning_content if present (in block quotes)
+    if has_reasoning_content and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
+        reasoning_content = accumulated_deltas["reasoning_content"]
+        if isinstance(reasoning_content, str) and reasoning_content.strip():
+            if verbose:
+                print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
+                if "content" in accumulated_deltas:
+                    print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
 
-            if isinstance(tool_calls, list) and len(tool_calls) > 0:
-                tool_call = tool_calls[0]
-                converted = False
+            # Yield reasoning as a message with block quote formatting
+            formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
+            yield {"type": "message", "content": formatted_reasoning + "\n\n"}
 
-                if isinstance(tool_call, dict):
-                    if "function" in tool_call and isinstance(tool_call["function"], dict):
-                        accumulated_deltas["function_call"] = {
-                            "name": tool_call["function"].get("name", ""),
-                            "arguments": tool_call["function"].get("arguments", ""),
-                        }
-                        function_call_detected = True
-                        converted = True
-                        if llm.interpreter.verbose:
-                            print(f"[DEBUG] Converted tool_call to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
-                elif hasattr(tool_call, "function"):
-                    accumulated_deltas["function_call"] = {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
-                    }
-                    function_call_detected = True
-                    converted = True
-                    if llm.interpreter.verbose:
-                        print(f"[DEBUG] Converted tool_call (object) to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
-
-                # If we still couldn't convert, raise an error with details
-                if not converted:
-                    import json
-                    error_msg = (
-                        f"Failed to convert tool_calls to function_call format after stream completed. "
-                        f"tool_calls type: {type(tool_calls)}, "
-                        f"tool_call type: {type(tool_call)}, "
-                        f"tool_call value: {json.dumps(tool_call, default=str) if isinstance(tool_call, dict) else repr(tool_call)}"
-                    )
-                    print(f"[ERROR] {error_msg}", flush=True)
-                    # Raise exception so we know something is wrong
-                    raise ValueError(f"Unsupported tool_calls format: {error_msg}")
-            else:
-                # tool_calls is not a list or is empty
-                import json
-                error_msg = f"tool_calls is not a list or is empty. Type: {type(tool_calls)}, Value: {json.dumps(tool_calls, default=str) if not isinstance(tool_calls, (str, bytes)) else repr(tool_calls)}"
-                print(f"[ERROR] {error_msg}", flush=True)
-                raise ValueError(f"Invalid tool_calls format: {error_msg}")
-
-    # After converting tool_calls to function_call, process it to yield code chunks
-    # (This handles the case where tool_calls were converted after stream completed)
-    if accumulated_deltas.get("function_call"):
-        function_call = accumulated_deltas["function_call"]
-        # Check if it's the execute function (or legacy python/functions names)
-        function_name = function_call.get("name", "")
-        if function_name in ["execute", "python", "functions"]:
-            if "arguments" in function_call and function_call["arguments"]:
-                arguments = function_call["arguments"]
-                arguments = parse_partial_json(arguments)
-
-                if isinstance(arguments, dict):
-                    if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
-                        language = arguments["language"]
-
-                    if language is not None and "code" in arguments:
-                        code_value = arguments["code"]
-                        if isinstance(code_value, str):
-                            # Yield the full code (since we converted after stream, code variable is empty)
-                            if code_value:
-                                yield {
-                                    "type": "code",
-                                    "format": language,
-                                    "content": code_value,
-                                }
-
-    # If we have accumulated_review but no review_category was set, it means content was
-    # accumulated but never yielded (no review tags found)
+    # 2. CONTENT: Yield accumulated_review or regular content
     if accumulated_review and review_category == None:
-        # Content was accumulated but no review tags - yield it as regular message
         if accumulated_review.strip():
             yield {"type": "message", "content": accumulated_review}
-
-    # Check for reasoning_content and yield it FIRST with block quote formatting
-    # Some models (like nemotron via DeepInfra) include reasoning as a separate field
-    # Reasoning should always come before the response
-    # NOTE: Different providers handle reasoning differently:
-    # - DeepInfra: Returns reasoning_content as separate field
-    # - Together: Mixes reasoning into content field (no separate reasoning_content)
-    # IMPORTANT: Only yield reasoning when there's NO tool_calls/function_call
-    # If there are tool calls, reasoning would interrupt the code execution flow
-    if has_reasoning_content and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
-        # Only yield reasoning if there are no tool calls or function calls
-        if not has_tool_calls and not has_function_call:
-            reasoning_content = accumulated_deltas["reasoning_content"]
-            if isinstance(reasoning_content, str) and reasoning_content.strip():
-                if verbose:
-                    print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
-                    if "content" in accumulated_deltas:
-                        print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
-                        # Check if content is already in reasoning_content
-                        if accumulated_deltas["content"] in reasoning_content:
-                            print(f"[DEBUG] WARNING: content appears to be included in reasoning_content!", flush=True)
-
-                # Yield reasoning as a message with block quote formatting
-                # Format as block quote using markdown-style > prefix
-                # Only include the reasoning_content, not the regular content
-                formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
-                # Add a newline after the block quote to separate it from the content
-                yield {"type": "message", "content": formatted_reasoning + "\n\n"}
-        elif verbose:
-            print(f"[DEBUG] Skipping reasoning_content because tool_calls/function_call present", flush=True)
-
-    # 2. Then yield content (regular text response) if present and not already yielded
-    if "content" in accumulated_deltas and accumulated_deltas["content"]:
+    elif "content" in accumulated_deltas and accumulated_deltas["content"]:
         content = accumulated_deltas["content"]
         if not accumulated_deltas.get("function_call") and not accumulated_deltas.get("tool_calls"):
-            # Model generated text but no tool calls - yield the content
-            # But only if we didn't already yield it during streaming
             if content.strip() and not content_yielded_during_streaming:
                 yield {"type": "message", "content": content}
-
-    # If we have accumulated_review but no review_category was set, yield it
-    if accumulated_review and review_category == None:
-        if accumulated_review.strip():
-            yield {"type": "message", "content": accumulated_review}
 
     # 3. Finally, process and yield code blocks (function_call/tool_calls)
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
