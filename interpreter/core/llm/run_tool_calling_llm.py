@@ -238,6 +238,7 @@ def run_tool_calling_llm(llm, request_params):
                     if "<safe>" in accumulated_review:
                         review_category = "safe"
 
+                # If we have review tags, process as review
                 if review_category != None:
                     for tag in [
                         "<safe>",
@@ -266,6 +267,13 @@ def run_tool_calling_llm(llm, request_params):
                             "content": delta["content"],
                         }
                         buffer = ""
+                else:
+                    # function_call_detected is True but no review tags found
+                    # This might be regular content, not a review - yield it as message
+                    # But only if we don't have actual tool_calls (might be false positive)
+                    if not accumulated_deltas.get("tool_calls") and not accumulated_deltas.get("function_call"):
+                        # No actual tool calls, so this is just regular content
+                        yield {"type": "message", "content": delta["content"]}
 
             else:
                 yield {"type": "message", "content": delta["content"]}
@@ -347,13 +355,18 @@ def run_tool_calling_llm(llm, request_params):
     import json
     has_tool_calls = "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]
     has_function_call = bool(accumulated_deltas.get("function_call"))
+    has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
-    if has_tool_calls or has_function_call:
-        print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}", flush=True)
-        if has_tool_calls:
-            print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
-        if has_function_call:
-            print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
+    # Always print debug info to see what's happening
+    print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
+    print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
+    if has_tool_calls:
+        print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
+    if has_function_call:
+        print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
+    if has_content:
+        content_preview = str(accumulated_deltas.get("content", ""))[:200]
+        print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
 
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
         if not accumulated_deltas.get("function_call"):
@@ -432,6 +445,24 @@ def run_tool_calling_llm(llm, request_params):
                                     "format": language,
                                     "content": code_value,
                                 }
+
+    # If we have accumulated_review but no review_category was set, it means content was
+    # accumulated but never yielded (no review tags found)
+    if accumulated_review and review_category == None:
+        # Content was accumulated but no review tags - yield it as regular message
+        if accumulated_review.strip():
+            yield {"type": "message", "content": accumulated_review}
+
+    # If we have content but no tool_calls/function_call, yield it
+    # This handles cases where the model generates text but doesn't use tool calling
+    if "content" in accumulated_deltas and accumulated_deltas["content"]:
+        content = accumulated_deltas["content"]
+        # Only yield if we haven't already yielded it during streaming
+        # (We check if function_call_detected was True but no actual function_call exists)
+        if not accumulated_deltas.get("function_call") and not accumulated_deltas.get("tool_calls"):
+            # Model generated text but no tool calls - yield the content
+            if content.strip():  # Only yield non-empty content
+                yield {"type": "message", "content": content}
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
