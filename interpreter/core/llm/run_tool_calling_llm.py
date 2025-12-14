@@ -211,23 +211,8 @@ def run_tool_calling_llm(llm, request_params):
     buffer = ""
     content_yielded_during_streaming = False  # Track if content was already yielded
     has_reasoning_content = False  # Track if we have reasoning_content (to delay content output)
-    provider_name = None  # Track which provider is being used
 
     for chunk in llm.completions(**request_params):
-        # Try to extract provider name from chunk (LiteLLM may include this)
-        if provider_name is None:
-            # Check various possible locations for provider info
-            if hasattr(chunk, '_hidden_params') and chunk._hidden_params:
-                provider_name = chunk._hidden_params.get('custom_llm_provider') or chunk._hidden_params.get('provider')
-            elif hasattr(chunk, 'model') and chunk.model:
-                # Sometimes provider is in the model string
-                if '/' in chunk.model:
-                    provider_name = chunk.model.split('/')[0]
-            elif isinstance(chunk, dict):
-                provider_name = chunk.get('_hidden_params', {}).get('custom_llm_provider') or chunk.get('provider')
-
-            if provider_name and verbose:
-                print(f"[DEBUG] Provider: {provider_name}", flush=True)
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
@@ -404,8 +389,9 @@ def run_tool_calling_llm(llm, request_params):
     if verbose:
         print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
         print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
-        if provider_name:
-            print(f"[DEBUG] Provider: {provider_name}", flush=True)
+        # NOTE: Provider detection removed - OpenRouter routes to different providers (DeepInfra, Together)
+        # but this information is only available in OpenRouter's API response metadata, not in LiteLLM chunks.
+        # DeepInfra returns reasoning_content as separate field, Together mixes it into content.
         if has_tool_calls:
             print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
         if has_function_call:
@@ -503,13 +489,25 @@ def run_tool_calling_llm(llm, request_params):
             yield {"type": "message", "content": accumulated_review}
 
     # Check for reasoning_content and yield it FIRST with block quote formatting
-    # Some models (like nemotron) include reasoning as a separate field
+    # Some models (like nemotron via DeepInfra) include reasoning as a separate field
     # Reasoning should always come before the response
+    # NOTE: Different providers handle reasoning differently:
+    # - DeepInfra: Returns reasoning_content as separate field
+    # - Together: Mixes reasoning into content field (no separate reasoning_content)
     if has_reasoning_content and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
         reasoning_content = accumulated_deltas["reasoning_content"]
         if isinstance(reasoning_content, str) and reasoning_content.strip():
+            if verbose:
+                print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
+                if "content" in accumulated_deltas:
+                    print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
+                    # Check if content is already in reasoning_content
+                    if accumulated_deltas["content"] in reasoning_content:
+                        print(f"[DEBUG] WARNING: content appears to be included in reasoning_content!", flush=True)
+
             # Yield reasoning as a message with block quote formatting
             # Format as block quote using markdown-style > prefix
+            # Only include the reasoning_content, not the regular content
             formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
             yield {"type": "message", "content": formatted_reasoning}
 
