@@ -211,8 +211,23 @@ def run_tool_calling_llm(llm, request_params):
     buffer = ""
     content_yielded_during_streaming = False  # Track if content was already yielded
     has_reasoning_content = False  # Track if we have reasoning_content (to delay content output)
+    provider_name = None  # Track which provider is being used
 
     for chunk in llm.completions(**request_params):
+        # Try to extract provider name from chunk (LiteLLM may include this)
+        if provider_name is None:
+            # Check various possible locations for provider info
+            if hasattr(chunk, '_hidden_params') and chunk._hidden_params:
+                provider_name = chunk._hidden_params.get('custom_llm_provider') or chunk._hidden_params.get('provider')
+            elif hasattr(chunk, 'model') and chunk.model:
+                # Sometimes provider is in the model string
+                if '/' in chunk.model:
+                    provider_name = chunk.model.split('/')[0]
+            elif isinstance(chunk, dict):
+                provider_name = chunk.get('_hidden_params', {}).get('custom_llm_provider') or chunk.get('provider')
+
+            if provider_name and verbose:
+                print(f"[DEBUG] Provider: {provider_name}", flush=True)
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
@@ -389,6 +404,8 @@ def run_tool_calling_llm(llm, request_params):
     if verbose:
         print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
         print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
+        if provider_name:
+            print(f"[DEBUG] Provider: {provider_name}", flush=True)
         if has_tool_calls:
             print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
         if has_function_call:
