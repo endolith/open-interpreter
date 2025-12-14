@@ -342,15 +342,31 @@ def run_tool_calling_llm(llm, request_params):
 
     # After stream completes, convert tool_calls to function_call format if needed
     # Don't try to parse incomplete tool_calls during streaming
+
+    # Debug: Always log what's in accumulated_deltas
+    import json
+    import os
+    debug_file = os.path.join(os.path.expanduser("~"), "glm_accumulated_deltas.log")
+    with open(debug_file, "a") as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"ACCUMULATED_DELTAS after stream completed\n")
+        f.write(f"{'='*80}\n")
+        f.write(f"Keys: {list(accumulated_deltas.keys())}\n")
+        if "tool_calls" in accumulated_deltas:
+            f.write(f"tool_calls type: {type(accumulated_deltas['tool_calls'])}\n")
+            f.write(f"tool_calls value: {json.dumps(accumulated_deltas['tool_calls'], default=str, indent=2)}\n")
+        if "function_call" in accumulated_deltas:
+            f.write(f"function_call: {json.dumps(accumulated_deltas['function_call'], default=str, indent=2)}\n")
+        f.write(f"Full accumulated_deltas: {json.dumps(accumulated_deltas, default=str, indent=2)}\n")
+        f.flush()
+
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
         if not accumulated_deltas.get("function_call"):
             # Try to convert tool_calls to function_call format now that stream is complete
             tool_calls = accumulated_deltas["tool_calls"]
 
-            # Debug: log what we received
-            if llm.interpreter.verbose:
-                import json
-                print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
+            # Debug: Always log what we received
+            print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
 
             if isinstance(tool_calls, list) and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
@@ -395,31 +411,31 @@ def run_tool_calling_llm(llm, request_params):
                 print(f"[ERROR] {error_msg}", flush=True)
                 raise ValueError(f"Invalid tool_calls format: {error_msg}")
 
-                # After converting tool_calls to function_call, process it to yield code chunks
-                # (This handles the case where tool_calls were converted after stream completed)
-                if accumulated_deltas.get("function_call"):
-                    function_call = accumulated_deltas["function_call"]
-                    # Check if it's the execute function (or legacy python/functions names)
-                    function_name = function_call.get("name", "")
-                    if function_name in ["execute", "python", "functions"]:
-                        if "arguments" in function_call and function_call["arguments"]:
-                            arguments = function_call["arguments"]
-                            arguments = parse_partial_json(arguments)
+    # After converting tool_calls to function_call, process it to yield code chunks
+    # (This handles the case where tool_calls were converted after stream completed)
+    if accumulated_deltas.get("function_call"):
+        function_call = accumulated_deltas["function_call"]
+        # Check if it's the execute function (or legacy python/functions names)
+        function_name = function_call.get("name", "")
+        if function_name in ["execute", "python", "functions"]:
+            if "arguments" in function_call and function_call["arguments"]:
+                arguments = function_call["arguments"]
+                arguments = parse_partial_json(arguments)
 
-                            if isinstance(arguments, dict):
-                                if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
-                                    language = arguments["language"]
+                if isinstance(arguments, dict):
+                    if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
+                        language = arguments["language"]
 
-                                if language is not None and "code" in arguments:
-                                    code_value = arguments["code"]
-                                    if isinstance(code_value, str):
-                                        # Yield the full code (since we converted after stream, code variable is empty)
-                                        if code_value:
-                                            yield {
-                                                "type": "code",
-                                                "format": language,
-                                                "content": code_value,
-                                            }
+                    if language is not None and "code" in arguments:
+                        code_value = arguments["code"]
+                        if isinstance(code_value, str):
+                            # Yield the full code (since we converted after stream, code variable is empty)
+                            if code_value:
+                                yield {
+                                    "type": "code",
+                                    "format": language,
+                                    "content": code_value,
+                                }
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
