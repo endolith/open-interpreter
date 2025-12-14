@@ -202,7 +202,7 @@ def run_tool_calling_llm(llm, request_params):
     review_category = None
     buffer = ""
     content_yielded_during_streaming = False  # Track if content was already yielded
-    reasoning_content_yielded = False  # Track if reasoning_content was already yielded
+    has_reasoning_content = False  # Track if we have reasoning_content (to delay content output)
 
     for chunk in llm.completions(**request_params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
@@ -224,16 +224,9 @@ def run_tool_calling_llm(llm, request_params):
         # We accumulate everything during streaming, but only parse after stream completes
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
-        # Check for reasoning_content in accumulated_deltas and yield it FIRST (before content)
-        # Reasoning should always come before the response
-        # Check accumulated_deltas (not just delta) because reasoning might be accumulated across chunks
-        if not reasoning_content_yielded and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
-            reasoning = accumulated_deltas["reasoning_content"]
-            if isinstance(reasoning, str) and reasoning.strip():
-                # Yield reasoning as a message with block quote formatting
-                formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning.split("\n"))
-                yield {"type": "message", "content": formatted_reasoning}
-                reasoning_content_yielded = True
+        # Track if we have reasoning_content (even if incomplete) - this will delay content output
+        if "reasoning_content" in accumulated_deltas and accumulated_deltas.get("reasoning_content"):
+            has_reasoning_content = True
 
         if "content" in delta and delta["content"]:
             if function_call_detected:
@@ -286,16 +279,16 @@ def run_tool_calling_llm(llm, request_params):
                     # But only if we don't have actual tool_calls (might be false positive)
                     if not accumulated_deltas.get("tool_calls") and not accumulated_deltas.get("function_call"):
                         # No actual tool calls, so this is just regular content
-                        # But if we have reasoning_content, don't yield content yet - yield it after stream
+                        # If we have reasoning_content, delay yielding content until after stream
                         # to ensure reasoning comes first
-                        if "reasoning_content" not in accumulated_deltas or not accumulated_deltas.get("reasoning_content"):
+                        if not has_reasoning_content:
                             yield {"type": "message", "content": delta["content"]}
                             content_yielded_during_streaming = True
 
             else:
-                # If we have reasoning_content, don't yield content yet - yield it after stream
+                # If we have reasoning_content, delay yielding content until after stream
                 # to ensure reasoning comes first
-                if "reasoning_content" not in accumulated_deltas or not accumulated_deltas.get("reasoning_content"):
+                if not has_reasoning_content:
                     yield {"type": "message", "content": delta["content"]}
                     content_yielded_during_streaming = True
 
@@ -477,11 +470,10 @@ def run_tool_calling_llm(llm, request_params):
         if accumulated_review.strip():
             yield {"type": "message", "content": accumulated_review}
 
-    # Check for reasoning_content and yield it FIRST with block quote formatting (if not already yielded)
+    # Check for reasoning_content and yield it FIRST with block quote formatting
     # Some models (like nemotron) include reasoning as a separate field
     # Reasoning should always come before the response
-    # Only yield if we didn't already yield it during streaming
-    if not reasoning_content_yielded and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
+    if has_reasoning_content and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
         reasoning_content = accumulated_deltas["reasoning_content"]
         if isinstance(reasoning_content, str) and reasoning_content.strip():
             # Yield reasoning as a message with block quote formatting
