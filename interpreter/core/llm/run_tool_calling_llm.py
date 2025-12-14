@@ -213,40 +213,13 @@ def run_tool_calling_llm(llm, request_params):
         # This ensures all code paths work with plain dicts consistently
         delta = normalize_delta_to_dict(raw_delta)
 
-        # Convert tool call into function call, which we have great parsing logic for below
+        # Mark if we see tool_calls (but don't try to parse incomplete streaming data)
         if "tool_calls" in delta and delta["tool_calls"]:
             function_call_detected = True
 
-            # Handle different tool_calls formats
-            # Some models return tool_calls as a list of dicts, others as objects
-            tool_call = delta["tool_calls"][0]
-            if isinstance(tool_call, dict):
-                # Dict format: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
-                if "function" in tool_call and isinstance(tool_call["function"], dict):
-                    delta = {
-                        "function_call": {
-                            "name": tool_call["function"].get("name", ""),
-                            "arguments": tool_call["function"].get("arguments", ""),
-                        }
-                    }
-                else:
-                    # If tool_calls is a list but not in expected format, skip conversion
-                    # and let merge_deltas handle it
-                    pass
-            elif hasattr(tool_call, "function"):
-                # Object format with .function attribute
-                delta = {
-                    "function_call": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
-                    }
-                }
-            else:
-                # Unknown format, skip conversion
-                pass
-
         # Accumulate deltas
         # Note: merge_deltas now handles lists (like tool_calls) properly
+        # We accumulate everything during streaming, but only parse after stream completes
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
         if "content" in delta and delta["content"]:
@@ -366,6 +339,69 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
+
+    # After stream completes, convert tool_calls to function_call format if needed
+    # Don't try to parse incomplete tool_calls during streaming
+    if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
+        if not accumulated_deltas.get("function_call"):
+            # Try to convert tool_calls to function_call format now that stream is complete
+            tool_calls = accumulated_deltas["tool_calls"]
+            if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                converted = False
+
+                if isinstance(tool_call, dict):
+                    if "function" in tool_call and isinstance(tool_call["function"], dict):
+                        accumulated_deltas["function_call"] = {
+                            "name": tool_call["function"].get("name", ""),
+                            "arguments": tool_call["function"].get("arguments", ""),
+                        }
+                        function_call_detected = True
+                        converted = True
+                elif hasattr(tool_call, "function"):
+                    accumulated_deltas["function_call"] = {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                    }
+                    function_call_detected = True
+                    converted = True
+
+                # If we still couldn't convert, raise an error with details
+                if not converted:
+                    import json
+                    error_msg = (
+                        f"Failed to convert tool_calls to function_call format after stream completed. "
+                        f"tool_calls type: {type(tool_calls)}, "
+                        f"tool_call type: {type(tool_call)}, "
+                        f"tool_call value: {json.dumps(tool_call, default=str) if isinstance(tool_call, dict) else repr(tool_call)}"
+                    )
+                    if llm.interpreter.verbose:
+                        print(f"[ERROR] {error_msg}", flush=True)
+                    # Raise exception so we know something is wrong
+                    raise ValueError(f"Unsupported tool_calls format: {error_msg}")
+
+                # After converting tool_calls to function_call, process it to yield code chunks
+                # (This handles the case where tool_calls were converted after stream completed)
+                if accumulated_deltas.get("function_call") and "arguments" in accumulated_deltas["function_call"]:
+                    arguments = accumulated_deltas["function_call"]["arguments"]
+                    arguments = parse_partial_json(arguments)
+
+                    if isinstance(arguments, dict):
+                        if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
+                            language = arguments["language"]
+
+                        if language is not None and "code" in arguments:
+                            code_value = arguments["code"]
+                            if isinstance(code_value, str):
+                                # Yield any remaining code that wasn't yielded during streaming
+                                if code_value != code:
+                                    code_delta = code_value[len(code):]
+                                    if code_delta:
+                                        yield {
+                                            "type": "code",
+                                            "format": language,
+                                            "content": code_delta,
+                                        }
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
