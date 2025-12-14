@@ -65,16 +65,58 @@ def merge_deltas(original, delta):
                     merge_deltas(original[key], value)
             elif isinstance(value, list):
                 # Handle lists (e.g., tool_calls, reasoning_content arrays)
-                # For lists, we typically want to extend/append, not replace
-                if key not in original:
-                    original[key] = value
+                # Special handling for tool_calls: merge by index, not extend
+                if key == "tool_calls" and key in original and isinstance(original[key], list):
+                    # Merge tool_calls by index
+                    for new_tool_call in value:
+                        if isinstance(new_tool_call, dict):
+                            index = new_tool_call.get("index", 0)
+                            # Find existing tool_call with same index
+                            existing_tool_call = None
+                            for i, tc in enumerate(original[key]):
+                                if isinstance(tc, dict) and tc.get("index") == index:
+                                    existing_tool_call = i
+                                    break
+
+                            if existing_tool_call is not None:
+                                # Merge into existing tool_call
+                                existing = original[key][existing_tool_call]
+                                # Merge id (use non-null value)
+                                if new_tool_call.get("id") and not existing.get("id"):
+                                    existing["id"] = new_tool_call["id"]
+                                # Merge function
+                                if "function" in new_tool_call and isinstance(new_tool_call["function"], dict):
+                                    if "function" not in existing:
+                                        existing["function"] = {}
+                                    func = existing["function"]
+                                    new_func = new_tool_call["function"]
+                                    # Merge name (use non-null value)
+                                    if new_func.get("name") and not func.get("name"):
+                                        func["name"] = new_func["name"]
+                                    # Accumulate arguments (string concatenation)
+                                    if "arguments" in new_func:
+                                        if "arguments" in func:
+                                            func["arguments"] += new_func.get("arguments", "")
+                                        else:
+                                            func["arguments"] = new_func.get("arguments", "")
+                                # Merge type
+                                if new_tool_call.get("type") and not existing.get("type"):
+                                    existing["type"] = new_tool_call["type"]
+                            else:
+                                # New tool_call, add it
+                                original[key].append(new_tool_call)
+                        else:
+                            # Not a dict, just append
+                            original[key].append(new_tool_call)
                 else:
-                    # Extend the existing list with new items
-                    if isinstance(original[key], list):
-                        original[key].extend(value)
-                    else:
-                        # If original wasn't a list, replace it
+                    # For other lists, extend/append
+                    if key not in original:
                         original[key] = value
+                    else:
+                        if isinstance(original[key], list):
+                            original[key].extend(value)
+                        else:
+                            original[key] = value
             else:
                 # Try to convert to dict, but handle cases where it can't be converted
                 # (e.g., reasoning tokens, or other non-standard formats)
