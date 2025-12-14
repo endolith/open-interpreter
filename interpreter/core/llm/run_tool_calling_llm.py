@@ -430,6 +430,7 @@ def run_tool_calling_llm(llm, request_params):
                 yield {"type": "message", "content": content}
 
     # 3. Finally, process and yield code blocks (function_call/tool_calls)
+    tool_call_id_for_error = None  # Store tool_call_id in case we need to yield error as tool response
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
         if not accumulated_deltas.get("function_call"):
             # Try to convert tool_calls to function_call format now that stream is complete
@@ -441,6 +442,12 @@ def run_tool_calling_llm(llm, request_params):
 
             if isinstance(tool_calls, list) and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
+                # Extract tool_call_id for potential error response
+                if isinstance(tool_call, dict) and "id" in tool_call:
+                    tool_call_id_for_error = tool_call["id"]
+                elif hasattr(tool_call, "id"):
+                    tool_call_id_for_error = tool_call.id
+
                 converted = False
                 if isinstance(tool_call, dict) and "function" in tool_call:
                     if isinstance(tool_call["function"], dict):
@@ -483,6 +490,7 @@ def run_tool_calling_llm(llm, request_params):
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
 
+            # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):
                 if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
                     language = arguments["language"]
@@ -497,21 +505,92 @@ def run_tool_calling_llm(llm, request_params):
                                 "format": language,
                                 "content": code_value,
                             }
+                        else:
+                            # Empty code - yield error as tool response
+                            error_msg = "Invalid execute call: code is empty"
+                            if tool_call_id_for_error:
+                                yield {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call_id_for_error,
+                                    "type": "message",
+                                    "content": error_msg
+                                }
+                            if verbose:
+                                print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                    else:
+                        # Code is not a string - yield error as tool response
+                        error_msg = f"Invalid execute call: code must be a string, got {type(code_value).__name__}"
+                        if tool_call_id_for_error:
+                            yield {
+                                "role": "tool",
+                                "tool_call_id": tool_call_id_for_error,
+                                "type": "message",
+                                "content": error_msg
+                            }
+                        if verbose:
+                            print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                else:
+                    # Missing language or code - yield error as tool response
+                    error_msg = f"Invalid execute call: missing required fields. Got: {list(arguments.keys())}"
+                    if tool_call_id_for_error:
+                        yield {
+                            "role": "tool",
+                            "tool_call_id": tool_call_id_for_error,
+                            "type": "message",
+                            "content": error_msg
+                        }
+                    if verbose:
+                        print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+            else:
+                # Arguments is not a dict - yield error as tool response
+                error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
+                if tool_call_id_for_error:
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id_for_error,
+                        "type": "message",
+                        "content": error_msg
+                    }
+                if verbose:
+                    print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
         elif function_name:
-            # Unsupported function call - show error instead of silently ignoring
+            # Unsupported function call - yield error as tool response to maintain proper message ordering
+            # The API expects: assistant (with tool_call) → tool (response) → user
             error_msg = (
                 f"Unsupported function call: '{function_name}'. "
                 f"Only 'execute' is supported as a direct tool call. "
                 f"To use '{function_name}', call it from within Python code using the execute function. "
                 f"For example: `import computer; computer.search.brave(query='...')`"
             )
-            yield {
-                "type": "message",
-                "content": f"**Error:** {error_msg}"
-            }
+
+            # Yield error as tool response if we have tool_call_id, otherwise as assistant message
+            if tool_call_id_for_error:
+                # Yield as tool response to maintain proper message ordering
+                yield {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id_for_error,
+                    "type": "message",
+                    "content": error_msg
+                }
+                # Also yield as assistant message so user sees it
+                yield {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": f"**Error:** {error_msg}"
+                }
+            else:
+                # Fallback if we don't have tool_call_id
+                yield {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": f"**Error:** {error_msg}"
+                }
+
             if verbose:
                 print(f"[ERROR] {error_msg}", flush=True)
                 print(f"[ERROR] Function call details: {json.dumps(function_call, default=str)}", flush=True)
+                if tool_call_id_for_error:
+                    print(f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}", flush=True)
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
