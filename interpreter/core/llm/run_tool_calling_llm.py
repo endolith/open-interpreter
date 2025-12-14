@@ -372,12 +372,15 @@ def run_tool_calling_llm(llm, request_params):
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
     # Debug: check what verbose actually is
-    print(f"[DEBUG_VERBOSE_CHECK] llm={llm}", flush=True)
-    print(f"[DEBUG_VERBOSE_CHECK] llm.interpreter={llm.interpreter}", flush=True)
-    print(f"[DEBUG_VERBOSE_CHECK] hasattr(llm.interpreter, 'verbose')={hasattr(llm.interpreter, 'verbose')}", flush=True)
-    print(f"[DEBUG_VERBOSE_CHECK] llm.interpreter.__dict__.keys()={list(llm.interpreter.__dict__.keys())}", flush=True)
-    verbose_value = llm.interpreter.verbose
-    print(f"[DEBUG_VERBOSE_CHECK] verbose_value={verbose_value}, type={type(verbose_value)}", flush=True)
+    # NOTE: For some reason llm.interpreter.verbose returns False even when --verbose is passed.
+    # Direct __dict__ access shows the real value. This might be due to some attribute interception
+    # or the interpreter instance being different than expected. Using __dict__ as workaround.
+    verbose_from_dict = llm.interpreter.__dict__.get('verbose', False)
+    verbose_from_attr = llm.interpreter.verbose
+    print(f"[DEBUG_VERBOSE_CHECK] verbose from __dict__={verbose_from_dict}, verbose from attribute={verbose_from_attr}", flush=True)
+
+    # Use the __dict__ value as it appears to be more reliable
+    verbose_value = verbose_from_dict
 
     # Debug info only in verbose mode
     if verbose_value:
