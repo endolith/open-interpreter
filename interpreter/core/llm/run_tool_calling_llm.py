@@ -367,9 +367,12 @@ def run_tool_calling_llm(llm, request_params):
         print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
     if has_function_call:
         print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
-    if has_content:
-        content_preview = str(accumulated_deltas.get("content", ""))[:200]
-        print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
+        if has_content:
+            content_preview = str(accumulated_deltas.get("content", ""))[:200]
+            print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
+        if "reasoning_content" in accumulated_deltas:
+            reasoning_preview = str(accumulated_deltas.get("reasoning_content", ""))[:200]
+            print(f"[DEBUG] reasoning_content preview: {repr(reasoning_preview)}", flush=True)
 
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
         if not accumulated_deltas.get("function_call"):
@@ -455,6 +458,17 @@ def run_tool_calling_llm(llm, request_params):
         # Content was accumulated but no review tags - yield it as regular message
         if accumulated_review.strip():
             yield {"type": "message", "content": accumulated_review}
+
+    # Check for reasoning_content and yield it separately with block quote formatting
+    # Some models (like nemotron) include reasoning as a separate field
+    reasoning_content = None
+    if "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
+        reasoning_content = accumulated_deltas["reasoning_content"]
+        if isinstance(reasoning_content, str) and reasoning_content.strip():
+            # Yield reasoning as a message with block quote formatting
+            # Format as block quote using markdown-style > prefix
+            formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
+            yield {"type": "message", "content": formatted_reasoning}
 
     # If we have content but no tool_calls/function_call, yield it
     # This handles cases where the model generates text but doesn't use tool calling
