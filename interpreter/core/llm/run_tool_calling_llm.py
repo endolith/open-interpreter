@@ -371,8 +371,12 @@ def run_tool_calling_llm(llm, request_params):
     has_function_call = bool(accumulated_deltas.get("function_call"))
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
-    # First, check what verbose actually is
-    verbose_value = getattr(getattr(llm, 'interpreter', None), 'verbose', False)
+    # Debug: check what verbose actually is
+    print(f"[DEBUG_VERBOSE_CHECK] llm={llm}", flush=True)
+    print(f"[DEBUG_VERBOSE_CHECK] llm.interpreter={llm.interpreter}", flush=True)
+    print(f"[DEBUG_VERBOSE_CHECK] hasattr(llm.interpreter, 'verbose')={hasattr(llm.interpreter, 'verbose')}", flush=True)
+    print(f"[DEBUG_VERBOSE_CHECK] llm.interpreter.__dict__.keys()={list(llm.interpreter.__dict__.keys())}", flush=True)
+    verbose_value = llm.interpreter.verbose
     print(f"[DEBUG_VERBOSE_CHECK] verbose_value={verbose_value}, type={type(verbose_value)}", flush=True)
 
     # Debug info only in verbose mode
