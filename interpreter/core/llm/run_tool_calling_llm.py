@@ -474,7 +474,11 @@ def run_tool_calling_llm(llm, request_params):
     # Process the converted function_call (if any) to yield code
     if accumulated_deltas.get("function_call"):
         function_call = accumulated_deltas["function_call"]
-        if function_call.get("name") == "execute":
+        function_name = function_call.get("name", "")
+
+        # Only "execute" is supported as a direct tool call
+        # Other functions (like computer.search.brave) must be called from within Python code
+        if function_name == "execute":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
@@ -493,6 +497,21 @@ def run_tool_calling_llm(llm, request_params):
                                 "format": language,
                                 "content": code_value,
                             }
+        elif function_name:
+            # Unsupported function call - show error instead of silently ignoring
+            error_msg = (
+                f"Unsupported function call: '{function_name}'. "
+                f"Only 'execute' is supported as a direct tool call. "
+                f"To use '{function_name}', call it from within Python code using the execute function. "
+                f"For example: `import computer; computer.search.brave(query='...')`"
+            )
+            yield {
+                "type": "message",
+                "content": f"**Error:** {error_msg}"
+            }
+            if verbose:
+                print(f"[ERROR] {error_msg}", flush=True)
+                print(f"[ERROR] Function call details: {json.dumps(function_call, default=str)}", flush=True)
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
