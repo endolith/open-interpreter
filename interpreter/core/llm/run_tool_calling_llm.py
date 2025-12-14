@@ -494,27 +494,31 @@ def run_tool_calling_llm(llm, request_params):
     # NOTE: Different providers handle reasoning differently:
     # - DeepInfra: Returns reasoning_content as separate field
     # - Together: Mixes reasoning into content field (no separate reasoning_content)
+    # IMPORTANT: Only yield reasoning when there's NO tool_calls/function_call
+    # If there are tool calls, reasoning would interrupt the code execution flow
     if has_reasoning_content and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
-        reasoning_content = accumulated_deltas["reasoning_content"]
-        if isinstance(reasoning_content, str) and reasoning_content.strip():
-            if verbose:
-                print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
-                if "content" in accumulated_deltas:
-                    print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
-                    # Check if content is already in reasoning_content
-                    if accumulated_deltas["content"] in reasoning_content:
-                        print(f"[DEBUG] WARNING: content appears to be included in reasoning_content!", flush=True)
+        # Only yield reasoning if there are no tool calls or function calls
+        if not has_tool_calls and not has_function_call:
+            reasoning_content = accumulated_deltas["reasoning_content"]
+            if isinstance(reasoning_content, str) and reasoning_content.strip():
+                if verbose:
+                    print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
+                    if "content" in accumulated_deltas:
+                        print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
+                        # Check if content is already in reasoning_content
+                        if accumulated_deltas["content"] in reasoning_content:
+                            print(f"[DEBUG] WARNING: content appears to be included in reasoning_content!", flush=True)
 
-            # Yield reasoning as a message with block quote formatting
-            # Format as block quote using markdown-style > prefix
-            # Only include the reasoning_content, not the regular content
-            formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
-            # Add a newline after the block quote to separate it from the content
-            yield {"type": "message", "content": formatted_reasoning + "\n\n"}
+                # Yield reasoning as a message with block quote formatting
+                # Format as block quote using markdown-style > prefix
+                # Only include the reasoning_content, not the regular content
+                formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
+                # Add a newline after the block quote to separate it from the content
+                yield {"type": "message", "content": formatted_reasoning + "\n\n"}
+        elif verbose:
+            print(f"[DEBUG] Skipping reasoning_content because tool_calls/function_call present", flush=True)
 
-    # If we have content but no tool_calls/function_call, yield it AFTER reasoning
-    # This handles cases where the model generates text but doesn't use tool calling
-    # Only yield if we haven't already yielded it during streaming
+    # 2. Then yield content (regular text response) if present and not already yielded
     if "content" in accumulated_deltas and accumulated_deltas["content"]:
         content = accumulated_deltas["content"]
         if not accumulated_deltas.get("function_call") and not accumulated_deltas.get("tool_calls"):
@@ -522,6 +526,76 @@ def run_tool_calling_llm(llm, request_params):
             # But only if we didn't already yield it during streaming
             if content.strip() and not content_yielded_during_streaming:
                 yield {"type": "message", "content": content}
+
+    # If we have accumulated_review but no review_category was set, yield it
+    if accumulated_review and review_category == None:
+        if accumulated_review.strip():
+            yield {"type": "message", "content": accumulated_review}
+
+    # 3. Finally, process and yield code blocks (function_call/tool_calls)
+    if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
+        if not accumulated_deltas.get("function_call"):
+            # Try to convert tool_calls to function_call format now that stream is complete
+            tool_calls = accumulated_deltas["tool_calls"]
+
+            # Debug: log what we received (only in verbose mode)
+            if llm.interpreter.verbose:
+                print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
+
+            if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                converted = False
+                if isinstance(tool_call, dict) and "function" in tool_call:
+                    if isinstance(tool_call["function"], dict):
+                        accumulated_deltas["function_call"] = {
+                            "name": tool_call["function"].get("name"),
+                            "arguments": tool_call["function"].get("arguments"),
+                        }
+                        function_call_detected = True
+                        converted = True
+                        if llm.interpreter.verbose:
+                            print(f"[DEBUG] Converted tool_call to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
+                elif hasattr(tool_call, "function"):
+                    accumulated_deltas["function_call"] = {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                    }
+                    function_call_detected = True
+                    converted = True
+                    if llm.interpreter.verbose:
+                        print(f"[DEBUG] Converted tool_call (object) to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
+
+                # If we still couldn't convert, raise an error with details
+                if not converted:
+                    raise Exception(
+                        f"Unsupported tool_call format. Type: {type(tool_call)}, "
+                        f"Has 'function' attr: {hasattr(tool_call, 'function')}, "
+                        f"Is dict: {isinstance(tool_call, dict)}, "
+                        f"Dict keys if dict: {list(tool_call.keys()) if isinstance(tool_call, dict) else 'N/A'}"
+                    )
+
+    # Process the converted function_call (if any) to yield code
+    if accumulated_deltas.get("function_call"):
+        function_call = accumulated_deltas["function_call"]
+        if function_call.get("name") == "execute":
+            arguments = function_call.get("arguments")
+            if isinstance(arguments, str):
+                arguments = parse_partial_json(arguments)
+
+            if isinstance(arguments, dict):
+                if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
+                    language = arguments["language"]
+
+                if language is not None and "code" in arguments:
+                    code_value = arguments["code"]
+                    if isinstance(code_value, str):
+                        # Yield the full code (since we converted after stream, code variable is empty)
+                        if code_value:
+                            yield {
+                                "type": "code",
+                                "format": language,
+                                "content": code_value,
+                            }
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
