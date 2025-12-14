@@ -343,22 +343,17 @@ def run_tool_calling_llm(llm, request_params):
     # After stream completes, convert tool_calls to function_call format if needed
     # Don't try to parse incomplete tool_calls during streaming
 
-    # Debug: Always log what's in accumulated_deltas
+    # Debug: Always check what we have after stream
     import json
-    import os
-    debug_file = os.path.join(os.path.expanduser("~"), "glm_accumulated_deltas.log")
-    with open(debug_file, "a") as f:
-        f.write(f"\n{'='*80}\n")
-        f.write(f"ACCUMULATED_DELTAS after stream completed\n")
-        f.write(f"{'='*80}\n")
-        f.write(f"Keys: {list(accumulated_deltas.keys())}\n")
-        if "tool_calls" in accumulated_deltas:
-            f.write(f"tool_calls type: {type(accumulated_deltas['tool_calls'])}\n")
-            f.write(f"tool_calls value: {json.dumps(accumulated_deltas['tool_calls'], default=str, indent=2)}\n")
-        if "function_call" in accumulated_deltas:
-            f.write(f"function_call: {json.dumps(accumulated_deltas['function_call'], default=str, indent=2)}\n")
-        f.write(f"Full accumulated_deltas: {json.dumps(accumulated_deltas, default=str, indent=2)}\n")
-        f.flush()
+    has_tool_calls = "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]
+    has_function_call = bool(accumulated_deltas.get("function_call"))
+
+    if has_tool_calls or has_function_call:
+        print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}", flush=True)
+        if has_tool_calls:
+            print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
+        if has_function_call:
+            print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
 
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
         if not accumulated_deltas.get("function_call"):
