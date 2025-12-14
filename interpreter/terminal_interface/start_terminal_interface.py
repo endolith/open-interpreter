@@ -567,12 +567,6 @@ Use """ to write multi-line messages.
 
     interpreter.in_terminal_interface = True
 
-    # Debug: Check verbose value right before chat() is called
-    if args.verbose:
-        print(f"[DEBUG] Right before interpreter.chat(): interpreter ID={id(interpreter)}, verbose={interpreter.verbose}, debug={interpreter.debug}")
-        print(f"[DEBUG] interpreter.llm ID={id(interpreter.llm)}, interpreter.llm.interpreter ID={id(interpreter.llm.interpreter)}")
-        print(f"[DEBUG] Are they the same? {id(interpreter) == id(interpreter.llm.interpreter)}")
-
     contribute_conversation_launch_logic(interpreter)
 
     # Standard in mode
@@ -596,9 +590,6 @@ def set_attributes(args, arguments):
                         print(
                             f"Setting attribute {attr_dict['attr_name']} on {attr_dict['object'].__class__.__name__.lower()} to '{argument_value}'..."
                         )
-                        # Debug: Show object ID and actual value after setting
-                        if attr_dict['attr_name'] == 'verbose':
-                            print(f"  [DEBUG] Object ID: {id(attr_dict['object'])}, verbose after set: {attr_dict['object'].verbose}")
 
 
 def get_argument_dictionary(arguments: list[dict], key: str) -> dict:
