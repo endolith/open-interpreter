@@ -201,6 +201,7 @@ def run_tool_calling_llm(llm, request_params):
     accumulated_review = ""
     review_category = None
     buffer = ""
+    content_yielded_during_streaming = False  # Track if content was already yielded
 
     for chunk in llm.completions(**request_params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
@@ -274,9 +275,11 @@ def run_tool_calling_llm(llm, request_params):
                     if not accumulated_deltas.get("tool_calls") and not accumulated_deltas.get("function_call"):
                         # No actual tool calls, so this is just regular content
                         yield {"type": "message", "content": delta["content"]}
+                        content_yielded_during_streaming = True
 
             else:
                 yield {"type": "message", "content": delta["content"]}
+                content_yielded_during_streaming = True
 
         if (
             accumulated_deltas.get("function_call")
@@ -357,7 +360,10 @@ def run_tool_calling_llm(llm, request_params):
     has_function_call = bool(accumulated_deltas.get("function_call"))
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
-    if llm.interpreter.verbose:
+    # Check verbose - use getattr with fallback in case verbose isn't set yet
+    verbose_mode = getattr(llm.interpreter, 'verbose', False) if hasattr(llm, 'interpreter') else False
+
+    if verbose_mode:
         print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
         print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
         if has_tool_calls:
@@ -455,13 +461,13 @@ def run_tool_calling_llm(llm, request_params):
 
     # If we have content but no tool_calls/function_call, yield it
     # This handles cases where the model generates text but doesn't use tool calling
+    # Only yield if we haven't already yielded it during streaming
     if "content" in accumulated_deltas and accumulated_deltas["content"]:
         content = accumulated_deltas["content"]
-        # Only yield if we haven't already yielded it during streaming
-        # (We check if function_call_detected was True but no actual function_call exists)
         if not accumulated_deltas.get("function_call") and not accumulated_deltas.get("tool_calls"):
             # Model generated text but no tool calls - yield the content
-            if content.strip():  # Only yield non-empty content
+            # But only if we didn't already yield it during streaming
+            if content.strip() and not content_yielded_during_streaming:
                 yield {"type": "message", "content": content}
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
