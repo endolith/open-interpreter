@@ -365,8 +365,9 @@ def run_tool_calling_llm(llm, request_params):
             # Try to convert tool_calls to function_call format now that stream is complete
             tool_calls = accumulated_deltas["tool_calls"]
 
-            # Debug: Always log what we received
-            print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
+            # Debug: log what we received (only in verbose mode)
+            if llm.interpreter.verbose:
+                print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
 
             if isinstance(tool_calls, list) and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
