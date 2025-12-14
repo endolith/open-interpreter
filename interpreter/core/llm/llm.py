@@ -314,6 +314,14 @@ Continuing...
         # Set to {"exclude": True} to disable, or remove this line to allow reasoning tokens
         # params["reasoning"] = {"exclude": True}
 
+        # OpenRouter provider preferences: Ensure consistent behavior across providers
+        # For OpenRouter models, require providers to support all parameters to avoid inconsistency
+        if model.startswith("openrouter/"):
+            params["provider"] = {
+                "require_parameters": True,  # Only use providers that support all request parameters
+                "allow_fallbacks": False,     # Disable fallbacks to maintain consistency
+            }
+
         # Optional inputs
         if self.api_key:
             params["api_key"] = self.api_key
