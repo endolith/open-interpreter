@@ -371,13 +371,18 @@ def run_tool_calling_llm(llm, request_params):
     has_function_call = bool(accumulated_deltas.get("function_call"))
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
-    # Always print debug info to see what's happening
-    print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
-    print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
-    if has_tool_calls:
-        print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
-    if has_function_call:
-        print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
+    # First, check what verbose actually is
+    verbose_value = getattr(getattr(llm, 'interpreter', None), 'verbose', False)
+    print(f"[DEBUG_VERBOSE_CHECK] verbose_value={verbose_value}, type={type(verbose_value)}", flush=True)
+
+    # Debug info only in verbose mode
+    if verbose_value:
+        print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
+        print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
+        if has_tool_calls:
+            print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
+        if has_function_call:
+            print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
         if has_content:
             content_preview = str(accumulated_deltas.get("content", ""))[:200]
             print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
