@@ -54,6 +54,10 @@ def convert_to_openai_messages(
             else:
                 new_message["content"] = message["content"]
 
+            # Preserve tool_call_id for tool role messages (required by OpenRouter and other APIs)
+            if message["role"] == "tool" and "tool_call_id" in message:
+                new_message["tool_call_id"] = message["tool_call_id"]
+
         elif message["type"] == "code":
             new_message["role"] = "assistant"
             if function_calling:

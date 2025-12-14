@@ -558,20 +558,30 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     # Missing language or code - yield error as tool response
                     error_msg = f"Invalid execute call: missing required fields. Got: {list(arguments.keys())}"
+                    if verbose:
+                        print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                        print(f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}", flush=True)
+
                     if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
-                        yield {
+                        tool_response = {
                             "role": "tool",
                             "tool_call_id": tool_call_id_for_error,
                             "type": "message",
                             "content": error_msg
                         }
+                        if verbose:
+                            print(f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True)
+                        yield tool_response
                     else:
                         # No tool_call_id available - this should not happen, but log it
                         if verbose:
-                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
                             print(f"[ERROR] tool_call_id_for_error value: {repr(tool_call_id_for_error)}", flush=True)
-                    if verbose:
-                        print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                        # Still yield as assistant message so user sees the error
+                        yield {
+                            "type": "message",
+                            "content": f"**Error:** {error_msg}"
+                        }
             else:
                 # Arguments is not a dict - yield error as tool response
                 error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
