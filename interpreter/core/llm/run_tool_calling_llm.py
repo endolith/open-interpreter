@@ -351,22 +351,22 @@ def run_tool_calling_llm(llm, request_params):
     # After stream completes, convert tool_calls to function_call format if needed
     # Don't try to parse incomplete tool_calls during streaming
 
-    # Debug: Always check what we have after stream
+    # Debug: Check what we have after stream (only in verbose mode)
     import json
     has_tool_calls = "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]
     has_function_call = bool(accumulated_deltas.get("function_call"))
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
-    # Always print debug info to see what's happening
-    print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
-    print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
-    if has_tool_calls:
-        print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
-    if has_function_call:
-        print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
-    if has_content:
-        content_preview = str(accumulated_deltas.get("content", ""))[:200]
-        print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
+    if llm.interpreter.verbose:
+        print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
+        print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
+        if has_tool_calls:
+            print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
+        if has_function_call:
+            print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
+        if has_content:
+            content_preview = str(accumulated_deltas.get("content", ""))[:200]
+            print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
 
     if "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]:
         if not accumulated_deltas.get("function_call"):
