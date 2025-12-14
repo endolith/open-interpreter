@@ -310,8 +310,9 @@ Continuing...
             "stream": True,
         }
 
-        # Disable reasoning tokens - we don't want them in the response
-        params["reasoning"] = {"exclude": True}
+        # Reasoning tokens: Some models support separate reasoning content
+        # Set to {"exclude": True} to disable, or remove this line to allow reasoning tokens
+        # params["reasoning"] = {"exclude": True}
 
         # Optional inputs
         if self.api_key:
