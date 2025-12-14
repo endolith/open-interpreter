@@ -35,32 +35,13 @@ import requests
 class Search:
     def __init__(self, computer):
         self.computer = computer
-
-        # Get locale-based defaults for language and country
-        try:
-            # Try getdefaultlocale first (returns format like 'en_US')
-            loc = locale.getdefaultlocale()[0]
-            if loc and '_' in loc:
-                self._default_lang, self._default_country = loc.split('_')
-                self._default_lang = self._default_lang.lower()
-                self._default_country = self._default_country.upper()
-            else:
-                # Fallback to mapping common locale strings
-                loc_str = str(locale.getlocale()[0] or "")
-                if "English" in loc_str:
-                    self._default_lang = "en"
-                    if "United States" in loc_str:
-                        self._default_country = "US"
-                    elif "United Kingdom" in loc_str or "UK" in loc_str:
-                        self._default_country = "GB"
-                    else:
-                        self._default_country = "US"
-                else:
-                    self._default_lang = "en"
-                    self._default_country = "US"
-        except:
-            self._default_lang = "en"
-            self._default_country = "US"
+        loc = locale.getdefaultlocale()[0]
+        # Remove encoding suffix if present (e.g., 'en_US.UTF-8' -> 'en_US')
+        loc = loc.split('.')[0]
+        # Split on underscore to get language and country (standard format: 'en_US')
+        lang, country = loc.split('_', 1)
+        self._default_lang = lang.lower()
+        self._default_country = country.upper()
 
     def brave(self, query, count=10, country=None, search_lang=None, safesearch="moderate"):
         """
@@ -180,4 +161,3 @@ class Search:
                 "message": "The API request encountered an error. Check your API key and internet connection.",
                 "alternative": "Try using a different search method instead"
             }
-
