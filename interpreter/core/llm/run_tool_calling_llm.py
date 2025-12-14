@@ -128,6 +128,17 @@ def process_messages(messages, model=None):
 def run_tool_calling_llm(llm, request_params):
     ## Setup
 
+    # TODO: Figure out why llm.interpreter.verbose is False even when --verbose is passed.
+    # For now, check both verbose and debug flags. This might be related to profile loading
+    # or interpreter instance replacement.
+    verbose = llm.interpreter.verbose or llm.interpreter.debug
+
+    if verbose:
+        print(f"[DEBUG] run_tool_calling_llm called with model: {llm.model}", flush=True)
+        print(f"[DEBUG] request_params keys: {list(request_params.keys())}", flush=True)
+        if "reasoning" in request_params:
+            print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
+
     # Add languages OI has access to
     tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
         i.name.lower() for i in llm.interpreter.computer.terminal.languages
@@ -371,19 +382,14 @@ def run_tool_calling_llm(llm, request_params):
     has_function_call = bool(accumulated_deltas.get("function_call"))
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
 
-    # Debug: check what verbose actually is
-    # NOTE: For some reason llm.interpreter.verbose returns False even when --verbose is passed.
-    # Direct __dict__ access shows the real value. This might be due to some attribute interception
-    # or the interpreter instance being different than expected. Using __dict__ as workaround.
-    verbose_from_dict = llm.interpreter.__dict__.get('verbose', False)
-    verbose_from_attr = llm.interpreter.verbose
-    print(f"[DEBUG_VERBOSE_CHECK] verbose from __dict__={verbose_from_dict}, verbose from attribute={verbose_from_attr}", flush=True)
-
-    # Use the __dict__ value as it appears to be more reliable
-    verbose_value = verbose_from_dict
+    # NOTE: llm.interpreter.verbose sometimes returns False even when --verbose flag is passed.
+    # As a workaround, we check the debug attribute which is typically set alongside verbose.
+    # If debug is True, we also enable verbose output for consistency.
+    # This appears to be related to interpreter instance handling during profile loading.
+    verbose = llm.interpreter.verbose or llm.interpreter.debug
 
     # Debug info only in verbose mode
-    if verbose_value:
+    if verbose:
         print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
         print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
         if has_tool_calls:
