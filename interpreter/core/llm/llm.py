@@ -330,8 +330,11 @@ Continuing...
         # Set some params directly on LiteLLM
         if self.max_budget:
             litellm.max_budget = self.max_budget
-        if self.interpreter.verbose:
-            litellm.set_verbose = True
+        # NOTE: We don't enable litellm.set_verbose here because it causes massive output
+        # showing every single streaming chunk. Open Interpreter's verbose mode should
+        # only show our own debug messages, not LiteLLM's internal logging.
+        # if self.interpreter.verbose:
+        #     litellm.set_verbose = True
 
         if (
             self.interpreter.debug == True and False  # DISABLED
