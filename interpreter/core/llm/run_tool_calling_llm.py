@@ -509,7 +509,8 @@ def run_tool_calling_llm(llm, request_params):
             # Format as block quote using markdown-style > prefix
             # Only include the reasoning_content, not the regular content
             formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
-            yield {"type": "message", "content": formatted_reasoning}
+            # Add a newline after the block quote to separate it from the content
+            yield {"type": "message", "content": formatted_reasoning + "\n\n"}
 
     # If we have content but no tool_calls/function_call, yield it AFTER reasoning
     # This handles cases where the model generates text but doesn't use tool calling
