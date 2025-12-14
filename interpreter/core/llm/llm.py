@@ -310,6 +310,9 @@ Continuing...
             "stream": True,
         }
 
+        # Disable reasoning tokens - we don't want them in the response
+        params["reasoning"] = {"exclude": True}
+
         # Optional inputs
         if self.api_key:
             params["api_key"] = self.api_key
