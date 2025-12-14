@@ -483,6 +483,28 @@ def run_tool_calling_llm(llm, request_params):
         function_call = accumulated_deltas["function_call"]
         function_name = function_call.get("name", "")
 
+        # If we don't have tool_call_id yet, try to extract it from the last assistant message
+        if not tool_call_id_for_error:
+            # Look at the last message in the conversation to find tool_call_id
+            messages = request_params.get("messages", [])
+            for message in reversed(messages):
+                if message.get("role") == "assistant" and "tool_calls" in message:
+                    tool_calls = message["tool_calls"]
+                    if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                        tool_call = tool_calls[0]
+                        if isinstance(tool_call, dict) and "id" in tool_call:
+                            tool_call_id_for_error = tool_call["id"]
+                            break
+                        elif hasattr(tool_call, "id"):
+                            tool_call_id_for_error = tool_call.id
+                            break
+
+        # Ensure tool_call_id is a non-empty string if we have it
+        if tool_call_id_for_error and not isinstance(tool_call_id_for_error, str):
+            tool_call_id_for_error = str(tool_call_id_for_error)
+        if tool_call_id_for_error == "":
+            tool_call_id_for_error = None
+
         # Only "execute" is supported as a direct tool call
         # Other functions (like computer.search.brave) must be called from within Python code
         if function_name == "execute":
@@ -508,49 +530,60 @@ def run_tool_calling_llm(llm, request_params):
                         else:
                             # Empty code - yield error as tool response
                             error_msg = "Invalid execute call: code is empty"
-                            if tool_call_id_for_error:
+                            if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
                                 yield {
                                     "role": "tool",
                                     "tool_call_id": tool_call_id_for_error,
                                     "type": "message",
                                     "content": error_msg
                                 }
+                            elif verbose:
+                                print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
                             if verbose:
                                 print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                     else:
                         # Code is not a string - yield error as tool response
                         error_msg = f"Invalid execute call: code must be a string, got {type(code_value).__name__}"
-                        if tool_call_id_for_error:
+                        if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
                             yield {
                                 "role": "tool",
                                 "tool_call_id": tool_call_id_for_error,
                                 "type": "message",
                                 "content": error_msg
                             }
+                        elif verbose:
+                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
                         if verbose:
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
                     # Missing language or code - yield error as tool response
                     error_msg = f"Invalid execute call: missing required fields. Got: {list(arguments.keys())}"
-                    if tool_call_id_for_error:
+                    if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
                         yield {
                             "role": "tool",
                             "tool_call_id": tool_call_id_for_error,
                             "type": "message",
                             "content": error_msg
                         }
+                    else:
+                        # No tool_call_id available - this should not happen, but log it
+                        if verbose:
+                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                            print(f"[ERROR] tool_call_id_for_error value: {repr(tool_call_id_for_error)}", flush=True)
                     if verbose:
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
             else:
                 # Arguments is not a dict - yield error as tool response
                 error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
-                if tool_call_id_for_error:
+                if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
                     yield {
                         "role": "tool",
                         "tool_call_id": tool_call_id_for_error,
                         "type": "message",
                         "content": error_msg
                     }
+                elif verbose:
+                    print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
         elif function_name:
