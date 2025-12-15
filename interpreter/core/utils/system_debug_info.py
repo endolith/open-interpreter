@@ -107,6 +107,8 @@ def interpreter_info(interpreter):
 
 ----
 
+### Conversation Messages
+
 """ + "\n\n".join(
             [str(m) for m in messages_to_display]
         )
