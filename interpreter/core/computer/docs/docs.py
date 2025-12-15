@@ -11,6 +11,12 @@ class Docs:
         self.computer = computer
 
     def search(self, query, module=None, paths=None):
+        """
+        Searches documentation in the specified module or paths.
+
+        Returns:
+            list: Search results with code/documentation snippets.
+        """
         if paths:
             return aifs.search(query, file_paths=paths, python_docstrings_only=True)
 

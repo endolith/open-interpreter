@@ -16,6 +16,9 @@ class Clipboard:
     def view(self):
         """
         Returns the current content of the clipboard.
+
+        Returns:
+            str: Clipboard content.
         """
         return pyperclip.paste()
 

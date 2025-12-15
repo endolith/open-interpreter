@@ -65,6 +65,9 @@ class Vision:
     ):
         """
         Gets OCR of image.
+
+        Returns:
+            str: Extracted text from image.
         """
 
         if lmc:
@@ -131,6 +134,9 @@ class Vision:
     ):
         """
         Uses Moondream to ask query of the image (which can be a base64, path, or lmc message)
+
+        Returns:
+            str: AI-generated description/answer about the image.
         """
 
         if self.model == None and self.tokenizer == None:
