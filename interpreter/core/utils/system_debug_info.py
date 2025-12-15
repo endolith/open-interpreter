@@ -4,6 +4,8 @@ from importlib.metadata import PackageNotFoundError, distributions, version
 
 import psutil
 import toml
+from rich import print as rich_print
+from rich.markdown import Markdown
 
 
 def get_python_version():
@@ -105,18 +107,18 @@ def interpreter_info(interpreter):
         return f"""
 ## Interpreter Info
 
-Vision: {interpreter.llm.supports_vision}
-Model: {interpreter.llm.model}
-Function calling: {interpreter.llm.supports_functions}
-Context window: {interpreter.llm.context_window}
-Max tokens: {interpreter.llm.max_tokens}
-Computer API: {interpreter.computer.import_computer_api}
+- Vision: {interpreter.llm.supports_vision}
+- Model: {interpreter.llm.model}
+- Function calling: {interpreter.llm.supports_functions}
+- Context window: {interpreter.llm.context_window}
+- Max tokens: {interpreter.llm.max_tokens}
+- Computer API: {interpreter.computer.import_computer_api}
 
-Auto run: {interpreter.auto_run}
-API base: {interpreter.llm.api_base}
-Offline: {interpreter.offline}
+- Auto run: {interpreter.auto_run}
+- API base: {interpreter.llm.api_base}
+- Offline: {interpreter.offline}
 
-Curl output: {curl}
+- Curl output: {curl}
 
 ## Messages
 
@@ -137,21 +139,20 @@ System Message:
 
 def system_info(interpreter):
     oi_version = get_oi_version()
-    print(
-        f"""
+    markdown_content = f"""
 ## System Debug Info
 
-Python Version: {get_python_version()}
-Pip Version: {get_pip_version()}
-Open-interpreter Version:
-- cmd: {oi_version[0]}
-- pkg: {oi_version[1]}
-OS Version and Architecture: {get_os_version()}
-CPU Info: {get_cpu_info()}
-RAM Info: {get_ram_info()}
+- Python Version: {get_python_version()}
+- Pip Version: {get_pip_version()}
+- Open-interpreter Version:
+  - cmd: {oi_version[0]}
+  - pkg: {oi_version[1]}
+- OS Version and Architecture: {get_os_version()}
+- CPU Info: {get_cpu_info()}
+- RAM Info: {get_ram_info()}
 {interpreter_info(interpreter)}
 """
-    )
+    rich_print(Markdown(markdown_content))
 
     # Removed the following, as it causes `FileNotFoundError: [Errno 2] No such file or directory: 'pyproject.toml'`` on prod
     # (i think it works on dev, but on prod the pyproject.toml will not be in the cwd. might not be accessible at all)
