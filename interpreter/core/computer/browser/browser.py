@@ -120,10 +120,10 @@ class Browser:
         ]
 
         ai_query = f"""
-        Below is the content of the current webpage along with interactive elements. 
-        Given the intent "{intent}", please extract useful information and provide sufficient details 
+        Below is the content of the current webpage along with interactive elements.
+        Given the intent "{intent}", please extract useful information and provide sufficient details
         about interactive elements, focusing especially on those pertinent to the provided intent.
-        
+
         If the information requested by the intent "{intent}" is present on the page, simply return that.
 
         If not, return the top 10 most relevant interactive elements in a concise, actionable format, listing them on separate lines
@@ -133,7 +133,7 @@ class Browser:
 
         Page Content:
         {text_content}
-        
+
         Interactive Elements:
         {elements_info}
         """
