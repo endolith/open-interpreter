@@ -10,6 +10,9 @@ class Contacts:
     def get_phone_number(self, contact_name):
         """
         Returns the phone number of a contact by name.
+
+        Returns:
+            str: Phone number.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -45,6 +48,9 @@ class Contacts:
     def get_email_address(self, contact_name):
         """
         Returns the email address of a contact by name.
+
+        Returns:
+            str: Email address.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -71,6 +77,9 @@ class Contacts:
     def get_full_names_from_first_name(self, first_name):
         """
         Returns a list of full names of contacts that contain the first name provided.
+
+        Returns:
+            str: Comma-separated list of matching contact names.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"

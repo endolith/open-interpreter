@@ -15,6 +15,9 @@ class Mail:
     def get(self, number=5, unread: bool = False):
         """
         Retrieves the last {number} emails from the inbox, optionally filtering for only unread emails.
+
+        Returns:
+            str: AppleScript-formatted list with subject, sender, content fields.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -61,6 +64,9 @@ class Mail:
     def send(self, to, subject, body, attachments=None):
         """
         Sends an email with the given parameters using the default mail app.
+
+        Returns:
+            str: "Email sent to {to}" or "Failed to send email".
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -109,6 +115,9 @@ class Mail:
     def unread_count(self):
         """
         Retrieves the count of unread emails in the inbox, limited to 50.
+
+        Returns:
+            int | str: Number of unread emails.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
