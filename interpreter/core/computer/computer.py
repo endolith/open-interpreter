@@ -68,7 +68,7 @@ class Computer:
 
         self.system_message = f"""
 
-# THE COMPUTER API
+## The `computer` module API
 
 A python `computer` module is ALREADY IMPORTED, and can be used for many tasks:
 
