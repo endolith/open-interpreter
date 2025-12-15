@@ -362,23 +362,37 @@ class Search:
             for source in result["sources"]:
                 print(f"- {source['title']}: {source['url']}")
         """
+        used_backend = None
+
         if backend:
             backend = backend.lower()
             if backend == "tavily":
                 result = self._answer_tavily(query, **kwargs)
                 if "error" not in result:
+                    used_backend = "tavily"
+                    result["backend"] = used_backend
+                    self._print_answer_result(query, result, used_backend)
                     return result
             elif backend == "linkup":
                 result = self._answer_linkup(query, **kwargs)
                 if "error" not in result:
+                    used_backend = "linkup"
+                    result["backend"] = used_backend
+                    self._print_answer_result(query, result, used_backend)
                     return result
             else:
-                return {
+                error_result = {
                     "error": f"Unknown backend: {backend}",
                     "message": f"Supported backends for answer: 'tavily', 'linkup'",
                     "alternative": "Try without specifying a backend to auto-select"
                 }
+                print(f"❌ Error: {error_result['error']}")
+                print(f"   {error_result['message']}")
+                return error_result
             # If specified backend failed, return the error
+            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
+            if result.get('alternative'):
+                print(f"   {result['alternative']}")
             return result
 
         # Auto-select backend: prefer linkup over tavily
@@ -396,11 +410,36 @@ class Search:
                 continue
 
             if "error" not in result:
+                used_backend = backend_name
+                result["backend"] = used_backend
+                self._print_answer_result(query, result, used_backend)
                 return result
 
         # All backends failed or unavailable
-        return {
+        error_result = {
             "error": "No available backends",
             "message": "No answer backends are available. Set TAVILY_API_KEY or LINKUP_API_KEY environment variable.",
             "alternative": "Install required packages: pip install tavily-python linkup-sdk"
         }
+        print(f"❌ {error_result['error']}")
+        print(f"   {error_result['message']}")
+        return error_result
+
+    def _print_answer_result(self, query: str, result: Dict[str, Any], backend: str):
+        """Print formatted answer result to help the AI understand what was found."""
+        answer_text = result.get("answer", "")
+        sources = result.get("sources", [])
+
+        print(f"\n📝 Answer (using {backend}):")
+        print(f"{answer_text}\n")
+
+        if sources:
+            print(f"📚 Sources ({len(sources)}):")
+            for i, source in enumerate(sources[:5], 1):  # Show first 5 sources
+                title = source.get("title", "No title")
+                url = source.get("url", "No URL")
+                print(f"  {i}. {title}")
+                print(f"     {url}")
+            if len(sources) > 5:
+                print(f"  ... and {len(sources) - 5} more sources")
+            print()
