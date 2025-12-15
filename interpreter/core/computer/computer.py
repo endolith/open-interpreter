@@ -174,6 +174,10 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
                     full_signature = f"computer.{tool.__class__.__name__.lower()}.{name}({param_str})"
                     # Get the method description (first line only)
                     method_description = self._get_first_line(attr.__doc__)
+                    # Get return format information if available
+                    return_format = self._extract_return_format(attr.__doc__)
+                    if return_format:
+                        method_description += f" Returns: {return_format}"
                     # Append the method details
                     tool_info["methods"].append(
                         {
@@ -201,6 +205,10 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
                 )
                 # Get the method description (first line only)
                 method_description = self._get_first_line(method.__doc__)
+                # Get return format information if available
+                return_format = self._extract_return_format(method.__doc__)
+                if return_format:
+                    method_description += f" Returns: {return_format}"
                 # Append the method details
                 tool_info["methods"].append(
                     {
@@ -218,6 +226,10 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
                     f"computer.{tool.__class__.__name__.lower()}.{attr_name}"
                 )
                 prop_doc = self._get_first_line(attr_value.fget.__doc__)
+                # Get return format information if available
+                return_format = self._extract_return_format(attr_value.fget.__doc__)
+                if return_format:
+                    prop_doc += f" Returns: {return_format}"
                 tool_info["methods"].append(
                     {
                         "signature": full_signature,
@@ -233,6 +245,49 @@ Use help(computer.module.method) to see detailed documentation, parameters, and 
         # Split on double newline (paragraph break) or single newline
         first_line = docstring.strip().split('\n\n')[0].split('\n')[0].strip()
         return first_line
+
+    def _extract_return_format(self, docstring):
+        """Extract return format information from docstring Returns: section."""
+        if not docstring:
+            return ""
+
+        # Look for "Returns:" section
+        lines = docstring.split('\n')
+        in_returns_section = False
+        return_lines = []
+        section_keywords = ['Example:', 'Examples:', 'Args:', 'Arguments:', 'Parameters:', 'Raises:', 'Note:', 'Notes:', 'See also:', 'See Also:']
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('Returns:'):
+                in_returns_section = True
+                # Get the content after "Returns:"
+                content = stripped[8:].strip()  # Remove "Returns:"
+                if content:
+                    return_lines.append(content)
+                continue
+
+            if in_returns_section:
+                # Stop at empty line if we already have content
+                if stripped == '':
+                    if return_lines:
+                        break
+                    continue
+                # Check if this is a new section
+                for keyword in section_keywords:
+                    if stripped.startswith(keyword):
+                        break
+                else:
+                    # Not a new section, continue collecting
+                    if stripped:
+                        return_lines.append(stripped)
+                        continue
+                # Found a new section, stop
+                break
+
+        if return_lines:
+            return ' '.join(return_lines).strip()
+        return ""
 
     def run(self, *args, **kwargs):
         """
