@@ -284,7 +284,7 @@ class Ai:
             text (str): The text to summarize
 
         Returns:
-            str: A concise summary of the input text
+            str
 
         Example:
             ```python
