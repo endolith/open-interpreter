@@ -32,7 +32,7 @@ class Mouse:
         Get the current mouse position.
 
         Returns:
-            tuple: A tuple (x, y) representing the mouse's current position on the screen.
+            tuple: (x, y)
         """
         try:
             return pyautogui.position()
