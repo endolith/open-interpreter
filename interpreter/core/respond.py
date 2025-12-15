@@ -37,7 +37,7 @@ def respond(interpreter):
 
         # Add custom instructions
         if interpreter.custom_instructions:
-            system_message += "\n\n" + interpreter.custom_instructions
+            system_message += "\n\n## User's Custom Instructions\n\n" + interpreter.custom_instructions
 
         # Add computer API system message
         if interpreter.computer.import_computer_api:
