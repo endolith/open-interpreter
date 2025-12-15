@@ -430,7 +430,7 @@ class Search:
         answer_text = result.get("answer", "")
         sources = result.get("sources", [])
 
-        print(f"\n📝 Answer (using {backend}):")
+        print(f"\n📝 Answer (using `{backend}` backend):")
         print(f"{answer_text}\n")
 
         if sources:
