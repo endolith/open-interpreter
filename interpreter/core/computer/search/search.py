@@ -1,29 +1,9 @@
 """
 Web search utilities.
 
-This module provides search functions for Brave and Serper APIs.
-
-For other search providers, use their Python libraries directly:
-- Tavily: `from tavily import TavilyClient` (install: tavily-python)
-- SerpAPI: `from serpapi import GoogleSearch` (install: google-search-results)
-- Linkup: `from linkup import LinkupClient` (install: linkup-sdk)
-
-Example usage with external libraries:
-    # Tavily
-    from tavily import TavilyClient
-    client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-    results = client.search("your query")
-
-    # SerpAPI
-    from serpapi import GoogleSearch
-    params = {"q": "your query", "api_key": os.getenv("SERPAPI_API_KEY")}
-    search = GoogleSearch(params)
-    results = search.get_dict()
-
-    # Linkup
-    from linkup import LinkupClient
-    client = LinkupClient(api_key=os.getenv("LINKUP_API_KEY"))
-    results = client.search(query="your query", depth="standard", output_type="sourcedAnswer")
+This module provides web search related tools, with unified frontend methods
+for search, fetch, answer, crawl, and structured output operations with
+multiple backends.
 """
 
 import os
