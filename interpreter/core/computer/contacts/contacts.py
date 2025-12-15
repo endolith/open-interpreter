@@ -79,7 +79,7 @@ class Contacts:
         Returns a list of full names of contacts that contain the first name provided.
 
         Returns:
-            str: Comma-separated list of matching contact names.
+            str: Comma-separated names.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"

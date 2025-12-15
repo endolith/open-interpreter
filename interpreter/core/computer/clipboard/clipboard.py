@@ -18,7 +18,7 @@ class Clipboard:
         Returns the current content of the clipboard.
 
         Returns:
-            str: Clipboard content.
+            str
         """
         return pyperclip.paste()
 
