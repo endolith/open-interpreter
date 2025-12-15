@@ -157,12 +157,12 @@ class Search:
             return False
         return bool(os.getenv(key_name))
 
-    def _answer_tavily(self, query, answer_mode="basic", **kwargs):
+    def _answer_tavily(self, question, answer_mode="basic", **kwargs):
         """
         Get AI-generated answer using Tavily backend.
 
         Args:
-            query: The search query
+            question: The question to answer
             answer_mode: "basic" or "advanced" (default: "basic")
             **kwargs: Additional Tavily search parameters
 
@@ -192,7 +192,7 @@ class Search:
 
             # Build search parameters
             search_params = {
-                "query": query,
+                "query": question,
                 "include_answer": answer_mode,  # "basic" or "advanced"
                 **kwargs
             }
@@ -244,12 +244,12 @@ class Search:
 
         return normalized
 
-    def _answer_linkup(self, query, depth="standard", **kwargs):
+    def _answer_linkup(self, question, depth="standard", **kwargs):
         """
         Get AI-generated answer using LinkUp backend.
 
         Args:
-            query: The search query
+            question: The question to answer
             depth: "standard" or "deep" (default: "standard")
             **kwargs: Additional LinkUp search parameters
 
@@ -279,7 +279,7 @@ class Search:
 
             # Build search parameters
             search_params = {
-                "query": query,
+                "query": question,
                 "depth": depth,
                 "output_type": "sourcedAnswer",
                 **kwargs
@@ -335,97 +335,7 @@ class Search:
 
         return normalized
 
-    def answer(self, query: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-        """
-        Get AI-generated answer with web sources. PREFERRED for questions requiring a direct answer about current web knowledge.
-
-        This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: linkup, tavily.
-
-        Args:
-            query (str): The question or query to answer
-            backend (str, optional): Force a specific backend ("tavily" or "linkup").
-                                     If None, auto-selects based on availability.
-            **kwargs: Additional backend-specific parameters:
-                - For tavily: answer_mode ("basic" or "advanced"), search_depth, etc.
-                - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
-
-        Returns:
-            dict: Normalized response with:
-                - "answer" (str): The AI-generated answer
-                - "sources" (list): List of source dicts with "title", "url", "snippet"
-                OR error dict with "error", "message", "alternative" keys
-
-        Example:
-            result = computer.search.answer("What is machine learning?")
-            print(result["answer"])
-            for source in result["sources"]:
-                print(f"- {source['title']}: {source['url']}")
-        """
-        used_backend = None
-
-        if backend:
-            backend = backend.lower()
-            if backend == "tavily":
-                result = self._answer_tavily(query, **kwargs)
-                if "error" not in result:
-                    used_backend = "tavily"
-                    result["backend"] = used_backend
-                    self._print_answer_result(query, result, used_backend)
-                    return result
-            elif backend == "linkup":
-                result = self._answer_linkup(query, **kwargs)
-                if "error" not in result:
-                    used_backend = "linkup"
-                    result["backend"] = used_backend
-                    self._print_answer_result(query, result, used_backend)
-                    return result
-            else:
-                error_result = {
-                    "error": f"Unknown backend: {backend}",
-                    "message": f"Supported backends for answer: 'tavily', 'linkup'",
-                    "alternative": "Try without specifying a backend to auto-select"
-                }
-                print(f"❌ Error: {error_result['error']}")
-                print(f"   {error_result['message']}")
-                return error_result
-            # If specified backend failed, return the error
-            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
-            if result.get('alternative'):
-                print(f"   {result['alternative']}")
-            return result
-
-        # Auto-select backend: prefer linkup over tavily
-        backends_to_try = ["linkup", "tavily"]
-
-        for backend_name in backends_to_try:
-            if not self._check_backend_available(backend_name):
-                continue
-
-            if backend_name == "linkup":
-                result = self._answer_linkup(query, **kwargs)
-            elif backend_name == "tavily":
-                result = self._answer_tavily(query, **kwargs)
-            else:
-                continue
-
-            if "error" not in result:
-                used_backend = backend_name
-                result["backend"] = used_backend
-                self._print_answer_result(query, result, used_backend)
-                return result
-
-        # All backends failed or unavailable
-        error_result = {
-            "error": "No available backends",
-            "message": "No answer backends are available. Set TAVILY_API_KEY or LINKUP_API_KEY environment variable.",
-            "alternative": "Install required packages: pip install tavily-python linkup-sdk"
-        }
-        print(f"❌ {error_result['error']}")
-        print(f"   {error_result['message']}")
-        return error_result
-
-    def _print_answer_result(self, query: str, result: Dict[str, Any], backend: str):
+    def _print_answer_result(self, question: str, result: Dict[str, Any], backend: str):
         """Print formatted answer result to help the AI understand what was found."""
         answer_text = result.get("answer", "")
         sources = result.get("sources", [])
@@ -452,3 +362,93 @@ class Search:
         if lib_name:
             print(f"💡 For more control, use {lib_name} directly: {import_stmt}")
             print()
+
+    def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Get AI-generated answer with web sources. PREFERRED for questions requiring a direct answer about current web knowledge.
+
+        This method automatically selects the best available backend or uses
+        the specified one. Backends are tried in order: linkup, tavily.
+
+        Args:
+            question (str): The question to answer
+            backend (str, optional): Force a specific backend ("tavily" or "linkup").
+                                     If None, auto-selects based on availability.
+            **kwargs: Additional backend-specific parameters:
+                - For tavily: answer_mode ("basic" or "advanced"), search_depth, etc.
+                - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
+
+        Returns:
+            dict: Normalized response with:
+                - "answer" (str): The AI-generated answer
+                - "sources" (list): List of source dicts with "title", "url", "snippet"
+                OR error dict with "error", "message", "alternative" keys
+
+        Example:
+            result = computer.search.answer("What is machine learning?")
+            print(result["answer"])
+            for source in result["sources"]:
+                print(f"- {source['title']}: {source['url']}")
+        """
+        used_backend = None
+
+        if backend:
+            backend = backend.lower()
+            if backend == "tavily":
+                result = self._answer_tavily(question, **kwargs)
+                if "error" not in result:
+                    used_backend = "tavily"
+                    result["backend"] = used_backend
+                    self._print_answer_result(question, result, used_backend)
+                    return result
+            elif backend == "linkup":
+                result = self._answer_linkup(question, **kwargs)
+                if "error" not in result:
+                    used_backend = "linkup"
+                    result["backend"] = used_backend
+                    self._print_answer_result(question, result, used_backend)
+                    return result
+            else:
+                error_result = {
+                    "error": f"Unknown backend: {backend}",
+                    "message": f"Supported backends for answer: 'tavily', 'linkup'",
+                    "alternative": "Try without specifying a backend to auto-select"
+                }
+                print(f"❌ Error: {error_result['error']}")
+                print(f"   {error_result['message']}")
+                return error_result
+            # If specified backend failed, return the error
+            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
+            if result.get('alternative'):
+                print(f"   {result['alternative']}")
+            return result
+
+        # Auto-select backend: prefer linkup over tavily
+        backends_to_try = ["linkup", "tavily"]
+
+        for backend_name in backends_to_try:
+            if not self._check_backend_available(backend_name):
+                continue
+
+            if backend_name == "linkup":
+                result = self._answer_linkup(question, **kwargs)
+            elif backend_name == "tavily":
+                result = self._answer_tavily(question, **kwargs)
+            else:
+                continue
+
+            if "error" not in result:
+                used_backend = backend_name
+                result["backend"] = used_backend
+                self._print_answer_result(question, result, used_backend)
+                return result
+
+        # All backends failed or unavailable
+        error_result = {
+            "error": "No available backends",
+            "message": "No answer backends are available. Set TAVILY_API_KEY or LINKUP_API_KEY environment variable.",
+            "alternative": "Install required packages: pip install tavily-python linkup-sdk"
+        }
+        print(f"❌ {error_result['error']}")
+        print(f"   {error_result['message']}")
+        return error_result
