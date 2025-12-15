@@ -12,7 +12,7 @@ class Contacts:
         Returns the phone number of a contact by name.
 
         Returns:
-            str: Phone number.
+            str
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -50,7 +50,7 @@ class Contacts:
         Returns the email address of a contact by name.
 
         Returns:
-            str: Email address.
+            str
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
