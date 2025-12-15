@@ -66,7 +66,7 @@ class Mail:
         Sends an email with the given parameters using the default mail app.
 
         Returns:
-            str: "Email sent to {to}" or "Failed to send email".
+            str: Success or error message.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
