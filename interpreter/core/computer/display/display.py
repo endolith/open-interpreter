@@ -67,18 +67,27 @@ class Display:
     def size(self):
         """
         Returns the current screen size as a tuple (width, height).
+
+        Returns:
+            tuple: (width, height).
         """
         return pyautogui.size()
 
     def center(self):
         """
         Calculates and returns the center point of the screen as a tuple (x, y).
+
+        Returns:
+            tuple: (x, y) center coordinates.
         """
         return self.width // 2, self.height // 2
 
     def info(self):
         """
-        Returns a list of all connected monitor/displays and their information
+        Returns a list of all connected monitor/displays and their information.
+
+        Returns:
+            list: Monitor objects with x, y, width, height.
         """
         return get_displays()
 
@@ -116,6 +125,9 @@ class Display:
         Shows you what's on the screen by taking a screenshot of the entire screen or a specified quadrant. Returns a `pil_image` `in case you need it (rarely). **You almost always want to do this first!**
         :param screen: specify which display; 0 for primary and 1 and above for secondary.
         :param combine_screens: If True, a collage of all display screens will be returned. Otherwise, a list of display screens will be returned.
+
+        Returns:
+            PIL.Image | list[PIL.Image]: Single image or list of images.
         """
 
         # Since Local II, all images sent to local models will be rendered to text with moondream and pytesseract.
@@ -214,6 +226,12 @@ class Display:
         return screenshot  # this will be a list of combine_screens == False
 
     def find(self, description, screenshot=None):
+        """
+        Finds an icon or text on the screen by description.
+
+        Returns:
+            dict | list: Dict with coordinates, or list of dicts with "coordinates", "text", "similarity" keys.
+        """
         if description.startswith('"') and description.endswith('"'):
             return self.find_text(description.strip('"'), screenshot)
         else:
@@ -277,6 +295,9 @@ class Display:
     def find_text(self, text, screenshot=None):
         """
         Searches for specified text within a screenshot or the current screen if no screenshot is provided.
+
+        Returns:
+            dict | list: Dict with coordinates, or list of dicts with "coordinates", "text", "similarity" keys.
         """
         if screenshot == None:
             screenshot = self.screenshot(show=False)
@@ -309,6 +330,9 @@ class Display:
     def get_text_as_list_of_lists(self, screenshot=None):
         """
         Extracts and returns text from a screenshot or the current screen as a list of lists, each representing a line of text.
+
+        Returns:
+            list: List of lists, each inner list is a line of text.
         """
         if screenshot == None:
             screenshot = self.screenshot(show=False, force_image=True)

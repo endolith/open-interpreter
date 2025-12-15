@@ -30,7 +30,7 @@ class Browser:
         Searches the web for the specified query and returns the results.
 
         Returns:
-            str: Search results as a formatted text string containing titles, URLs, and snippets from search results.
+            str: Formatted text with titles, URLs, snippets.
         """
         response = requests.get(
             f'{self.computer.api_base.strip("/")}/browser/search',
@@ -43,7 +43,7 @@ class Browser:
         Searches the web for the specified query and returns the results.
 
         Returns:
-            str: Search results as a formatted text string containing titles, URLs, and snippets from search results.
+            str: Formatted text with titles, URLs, snippets.
         """
 
         # Start the request in a separate thread

@@ -27,6 +27,9 @@ class SMS:
             return f"{home_directory}/Library/Messages/chat.db"
 
     def send(self, to, message):
+        """
+        Sends an SMS/iMessage to a contact.
+        """
         if sys.platform.lower() != "darwin":
             print("Only supported on Mac.")
             return
@@ -41,6 +44,12 @@ class SMS:
         return "Message sent successfully"
 
     def get(self, contact=None, limit=10, substring=None):
+        """
+        Retrieves SMS/iMessage messages from the database.
+
+        Returns:
+            list: Dicts with "date" (datetime), "from" (str), "text" (str) keys.
+        """
         if sys.platform.lower() != "darwin":
             print("Only supported on Mac.")
             return
