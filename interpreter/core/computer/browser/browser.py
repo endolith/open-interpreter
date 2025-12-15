@@ -28,6 +28,9 @@ class Browser:
     def search(self, query):
         """
         Searches the web for the specified query and returns the results.
+
+        Returns:
+            str: Search results as a formatted text string containing titles, URLs, and snippets from search results.
         """
         response = requests.get(
             f'{self.computer.api_base.strip("/")}/browser/search',
@@ -38,6 +41,9 @@ class Browser:
     def fast_search(self, query):
         """
         Searches the web for the specified query and returns the results.
+
+        Returns:
+            str: Search results as a formatted text string containing titles, URLs, and snippets from search results.
         """
 
         # Start the request in a separate thread
