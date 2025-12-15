@@ -192,7 +192,7 @@ class Files:
         Search the filesystem for the given query.
 
         Returns:
-            list: File paths matching query.
+            list: File paths.
         """
         return aifs.search(*args, **kwargs)
 
@@ -201,7 +201,7 @@ class Files:
         Edits a file on the filesystem, replacing the original text with the replacement text.
 
         Returns:
-            None: Modifies file in place.
+            None
         """
         with open(path, "r") as file:
             filedata = file.read()

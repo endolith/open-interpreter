@@ -136,7 +136,7 @@ class Vision:
         Uses Moondream to ask query of the image (which can be a base64, path, or lmc message)
 
         Returns:
-            str: AI-generated description/answer about the image.
+            str
         """
 
         if self.model == None and self.tokenizer == None:

@@ -69,7 +69,7 @@ class Display:
         Returns the current screen size as a tuple (width, height).
 
         Returns:
-            tuple: (width, height).
+            tuple: (width, height)
         """
         return pyautogui.size()
 
@@ -78,7 +78,7 @@ class Display:
         Calculates and returns the center point of the screen as a tuple (x, y).
 
         Returns:
-            tuple: (x, y) center coordinates.
+            tuple: (x, y)
         """
         return self.width // 2, self.height // 2
 
@@ -127,7 +127,7 @@ class Display:
         :param combine_screens: If True, a collage of all display screens will be returned. Otherwise, a list of display screens will be returned.
 
         Returns:
-            PIL.Image | list[PIL.Image]: Single image or list of images.
+            PIL.Image | list[PIL.Image]
         """
 
         # Since Local II, all images sent to local models will be rendered to text with moondream and pytesseract.
@@ -332,7 +332,7 @@ class Display:
         Extracts and returns text from a screenshot or the current screen as a list of lists, each representing a line of text.
 
         Returns:
-            list: List of lists, each inner list is a line of text.
+            list: List of lists (text lines).
         """
         if screenshot == None:
             screenshot = self.screenshot(show=False, force_image=True)
