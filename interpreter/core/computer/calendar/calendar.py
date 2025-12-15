@@ -29,6 +29,9 @@ class Calendar:
     def get_events(self, start_date=datetime.date.today(), end_date=None):
         """
         Fetches calendar events for the given date or date range.
+
+        Returns:
+            str: Multi-line text. Each line: "Event: {title} | Start Date: {date} | End Date: {date} | Attendees: {list} | Notes: {text} | Location: {text}"
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -55,23 +58,23 @@ class Calendar:
 
         -- Access the Calendar app
         tell application "{self.calendar_app}"
-            
+
             -- Initialize a list to hold summaries and dates of all events from all calendars
             set allEventsInfo to {{}}
-            
+
             -- Loop through each calendar
             repeat with aCalendar in calendars
-                
+
                 -- Fetch events from this calendar that fall within the specified date range
                 set theseEvents to (every event of aCalendar where its start date is greater than theDate and its start date is less than endDate)
-                
+
                 -- Loop through theseEvents to extract necessary details
                 repeat with anEvent in theseEvents
                     -- Initialize variables to "None" to handle missing information gracefully
                     set attendeesString to "None"
                     set theNotes to "None"
                     set theLocation to "None"
-                    
+
                     -- Try to get attendees, but fail gracefully
                     try
                         set attendeeNames to {{}}
@@ -84,7 +87,7 @@ class Calendar:
                     on error
                         set attendeesString to "None"
                     end try
-                    
+
                     -- Try to get notes, but fail gracefully
                     try
                         set theNotes to notes of anEvent
@@ -92,7 +95,7 @@ class Calendar:
                     on error
                         set theNotes to "None"
                     end try
-                    
+
                     -- Try to get location, but fail gracefully
                     try
                         set theLocation to location of anEvent
@@ -100,7 +103,7 @@ class Calendar:
                     on error
                         set theLocation to "None"
                     end try
-                    
+
                     -- Create a record with the detailed information of the event
                     set eventInfo to {{|summary|:summary of anEvent, |startDate|:start date of anEvent, |endDate|:end date of anEvent, |attendees|:attendeesString, notes:theNotes, |location|:theLocation}}
                     -- Append this record to the allEventsInfo list
@@ -114,7 +117,7 @@ class Calendar:
             repeat with anEventInfo in allEventsInfo
                 -- Always include Event, Start Date, and End Date
                 set eventOutput to "Event: " & (summary of anEventInfo) & " | Start Date: " & (|startDate| of anEventInfo) & " | End Date: " & (|endDate| of anEventInfo)
-                
+
                 -- Conditionally include other details if they are not "None"
                 if (attendees of anEventInfo) is not "None" then
                     set eventOutput to eventOutput & " | Attendees: " & (attendees of anEventInfo)
@@ -125,7 +128,7 @@ class Calendar:
                 if (location of anEventInfo) is not "None" then
                     set eventOutput to eventOutput & " | Location: " & (location of anEventInfo)
                 end if
-                
+
                 -- Add the event's output to the overall outputText, followed by a newline for separation
                 set outputText to outputText & eventOutput & "
         "
@@ -169,6 +172,9 @@ class Calendar:
     ) -> str:
         """
         Creates a new calendar event in the default calendar with the given parameters using AppleScript.
+
+        Returns:
+            str: Success message "Event created successfully in the \"{calendar}\" calendar."
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
@@ -216,6 +222,12 @@ class Calendar:
     def delete_event(
         self, event_title: str, start_date: datetime.datetime, calendar: str = None
     ) -> str:
+        """
+        Deletes a calendar event matching the title and start date.
+
+        Returns:
+            str: "Event deleted successfully." or "No matching event found to delete."
+        """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
 
@@ -246,13 +258,13 @@ class Calendar:
         tell application "{self.calendar_app}"
             -- Specify the name of the calendar where the event is located
             set myCalendar to calendar "{calendar}"
-            
+
             -- Define the exact start date and name of the event to find and delete
             set eventSummary to "{event_title}"
-            
+
             -- Find the event by start date and summary
             set theEvents to (every event of myCalendar where its start date is eventStartDate and its summary is eventSummary)
-            
+
             -- Check if any events were found
             if (count of theEvents) is equal to 0 then
                 return "No matching event found to delete."
@@ -279,7 +291,12 @@ class Calendar:
             return "Unknown error deleting event. Please check event title and date."
 
     def get_first_calendar(self) -> str:
-        # Literally just gets the first calendar name of all the calendars on the system. AppleScript does not provide a way to get the "default" calendar
+        """
+        Gets the first calendar name from all calendars on the system.
+
+        Returns:
+            str: Calendar name.
+        """
         script = f"""
             -- Open calendar first
             tell application "System Events"

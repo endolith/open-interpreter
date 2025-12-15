@@ -190,12 +190,18 @@ class Files:
     def search(self, *args, **kwargs):
         """
         Search the filesystem for the given query.
+
+        Returns:
+            list: File paths matching query.
         """
         return aifs.search(*args, **kwargs)
 
     def edit(self, path, original_text, replacement_text):
         """
         Edits a file on the filesystem, replacing the original text with the replacement text.
+
+        Returns:
+            None: Modifies file in place.
         """
         with open(path, "r") as file:
             filedata = file.read()
