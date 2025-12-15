@@ -23,6 +23,12 @@ class Browser:
 
     @driver.setter
     def driver(self, value):
+        """
+        Sets the WebDriver instance.
+
+        Returns:
+            None
+        """
         self._driver = value
 
     def search(self, query):
@@ -69,6 +75,12 @@ class Browser:
         return response.json()["result"]
 
     def setup(self, headless):
+        """
+        Sets up Chrome WebDriver.
+
+        Returns:
+            None
+        """
         try:
             self.service = Service(ChromeDriverManager().install())
             self.options = webdriver.ChromeOptions()

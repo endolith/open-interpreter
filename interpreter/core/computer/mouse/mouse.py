@@ -24,6 +24,9 @@ class Mouse:
     def scroll(self, clicks):
         """
         Scrolls the mouse wheel up or down the specified number of clicks.
+
+        Returns:
+            None
         """
         pyautogui.scroll(clicks)
 
@@ -44,6 +47,9 @@ class Mouse:
     def move(self, *args, x=None, y=None, icon=None, text=None, screenshot=None):
         """
         Moves the mouse to specified coordinates, an icon, or text.
+
+        Returns:
+            None
         """
         if len(args) > 1:
             raise ValueError(
@@ -262,12 +268,18 @@ class Mouse:
     def down(self):
         """
         Presses the mouse button down.
+
+        Returns:
+            None
         """
         pyautogui.mouseDown()
 
     def up(self):
         """
         Releases the mouse button.
+
+        Returns:
+            None
         """
         pyautogui.mouseUp()
 
