@@ -337,7 +337,7 @@ class Search:
 
     def answer(self, query: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
-        Get an AI-generated answer to a query with source citations.
+        Get AI-generated answer with web sources. PREFERRED for questions requiring a direct answer about current web knowledge.
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: linkup, tavily.
