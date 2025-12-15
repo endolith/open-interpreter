@@ -430,6 +430,13 @@ class Search:
         answer_text = result.get("answer", "")
         sources = result.get("sources", [])
 
+        # Backend library information
+        backend_info = {
+            "tavily": ("tavily", "TavilyClient", "from tavily import TavilyClient"),
+            "linkup": ("linkup-sdk", "LinkupClient", "from linkup import LinkupClient"),
+        }
+        lib_name, client_name, import_stmt = backend_info.get(backend, ("", "", ""))
+
         print(f"\n📝 Answer (using `{backend}` backend):")
         print(f"{answer_text}\n")
 
@@ -440,4 +447,8 @@ class Search:
                 print(f"  {i}. {title}")
             if len(sources) > 3:
                 print(f"  ... and {len(sources) - 3} more sources")
+            print()
+
+        if lib_name:
+            print(f"💡 For more control, use {lib_name} directly: {import_stmt}")
             print()
