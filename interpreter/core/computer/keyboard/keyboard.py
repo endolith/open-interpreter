@@ -17,6 +17,9 @@ class Keyboard:
     def write(self, text, interval=None, delay=0.30, **kwargs):
         """
         Type out a string of characters with some realistic delay.
+
+        Returns:
+            None
         """
         time.sleep(delay / 2)
 
@@ -117,6 +120,9 @@ class Keyboard:
     def down(self, key):
         """
         Press down a key.
+
+        Returns:
+            None
         """
         time.sleep(0.15)
         pyautogui.keyDown(key)
@@ -125,6 +131,9 @@ class Keyboard:
     def up(self, key):
         """
         Release a key.
+
+        Returns:
+            None
         """
         time.sleep(0.15)
         pyautogui.keyUp(key)
