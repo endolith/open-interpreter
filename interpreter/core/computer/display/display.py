@@ -87,7 +87,7 @@ class Display:
 
     def center(self):
         """
-        Calculates and returns the center point of the screen as a tuple (x, y).
+        Calculates and returns the center point of the screen.
 
         Returns:
             tuple: (x, y)
