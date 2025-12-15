@@ -55,7 +55,7 @@ class Search:
             safesearch (str): Safe search level: "off", "moderate", or "strict" (default: "moderate")
 
         Returns:
-            dict: Search results from Brave API
+            dict: Search results from Brave API. Structure: {"web": {"results": [{"title": str, "url": str, "description": str, ...}], ...}, "news": {...}, ...} or error dict with "error", "message", "alternative" keys.
 
         Example:
             results = computer.search.brave("artificial intelligence", count=5)
@@ -115,7 +115,7 @@ class Search:
             autocorrect (bool): Whether to autocorrect the query (default: True)
 
         Returns:
-            dict: Search results from Serper API
+            dict: Search results from Serper API. Structure: {"searchParameters": {"q": str, "gl": str, "hl": str, "num": int, ...}, "organic": [{"title": str, "link": str, "snippet": str, "date": str, "sitelinks": [...]}, ...], "answerBox": {...}, "knowledgeGraph": {...}, ...} or error dict with "error", "message", "alternative" keys.
 
         Example:
             results = computer.search.serper("machine learning tutorials")
