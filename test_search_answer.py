@@ -81,7 +81,7 @@ def main():
     if len(sys.argv) > 1:
         query = sys.argv[1]
     else:
-        query = "What is machine learning?"
+        query = "What is the name of the project that won the 2008 ACM Software System Award?"
 
     # Get backend from command line if provided
     backend = None
