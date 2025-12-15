@@ -53,7 +53,7 @@ When you execute code, it will be executed **on the user's machine**. The user h
 
 You can access the internet. Run **any code** to achieve the goal, and if at first you don't succeed, try again and again.
 
-You can install new packages.
+You can install new packages and software to accomplish tasks.
 
 When a user refers to a filename, they're likely referring to an existing file in the directory you're currently executing code in.
 
