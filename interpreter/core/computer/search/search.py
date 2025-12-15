@@ -198,44 +198,51 @@ class Search:
             }
 
             response = client.search(**search_params)
-
-            # Normalize Tavily response
-            # Tavily returns: {"answer": str, "results": [{"title": str, "url": str, "content": str, ...}, ...]}
-            if not isinstance(response, dict):
-                return {
-                    "error": "Unexpected Tavily response format",
-                    "message": f"Tavily returned non-dict response: {type(response).__name__}",
-                    "debug": f"Response: {str(response)[:500]}"
-                }
-
-            normalized = {
-                "answer": response.get("answer", ""),
-                "sources": []
-            }
-
-            # Extract sources from results
-            results = response.get("results", [])
-            if not isinstance(results, list):
-                results = []
-
-            for result in results:
-                if not isinstance(result, dict):
-                    continue
-                source = {
-                    "title": result.get("title", ""),
-                    "url": result.get("url", ""),
-                    "snippet": result.get("content", "")[:200] if result.get("content") else ""
-                }
-                normalized["sources"].append(source)
-
-            return normalized
-
         except Exception as e:
+            # API request failed (network error, rate limit, etc.) - return error dict for fallback
             return {
                 "error": f"Tavily API request failed: {str(e)}",
                 "message": "The Tavily API request encountered an error.",
                 "alternative": "Try using a different backend (linkup)"
             }
+
+        # Response format validation - raise exception for programming errors
+        # Tavily returns: {"answer": str, "results": [{"title": str, "url": str, "content": str, ...}, ...]}
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Tavily returned unexpected response type: {type(response).__name__}. "
+                f"Expected dict, got {type(response).__name__}. "
+                f"Response: {str(response)[:500]}"
+            )
+
+        normalized = {
+            "answer": response.get("answer", ""),
+            "sources": []
+        }
+
+        # Extract sources from results
+        results = response.get("results", [])
+        if not isinstance(results, list):
+            raise ValueError(
+                f"Tavily response missing or invalid 'results' field. "
+                f"Expected list, got {type(results).__name__}. "
+                f"Response keys: {list(response.keys()) if isinstance(response, dict) else 'N/A'}"
+            )
+
+        for result in results:
+            if not isinstance(result, dict):
+                raise ValueError(
+                    f"Tavily result item is not a dict: {type(result).__name__}. "
+                    f"Result: {str(result)[:200]}"
+                )
+            source = {
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "snippet": result.get("content", "")[:200] if result.get("content") else ""
+            }
+            normalized["sources"].append(source)
+
+        return normalized
 
     def _answer_linkup(self, query, depth="standard", **kwargs):
         """
@@ -279,45 +286,51 @@ class Search:
             }
 
             response = client.search(**search_params)
-
-            # Normalize LinkUp response
-            # LinkUp sourcedAnswer returns: {"answer": str, "sources": [{"name": str, "url": str, "snippet": str}, ...]}
-            if not isinstance(response, dict):
-                return {
-                    "error": "Unexpected LinkUp response format",
-                    "message":
-                    f"LinkUp returned non-dict response: {type(response).__name__}",
-                    "debug": f"Response: {str(response)[:500]}"
-                }
-
-            normalized = {
-                "answer": response.get("answer", ""),
-                "sources": []
-            }
-
-            # Extract sources
-            sources = response.get("sources", [])
-            if not isinstance(sources, list):
-                sources = []
-
-            for source in sources:
-                if not isinstance(source, dict):
-                    continue
-                normalized_source = {
-                    "title": source.get("name", ""),
-                    "url": source.get("url", ""),
-                    "snippet": source.get("snippet", "")[:200] if source.get("snippet") else ""
-                }
-                normalized["sources"].append(normalized_source)
-
-            return normalized
-
         except Exception as e:
+            # API request failed (network error, rate limit, etc.) - return error dict for fallback
             return {
                 "error": f"LinkUp API request failed: {str(e)}",
                 "message": "The LinkUp API request encountered an error.",
                 "alternative": "Try using a different backend (tavily)"
             }
+
+        # Response format validation - raise exception for programming errors
+        # LinkUp sourcedAnswer returns: {"answer": str, "sources": [{"name": str, "url": str, "snippet": str}, ...]}
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"LinkUp returned unexpected response type: {type(response).__name__}. "
+                f"Expected dict, got {type(response).__name__}. "
+                f"Response: {str(response)[:500]}"
+            )
+
+        normalized = {
+            "answer": response.get("answer", ""),
+            "sources": []
+        }
+
+        # Extract sources
+        sources = response.get("sources", [])
+        if not isinstance(sources, list):
+            raise ValueError(
+                f"LinkUp response missing or invalid 'sources' field. "
+                f"Expected list, got {type(sources).__name__}. "
+                f"Response keys: {list(response.keys()) if isinstance(response, dict) else 'N/A'}"
+            )
+
+        for source in sources:
+            if not isinstance(source, dict):
+                raise ValueError(
+                    f"LinkUp source item is not a dict: {type(source).__name__}. "
+                    f"Source: {str(source)[:200]}"
+                )
+            normalized_source = {
+                "title": source.get("name", ""),
+                "url": source.get("url", ""),
+                "snippet": source.get("snippet", "")[:200] if source.get("snippet") else ""
+            }
+            normalized["sources"].append(normalized_source)
+
+        return normalized
 
     def answer(self, query: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
