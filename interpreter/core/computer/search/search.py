@@ -435,11 +435,9 @@ class Search:
 
         if sources:
             print(f"📚 Sources ({len(sources)}):")
-            for i, source in enumerate(sources[:5], 1):  # Show first 5 sources
+            for i, source in enumerate(sources[:3], 1):  # Show first 3 sources
                 title = source.get("title", "No title")
-                url = source.get("url", "No URL")
                 print(f"  {i}. {title}")
-                print(f"     {url}")
-            if len(sources) > 5:
-                print(f"  ... and {len(sources) - 5} more sources")
+            if len(sources) > 3:
+                print(f"  ... and {len(sources) - 3} more sources")
             print()
