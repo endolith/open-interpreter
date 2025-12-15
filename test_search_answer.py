@@ -17,64 +17,6 @@ from unittest.mock import Mock
 from interpreter.core.computer.computer import Computer
 
 
-def test_answer(query, backend=None):
-    """Test the answer function with a given query and optional backend."""
-    print(f"\n{'='*60}")
-    print(f"Testing: {query}")
-    if backend:
-        print(f"Backend: {backend}")
-    else:
-        print("Backend: auto-select")
-    print(f"{'='*60}\n")
-
-    # Create a minimal mock interpreter
-    mock_interpreter = Mock()
-
-    # Create Computer instance
-    computer = Computer(mock_interpreter)
-
-    # Test the answer function
-    try:
-        if backend:
-            result = computer.search.answer(query, backend=backend)
-        else:
-            result = computer.search.answer(query)
-
-        # Check if it's an error response
-        if "error" in result:
-            print("❌ Error Response:")
-            print(f"  Error: {result.get('error')}")
-            print(f"  Message: {result.get('message')}")
-            print(f"  Alternative: {result.get('alternative')}")
-            if "debug" in result:
-                print(f"  Debug: {result.get('debug')}")
-            return False
-
-        # Success response
-        print("✅ Success Response:")
-        print(f"\nAnswer:\n{result.get('answer', '')}\n")
-
-        sources = result.get('sources', [])
-        print(f"Sources ({len(sources)}):")
-        for i, source in enumerate(sources, 1):
-            print(f"  {i}. {source.get('title', 'No title')}")
-            print(f"     URL: {source.get('url', 'No URL')}")
-            if source.get('snippet'):
-                print(f"     Snippet: {source.get('snippet', '')[:100]}...")
-            print()
-
-        return True
-
-    except ValueError as e:
-        print(f"❌ ValueError (programming error): {e}")
-        return False
-    except Exception as e:
-        print(f"❌ Unexpected error: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
 def main():
     """Main test function."""
     # Get query from command line or use default
@@ -88,11 +30,23 @@ def main():
     if len(sys.argv) > 2:
         backend = sys.argv[2].lower()
 
-    # Run the test
-    success = test_answer(query, backend)
+    # Create a minimal mock interpreter
+    mock_interpreter = Mock()
 
-    # Exit with appropriate code
-    sys.exit(0 if success else 1)
+    # Create Computer instance
+    computer = Computer(mock_interpreter)
+
+    # Call the method - it will print its own output
+    if backend:
+        result = computer.search.answer(query, backend=backend)
+    else:
+        result = computer.search.answer(query)
+
+    # Show the raw return value
+    print("\n" + "="*60)
+    print("Returned object:")
+    print("="*60)
+    print(repr(result))
 
 
 if __name__ == "__main__":
