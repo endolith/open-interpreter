@@ -54,12 +54,24 @@ class Display:
     # We use properties here so that this code only executes when height/width are accessed for the first time
     @property
     def width(self):
+        """
+        Screen width in pixels.
+
+        Returns:
+            int
+        """
         if self._width is None:
             self._width, _ = pyautogui.size()
         return self._width
 
     @property
     def height(self):
+        """
+        Screen height in pixels.
+
+        Returns:
+            int
+        """
         if self._height is None:
             _, self._height = pyautogui.size()
         return self._height
