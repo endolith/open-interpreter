@@ -157,7 +157,7 @@ class Search:
             return False
         return bool(os.getenv(key_name))
 
-    def _answer_tavily(self, query: str, answer_mode: str = "basic", **kwargs) -> Dict[str, Any]:
+    def _answer_tavily(self, query, answer_mode="basic", **kwargs):
         """
         Get AI-generated answer using Tavily backend.
 
@@ -237,7 +237,7 @@ class Search:
                 "alternative": "Try using a different backend (linkup)"
             }
 
-    def _answer_linkup(self, query: str, depth: str = "standard", **kwargs) -> Dict[str, Any]:
+    def _answer_linkup(self, query, depth="standard", **kwargs):
         """
         Get AI-generated answer using LinkUp backend.
 
@@ -262,7 +262,8 @@ class Search:
         if not api_key:
             return {
                 "error": "LINKUP_API_KEY environment variable not set",
-                "message": "To use LinkUp, set the LINKUP_API_KEY environment variable.",
+                "message":
+                "To use LinkUp, set the LINKUP_API_KEY environment variable.",
                 "alternative": "Try using a different backend (tavily)"
             }
 
@@ -284,7 +285,8 @@ class Search:
             if not isinstance(response, dict):
                 return {
                     "error": "Unexpected LinkUp response format",
-                    "message": f"LinkUp returned non-dict response: {type(response).__name__}",
+                    "message":
+                    f"LinkUp returned non-dict response: {type(response).__name__}",
                     "debug": f"Response: {str(response)[:500]}"
                 }
 
@@ -321,8 +323,8 @@ class Search:
         """
         Get an AI-generated answer to a query with source citations.
 
-        This method automatically selects the best available backend or uses the specified one.
-        Backends are tried in order: linkup (preferred for monthly credits), tavily.
+        This method automatically selects the best available backend or uses
+        the specified one. Backends are tried in order: linkup, tavily.
 
         Args:
             query (str): The question or query to answer
@@ -363,7 +365,7 @@ class Search:
             # If specified backend failed, return the error
             return result
 
-        # Auto-select backend: prefer linkup (monthly credits) over tavily
+        # Auto-select backend: prefer linkup over tavily
         backends_to_try = ["linkup", "tavily"]
 
         for backend_name in backends_to_try:
