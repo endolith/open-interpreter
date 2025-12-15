@@ -16,6 +16,12 @@ class SMS:
             self.database_path = None
 
     def resolve_database_path(self):
+        """
+        Resolves path to SMS database.
+
+        Returns:
+            str: Database file path.
+        """
         try:
             if os.geteuid() == 0:  # Running as root
                 home_directory = os.path.expanduser(f"~{os.environ.get('SUDO_USER')}")
@@ -113,6 +119,12 @@ LEFT JOIN handle ON message.handle_id = handle.ROWID
         return readable_messages
 
     def can_access_database(self):
+        """
+        Checks if SMS database is accessible.
+
+        Returns:
+            bool: True if accessible.
+        """
         try:
             with open(self.database_path, "r"):
                 return True
@@ -120,6 +132,12 @@ LEFT JOIN handle ON message.handle_id = handle.ROWID
             return False
 
     def prompt_full_disk_access(self):
+        """
+        Prompts user to grant full disk access for SMS database.
+
+        Returns:
+            None
+        """
         script = """
         tell application "System Preferences"
             activate
