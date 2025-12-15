@@ -226,7 +226,7 @@ class Calendar:
         Deletes a calendar event matching the title and start date.
 
         Returns:
-            str: "Event deleted successfully." or "No matching event found to delete."
+            str: Success or error message.
         """
         if platform.system() != "Darwin":
             return "This method is only supported on MacOS"
