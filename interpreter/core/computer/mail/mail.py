@@ -141,8 +141,13 @@ class Mail:
             print(e)
             return 0
 
-    # Estimate how long something will take to upload
     def calculate_upload_delay(self, attachments):
+        """
+        Estimates upload delay based on attachment sizes.
+
+        Returns:
+            float: Delay in seconds.
+        """
         try:
             total_size_mb = sum(
                 os.path.getsize(os.path.expanduser(att)) for att in attachments
@@ -158,6 +163,12 @@ class Mail:
             return 5
 
     def format_path_for_applescript(self, file_path):
+        """
+        Formats file path for AppleScript compatibility.
+
+        Returns:
+            str: Formatted path string.
+        """
         # Escape backslashes, quotes, and curly braces for AppleScript
         file_path = (
             file_path.replace("\\", "\\\\")
