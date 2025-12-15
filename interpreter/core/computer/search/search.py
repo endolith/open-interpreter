@@ -294,40 +294,43 @@ class Search:
                 "alternative": "Try using a different backend (tavily)"
             }
 
-        # Response format validation - raise exception for programming errors
-        # LinkUp sourcedAnswer returns: {"answer": str, "sources": [{"name": str, "url": str, "snippet": str}, ...]}
-        if not isinstance(response, dict):
-            raise ValueError(
-                f"LinkUp returned unexpected response type: {type(response).__name__}. "
-                f"Expected dict, got {type(response).__name__}. "
-                f"Response: {str(response)[:500]}"
-            )
-
+        # LinkUp returns a LinkupSourcedAnswer object, not a dict
+        # Access attributes directly: response.answer, response.sources
         normalized = {
-            "answer": response.get("answer", ""),
+            "answer": getattr(response, "answer", ""),
             "sources": []
         }
 
-        # Extract sources
-        sources = response.get("sources", [])
+        # Extract sources - check if it's a list of objects or dicts
+        sources = getattr(response, "sources", [])
         if not isinstance(sources, list):
             raise ValueError(
-                f"LinkUp response missing or invalid 'sources' field. "
-                f"Expected list, got {type(sources).__name__}. "
-                f"Response keys: {list(response.keys()) if isinstance(response, dict) else 'N/A'}"
+                f"LinkUp response 'sources' is not a list: {type(sources).__name__}. "
+                f"Response type: {type(response).__name__}, "
+                f"Response attributes: {dir(response)}"
             )
 
         for source in sources:
-            if not isinstance(source, dict):
+            # Handle both object attributes and dict keys
+            if hasattr(source, "name"):
+                # Object with attributes
+                normalized_source = {
+                    "title": getattr(source, "name", ""),
+                    "url": getattr(source, "url", ""),
+                    "snippet": getattr(source, "snippet", "")[:200] if getattr(source, "snippet", None) else ""
+                }
+            elif isinstance(source, dict):
+                # Dict
+                normalized_source = {
+                    "title": source.get("name", ""),
+                    "url": source.get("url", ""),
+                    "snippet": source.get("snippet", "")[:200] if source.get("snippet") else ""
+                }
+            else:
                 raise ValueError(
-                    f"LinkUp source item is not a dict: {type(source).__name__}. "
+                    f"LinkUp source item is neither object nor dict: {type(source).__name__}. "
                     f"Source: {str(source)[:200]}"
                 )
-            normalized_source = {
-                "title": source.get("name", ""),
-                "url": source.get("url", ""),
-                "snippet": source.get("snippet", "")[:200] if source.get("snippet") else ""
-            }
             normalized["sources"].append(normalized_source)
 
         return normalized
