@@ -76,7 +76,7 @@ A python `computer` module is ALREADY IMPORTED, and can be used for many tasks:
 {computer_tools}
 ```
 
-Do not import the computer module, or any of its sub-modules. They are already imported.
+Do NOT `import computer`, or any of its sub-modules. They are already imported.
 
 Use help(computer.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
 
