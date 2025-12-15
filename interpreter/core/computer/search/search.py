@@ -10,6 +10,7 @@ import os
 import json
 import locale
 import requests
+from typing import Optional, Dict, List, Any
 
 
 class Search:
@@ -141,3 +142,247 @@ class Search:
                 "message": "The API request encountered an error. Check your API key and internet connection.",
                 "alternative": "Try using a different search method instead"
             }
+
+    def _check_backend_available(self, backend: str) -> bool:
+        """Check if a backend is available (has API key)."""
+        backend_keys = {
+            "tavily": "TAVILY_API_KEY",
+            "linkup": "LINKUP_API_KEY",
+            "serper": "SERPER_API_KEY",
+            "brave": "BRAVE_API_KEY",
+            "serpapi": "SERPAPI_API_KEY",
+        }
+        key_name = backend_keys.get(backend.lower())
+        if not key_name:
+            return False
+        return bool(os.getenv(key_name))
+
+    def _answer_tavily(self, query: str, answer_mode: str = "basic", **kwargs) -> Dict[str, Any]:
+        """
+        Get AI-generated answer using Tavily backend.
+
+        Args:
+            query: The search query
+            answer_mode: "basic" or "advanced" (default: "basic")
+            **kwargs: Additional Tavily search parameters
+
+        Returns:
+            Normalized dict with "answer" and "sources" keys, or error dict
+        """
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            return {
+                "error": "tavily-python not installed",
+                "message": "Install tavily-python: pip install tavily-python",
+                "alternative": "Try using a different backend (linkup)"
+            }
+
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            return {
+                "error": "TAVILY_API_KEY environment variable not set",
+                "message":
+                "To use Tavily, set the TAVILY_API_KEY environment variable.",
+                "alternative": "Try using a different backend (linkup)"
+            }
+
+        try:
+            client = TavilyClient(api_key=api_key)
+
+            # Build search parameters
+            search_params = {
+                "query": query,
+                "include_answer": answer_mode,  # "basic" or "advanced"
+                **kwargs
+            }
+
+            response = client.search(**search_params)
+
+            # Normalize Tavily response
+            # Tavily returns: {"answer": str, "results": [{"title": str, "url": str, "content": str, ...}, ...]}
+            if not isinstance(response, dict):
+                return {
+                    "error": "Unexpected Tavily response format",
+                    "message": f"Tavily returned non-dict response: {type(response).__name__}",
+                    "debug": f"Response: {str(response)[:500]}"
+                }
+
+            normalized = {
+                "answer": response.get("answer", ""),
+                "sources": []
+            }
+
+            # Extract sources from results
+            results = response.get("results", [])
+            if not isinstance(results, list):
+                results = []
+
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                source = {
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:200] if result.get("content") else ""
+                }
+                normalized["sources"].append(source)
+
+            return normalized
+
+        except Exception as e:
+            return {
+                "error": f"Tavily API request failed: {str(e)}",
+                "message": "The Tavily API request encountered an error.",
+                "alternative": "Try using a different backend (linkup)"
+            }
+
+    def _answer_linkup(self, query: str, depth: str = "standard", **kwargs) -> Dict[str, Any]:
+        """
+        Get AI-generated answer using LinkUp backend.
+
+        Args:
+            query: The search query
+            depth: "standard" or "deep" (default: "standard")
+            **kwargs: Additional LinkUp search parameters
+
+        Returns:
+            Normalized dict with "answer" and "sources" keys, or error dict
+        """
+        try:
+            from linkup import LinkupClient
+        except ImportError:
+            return {
+                "error": "linkup-sdk not installed",
+                "message": "Install linkup-sdk: pip install linkup-sdk",
+                "alternative": "Try using a different backend (tavily)"
+            }
+
+        api_key = os.getenv("LINKUP_API_KEY")
+        if not api_key:
+            return {
+                "error": "LINKUP_API_KEY environment variable not set",
+                "message": "To use LinkUp, set the LINKUP_API_KEY environment variable.",
+                "alternative": "Try using a different backend (tavily)"
+            }
+
+        try:
+            client = LinkupClient(api_key=api_key)
+
+            # Build search parameters
+            search_params = {
+                "query": query,
+                "depth": depth,
+                "output_type": "sourcedAnswer",
+                **kwargs
+            }
+
+            response = client.search(**search_params)
+
+            # Normalize LinkUp response
+            # LinkUp sourcedAnswer returns: {"answer": str, "sources": [{"name": str, "url": str, "snippet": str}, ...]}
+            if not isinstance(response, dict):
+                return {
+                    "error": "Unexpected LinkUp response format",
+                    "message": f"LinkUp returned non-dict response: {type(response).__name__}",
+                    "debug": f"Response: {str(response)[:500]}"
+                }
+
+            normalized = {
+                "answer": response.get("answer", ""),
+                "sources": []
+            }
+
+            # Extract sources
+            sources = response.get("sources", [])
+            if not isinstance(sources, list):
+                sources = []
+
+            for source in sources:
+                if not isinstance(source, dict):
+                    continue
+                normalized_source = {
+                    "title": source.get("name", ""),
+                    "url": source.get("url", ""),
+                    "snippet": source.get("snippet", "")[:200] if source.get("snippet") else ""
+                }
+                normalized["sources"].append(normalized_source)
+
+            return normalized
+
+        except Exception as e:
+            return {
+                "error": f"LinkUp API request failed: {str(e)}",
+                "message": "The LinkUp API request encountered an error.",
+                "alternative": "Try using a different backend (tavily)"
+            }
+
+    def answer(self, query: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Get an AI-generated answer to a query with source citations.
+
+        This method automatically selects the best available backend or uses the specified one.
+        Backends are tried in order: linkup (preferred for monthly credits), tavily.
+
+        Args:
+            query (str): The question or query to answer
+            backend (str, optional): Force a specific backend ("tavily" or "linkup").
+                                     If None, auto-selects based on availability.
+            **kwargs: Additional backend-specific parameters:
+                - For tavily: answer_mode ("basic" or "advanced"), search_depth, etc.
+                - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
+
+        Returns:
+            dict: Normalized response with:
+                - "answer" (str): The AI-generated answer
+                - "sources" (list): List of source dicts with "title", "url", "snippet"
+                OR error dict with "error", "message", "alternative" keys
+
+        Example:
+            result = computer.search.answer("What is machine learning?")
+            print(result["answer"])
+            for source in result["sources"]:
+                print(f"- {source['title']}: {source['url']}")
+        """
+        if backend:
+            backend = backend.lower()
+            if backend == "tavily":
+                result = self._answer_tavily(query, **kwargs)
+                if "error" not in result:
+                    return result
+            elif backend == "linkup":
+                result = self._answer_linkup(query, **kwargs)
+                if "error" not in result:
+                    return result
+            else:
+                return {
+                    "error": f"Unknown backend: {backend}",
+                    "message": f"Supported backends for answer: 'tavily', 'linkup'",
+                    "alternative": "Try without specifying a backend to auto-select"
+                }
+            # If specified backend failed, return the error
+            return result
+
+        # Auto-select backend: prefer linkup (monthly credits) over tavily
+        backends_to_try = ["linkup", "tavily"]
+
+        for backend_name in backends_to_try:
+            if not self._check_backend_available(backend_name):
+                continue
+
+            if backend_name == "linkup":
+                result = self._answer_linkup(query, **kwargs)
+            elif backend_name == "tavily":
+                result = self._answer_tavily(query, **kwargs)
+            else:
+                continue
+
+            if "error" not in result:
+                return result
+
+        # All backends failed or unavailable
+        return {
+            "error": "No available backends",
+            "message": "No answer backends are available. Set TAVILY_API_KEY or LINKUP_API_KEY environment variable.",
+            "alternative": "Install required packages: pip install tavily-python linkup-sdk"
+        }
