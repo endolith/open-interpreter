@@ -31,13 +31,13 @@ def test_serpapi_engines():
 
     # Test cases: (query, engine, description)
     test_cases = [
-        ("quantum computing", "google", "Regular Google Search"),
-        ("machine learning", "google_scholar", "Google Scholar - Academic Papers"),
-        ("python tutorial", "youtube", "YouTube Video Search"),
-        ("AI news", "google_news", "Google News Search"),
-        ("laptop", "google_shopping", "Google Shopping Search"),
-        ("artificial intelligence", "bing", "Bing Search"),
-        ("data science", "duckduckgo", "DuckDuckGo Search"),
+        ("how to install python on windows", "google", "Regular Google Search - General web results"),
+        ("transformer neural networks attention mechanism", "google_scholar", "Google Scholar - Academic research papers"),
+        ("how to make sourdough bread step by step", "youtube", "YouTube Video Search - Video tutorials"),
+        ("latest developments in quantum computing 2024", "google_news", "Google News Search - Recent news articles"),
+        ("MacBook Pro 16 inch M3 Max 1TB", "google_shopping", "Google Shopping Search - Product listings with prices"),
+        ("weather forecast this week", "bing", "Bing Search - Alternative search engine"),
+        ("privacy-focused search engine comparison", "duckduckgo", "DuckDuckGo Search - Privacy-focused results"),
     ]
 
     for query, engine, description in test_cases:
@@ -68,11 +68,11 @@ def test_serper_types():
 
     # Test cases: (query, type, description)
     test_cases = [
-        ("artificial intelligence", "search", "Regular Web Search"),
-        ("AI breakthroughs", "news", "News Search"),
-        ("machine learning", "scholar", "Google Scholar Search"),
-        ("python programming", "videos", "Video Search"),
-        ("laptop", "shopping", "Shopping Search"),
+        ("best practices for REST API design", "search", "Regular Web Search - General web results"),
+        ("ChatGPT 4.5 release announcement December 2024", "news", "News Search - Recent news articles"),
+        ("React hooks tutorial for beginners", "videos", "Video Search - Video content"),
+        ("iPhone 15 Pro Max 256GB price comparison", "shopping", "Shopping Search - Product listings"),
+        # NOTE: "scholar" is NOT supported by Serper - use serpapi with engine="google_scholar" instead
     ]
 
     for query, search_type, description in test_cases:
@@ -103,9 +103,9 @@ def test_brave_options():
 
     # Test cases: (query, options, description)
     test_cases = [
-        ("AI news", {"count": 5}, "Limit to 5 results"),
-        ("python", {"safesearch": "strict"}, "Strict safe search"),
-        ("technology", {"country": "GB", "search_lang": "en"}, "UK English search"),
+        ("latest AI research breakthroughs", {"count": 5}, "Limit to 5 results - Fewer results"),
+        ("python programming tutorials", {"safesearch": "strict"}, "Strict safe search - Filtered content"),
+        ("Brexit impact on UK economy", {"country_code": "GB", "language_code": "en"}, "UK localized search - British results"),
     ]
 
     for query, options, description in test_cases:
@@ -136,9 +136,9 @@ def test_tavily_options():
 
     # Test cases: (query, options, description)
     test_cases = [
-        ("climate change", {"search_depth": "basic", "max_results": 5}, "Basic search, 5 results"),
-        ("quantum computing", {"search_depth": "advanced"}, "Advanced search"),
-        ("AI research", {"include_domains": ["arxiv.org", "nature.com"]}, "Specific domains only"),
+        ("renewable energy trends 2024", {"search_depth": "basic", "max_results": 5}, "Basic search depth - Quick results"),
+        ("machine learning interpretability methods", {"search_depth": "advanced"}, "Advanced search depth - Deeper analysis"),
+        ("climate change impact studies", {"include_domains": ["arxiv.org", "nature.com", "science.org"]}, "Academic domains only - Research papers"),
     ]
 
     for query, options, description in test_cases:
@@ -169,8 +169,8 @@ def test_linkup_options():
 
     # Test cases: (query, options, description)
     test_cases = [
-        ("artificial intelligence", {"depth": "standard"}, "Standard depth search"),
-        ("machine learning", {"depth": "deep"}, "Deep search"),
+        ("Python async programming guide", {"depth": "standard"}, "Standard depth - Balanced search"),
+        ("neural network architecture optimization techniques", {"depth": "deep"}, "Deep search - Comprehensive results"),
     ]
 
     for query, options, description in test_cases:
