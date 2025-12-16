@@ -17,6 +17,13 @@ import requests
 from typing import Optional, Dict, List, Any
 
 
+class ApiKeyError(Exception):
+    """Exception raised when an API key is missing. Contains error dict."""
+    def __init__(self, error_dict):
+        self.error_dict = error_dict
+        super().__init__(error_dict.get("error", "API key missing"))
+
+
 class Search:
     def __init__(self, computer):
         self.computer = computer
@@ -46,26 +53,38 @@ class Search:
             language_code = self._default_lang
         return country_code, language_code
 
-    def _check_api_key(self, key_name, backend_name, key_url):
+    def _check_api_key(self, key_name):
         """
-        Check if an API key is set.
+        Check if an API key is set and return it.
 
         Args:
             key_name: Environment variable name (e.g., "BRAVE_API_KEY")
-            backend_name: Backend name for error messages
-            key_url: URL to get API key (empty string if not applicable)
 
         Returns:
-            str or dict: API key if found, error dict otherwise
+            str: API key if found
+
+        Raises:
+            ApiKeyError: If API key is missing (error_dict is in exception)
         """
+        # Mapping of API key names to (backend_name, key_url)
+        api_key_info = {
+            "BRAVE_API_KEY": ("Brave Search API", "https://brave.com/search/api/"),
+            "SERPER_API_KEY": ("Serper API", "https://serper.dev/"),
+            "SERPAPI_API_KEY": ("SerpApi", "https://serpapi.com/"),
+            "TAVILY_API_KEY": ("Tavily", "https://tavily.com/"),
+            "LINKUP_API_KEY": ("LinkUp", "https://linkup.so/"),
+        }
+
         api_key = os.getenv(key_name)
         if not api_key:
+            backend_name, key_url = api_key_info.get(key_name, ("this backend", ""))
             url_text = f" Get your API key at {key_url}" if key_url else ""
-            return {
+            error_dict = {
                 "error": f"{key_name} environment variable not set",
                 "message": f"To use {backend_name}, set the {key_name} environment variable.{url_text}",
                 "alternative": "Try using a different backend"
             }
+            raise ApiKeyError(error_dict)
         return api_key
 
     def _handle_import_error(self, package_name, install_cmd):
@@ -143,10 +162,10 @@ class Search:
         """
         country_code, language_code = self._get_locale_defaults(country_code, language_code, country_case="upper")
 
-        api_key_check = self._check_api_key("BRAVE_API_KEY", "Brave Search API", "https://brave.com/search/api/")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("BRAVE_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         url = "https://api.search.brave.com/res/v1/web/search"
 
@@ -218,10 +237,10 @@ class Search:
 
         country_code, language_code = self._get_locale_defaults(country_code, language_code)
 
-        api_key_check = self._check_api_key("SERPER_API_KEY", "Serper API", "https://serper.dev/")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("SERPER_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         # Map type to correct endpoint
         url = f"https://google.serper.dev/{type}"
@@ -316,10 +335,10 @@ class Search:
         except ImportError:
             return self._handle_import_error("google-search-results", "pip install google-search-results")
 
-        api_key_check = self._check_api_key("SERPAPI_API_KEY", "SerpApi", "https://serpapi.com/")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("SERPAPI_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         # Google-based engines use GoogleSearch with engine parameter
         # These work with GoogleSearch class + engine parameter
@@ -471,10 +490,10 @@ class Search:
         except ImportError:
             return self._handle_import_error("tavily-python", "pip install tavily-python")
 
-        api_key_check = self._check_api_key("TAVILY_API_KEY", "Tavily", "")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("TAVILY_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -526,10 +545,10 @@ class Search:
         except ImportError:
             return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
-        api_key_check = self._check_api_key("LINKUP_API_KEY", "LinkUp", "")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("LINKUP_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         try:
             client = LinkupClient(api_key=api_key)
@@ -808,10 +827,10 @@ class Search:
         except ImportError:
             return self._handle_import_error("tavily-python", "pip install tavily-python")
 
-        api_key_check = self._check_api_key("TAVILY_API_KEY", "Tavily", "")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("TAVILY_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -887,10 +906,10 @@ class Search:
         except ImportError:
             return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
-        api_key_check = self._check_api_key("LINKUP_API_KEY", "LinkUp", "")
-        if isinstance(api_key_check, dict):
-            return api_key_check
-        api_key = api_key_check
+        try:
+            api_key = self._check_api_key("LINKUP_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
 
         try:
             client = LinkupClient(api_key=api_key)
