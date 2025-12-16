@@ -102,16 +102,21 @@ class Search:
 
         return normalized
 
-    def _search_serper(self, query, num=10, gl=None, hl=None, autocorrect=True):
+    def _search_serper(self, query, num=10, type="search", gl=None, hl=None, autocorrect=True, **kwargs):
         """
         Search using Serper API (Google search) backend.
+
+        Supports multiple search types: search, images, videos, news, scholar, shopping, places, maps, patents, autocomplete.
 
         Args:
             query (str): The search query
             num (int): Number of results to return (default: 10)
+            type (str): Search type (default: "search")
+                       Options: "search", "images", "videos", "news", "scholar", "shopping", "places", "maps", "patents", "autocomplete"
             gl (str): Country code for localized results (default: system locale)
             hl (str): Language code for interface (default: system locale)
             autocorrect (bool): Whether to autocorrect the query (default: True)
+            **kwargs: Additional Serper-specific parameters (location, page, tbs, etc.)
 
         Returns:
             Normalized dict with "results" key, or error dict
@@ -130,7 +135,8 @@ class Search:
                 "alternative": "Try using a different backend (brave)"
             }
 
-        url = "https://google.serper.dev/search"
+        # Map type to correct endpoint
+        url = f"https://google.serper.dev/{type}"
 
         headers = {
             "X-API-KEY": api_key,
@@ -142,7 +148,8 @@ class Search:
             "num": num,
             "gl": gl,
             "hl": hl,
-            "autocorrect": autocorrect
+            "autocorrect": autocorrect,
+            **kwargs
         }
 
         try:
@@ -157,19 +164,36 @@ class Search:
             }
 
         # Normalize Serper response format
-        # Serper returns: {"organic": [{"title": str, "link": str, "snippet": str, ...}], ...}
+        # Response format varies by search type
         normalized = {
             "results": [],
             "raw_response": data
         }
 
-        # Extract organic results
-        organic_results = data.get("organic", [])
-        for result in organic_results:
+        # Extract results based on search type
+        if type == "search":
+            results_key = "organic"
+        elif type == "news":
+            results_key = "news"
+        elif type == "images":
+            results_key = "images"
+        elif type == "videos":
+            results_key = "videos"
+        elif type == "shopping":
+            results_key = "shopping"
+        elif type == "scholar":
+            results_key = "organic"
+        elif type == "places":
+            results_key = "places"
+        else:
+            results_key = "organic"
+
+        results = data.get(results_key, [])
+        for result in results:
             normalized_result = {
                 "title": result.get("title", ""),
-                "url": result.get("link", ""),
-                "snippet": result.get("snippet", "")
+                "url": result.get("link", "") or result.get("url", ""),
+                "snippet": result.get("snippet", "") or result.get("description", "")
             }
             normalized["results"].append(normalized_result)
 
@@ -424,25 +448,130 @@ class Search:
             backend (str, optional): Force a specific backend ("brave", "tavily", "linkup", "serpapi", or "serper").
                                      If None, auto-selects based on availability.
             **kwargs: Additional backend-specific parameters:
-                - For brave: count (int, default 10, max 20), country (str),
-                            search_lang (str), safesearch (str: "off"/"moderate"/"strict")
-                - For tavily: max_results (int, default 10), search_depth (str), etc.
-                - For linkup: depth (str: "standard" or "deep"), etc.
-                - For serpapi: num (int, default 10), engine (str, default "google"), etc.
-                - For serper: num (int, default 10), gl (str), hl (str),
-                             autocorrect (bool, default True)
+
+                BRAVE (2000 free/month):
+                    - count (int, 1-20): Number of results (default: 10, max: 20)
+                    - country (str): 2-letter country code (e.g., "US", "GB", default: system locale)
+                    - search_lang (str): 2-letter language code (e.g., "en", "es", default: system locale)
+                    - safesearch (str): "off", "moderate", or "strict" (default: "moderate")
+                    - freshness (str): "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year)
+                    - text_decorations (bool): Include text decorations in snippets (default: True)
+                    - spellcheck (bool): Enable spellcheck (default: True)
+
+                TAVILY (1000 free/month):
+                    - max_results (int): Number of results to return (default: 10)
+                    - search_depth (str): "basic" or "advanced" (default: "basic")
+                    - include_domains (list): List of domains to include (e.g., ["example.com"])
+                    - exclude_domains (list): List of domains to exclude
+                    - include_raw_content (bool): Include full HTML content (default: False)
+                    - include_images (bool): Include images in results (default: False)
+                    - topic (str): "general" or "news" (default: "general")
+                    - days (int): Number of days back to search (for topic="news")
+
+                LINKUP (1000 free/month):
+                    - depth (str): "standard" or "deep" (default: "standard")
+                    - output_type (str): "searchResults" (default), "sourcedAnswer", or "structured"
+                    - structured_output_schema (dict): Schema for structured output mode
+
+                SERPAPI (250 free/month) - supports 80+ search engines:
+                    - num (int): Number of results (default: 10)
+                    - engine (str): Search engine to use (default: "google")
+                        Common engines:
+                          - "google" (default): Regular Google search
+                          - "google_scholar": Academic papers, citations
+                          - "bing": Microsoft Bing search
+                          - "yahoo": Yahoo search
+                          - "duckduckgo": DuckDuckGo search
+                          - "baidu": Chinese search engine
+                          - "yandex": Russian search engine
+                          - "youtube": YouTube video search
+                          - "google_news": Google News search
+                          - "google_images": Google Images search
+                          - "google_shopping": Google Shopping search
+                          - "ebay": eBay product search
+                          - "walmart": Walmart product search
+                          - "home_depot": Home Depot search
+                          - "apple_app_store": App Store search
+                          - "google_play": Google Play Store search
+                    - location (str): Location for localized results (e.g., "Austin, Texas")
+                    - hl (str): Interface language (e.g., "en")
+                    - gl (str): Country code (e.g., "us")
+                    - google_domain (str): Google domain (e.g., "google.com", "google.co.uk")
+                    - safe (str): Safe search - "active" or "off"
+                    - start (int): Pagination offset
+                    - filter (str): Duplicate filter - "0" (off) or "1" (on)
+                    - tbm (str): Search type - "nws" (news), "isch" (images), "vid" (videos), "shop" (shopping)
+                    NOTE: Each engine has specific parameters. See https://serpapi.com/ for details.
+
+                SERPER (2500 total, non-renewable) - supports multiple search types:
+                    - num (int): Number of results (default: 10)
+                    - type (str): Search type (default: "search")
+                        Available types:
+                          - "search": Regular web search (default)
+                          - "images": Image search
+                          - "videos": Video search
+                          - "places": Google Maps places search
+                          - "maps": Google Maps search
+                          - "news": News search
+                          - "shopping": Shopping search
+                          - "scholar": Google Scholar academic search
+                          - "patents": Patent search
+                          - "autocomplete": Search suggestions
+                    - gl (str): Country code for localized results (e.g., "us", default: system locale)
+                    - hl (str): Interface language (e.g., "en", default: system locale)
+                    - location (str): Location for localized results
+                    - autocorrect (bool): Enable query autocorrection (default: True)
+                    - page (int): Page number for pagination
+                    - tbs (str): Time-based search (e.g., "qdr:d" for past day, "qdr:w" for past week)
 
         Returns:
             dict: Normalized response with:
                 - "results" (list): List of result dicts with "title", "url", "snippet"
-                - "raw_response" (dict): Original backend response
+                - "raw_response" (dict): Original backend response (structure varies by backend)
                 - "backend" (str): Backend that was used
                 OR error dict with "error", "message", "alternative" keys
 
-        Example:
+        Examples:
+            # Basic search (auto-selects backend)
             results = computer.search.search("machine learning tutorials")
             for result in results["results"]:
                 print(f"{result['title']}: {result['url']}")
+
+            # Search Google Scholar for academic papers (using serpapi)
+            results = computer.search.search(
+                "quantum computing",
+                backend="serpapi",
+                engine="google_scholar"
+            )
+
+            # Search YouTube videos (using serpapi)
+            results = computer.search.search(
+                "python tutorial",
+                backend="serpapi",
+                engine="youtube"
+            )
+
+            # Search Google News (using serper)
+            results = computer.search.search(
+                "AI breakthroughs",
+                backend="serper",
+                type="news"
+            )
+
+            # Deep web search with specific domains (using tavily)
+            results = computer.search.search(
+                "climate change research",
+                backend="tavily",
+                search_depth="advanced",
+                include_domains=["nature.com", "science.org"]
+            )
+
+            # Shopping search (using serpapi)
+            results = computer.search.search(
+                "laptop",
+                backend="serpapi",
+                engine="google_shopping"
+            )
         """
         used_backend = None
 
