@@ -28,25 +28,26 @@ class Search:
         self._default_lang = lang.lower()
         self._default_country = country.upper()
 
-    def _search_brave(self, query, count=10, country=None, search_lang=None, safesearch="moderate"):
+    def _search_brave(self, query, count=10, country_code=None, language_code=None, safesearch="moderate", **kwargs):
         """
         Search using Brave Search API backend.
 
         Args:
             query (str): The search query
             count (int): Number of results to return (default: 10, max: 20)
-            country (str): Country code for localized results (default: system locale)
-            search_lang (str): Language code for search (default: system locale)
+            country_code (str): 2-letter country code for localized results (e.g., "US", "GB", default: system locale)
+            language_code (str): 2-letter language code for search (e.g., "en", "es", default: system locale)
             safesearch (str): Safe search level: "off", "moderate", or "strict" (default: "moderate")
+            **kwargs: Additional Brave-specific parameters (freshness, text_decorations, spellcheck, etc.)
 
         Returns:
             Normalized dict with "results" key, or error dict
         """
         # Use locale-based defaults if not specified
-        if country is None:
-            country = self._default_country
-        if search_lang is None:
-            search_lang = self._default_lang
+        if country_code is None:
+            country_code = self._default_country
+        if language_code is None:
+            language_code = self._default_lang
 
         api_key = os.getenv("BRAVE_API_KEY")
         if not api_key:
@@ -67,9 +68,10 @@ class Search:
         params = {
             "q": query,
             "count": min(count, 20),  # Brave has a max of 20
-            "country": country,
-            "search_lang": search_lang,
-            "safesearch": safesearch
+            "country": country_code,
+            "search_lang": language_code,
+            "safesearch": safesearch,
+            **kwargs
         }
 
         try:
@@ -102,30 +104,40 @@ class Search:
 
         return normalized
 
-    def _search_serper(self, query, num=10, type="search", gl=None, hl=None, autocorrect=True, **kwargs):
+    def _search_serper(self, query, num=10, type="search", country_code=None, language_code=None, autocorrect=True, **kwargs):
         """
         Search using Serper API (Google search) backend.
 
-        Supports multiple search types: search, images, videos, news, scholar, shopping, places, maps, patents, autocomplete.
+        Supports multiple search types: search, images, videos, news, shopping, places, maps, patents, autocomplete.
 
         Args:
             query (str): The search query
             num (int): Number of results to return (default: 10)
             type (str): Search type (default: "search")
-                       Options: "search", "images", "videos", "news", "scholar", "shopping", "places", "maps", "patents", "autocomplete"
-            gl (str): Country code for localized results (default: system locale)
-            hl (str): Language code for interface (default: system locale)
+                       Supported: "search", "images", "videos", "news", "shopping", "places", "maps", "patents", "autocomplete"
+                       NOTE: "scholar" is NOT supported by Serper - use serpapi with engine="google_scholar" instead
+            country_code (str): 2-letter country code for localized results (e.g., "us", "gb", default: system locale)
+            language_code (str): 2-letter language code for interface (e.g., "en", "es", default: system locale)
             autocorrect (bool): Whether to autocorrect the query (default: True)
             **kwargs: Additional Serper-specific parameters (location, page, tbs, etc.)
 
         Returns:
             Normalized dict with "results" key, or error dict
         """
+        # Validate search type
+        supported_types = ["search", "images", "videos", "news", "shopping", "places", "maps", "patents", "autocomplete"]
+        if type not in supported_types:
+            return {
+                "error": f"Unsupported search type: {type}",
+                "message": f"Serper backend supports: {', '.join(supported_types)}",
+                "alternative": f"For Google Scholar, use backend='serpapi' with engine='google_scholar'"
+            }
+
         # Use locale-based defaults if not specified
-        if gl is None:
-            gl = self._default_country.lower()
-        if hl is None:
-            hl = self._default_lang
+        if country_code is None:
+            country_code = self._default_country.lower()
+        if language_code is None:
+            language_code = self._default_lang
 
         api_key = os.getenv("SERPER_API_KEY")
         if not api_key:
@@ -146,8 +158,8 @@ class Search:
         payload = {
             "q": query,
             "num": num,
-            "gl": gl,
-            "hl": hl,
+            "gl": country_code,
+            "hl": language_code,
             "autocorrect": autocorrect,
             **kwargs
         }
@@ -170,7 +182,7 @@ class Search:
             "raw_response": data
         }
 
-        # Extract results based on search type
+        # Extract results based on search type - each type has its own response structure
         if type == "search":
             results_key = "organic"
         elif type == "news":
@@ -181,11 +193,16 @@ class Search:
             results_key = "videos"
         elif type == "shopping":
             results_key = "shopping"
-        elif type == "scholar":
-            results_key = "organic"
         elif type == "places":
             results_key = "places"
+        elif type == "maps":
+            results_key = "places"  # Maps returns places
+        elif type == "patents":
+            results_key = "organic"  # Patents returns organic-style results
+        elif type == "autocomplete":
+            results_key = "suggestions"  # Autocomplete returns suggestions
         else:
+            # Should not reach here due to validation above, but fallback
             results_key = "organic"
 
         results = data.get(results_key, [])
@@ -199,7 +216,7 @@ class Search:
 
         return normalized
 
-    def _search_serpapi(self, query, num=10, engine="google", **kwargs):
+    def _search_serpapi(self, query, num=10, engine="google", country_code=None, language_code=None, **kwargs):
         """
         Search using SerpApi backend (supports multiple search engines).
 
@@ -207,12 +224,19 @@ class Search:
             query (str): The search query
             num (int): Number of results to return (default: 10)
             engine (str): Search engine to use (default: "google")
-                         Options: "google", "bing", "duckduckgo", "yahoo", etc.
-            **kwargs: Additional SerpApi parameters (location, etc.)
+                         Options: "google", "google_scholar", "bing", "duckduckgo", "yahoo", "youtube", etc.
+            country_code (str): 2-letter country code for localized results (e.g., "us", "gb", default: system locale)
+            language_code (str): 2-letter language code for interface (e.g., "en", "es", default: system locale)
+            **kwargs: Additional SerpApi parameters (location, google_domain, safe, start, filter, tbm, etc.)
 
         Returns:
             Normalized dict with "results" key, or error dict
         """
+        # Use locale-based defaults if not specified
+        if country_code is None:
+            country_code = self._default_country.lower()
+        if language_code is None:
+            language_code = self._default_lang
         try:
             from serpapi import GoogleSearch
         except ImportError:
@@ -236,6 +260,8 @@ class Search:
                 "num": num,
                 "engine": engine,
                 "api_key": api_key,
+                "gl": country_code,
+                "hl": language_code,
                 **kwargs
             }
 
@@ -267,18 +293,21 @@ class Search:
 
         return normalized
 
-    def _search_tavily(self, query, max_results=10, **kwargs):
+    def _search_tavily(self, query, max_results=10, country_code=None, language_code=None, **kwargs):
         """
         Search using Tavily backend (just search results, no AI answer).
 
         Args:
             query (str): The search query
             max_results (int): Maximum number of results to return (default: 10)
-            **kwargs: Additional Tavily search parameters (search_depth, etc.)
+            country_code (str): 2-letter country code (not directly used by Tavily, but kept for consistency)
+            language_code (str): 2-letter language code (not directly used by Tavily, but kept for consistency)
+            **kwargs: Additional Tavily search parameters (search_depth, include_domains, exclude_domains, etc.)
 
         Returns:
             Normalized dict with "results" key, or error dict
         """
+        # Tavily doesn't use country/language codes directly, but we accept them for consistency
         try:
             from tavily import TavilyClient
         except ImportError:
@@ -334,18 +363,21 @@ class Search:
 
         return normalized
 
-    def _search_linkup(self, query, depth="standard", **kwargs):
+    def _search_linkup(self, query, depth="standard", country_code=None, language_code=None, **kwargs):
         """
         Search using LinkUp backend (searchResults mode).
 
         Args:
             query (str): The search query
             depth (str): "standard" or "deep" (default: "standard")
+            country_code (str): 2-letter country code (not directly used by LinkUp, but kept for consistency)
+            language_code (str): 2-letter language code (not directly used by LinkUp, but kept for consistency)
             **kwargs: Additional LinkUp search parameters
 
         Returns:
             Normalized dict with "results" key, or error dict
         """
+        # LinkUp doesn't use country/language codes directly, but we accept them for consistency
         try:
             from linkup import LinkupClient
         except ImportError:
@@ -436,7 +468,7 @@ class Search:
             return False
         return bool(os.getenv(key_name))
 
-    def search(self, query: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Search the web for information.
 
@@ -447,16 +479,19 @@ class Search:
             query (str): The search query
             backend (str, optional): Force a specific backend ("brave", "tavily", "linkup", "serpapi", or "serper").
                                      If None, auto-selects based on availability.
+            country_code (str, optional): 2-letter country code for localized results (e.g., "US", "GB", "FR").
+                                          Defaults to system locale. Supported by: brave, serpapi, serper.
+            language_code (str, optional): 2-letter language code for search interface (e.g., "en", "es", "fr").
+                                           Defaults to system locale. Supported by: brave, serpapi, serper.
             **kwargs: Additional backend-specific parameters:
 
                 BRAVE (2000 free/month):
                     - count (int, 1-20): Number of results (default: 10, max: 20)
-                    - country (str): 2-letter country code (e.g., "US", "GB", default: system locale)
-                    - search_lang (str): 2-letter language code (e.g., "en", "es", default: system locale)
                     - safesearch (str): "off", "moderate", or "strict" (default: "moderate")
                     - freshness (str): "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year)
                     - text_decorations (bool): Include text decorations in snippets (default: True)
                     - spellcheck (bool): Enable spellcheck (default: True)
+                    NOTE: Use country_code and language_code parameters (not country/search_lang)
 
                 TAVILY (1000 free/month):
                     - max_results (int): Number of results to return (default: 10)
@@ -494,19 +529,17 @@ class Search:
                           - "apple_app_store": App Store search
                           - "google_play": Google Play Store search
                     - location (str): Location for localized results (e.g., "Austin, Texas")
-                    - hl (str): Interface language (e.g., "en")
-                    - gl (str): Country code (e.g., "us")
                     - google_domain (str): Google domain (e.g., "google.com", "google.co.uk")
                     - safe (str): Safe search - "active" or "off"
                     - start (int): Pagination offset
                     - filter (str): Duplicate filter - "0" (off) or "1" (on)
                     - tbm (str): Search type - "nws" (news), "isch" (images), "vid" (videos), "shop" (shopping)
-                    NOTE: Each engine has specific parameters. See https://serpapi.com/ for details.
+                    NOTE: Use country_code and language_code parameters (not gl/hl). Each engine has specific parameters. See https://serpapi.com/ for details.
 
                 SERPER (2500 total, non-renewable) - supports multiple search types:
                     - num (int): Number of results (default: 10)
                     - type (str): Search type (default: "search")
-                        Available types:
+                        Supported types:
                           - "search": Regular web search (default)
                           - "images": Image search
                           - "videos": Video search
@@ -514,15 +547,14 @@ class Search:
                           - "maps": Google Maps search
                           - "news": News search
                           - "shopping": Shopping search
-                          - "scholar": Google Scholar academic search
                           - "patents": Patent search
                           - "autocomplete": Search suggestions
-                    - gl (str): Country code for localized results (e.g., "us", default: system locale)
-                    - hl (str): Interface language (e.g., "en", default: system locale)
+                        NOTE: "scholar" is NOT supported by Serper. Use serpapi with engine="google_scholar" instead.
                     - location (str): Location for localized results
                     - autocorrect (bool): Enable query autocorrection (default: True)
                     - page (int): Page number for pagination
                     - tbs (str): Time-based search (e.g., "qdr:d" for past day, "qdr:w" for past week)
+                    NOTE: Use country_code and language_code parameters (not gl/hl)
 
         Returns:
             dict: Normalized response with:
@@ -575,6 +607,11 @@ class Search:
         """
         used_backend = None
 
+        # Prepare normalized parameters for all backends
+        backend_kwargs = kwargs.copy()
+        backend_kwargs['country_code'] = country_code
+        backend_kwargs['language_code'] = language_code
+
         if backend:
             backend = backend.lower()
             backend_methods = {
@@ -595,7 +632,7 @@ class Search:
                 print(f"   {error_result['message']}")
                 return error_result
 
-            result = backend_methods[backend](query, **kwargs)
+            result = backend_methods[backend](query, **backend_kwargs)
             if "error" not in result:
                 used_backend = backend
                 result["backend"] = used_backend
@@ -617,15 +654,15 @@ class Search:
                 continue
 
             if backend_name == "brave":
-                result = self._search_brave(query, **kwargs)
+                result = self._search_brave(query, **backend_kwargs)
             elif backend_name == "tavily":
-                result = self._search_tavily(query, **kwargs)
+                result = self._search_tavily(query, **backend_kwargs)
             elif backend_name == "linkup":
-                result = self._search_linkup(query, **kwargs)
+                result = self._search_linkup(query, **backend_kwargs)
             elif backend_name == "serpapi":
-                result = self._search_serpapi(query, **kwargs)
+                result = self._search_serpapi(query, **backend_kwargs)
             elif backend_name == "serper":
-                result = self._search_serper(query, **kwargs)
+                result = self._search_serper(query, **backend_kwargs)
             else:
                 continue
 
