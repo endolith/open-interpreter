@@ -9,6 +9,8 @@ Examples:
     python test_search_answer.py "What is machine learning?"
     python test_search_answer.py "What is Python?" tavily
     python test_search_answer.py "What is Python?" linkup
+
+If no backend is specified, tests all available backends.
 """
 
 import sys
@@ -36,19 +38,47 @@ def main():
     # Create Computer instance
     computer = Computer(mock_interpreter)
 
-    # Call the method - it will print its own output
-    if backend:
-        result = computer.search.answer(query, backend=backend)
-    else:
-        result = computer.search.answer(query)
+    # Define all backends to test for answer method
+    all_backends = ["tavily", "linkup"]
 
-    # Show the raw return value
-    print("\n" + "="*60)
-    print("Returned object:")
+    if backend:
+        # Test only the specified backend
+        backends_to_test = [backend]
+    else:
+        # Test all backends
+        backends_to_test = all_backends
+
+    print(f"\nTesting query: '{query}'")
+    print(f"Backends to test: {', '.join(backends_to_test)}\n")
+
+    results = {}
+    for backend_name in backends_to_test:
+        print("\n" + "="*60)
+        print(f"Testing backend: {backend_name}")
+        print("="*60)
+
+        # Call the method - it will print its own output
+        result = computer.search.answer(query, backend=backend_name)
+        results[backend_name] = result
+
+        # Show the raw return value
+        print("\n" + "-"*60)
+        print("Returned object:")
+        print("-"*60)
+        print(repr(result))
+
+    # Summary
+    print("\n\n" + "="*60)
+    print("SUMMARY")
     print("="*60)
-    print(repr(result))
+    for backend_name, result in results.items():
+        if "error" in result:
+            print(f"❌ {backend_name}: FAILED - {result['error']}")
+        else:
+            answer_preview = result.get("answer", "")[:100]
+            sources_count = len(result.get("sources", []))
+            print(f"✓ {backend_name}: SUCCESS - {sources_count} sources, answer: {answer_preview}...")
 
 
 if __name__ == "__main__":
     main()
-
