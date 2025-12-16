@@ -382,6 +382,7 @@ class Search:
                 serpapi_query_params = {
                     "yahoo": "p",
                     "ebay": "_nkw",
+                    "youtube": "search_query",  # YouTube uses "search_query" not "q"
                 }
                 search_params = {"api_key": api_key}
                 query_param = serpapi_query_params.get(engine, "q")
@@ -432,6 +433,14 @@ class Search:
             "yandex": "organic_results",
         }
 
+        # Check for API errors first
+        if "error" in data:
+            return {
+                "error": f"SerpApi {engine} search error",
+                "message": data.get("error", "Unknown API error"),
+                "alternative": "Check your API key and query parameters"
+            }
+
         # Get the appropriate results key for this engine
         results_key = engine_result_keys.get(engine, "organic_results")
         results = data.get(results_key, [])
@@ -439,9 +448,10 @@ class Search:
         # If no results found in the expected key, fail loudly with debug info
         if not results:
             available_keys = [k for k in data.keys() if isinstance(data.get(k), list)]
+            all_keys = list(data.keys())
             return {
                 "error": f"No results found in expected key '{results_key}' for engine '{engine}'",
-                "message": f"SerpApi response did not contain results in the expected key. Available list keys: {available_keys}",
+                "message": f"SerpApi response did not contain results in the expected key. Available list keys: {available_keys}. All keys: {all_keys[:20]}",
                 "alternative": "Check the SerpApi response structure or try a different engine",
                 "raw_response": data
             }
