@@ -210,13 +210,13 @@ class Search:
         """
         Search using Serper API (Google search) backend.
 
-        Supports multiple search types: search, images, videos, news, shopping, places, maps, patents, autocomplete.
+        Supports multiple search types: search, images, videos, news, shopping, places, maps, patents.
 
         Args:
             query (str): The search query
             num (int): Number of results to return (default: 10)
             type (str): Search type (default: "search")
-                       Supported: "search", "images", "videos", "news", "shopping", "places", "maps", "patents", "autocomplete"
+                       Supported: "search", "images", "videos", "news", "shopping", "places", "maps", "patents"
                        NOTE: "scholar" is NOT supported by Serper - use serpapi with engine="google_scholar" instead
             country_code (str): 2-letter country code for localized results (e.g., "us", "gb", default: system locale)
             language_code (str): 2-letter language code for interface (e.g., "en", "es", default: system locale)
@@ -227,7 +227,7 @@ class Search:
             Normalized dict with "results" key, or error dict
         """
         # Validate search type
-        supported_types = ["search", "images", "videos", "news", "shopping", "places", "maps", "patents", "autocomplete"]
+        supported_types = ["search", "images", "videos", "news", "shopping", "places", "maps", "patents"]
         if type not in supported_types:
             return {
                 "error": f"Unsupported search type: {type}",
@@ -291,8 +291,6 @@ class Search:
             results_key = "places"  # Maps returns places
         elif type == "patents":
             results_key = "organic"  # Patents returns organic-style results
-        elif type == "autocomplete":
-            results_key = "suggestions"  # Autocomplete returns suggestions
         else:
             # Should not reach here due to validation above, but fallback
             results_key = "organic"
@@ -680,7 +678,6 @@ class Search:
                           - "news": News search
                           - "shopping": Shopping search
                           - "patents": Patent search
-                          - "autocomplete": Search suggestions
                         NOTE: "scholar" is NOT supported by Serper. Use serpapi with engine="google_scholar" instead.
                     - location (str): Location for localized results
                     - autocorrect (bool): Enable query autocorrection (default: True)
