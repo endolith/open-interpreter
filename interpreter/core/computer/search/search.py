@@ -28,6 +28,104 @@ class Search:
         self._default_lang = lang.lower()
         self._default_country = country.upper()
 
+    def _get_locale_defaults(self, country_code=None, language_code=None, country_case="lower"):
+        """
+        Get locale defaults for country_code and language_code.
+
+        Args:
+            country_code: Optional country code (if None, uses default)
+            language_code: Optional language code (if None, uses default)
+            country_case: "lower" or "upper" for country code case (default: "lower")
+
+        Returns:
+            tuple: (country_code, language_code) with defaults applied
+        """
+        if country_code is None:
+            country_code = self._default_country.lower() if country_case == "lower" else self._default_country
+        if language_code is None:
+            language_code = self._default_lang
+        return country_code, language_code
+
+    def _check_api_key(self, key_name, backend_name, key_url):
+        """
+        Check if an API key is set.
+
+        Args:
+            key_name: Environment variable name (e.g., "BRAVE_API_KEY")
+            backend_name: Backend name for error messages
+            key_url: URL to get API key (empty string if not applicable)
+
+        Returns:
+            str or dict: API key if found, error dict otherwise
+        """
+        api_key = os.getenv(key_name)
+        if not api_key:
+            url_text = f" Get your API key at {key_url}" if key_url else ""
+            return {
+                "error": f"{key_name} environment variable not set",
+                "message": f"To use {backend_name}, set the {key_name} environment variable.{url_text}",
+                "alternative": "Try using a different backend"
+            }
+        return api_key
+
+    def _handle_import_error(self, package_name, install_cmd):
+        """Handle ImportError for a package."""
+        return {
+            "error": f"{package_name} not installed",
+            "message": f"Install {package_name}: {install_cmd}",
+            "alternative": "Try using a different backend"
+        }
+
+    def _normalize_result_item(self, result, engine=None):
+        """
+        Normalize a single result item from any backend.
+
+        Args:
+            result: Result dict or object from backend
+            engine: Optional engine name for engine-specific handling
+
+        Returns:
+            dict: Normalized result with "title", "url", "snippet"
+        """
+        # Handle dict results
+        if isinstance(result, dict):
+            title = result.get("title", "") or result.get("name", "") or result.get("product_title", "")
+            url = result.get("link", "") or result.get("url", "") or result.get("href", "")
+            snippet = result.get("snippet", "") or result.get("description", "") or result.get("content", "")
+
+            # Engine-specific handling
+            if engine == "youtube" and "link" in result:
+                url = result.get("link", "")
+                snippet = result.get("description", "") or f"Video by {result.get('channel', {}).get('name', 'Unknown')}"
+            elif engine == "google_shopping" and "price" in result:
+                price = result.get("price", "")
+                if price:
+                    snippet = f"{snippet} - {price}".strip()
+
+            # Truncate snippet if it's from content field (Tavily/LinkUp style)
+            if "content" in result and len(snippet) > 200:
+                snippet = snippet[:200]
+
+            return {"title": title, "url": url, "snippet": snippet}
+
+        # Handle object results (LinkUp style)
+        elif hasattr(result, "name"):
+            return {
+                "title": getattr(result, "name", ""),
+                "url": getattr(result, "url", ""),
+                "snippet": (getattr(result, "content", "") or getattr(result, "snippet", ""))[:200] if getattr(result, "content", None) or getattr(result, "snippet", None) else ""
+            }
+
+        # Unknown format
+        raise ValueError(f"Result item is neither dict nor object: {type(result).__name__}")
+
+    def _create_normalized_response(self, raw_response):
+        """Create a normalized response structure."""
+        return {
+            "results": [],
+            "raw_response": raw_response
+        }
+
     def _search_brave(self, query, count=10, country_code=None, language_code=None, safesearch="moderate", **kwargs):
         """
         Search using Brave Search API backend.
@@ -43,19 +141,12 @@ class Search:
         Returns:
             Normalized dict with "results" key, or error dict
         """
-        # Use locale-based defaults if not specified
-        if country_code is None:
-            country_code = self._default_country
-        if language_code is None:
-            language_code = self._default_lang
+        country_code, language_code = self._get_locale_defaults(country_code, language_code, country_case="upper")
 
-        api_key = os.getenv("BRAVE_API_KEY")
-        if not api_key:
-            return {
-                "error": "BRAVE_API_KEY environment variable not set",
-                "message": "To use Brave Search API, set the BRAVE_API_KEY environment variable. Get your API key at https://brave.com/search/api/",
-                "alternative": "Try using a different backend (serper)"
-            }
+        api_key_check = self._check_api_key("BRAVE_API_KEY", "Brave Search API", "https://brave.com/search/api/")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         url = "https://api.search.brave.com/res/v1/web/search"
 
@@ -87,20 +178,12 @@ class Search:
 
         # Normalize Brave response format
         # Brave returns: {"web": {"results": [...]}, "news": {...}, ...}
-        normalized = {
-            "results": [],
-            "raw_response": data
-        }
+        normalized = self._create_normalized_response(data)
 
         # Extract web results
         web_results = data.get("web", {}).get("results", [])
         for result in web_results:
-            normalized_result = {
-                "title": result.get("title", ""),
-                "url": result.get("url", ""),
-                "snippet": result.get("description", "")
-            }
-            normalized["results"].append(normalized_result)
+            normalized["results"].append(self._normalize_result_item(result))
 
         return normalized
 
@@ -133,19 +216,12 @@ class Search:
                 "alternative": f"For Google Scholar, use backend='serpapi' with engine='google_scholar'"
             }
 
-        # Use locale-based defaults if not specified
-        if country_code is None:
-            country_code = self._default_country.lower()
-        if language_code is None:
-            language_code = self._default_lang
+        country_code, language_code = self._get_locale_defaults(country_code, language_code)
 
-        api_key = os.getenv("SERPER_API_KEY")
-        if not api_key:
-            return {
-                "error": "SERPER_API_KEY environment variable not set",
-                "message": "To use Serper API, set the SERPER_API_KEY environment variable. Get your API key at https://serper.dev/",
-                "alternative": "Try using a different backend (brave)"
-            }
+        api_key_check = self._check_api_key("SERPER_API_KEY", "Serper API", "https://serper.dev/")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         # Map type to correct endpoint
         url = f"https://google.serper.dev/{type}"
@@ -177,10 +253,7 @@ class Search:
 
         # Normalize Serper response format
         # Response format varies by search type
-        normalized = {
-            "results": [],
-            "raw_response": data
-        }
+        normalized = self._create_normalized_response(data)
 
         # Extract results based on search type - each type has its own response structure
         if type == "search":
@@ -207,12 +280,7 @@ class Search:
 
         results = data.get(results_key, [])
         for result in results:
-            normalized_result = {
-                "title": result.get("title", ""),
-                "url": result.get("link", "") or result.get("url", ""),
-                "snippet": result.get("snippet", "") or result.get("description", "")
-            }
-            normalized["results"].append(normalized_result)
+            normalized["results"].append(self._normalize_result_item(result))
 
         return normalized
 
@@ -240,29 +308,18 @@ class Search:
         Returns:
             Normalized dict with "results" key, or error dict
         """
-        # Use locale-based defaults if not specified
-        if country_code is None:
-            country_code = self._default_country.lower()
-        if language_code is None:
-            language_code = self._default_lang
+        country_code, language_code = self._get_locale_defaults(country_code, language_code)
 
         # Import SerpApi - try to get specific classes, fallback to GoogleSearch
         try:
             from serpapi import GoogleSearch
         except ImportError:
-            return {
-                "error": "google-search-results not installed",
-                "message": "Install google-search-results: pip install google-search-results",
-                "alternative": "Try using a different backend (brave, tavily)"
-            }
+            return self._handle_import_error("google-search-results", "pip install google-search-results")
 
-        api_key = os.getenv("SERPAPI_API_KEY")
-        if not api_key:
-            return {
-                "error": "SERPAPI_API_KEY environment variable not set",
-                "message": "To use SerpApi, set the SERPAPI_API_KEY environment variable. Get your API key at https://serpapi.com/",
-                "alternative": "Try using a different backend (brave, tavily)"
-            }
+        api_key_check = self._check_api_key("SERPAPI_API_KEY", "SerpApi", "https://serpapi.com/")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         # Google-based engines use GoogleSearch with engine parameter
         # These work with GoogleSearch class + engine parameter
@@ -351,10 +408,7 @@ class Search:
 
         # Normalize SerpApi response format
         # Different engines return results in different keys
-        normalized = {
-            "results": [],
-            "raw_response": data
-        }
+        normalized = self._create_normalized_response(data)
 
         # Map engine to response key
         # Different engines return results in different keys
@@ -387,34 +441,13 @@ class Search:
             return {
                 "error": f"No results found in expected key '{results_key}' for engine '{engine}'",
                 "message": f"SerpApi response did not contain results in the expected key. Available list keys: {available_keys}",
-                "raw_response": data,
-                "alternative": "Check the SerpApi response structure or try a different engine"
+                "alternative": "Check the SerpApi response structure or try a different engine",
+                "raw_response": data
             }
 
         # Extract and normalize results
         for result in results:
-            # Different engines use different field names
-            title = result.get("title", "") or result.get("name", "") or result.get("product_title", "")
-            url = result.get("link", "") or result.get("url", "") or result.get("href", "")
-            snippet = result.get("snippet", "") or result.get("description", "") or result.get("about_this_result", {}).get("source", {}).get("description", "")
-
-            # For YouTube videos, include video info
-            if engine == "youtube" and "link" in result:
-                url = result.get("link", "")
-                snippet = result.get("description", "") or f"Video by {result.get('channel', {}).get('name', 'Unknown')}"
-
-            # For shopping, include price if available
-            if engine == "google_shopping" and "price" in result:
-                price = result.get("price", "")
-                if price:
-                    snippet = f"{snippet} - {price}".strip()
-
-            normalized_result = {
-                "title": title,
-                "url": url,
-                "snippet": snippet
-            }
-            normalized["results"].append(normalized_result)
+            normalized["results"].append(self._normalize_result_item(result, engine=engine))
 
         return normalized
 
@@ -436,19 +469,12 @@ class Search:
         try:
             from tavily import TavilyClient
         except ImportError:
-            return {
-                "error": "tavily-python not installed",
-                "message": "Install tavily-python: pip install tavily-python",
-                "alternative": "Try using a different backend (brave, linkup)"
-            }
+            return self._handle_import_error("tavily-python", "pip install tavily-python")
 
-        api_key = os.getenv("TAVILY_API_KEY")
-        if not api_key:
-            return {
-                "error": "TAVILY_API_KEY environment variable not set",
-                "message": "To use Tavily, set the TAVILY_API_KEY environment variable.",
-                "alternative": "Try using a different backend (brave, linkup)"
-            }
+        api_key_check = self._check_api_key("TAVILY_API_KEY", "Tavily", "")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -471,20 +497,12 @@ class Search:
 
         # Normalize Tavily response format
         # Tavily returns: {"results": [{"title": str, "url": str, "content": str, ...}]}
-        normalized = {
-            "results": [],
-            "raw_response": response
-        }
+        normalized = self._create_normalized_response(response)
 
         # Extract results
         results = response.get("results", [])
         for result in results:
-            normalized_result = {
-                "title": result.get("title", ""),
-                "url": result.get("url", ""),
-                "snippet": result.get("content", "")[:200] if result.get("content") else ""
-            }
-            normalized["results"].append(normalized_result)
+            normalized["results"].append(self._normalize_result_item(result))
 
         return normalized
 
@@ -506,19 +524,12 @@ class Search:
         try:
             from linkup import LinkupClient
         except ImportError:
-            return {
-                "error": "linkup-sdk not installed",
-                "message": "Install linkup-sdk: pip install linkup-sdk",
-                "alternative": "Try using a different backend (brave, tavily)"
-            }
+            return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
-        api_key = os.getenv("LINKUP_API_KEY")
-        if not api_key:
-            return {
-                "error": "LINKUP_API_KEY environment variable not set",
-                "message": "To use LinkUp, set the LINKUP_API_KEY environment variable.",
-                "alternative": "Try using a different backend (brave, tavily)"
-            }
+        api_key_check = self._check_api_key("LINKUP_API_KEY", "LinkUp", "")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         try:
             client = LinkupClient(api_key=api_key)
@@ -541,10 +552,7 @@ class Search:
 
         # Normalize LinkUp response format
         # LinkUp returns a LinkupSearchResults object with .results attribute
-        normalized = {
-            "results": [],
-            "raw_response": response
-        }
+        normalized = self._create_normalized_response(response)
 
         # Extract results - check if it's a list of objects or dicts
         results = getattr(response, "results", [])
@@ -555,27 +563,7 @@ class Search:
             )
 
         for result in results:
-            # Handle both object attributes and dict keys
-            if hasattr(result, "name"):
-                # Object with attributes
-                normalized_result = {
-                    "title": getattr(result, "name", ""),
-                    "url": getattr(result, "url", ""),
-                    "snippet": getattr(result, "content", "")[:200] if getattr(result, "content", None) else ""
-                }
-            elif isinstance(result, dict):
-                # Dict
-                normalized_result = {
-                    "title": result.get("name", ""),
-                    "url": result.get("url", ""),
-                    "snippet": result.get("content", "")[:200] if result.get("content") else ""
-                }
-            else:
-                raise ValueError(
-                    f"LinkUp result item is neither object nor dict: {type(result).__name__}. "
-                    f"Result: {str(result)[:200]}"
-                )
-            normalized["results"].append(normalized_result)
+            normalized["results"].append(self._normalize_result_item(result))
 
         return normalized
 
@@ -773,23 +761,19 @@ class Search:
         # Auto-select backend
         # Priority order: brave (2k/month) > tavily (1k/month) > linkup (1k/month) > serpapi (250/month) > serper (2.5k total)
         backends_to_try = ["brave", "tavily", "linkup", "serpapi", "serper"]
+        backend_methods = {
+            "brave": self._search_brave,
+            "tavily": self._search_tavily,
+            "linkup": self._search_linkup,
+            "serpapi": self._search_serpapi,
+            "serper": self._search_serper
+        }
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
                 continue
 
-            if backend_name == "brave":
-                result = self._search_brave(query, **backend_kwargs)
-            elif backend_name == "tavily":
-                result = self._search_tavily(query, **backend_kwargs)
-            elif backend_name == "linkup":
-                result = self._search_linkup(query, **backend_kwargs)
-            elif backend_name == "serpapi":
-                result = self._search_serpapi(query, **backend_kwargs)
-            elif backend_name == "serper":
-                result = self._search_serper(query, **backend_kwargs)
-            else:
-                continue
+            result = backend_methods[backend_name](query, **backend_kwargs)
 
             if "error" not in result:
                 used_backend = backend_name
@@ -822,20 +806,12 @@ class Search:
         try:
             from tavily import TavilyClient
         except ImportError:
-            return {
-                "error": "tavily-python not installed",
-                "message": "Install tavily-python: pip install tavily-python",
-                "alternative": "Try using a different backend (linkup)"
-            }
+            return self._handle_import_error("tavily-python", "pip install tavily-python")
 
-        api_key = os.getenv("TAVILY_API_KEY")
-        if not api_key:
-            return {
-                "error": "TAVILY_API_KEY environment variable not set",
-                "message":
-                "To use Tavily, set the TAVILY_API_KEY environment variable.",
-                "alternative": "Try using a different backend (linkup)"
-            }
+        api_key_check = self._check_api_key("TAVILY_API_KEY", "Tavily", "")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -909,20 +885,12 @@ class Search:
         try:
             from linkup import LinkupClient
         except ImportError:
-            return {
-                "error": "linkup-sdk not installed",
-                "message": "Install linkup-sdk: pip install linkup-sdk",
-                "alternative": "Try using a different backend (tavily)"
-            }
+            return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
-        api_key = os.getenv("LINKUP_API_KEY")
-        if not api_key:
-            return {
-                "error": "LINKUP_API_KEY environment variable not set",
-                "message":
-                "To use LinkUp, set the LINKUP_API_KEY environment variable.",
-                "alternative": "Try using a different backend (tavily)"
-            }
+        api_key_check = self._check_api_key("LINKUP_API_KEY", "LinkUp", "")
+        if isinstance(api_key_check, dict):
+            return api_key_check
+        api_key = api_key_check
 
         try:
             client = LinkupClient(api_key=api_key)
@@ -961,27 +929,8 @@ class Search:
             )
 
         for source in sources:
-            # Handle both object attributes and dict keys
-            if hasattr(source, "name"):
-                # Object with attributes
-                normalized_source = {
-                    "title": getattr(source, "name", ""),
-                    "url": getattr(source, "url", ""),
-                    "snippet": getattr(source, "snippet", "")[:200] if getattr(source, "snippet", None) else ""
-                }
-            elif isinstance(source, dict):
-                # Dict
-                normalized_source = {
-                    "title": source.get("name", ""),
-                    "url": source.get("url", ""),
-                    "snippet": source.get("snippet", "")[:200] if source.get("snippet") else ""
-                }
-            else:
-                raise ValueError(
-                    f"LinkUp source item is neither object nor dict: {type(source).__name__}. "
-                    f"Source: {str(source)[:200]}"
-                )
-            normalized["sources"].append(normalized_source)
+            # Use the same normalization as search results
+            normalized["sources"].append(self._normalize_result_item(source))
 
         return normalized
 
@@ -1094,17 +1043,16 @@ class Search:
 
         # Auto-select backend: prefer linkup over tavily
         backends_to_try = ["linkup", "tavily"]
+        backend_methods = {
+            "linkup": self._answer_linkup,
+            "tavily": self._answer_tavily
+        }
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
                 continue
 
-            if backend_name == "linkup":
-                result = self._answer_linkup(question, **kwargs)
-            elif backend_name == "tavily":
-                result = self._answer_tavily(question, **kwargs)
-            else:
-                continue
+            result = backend_methods[backend_name](question, **kwargs)
 
             if "error" not in result:
                 used_backend = backend_name
