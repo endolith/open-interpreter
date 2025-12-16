@@ -8,7 +8,10 @@ Usage:
 Examples:
     python test_search.py "machine learning tutorials"
     python test_search.py "Python programming" brave
-    python test_search.py "latest AI news" serper
+    python test_search.py "latest AI news" tavily
+    python test_search.py "AI research" linkup
+    python test_search.py "tech news" serpapi
+    python test_search.py "coding tips" serper
 
 If no backend is specified, tests all available backends.
 """
@@ -39,7 +42,7 @@ def main():
     computer = Computer(mock_interpreter)
 
     # Define all backends to test for search method
-    all_backends = ["brave", "serper"]
+    all_backends = ["brave", "tavily", "linkup", "serpapi", "serper"]
 
     if backend:
         # Test only the specified backend

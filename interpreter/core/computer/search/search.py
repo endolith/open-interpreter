@@ -4,6 +4,10 @@ Web search utilities.
 This module provides web search related tools, with unified frontend methods
 for search, fetch, answer, crawl, and structured output operations with
 multiple backends.
+
+Supported backends:
+- Search: brave, tavily, linkup, serpapi, serper
+- Answer: tavily, linkup
 """
 
 import os
@@ -171,6 +175,229 @@ class Search:
 
         return normalized
 
+    def _search_serpapi(self, query, num=10, engine="google", **kwargs):
+        """
+        Search using SerpApi backend (supports multiple search engines).
+
+        Args:
+            query (str): The search query
+            num (int): Number of results to return (default: 10)
+            engine (str): Search engine to use (default: "google")
+                         Options: "google", "bing", "duckduckgo", "yahoo", etc.
+            **kwargs: Additional SerpApi parameters (location, etc.)
+
+        Returns:
+            Normalized dict with "results" key, or error dict
+        """
+        try:
+            from serpapi import GoogleSearch
+        except ImportError:
+            return {
+                "error": "google-search-results not installed",
+                "message": "Install google-search-results: pip install google-search-results",
+                "alternative": "Try using a different backend (brave, tavily)"
+            }
+
+        api_key = os.getenv("SERPAPI_API_KEY")
+        if not api_key:
+            return {
+                "error": "SERPAPI_API_KEY environment variable not set",
+                "message": "To use SerpApi, set the SERPAPI_API_KEY environment variable. Get your API key at https://serpapi.com/",
+                "alternative": "Try using a different backend (brave, tavily)"
+            }
+
+        try:
+            search_params = {
+                "q": query,
+                "num": num,
+                "engine": engine,
+                "api_key": api_key,
+                **kwargs
+            }
+
+            search = GoogleSearch(search_params)
+            data = search.get_dict()
+        except Exception as e:
+            return {
+                "error": f"SerpApi request failed: {str(e)}",
+                "message": "The API request encountered an error. Check your API key and internet connection.",
+                "alternative": "Try using a different backend (brave, tavily)"
+            }
+
+        # Normalize SerpApi response format
+        # SerpApi returns: {"organic_results": [{"title": str, "link": str, "snippet": str, ...}], ...}
+        normalized = {
+            "results": [],
+            "raw_response": data
+        }
+
+        # Extract organic results
+        organic_results = data.get("organic_results", [])
+        for result in organic_results:
+            normalized_result = {
+                "title": result.get("title", ""),
+                "url": result.get("link", ""),
+                "snippet": result.get("snippet", "")
+            }
+            normalized["results"].append(normalized_result)
+
+        return normalized
+
+    def _search_tavily(self, query, max_results=10, **kwargs):
+        """
+        Search using Tavily backend (just search results, no AI answer).
+
+        Args:
+            query (str): The search query
+            max_results (int): Maximum number of results to return (default: 10)
+            **kwargs: Additional Tavily search parameters (search_depth, etc.)
+
+        Returns:
+            Normalized dict with "results" key, or error dict
+        """
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            return {
+                "error": "tavily-python not installed",
+                "message": "Install tavily-python: pip install tavily-python",
+                "alternative": "Try using a different backend (brave, linkup)"
+            }
+
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            return {
+                "error": "TAVILY_API_KEY environment variable not set",
+                "message": "To use Tavily, set the TAVILY_API_KEY environment variable.",
+                "alternative": "Try using a different backend (brave, linkup)"
+            }
+
+        try:
+            client = TavilyClient(api_key=api_key)
+
+            # Build search parameters - explicitly exclude AI answer
+            search_params = {
+                "query": query,
+                "max_results": max_results,
+                "include_answer": False,  # Just search results, no AI answer
+                **kwargs
+            }
+
+            response = client.search(**search_params)
+        except Exception as e:
+            return {
+                "error": f"Tavily API request failed: {str(e)}",
+                "message": "The Tavily API request encountered an error.",
+                "alternative": "Try using a different backend (brave, linkup)"
+            }
+
+        # Normalize Tavily response format
+        # Tavily returns: {"results": [{"title": str, "url": str, "content": str, ...}]}
+        normalized = {
+            "results": [],
+            "raw_response": response
+        }
+
+        # Extract results
+        results = response.get("results", [])
+        for result in results:
+            normalized_result = {
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "snippet": result.get("content", "")[:200] if result.get("content") else ""
+            }
+            normalized["results"].append(normalized_result)
+
+        return normalized
+
+    def _search_linkup(self, query, depth="standard", **kwargs):
+        """
+        Search using LinkUp backend (searchResults mode).
+
+        Args:
+            query (str): The search query
+            depth (str): "standard" or "deep" (default: "standard")
+            **kwargs: Additional LinkUp search parameters
+
+        Returns:
+            Normalized dict with "results" key, or error dict
+        """
+        try:
+            from linkup import LinkupClient
+        except ImportError:
+            return {
+                "error": "linkup-sdk not installed",
+                "message": "Install linkup-sdk: pip install linkup-sdk",
+                "alternative": "Try using a different backend (brave, tavily)"
+            }
+
+        api_key = os.getenv("LINKUP_API_KEY")
+        if not api_key:
+            return {
+                "error": "LINKUP_API_KEY environment variable not set",
+                "message": "To use LinkUp, set the LINKUP_API_KEY environment variable.",
+                "alternative": "Try using a different backend (brave, tavily)"
+            }
+
+        try:
+            client = LinkupClient(api_key=api_key)
+
+            # Build search parameters
+            search_params = {
+                "query": query,
+                "depth": depth,
+                "output_type": "searchResults",  # Just search results, no AI answer
+                **kwargs
+            }
+
+            response = client.search(**search_params)
+        except Exception as e:
+            return {
+                "error": f"LinkUp API request failed: {str(e)}",
+                "message": "The LinkUp API request encountered an error.",
+                "alternative": "Try using a different backend (brave, tavily)"
+            }
+
+        # Normalize LinkUp response format
+        # LinkUp returns a LinkupSearchResults object with .results attribute
+        normalized = {
+            "results": [],
+            "raw_response": response
+        }
+
+        # Extract results - check if it's a list of objects or dicts
+        results = getattr(response, "results", [])
+        if not isinstance(results, list):
+            raise ValueError(
+                f"LinkUp response 'results' is not a list: {type(results).__name__}. "
+                f"Response type: {type(response).__name__}"
+            )
+
+        for result in results:
+            # Handle both object attributes and dict keys
+            if hasattr(result, "name"):
+                # Object with attributes
+                normalized_result = {
+                    "title": getattr(result, "name", ""),
+                    "url": getattr(result, "url", ""),
+                    "snippet": getattr(result, "content", "")[:200] if getattr(result, "content", None) else ""
+                }
+            elif isinstance(result, dict):
+                # Dict
+                normalized_result = {
+                    "title": result.get("name", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:200] if result.get("content") else ""
+                }
+            else:
+                raise ValueError(
+                    f"LinkUp result item is neither object nor dict: {type(result).__name__}. "
+                    f"Result: {str(result)[:200]}"
+                )
+            normalized["results"].append(normalized_result)
+
+        return normalized
+
     def _check_backend_available(self, backend: str) -> bool:
         """Check if a backend is available (has API key)."""
         backend_keys = {
@@ -190,14 +417,18 @@ class Search:
         Search the web for information.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: brave, serper.
+        the specified one. Backends are tried in order: brave, tavily, linkup, serpapi, serper.
 
         Args:
             query (str): The search query
-                backend (str, optional): Force a specific backend ("brave" or "serper"). If None, auto-selects based on availability.
+            backend (str, optional): Force a specific backend ("brave", "tavily", "linkup", "serpapi", or "serper").
+                                     If None, auto-selects based on availability.
             **kwargs: Additional backend-specific parameters:
                 - For brave: count (int, default 10, max 20), country (str),
                             search_lang (str), safesearch (str: "off"/"moderate"/"strict")
+                - For tavily: max_results (int, default 10), search_depth (str), etc.
+                - For linkup: depth (str: "standard" or "deep"), etc.
+                - For serpapi: num (int, default 10), engine (str, default "google"), etc.
                 - For serper: num (int, default 10), gl (str), hl (str),
                              autocorrect (bool, default True)
 
@@ -217,37 +448,40 @@ class Search:
 
         if backend:
             backend = backend.lower()
-            if backend == "brave":
-                result = self._search_brave(query, **kwargs)
-                if "error" not in result:
-                    used_backend = "brave"
-                    result["backend"] = used_backend
-                    self._print_search_result(query, result, used_backend)
-                    return result
-            elif backend == "serper":
-                result = self._search_serper(query, **kwargs)
-                if "error" not in result:
-                    used_backend = "serper"
-                    result["backend"] = used_backend
-                    self._print_search_result(query, result, used_backend)
-                    return result
-            else:
+            backend_methods = {
+                "brave": self._search_brave,
+                "tavily": self._search_tavily,
+                "linkup": self._search_linkup,
+                "serpapi": self._search_serpapi,
+                "serper": self._search_serper
+            }
+
+            if backend not in backend_methods:
                 error_result = {
                     "error": f"Unknown backend: {backend}",
-                    "message": f"Supported backends for search: 'brave', 'serper'",
+                    "message": f"Supported backends for search: {', '.join(backend_methods.keys())}",
                     "alternative": "Try without specifying a backend to auto-select"
                 }
                 print(f"❌ Error: {error_result['error']}")
                 print(f"   {error_result['message']}")
                 return error_result
+
+            result = backend_methods[backend](query, **kwargs)
+            if "error" not in result:
+                used_backend = backend
+                result["backend"] = used_backend
+                self._print_search_result(query, result, used_backend)
+                return result
+
             # If specified backend failed, return the error
             print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
             if result.get('alternative'):
                 print(f"   {result['alternative']}")
             return result
 
-        # Auto-select backend: prefer brave over serper
-        backends_to_try = ["brave", "serper"]
+        # Auto-select backend
+        # Priority order: brave (2k/month) > tavily (1k/month) > linkup (1k/month) > serpapi (250/month) > serper (2.5k total)
+        backends_to_try = ["brave", "tavily", "linkup", "serpapi", "serper"]
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -255,6 +489,12 @@ class Search:
 
             if backend_name == "brave":
                 result = self._search_brave(query, **kwargs)
+            elif backend_name == "tavily":
+                result = self._search_tavily(query, **kwargs)
+            elif backend_name == "linkup":
+                result = self._search_linkup(query, **kwargs)
+            elif backend_name == "serpapi":
+                result = self._search_serpapi(query, **kwargs)
             elif backend_name == "serper":
                 result = self._search_serper(query, **kwargs)
             else:
@@ -269,8 +509,8 @@ class Search:
         # All backends failed or unavailable
         error_result = {
             "error": "No available backends",
-            "message": "No search backends are available. Set BRAVE_API_KEY or SERPER_API_KEY environment variable.",
-            "alternative": "Get API keys at: https://brave.com/search/api/ or https://serper.dev/"
+            "message": "No search backends are available. Set one of: BRAVE_API_KEY, TAVILY_API_KEY, LINKUP_API_KEY, SERPAPI_API_KEY, or SERPER_API_KEY.",
+            "alternative": "Get API keys at: https://brave.com/search/api/, https://tavily.com/, https://linkup.so/, https://serpapi.com/, or https://serper.dev/"
         }
         print(f"❌ {error_result['error']}")
         print(f"   {error_result['message']}")
