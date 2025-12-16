@@ -95,6 +95,14 @@ class Search:
             "alternative": "Try using a different backend"
         }
 
+    def _handle_api_request_error(self, backend_name, error):
+        """Create standardized error dict for API request failures."""
+        return {
+            "error": f"{backend_name} API request failed: {str(error)}",
+            "message": "The API request encountered an error. Check your API key and internet connection.",
+            "alternative": "Try using a different backend"
+        }
+
     def _normalize_result_item(self, result, engine=None):
         """
         Normalize a single result item from any backend.
@@ -189,11 +197,7 @@ class Search:
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
-            return {
-                "error": f"Brave Search API request failed: {str(e)}",
-                "message": "The API request encountered an error. Check your API key and internet connection.",
-                "alternative": "Try using a different backend (serper)"
-            }
+            return self._handle_api_request_error("Brave Search", e)
 
         # Normalize Brave response format
         # Brave returns: {"web": {"results": [...]}, "news": {...}, ...}
@@ -264,36 +268,24 @@ class Search:
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
-            return {
-                "error": f"Serper API request failed: {str(e)}",
-                "message": "The API request encountered an error. Check your API key and internet connection.",
-                "alternative": "Try using a different backend (brave)"
-            }
+            return self._handle_api_request_error("Serper", e)
 
         # Normalize Serper response format
         # Response format varies by search type
         normalized = self._create_normalized_response(data)
 
         # Extract results based on search type - each type has its own response structure
-        if type == "search":
-            results_key = "organic"
-        elif type == "news":
-            results_key = "news"
-        elif type == "images":
-            results_key = "images"
-        elif type == "videos":
-            results_key = "videos"
-        elif type == "shopping":
-            results_key = "shopping"
-        elif type == "places":
-            results_key = "places"
-        elif type == "maps":
-            results_key = "places"  # Maps returns places
-        elif type == "patents":
-            results_key = "organic"  # Patents returns organic-style results
-        else:
-            # Should not reach here due to validation above, but fallback
-            results_key = "organic"
+        serper_results_keys = {
+            "search": "organic",
+            "news": "news",
+            "images": "images",
+            "videos": "videos",
+            "shopping": "shopping",
+            "places": "places",
+            "maps": "places",  # Maps returns places
+            "patents": "organic",  # Patents returns organic-style results
+        }
+        results_key = serper_results_keys.get(type, "organic")
 
         results = data.get(results_key, [])
         for result in results:
@@ -387,19 +379,15 @@ class Search:
                     }
 
                 # Build params - different engines use different query parameter names
+                serpapi_query_params = {
+                    "yahoo": "p",
+                    "ebay": "_nkw",
+                }
                 search_params = {"api_key": api_key}
-                if engine == "yahoo":
-                    search_params["p"] = query  # Yahoo uses "p" instead of "q"
-                elif engine == "ebay":
-                    search_params["_nkw"] = query  # eBay uses "_nkw"
-                elif engine == "youtube":
-                    search_params["q"] = query  # YouTube uses "q" (per SerpApi quick start docs)
-                    if num:
-                        search_params["num"] = num
-                else:
-                    search_params["q"] = query
-                    if num:
-                        search_params["num"] = num
+                query_param = serpapi_query_params.get(engine, "q")
+                search_params[query_param] = query
+                if num:
+                    search_params["num"] = num
 
                 # Add localization for engines that support it
                 if engine in ["bing", "yahoo", "duckduckgo", "youtube"]:
@@ -417,11 +405,7 @@ class Search:
                     "alternative": "Use a supported engine or try a different backend"
                 }
         except Exception as e:
-            return {
-                "error": f"SerpApi request failed: {str(e)}",
-                "message": "The API request encountered an error. Check your API key and internet connection.",
-                "alternative": "Try using a different backend (brave, tavily)"
-            }
+            return self._handle_api_request_error("SerpApi", e)
 
         # Normalize SerpApi response format
         # Different engines return results in different keys
@@ -506,11 +490,7 @@ class Search:
 
             response = client.search(**search_params)
         except Exception as e:
-            return {
-                "error": f"Tavily API request failed: {str(e)}",
-                "message": "The Tavily API request encountered an error.",
-                "alternative": "Try using a different backend (brave, linkup)"
-            }
+            return self._handle_api_request_error("Tavily", e)
 
         # Normalize Tavily response format
         # Tavily returns: {"results": [{"title": str, "url": str, "content": str, ...}]}
@@ -561,11 +541,7 @@ class Search:
 
             response = client.search(**search_params)
         except Exception as e:
-            return {
-                "error": f"LinkUp API request failed: {str(e)}",
-                "message": "The LinkUp API request encountered an error.",
-                "alternative": "Try using a different backend (brave, tavily)"
-            }
+            return self._handle_api_request_error("LinkUp", e)
 
         # Normalize LinkUp response format
         # LinkUp returns a LinkupSearchResults object with .results attribute
@@ -741,15 +717,17 @@ class Search:
         backend_kwargs['country_code'] = country_code
         backend_kwargs['language_code'] = language_code
 
+        # Define backend methods once
+        backend_methods = {
+            "brave": self._search_brave,
+            "tavily": self._search_tavily,
+            "linkup": self._search_linkup,
+            "serpapi": self._search_serpapi,
+            "serper": self._search_serper
+        }
+
         if backend:
             backend = backend.lower()
-            backend_methods = {
-                "brave": self._search_brave,
-                "tavily": self._search_tavily,
-                "linkup": self._search_linkup,
-                "serpapi": self._search_serpapi,
-                "serper": self._search_serper
-            }
 
             if backend not in backend_methods:
                 error_result = {
@@ -777,13 +755,6 @@ class Search:
         # Auto-select backend
         # Priority order: brave (2k/month) > tavily (1k/month) > linkup (1k/month) > serpapi (250/month) > serper (2.5k total)
         backends_to_try = ["brave", "tavily", "linkup", "serpapi", "serper"]
-        backend_methods = {
-            "brave": self._search_brave,
-            "tavily": self._search_tavily,
-            "linkup": self._search_linkup,
-            "serpapi": self._search_serpapi,
-            "serper": self._search_serper
-        }
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -842,11 +813,7 @@ class Search:
             response = client.search(**search_params)
         except Exception as e:
             # API request failed (network error, rate limit, etc.) - return error dict for fallback
-            return {
-                "error": f"Tavily API request failed: {str(e)}",
-                "message": "The Tavily API request encountered an error.",
-                "alternative": "Try using a different backend (linkup)"
-            }
+            return self._handle_api_request_error("Tavily", e)
 
         # Response format validation - raise exception for programming errors
         # Tavily returns: {"answer": str, "results": [{"title": str, "url": str, "content": str, ...}, ...]}
@@ -922,11 +889,7 @@ class Search:
             response = client.search(**search_params)
         except Exception as e:
             # API request failed (network error, rate limit, etc.) - return error dict for fallback
-            return {
-                "error": f"LinkUp API request failed: {str(e)}",
-                "message": "The LinkUp API request encountered an error.",
-                "alternative": "Try using a different backend (tavily)"
-            }
+            return self._handle_api_request_error("LinkUp", e)
 
         # LinkUp returns a LinkupSourcedAnswer object, not a dict
         # Access attributes directly: response.answer, response.sources
