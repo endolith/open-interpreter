@@ -266,12 +266,12 @@ class Search:
 
         # Google-based engines use GoogleSearch with engine parameter
         # These work with GoogleSearch class + engine parameter
-        google_engines = ["google", "google_scholar", "google_news", "google_shopping", "google_images", "youtube"]
+        # NOTE: YouTube should use YoutubeSearch class, not GoogleSearch with engine="youtube"
+        google_engines = ["google", "google_scholar", "google_news", "google_shopping", "google_images"]
 
         # Engines that should use specific classes (if available)
-        # For now, we'll try GoogleSearch with engine parameter first,
-        # and only use specific classes if GoogleSearch fails
         specific_class_engines = {
+            "youtube": "YoutubeSearch",  # YouTube should use YoutubeSearch class
             "bing": "BingSearch",
             "yahoo": "YahooSearch",
             "duckduckgo": "DuckDuckGoSearch",
@@ -299,7 +299,7 @@ class Search:
                 search = GoogleSearch(search_params)
                 data = search.get_dict()
             elif engine in specific_class_engines:
-                # Try using specific class first, fallback to GoogleSearch with engine
+                # Use specific class for non-Google engines
                 class_name = specific_class_engines[engine]
                 try:
                     # Dynamically import the specific class
@@ -312,18 +312,24 @@ class Search:
                         search_params["p"] = query  # Yahoo uses "p" instead of "q"
                     elif engine == "ebay":
                         search_params["_nkw"] = query  # eBay uses "_nkw"
+                    elif engine == "youtube":
+                        search_params["search_query"] = query  # YouTube uses "search_query"
+                        if num:
+                            search_params["num"] = num
                     else:
                         search_params["q"] = query
+                        if num:
+                            search_params["num"] = num
 
                     # Add localization for engines that support it
-                    if engine in ["bing", "yahoo", "duckduckgo"]:
+                    if engine in ["bing", "yahoo", "duckduckgo", "youtube"]:
                         search_params["gl"] = country_code
                         search_params["hl"] = language_code
 
                     search_params.update(kwargs)
                     search = SearchClass(search_params)
                     data = search.get_dict()
-                except (ImportError, AttributeError):
+                except (ImportError, AttributeError) as e:
                     # Fallback: use GoogleSearch with engine parameter
                     search_params = {
                         "q": query,
@@ -336,6 +342,12 @@ class Search:
                     }
                     search = GoogleSearch(search_params)
                     data = search.get_dict()
+                except Exception as e:
+                    return {
+                        "error": f"SerpApi {engine} search failed: {str(e)}",
+                        "message": f"Error using {class_name} class for {engine} engine.",
+                        "alternative": "Try using a different backend or engine"
+                    }
             else:
                 # Unknown engine - try GoogleSearch with engine parameter
                 search_params = {
@@ -364,16 +376,24 @@ class Search:
         }
 
         # Map engine to response key
+        # Different engines return results in different keys
         engine_result_keys = {
             "google": "organic_results",
             "google_scholar": "organic_results",
             "bing": "organic_results",
             "yahoo": "organic_results",
             "duckduckgo": "organic_results",
-            "youtube": "video_results",
+            "youtube": "video_results",  # YouTube returns video_results
             "google_news": "news_results",
             "google_shopping": "shopping_results",
             "google_images": "images_results",
+            "ebay": "organic_results",  # eBay returns organic_results
+            "walmart": "organic_results",
+            "home_depot": "organic_results",
+            "apple_app_store": "organic_results",
+            "naver": "organic_results",
+            "baidu": "organic_results",
+            "yandex": "organic_results",
         }
 
         # Get the appropriate results key for this engine
@@ -382,10 +402,30 @@ class Search:
 
         # If primary key doesn't exist, try fallback keys
         if not results:
-            for fallback_key in ["organic_results", "video_results", "news_results", "shopping_results", "images_results"]:
+            # Try all possible result keys
+            for fallback_key in ["organic_results", "video_results", "news_results", "shopping_results", "images_results", "videos"]:
                 if fallback_key in data and data[fallback_key]:
                     results = data[fallback_key]
+                    results_key = fallback_key  # Update for debugging
                     break
+
+            # If still no results, check what keys are actually in the response (for debugging)
+            if not results and engine == "youtube":
+                # YouTube might return results in a different structure
+                # Check for common YouTube response keys
+                if "videos" in data:
+                    results = data["videos"]
+                elif "video_results" in data:
+                    results = data["video_results"]
+                # Log available keys for debugging if still empty
+                if not results:
+                    available_keys = [k for k in data.keys() if "result" in k.lower() or "video" in k.lower() or "search" in k.lower()]
+                    if available_keys:
+                        # Try the first available key that looks like results
+                        for key in available_keys:
+                            if isinstance(data[key], list) and len(data[key]) > 0:
+                                results = data[key]
+                                break
 
         # Extract and normalize results
         for result in results:
