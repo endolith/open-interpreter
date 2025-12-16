@@ -305,62 +305,43 @@ class Search:
                     # Dynamically import the specific class
                     module = __import__("serpapi", fromlist=[class_name])
                     SearchClass = getattr(module, class_name)
-
-                    # Build params - different engines use different query parameter names
-                    search_params = {"api_key": api_key}
-                    if engine == "yahoo":
-                        search_params["p"] = query  # Yahoo uses "p" instead of "q"
-                    elif engine == "ebay":
-                        search_params["_nkw"] = query  # eBay uses "_nkw"
-                    elif engine == "youtube":
-                        search_params["search_query"] = query  # YouTube uses "search_query"
-                        if num:
-                            search_params["num"] = num
-                    else:
-                        search_params["q"] = query
-                        if num:
-                            search_params["num"] = num
-
-                    # Add localization for engines that support it
-                    if engine in ["bing", "yahoo", "duckduckgo", "youtube"]:
-                        search_params["gl"] = country_code
-                        search_params["hl"] = language_code
-
-                    search_params.update(kwargs)
-                    search = SearchClass(search_params)
-                    data = search.get_dict()
-                except (ImportError, AttributeError) as e:
-                    # Fallback: use GoogleSearch with engine parameter
-                    search_params = {
-                        "q": query,
-                        "num": num,
-                        "engine": engine,
-                        "api_key": api_key,
-                        "gl": country_code,
-                        "hl": language_code,
-                        **kwargs
-                    }
-                    search = GoogleSearch(search_params)
-                    data = search.get_dict()
-                except Exception as e:
+                except AttributeError:
                     return {
-                        "error": f"SerpApi {engine} search failed: {str(e)}",
-                        "message": f"Error using {class_name} class for {engine} engine.",
-                        "alternative": "Try using a different backend or engine"
+                        "error": f"SerpApi class {class_name} not found",
+                        "message": f"The {class_name} class is not available in your serpapi package version. Update google-search-results: pip install --upgrade google-search-results",
+                        "alternative": "Try using a different engine or backend"
                     }
-            else:
-                # Unknown engine - try GoogleSearch with engine parameter
-                search_params = {
-                    "q": query,
-                    "num": num,
-                    "engine": engine,
-                    "api_key": api_key,
-                    "gl": country_code,
-                    "hl": language_code,
-                    **kwargs
-                }
-                search = GoogleSearch(search_params)
+
+                # Build params - different engines use different query parameter names
+                search_params = {"api_key": api_key}
+                if engine == "yahoo":
+                    search_params["p"] = query  # Yahoo uses "p" instead of "q"
+                elif engine == "ebay":
+                    search_params["_nkw"] = query  # eBay uses "_nkw"
+                elif engine == "youtube":
+                    search_params["q"] = query  # YouTube uses "q" (per SerpApi quick start docs)
+                    if num:
+                        search_params["num"] = num
+                else:
+                    search_params["q"] = query
+                    if num:
+                        search_params["num"] = num
+
+                # Add localization for engines that support it
+                if engine in ["bing", "yahoo", "duckduckgo", "youtube"]:
+                    search_params["gl"] = country_code
+                    search_params["hl"] = language_code
+
+                search_params.update(kwargs)
+                search = SearchClass(search_params)
                 data = search.get_dict()
+            else:
+                # Unknown engine - reject it
+                return {
+                    "error": f"Unknown SerpApi engine: {engine}",
+                    "message": f"Engine '{engine}' is not supported. Supported engines: {', '.join(google_engines + list(specific_class_engines.keys()))}",
+                    "alternative": "Use a supported engine or try a different backend"
+                }
         except Exception as e:
             return {
                 "error": f"SerpApi request failed: {str(e)}",
@@ -400,32 +381,15 @@ class Search:
         results_key = engine_result_keys.get(engine, "organic_results")
         results = data.get(results_key, [])
 
-        # If primary key doesn't exist, try fallback keys
+        # If no results found in the expected key, fail loudly with debug info
         if not results:
-            # Try all possible result keys
-            for fallback_key in ["organic_results", "video_results", "news_results", "shopping_results", "images_results", "videos"]:
-                if fallback_key in data and data[fallback_key]:
-                    results = data[fallback_key]
-                    results_key = fallback_key  # Update for debugging
-                    break
-
-            # If still no results, check what keys are actually in the response (for debugging)
-            if not results and engine == "youtube":
-                # YouTube might return results in a different structure
-                # Check for common YouTube response keys
-                if "videos" in data:
-                    results = data["videos"]
-                elif "video_results" in data:
-                    results = data["video_results"]
-                # Log available keys for debugging if still empty
-                if not results:
-                    available_keys = [k for k in data.keys() if "result" in k.lower() or "video" in k.lower() or "search" in k.lower()]
-                    if available_keys:
-                        # Try the first available key that looks like results
-                        for key in available_keys:
-                            if isinstance(data[key], list) and len(data[key]) > 0:
-                                results = data[key]
-                                break
+            available_keys = [k for k in data.keys() if isinstance(data.get(k), list)]
+            return {
+                "error": f"No results found in expected key '{results_key}' for engine '{engine}'",
+                "message": f"SerpApi response did not contain results in the expected key. Available list keys: {available_keys}",
+                "raw_response": data,
+                "alternative": "Check the SerpApi response structure or try a different engine"
+            }
 
         # Extract and normalize results
         for result in results:
