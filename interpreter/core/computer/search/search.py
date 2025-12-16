@@ -24,9 +24,9 @@ class Search:
         self._default_lang = lang.lower()
         self._default_country = country.upper()
 
-    def brave(self, query, count=10, country=None, search_lang=None, safesearch="moderate"):
+    def _search_brave(self, query, count=10, country=None, search_lang=None, safesearch="moderate"):
         """
-        Search using Brave Search API.
+        Search using Brave Search API backend.
 
         Args:
             query (str): The search query
@@ -36,12 +36,7 @@ class Search:
             safesearch (str): Safe search level: "off", "moderate", or "strict" (default: "moderate")
 
         Returns:
-            dict: {"web": {"results": [{"title": str, "url": str, "description": str, ...}], ...}, "news": {...}, ...}
-
-        Example:
-            results = computer.search.brave("artificial intelligence", count=5)
-            for result in results.get("web", {}).get("results", []):
-                print(result["title"], result["url"])
+            Normalized dict with "results" key, or error dict
         """
         # Use locale-based defaults if not specified
         if country is None:
@@ -54,7 +49,7 @@ class Search:
             return {
                 "error": "BRAVE_API_KEY environment variable not set",
                 "message": "To use Brave Search API, set the BRAVE_API_KEY environment variable. Get your API key at https://brave.com/search/api/",
-                "alternative": "Try using a different search method instead"
+                "alternative": "Try using a different backend (serper)"
             }
 
         url = "https://api.search.brave.com/res/v1/web/search"
@@ -76,17 +71,36 @@ class Search:
         try:
             response = requests.get(url, headers=headers, params=params)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
         except requests.exceptions.RequestException as e:
             return {
                 "error": f"Brave Search API request failed: {str(e)}",
                 "message": "The API request encountered an error. Check your API key and internet connection.",
-                "alternative": "Try using a different search method instead"
+                "alternative": "Try using a different backend (serper)"
             }
 
-    def serper(self, query, num=10, gl=None, hl=None, autocorrect=True):
+        # Normalize Brave response format
+        # Brave returns: {"web": {"results": [...]}, "news": {...}, ...}
+        normalized = {
+            "results": [],
+            "raw_response": data
+        }
+
+        # Extract web results
+        web_results = data.get("web", {}).get("results", [])
+        for result in web_results:
+            normalized_result = {
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "snippet": result.get("description", "")
+            }
+            normalized["results"].append(normalized_result)
+
+        return normalized
+
+    def _search_serper(self, query, num=10, gl=None, hl=None, autocorrect=True):
         """
-        Search using Serper API (Google search).
+        Search using Serper API (Google search) backend.
 
         Args:
             query (str): The search query
@@ -96,12 +110,7 @@ class Search:
             autocorrect (bool): Whether to autocorrect the query (default: True)
 
         Returns:
-            dict: {"searchParameters": {"q": str, "gl": str, "hl": str, "num": int, ...}, "organic": [{"title": str, "link": str, "snippet": str, "date": str, "sitelinks": [...]}, ...], "answerBox": {...}, "knowledgeGraph": {...}, ...}
-
-        Example:
-            results = computer.search.serper("machine learning tutorials")
-            for result in results.get("organic", []):
-                print(result["title"], result["link"])
+            Normalized dict with "results" key, or error dict
         """
         # Use locale-based defaults if not specified
         if gl is None:
@@ -114,7 +123,7 @@ class Search:
             return {
                 "error": "SERPER_API_KEY environment variable not set",
                 "message": "To use Serper API, set the SERPER_API_KEY environment variable. Get your API key at https://serper.dev/",
-                "alternative": "Try using a different search method instead"
+                "alternative": "Try using a different backend (brave)"
             }
 
         url = "https://google.serper.dev/search"
@@ -135,13 +144,32 @@ class Search:
         try:
             response = requests.post(url, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
-            return response.json()
+            data = response.json()
         except requests.exceptions.RequestException as e:
             return {
                 "error": f"Serper API request failed: {str(e)}",
                 "message": "The API request encountered an error. Check your API key and internet connection.",
-                "alternative": "Try using a different search method instead"
+                "alternative": "Try using a different backend (brave)"
             }
+
+        # Normalize Serper response format
+        # Serper returns: {"organic": [{"title": str, "link": str, "snippet": str, ...}], ...}
+        normalized = {
+            "results": [],
+            "raw_response": data
+        }
+
+        # Extract organic results
+        organic_results = data.get("organic", [])
+        for result in organic_results:
+            normalized_result = {
+                "title": result.get("title", ""),
+                "url": result.get("link", ""),
+                "snippet": result.get("snippet", "")
+            }
+            normalized["results"].append(normalized_result)
+
+        return normalized
 
     def _check_backend_available(self, backend: str) -> bool:
         """Check if a backend is available (has API key)."""
@@ -156,6 +184,97 @@ class Search:
         if not key_name:
             return False
         return bool(os.getenv(key_name))
+
+    def search(self, query: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Search the web for information.
+
+        This method automatically selects the best available backend or uses
+        the specified one. Backends are tried in order: brave, serper.
+
+        Args:
+            query (str): The search query
+                backend (str, optional): Force a specific backend ("brave" or "serper"). If None, auto-selects based on availability.
+            **kwargs: Additional backend-specific parameters:
+                - For brave: count (int, default 10, max 20), country (str),
+                            search_lang (str), safesearch (str: "off"/"moderate"/"strict")
+                - For serper: num (int, default 10), gl (str), hl (str),
+                             autocorrect (bool, default True)
+
+        Returns:
+            dict: Normalized response with:
+                - "results" (list): List of result dicts with "title", "url", "snippet"
+                - "raw_response" (dict): Original backend response
+                - "backend" (str): Backend that was used
+                OR error dict with "error", "message", "alternative" keys
+
+        Example:
+            results = computer.search.search("machine learning tutorials")
+            for result in results["results"]:
+                print(f"{result['title']}: {result['url']}")
+        """
+        used_backend = None
+
+        if backend:
+            backend = backend.lower()
+            if backend == "brave":
+                result = self._search_brave(query, **kwargs)
+                if "error" not in result:
+                    used_backend = "brave"
+                    result["backend"] = used_backend
+                    self._print_search_result(query, result, used_backend)
+                    return result
+            elif backend == "serper":
+                result = self._search_serper(query, **kwargs)
+                if "error" not in result:
+                    used_backend = "serper"
+                    result["backend"] = used_backend
+                    self._print_search_result(query, result, used_backend)
+                    return result
+            else:
+                error_result = {
+                    "error": f"Unknown backend: {backend}",
+                    "message": f"Supported backends for search: 'brave', 'serper'",
+                    "alternative": "Try without specifying a backend to auto-select"
+                }
+                print(f"❌ Error: {error_result['error']}")
+                print(f"   {error_result['message']}")
+                return error_result
+            # If specified backend failed, return the error
+            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
+            if result.get('alternative'):
+                print(f"   {result['alternative']}")
+            return result
+
+        # Auto-select backend: prefer brave over serper
+        backends_to_try = ["brave", "serper"]
+
+        for backend_name in backends_to_try:
+            if not self._check_backend_available(backend_name):
+                continue
+
+            if backend_name == "brave":
+                result = self._search_brave(query, **kwargs)
+            elif backend_name == "serper":
+                result = self._search_serper(query, **kwargs)
+            else:
+                continue
+
+            if "error" not in result:
+                used_backend = backend_name
+                result["backend"] = used_backend
+                self._print_search_result(query, result, used_backend)
+                return result
+
+        # All backends failed or unavailable
+        error_result = {
+            "error": "No available backends",
+            "message": "No search backends are available. Set BRAVE_API_KEY or SERPER_API_KEY environment variable.",
+            "alternative": "Get API keys at: https://brave.com/search/api/ or https://serper.dev/"
+        }
+        print(f"❌ {error_result['error']}")
+        print(f"   {error_result['message']}")
+        return error_result
 
     def _answer_tavily(self, question, answer_mode="basic", **kwargs):
         """
@@ -334,6 +453,25 @@ class Search:
             normalized["sources"].append(normalized_source)
 
         return normalized
+
+    def _print_search_result(self, query: str, result: Dict[str, Any], backend: str):
+        """Print formatted search result to help the AI understand what was found."""
+        results = result.get("results", [])
+
+        print(f"\n🔍 Search results for '{query}' (using `{backend}` backend):")
+        print(f"Found {len(results)} results\n")
+
+        if results:
+            print("Top results:")
+            for i, res in enumerate(results[:5], 1):  # Show first 5 results
+                title = res.get("title", "No title")
+                url = res.get("url", "")
+                print(f"  {i}. {title}")
+                if url:
+                    print(f"     {url}")
+            if len(results) > 5:
+                print(f"  ... and {len(results) - 5} more results")
+            print()
 
     def _print_answer_result(self, question: str, result: Dict[str, Any], backend: str):
         """Print formatted answer result to help the AI understand what was found."""
