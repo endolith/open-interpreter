@@ -34,7 +34,7 @@ def test_serpapi_engines():
         ("how to install python on windows", "google", "Regular Google Search - General web results"),
         ("transformer neural networks attention mechanism", "google_scholar", "Google Scholar - Academic research papers"),
         ("how to make sourdough bread step by step", "youtube", "YouTube Video Search - Video tutorials"),
-        ("latest developments in quantum computing 2024", "google_news", "Google News Search - Recent news articles"),
+        ("latest developments in quantum computing", "google_news", "Google News Search - Recent news articles"),
         ("MacBook Pro 16 inch M3 Max 1TB", "google_shopping", "Google Shopping Search - Product listings with prices"),
         ("weather forecast this week", "bing", "Bing Search - Alternative search engine"),
         ("privacy-focused search engine comparison", "duckduckgo", "DuckDuckGo Search - Privacy-focused results"),
@@ -69,7 +69,7 @@ def test_serper_types():
     # Test cases: (query, type, description)
     test_cases = [
         ("best practices for REST API design", "search", "Regular Web Search - General web results"),
-        ("ChatGPT 4.5 release announcement December 2024", "news", "News Search - Recent news articles"),
+        ("ChatGPT release announcement", "news", "News Search - Recent news articles"),
         ("React hooks tutorial for beginners", "videos", "Video Search - Video content"),
         ("iPhone 15 Pro Max 256GB price comparison", "shopping", "Shopping Search - Product listings"),
         # NOTE: "scholar" is NOT supported by Serper - use serpapi with engine="google_scholar" instead
@@ -136,7 +136,7 @@ def test_tavily_options():
 
     # Test cases: (query, options, description)
     test_cases = [
-        ("renewable energy trends 2024", {"search_depth": "basic", "max_results": 5}, "Basic search depth - Quick results"),
+        ("renewable energy trends", {"search_depth": "basic", "max_results": 5}, "Basic search depth - Quick results"),
         ("machine learning interpretability methods", {"search_depth": "advanced"}, "Advanced search depth - Deeper analysis"),
         ("climate change impact studies", {"include_domains": ["arxiv.org", "nature.com", "science.org"]}, "Academic domains only - Research papers"),
     ]
