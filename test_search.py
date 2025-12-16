@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Test script for computer.search.answer() function.
+Test script for computer.search.search() function.
 
 Usage:
-    python test_search_answer.py [query] [backend]
+    python test_search.py [query] [backend]
 
 Examples:
-    python test_search_answer.py "What is machine learning?"
-    python test_search_answer.py "What is Python?" tavily
-    python test_search_answer.py "What is Python?" linkup
+    python test_search.py "machine learning tutorials"
+    python test_search.py "Python programming" brave
+    python test_search.py "latest AI news" serper
 
 If no backend is specified, tests all available backends.
 """
@@ -25,7 +25,7 @@ def main():
     if len(sys.argv) > 1:
         query = sys.argv[1]
     else:
-        query = "What is the name of the project that won the 2008 ACM Software System Award?"
+        query = "machine learning tutorials"
 
     # Get backend from command line if provided
     backend = None
@@ -38,8 +38,8 @@ def main():
     # Create Computer instance
     computer = Computer(mock_interpreter)
 
-    # Define all backends to test for answer method
-    all_backends = ["tavily", "linkup"]
+    # Define all backends to test for search method
+    all_backends = ["brave", "serper"]
 
     if backend:
         # Test only the specified backend
@@ -58,7 +58,7 @@ def main():
         print("="*60)
 
         # Call the method - it will print its own output
-        result = computer.search.answer(query, backend=backend_name)
+        result = computer.search.search(query, backend=backend_name)
         results[backend_name] = result
 
         # Show the raw return value
@@ -75,9 +75,9 @@ def main():
         if "error" in result:
             print(f"❌ {backend_name}: FAILED - {result['error']}")
         else:
-            answer_preview = result.get("answer", "")[:100]
-            sources_count = len(result.get("sources", []))
-            print(f"✓ {backend_name}: SUCCESS - {sources_count} sources, answer: {answer_preview}...")
+            results_count = len(result.get("results", []))
+            first_title = result.get("results", [{}])[0].get("title", "N/A") if results_count > 0 else "N/A"
+            print(f"✓ {backend_name}: SUCCESS - {results_count} results, first: {first_title}")
 
 
 if __name__ == "__main__":
