@@ -220,11 +220,19 @@ class Search:
         """
         Search using SerpApi backend (supports multiple search engines).
 
+        Uses appropriate SerpApi classes for each engine:
+        - Google-based engines (google, google_scholar, google_news, google_shopping, google_images, youtube):
+          Uses GoogleSearch with engine parameter
+        - Other engines: Uses specific classes (BingSearch, YahooSearch, etc.)
+
         Args:
             query (str): The search query
             num (int): Number of results to return (default: 10)
             engine (str): Search engine to use (default: "google")
-                         Options: "google", "google_scholar", "bing", "duckduckgo", "yahoo", "youtube", etc.
+                         Options: "google", "google_scholar", "google_news", "google_shopping",
+                                  "google_images", "youtube", "bing", "yahoo", "duckduckgo",
+                                  "baidu", "yandex", "ebay", "walmart", "home_depot",
+                                  "apple_app_store", "naver", etc.
             country_code (str): 2-letter country code for localized results (e.g., "us", "gb", default: system locale)
             language_code (str): 2-letter language code for interface (e.g., "en", "es", default: system locale)
             **kwargs: Additional SerpApi parameters (location, google_domain, safe, start, filter, tbm, etc.)
@@ -237,6 +245,8 @@ class Search:
             country_code = self._default_country.lower()
         if language_code is None:
             language_code = self._default_lang
+
+        # Import SerpApi - try to get specific classes, fallback to GoogleSearch
         try:
             from serpapi import GoogleSearch
         except ImportError:
@@ -254,19 +264,91 @@ class Search:
                 "alternative": "Try using a different backend (brave, tavily)"
             }
 
-        try:
-            search_params = {
-                "q": query,
-                "num": num,
-                "engine": engine,
-                "api_key": api_key,
-                "gl": country_code,
-                "hl": language_code,
-                **kwargs
-            }
+        # Google-based engines use GoogleSearch with engine parameter
+        # These work with GoogleSearch class + engine parameter
+        google_engines = ["google", "google_scholar", "google_news", "google_shopping", "google_images", "youtube"]
 
-            search = GoogleSearch(search_params)
-            data = search.get_dict()
+        # Engines that should use specific classes (if available)
+        # For now, we'll try GoogleSearch with engine parameter first,
+        # and only use specific classes if GoogleSearch fails
+        specific_class_engines = {
+            "bing": "BingSearch",
+            "yahoo": "YahooSearch",
+            "duckduckgo": "DuckDuckGoSearch",
+            "baidu": "BaiduSearch",
+            "yandex": "YandexSearch",
+            "ebay": "EbaySearch",
+            "walmart": "WalmartSearch",
+            "home_depot": "HomeDepotSearch",
+            "apple_app_store": "AppleAppStoreSearch",
+            "naver": "NaverSearch",
+        }
+
+        try:
+            if engine in google_engines:
+                # Use GoogleSearch with engine parameter for Google-based engines
+                search_params = {
+                    "q": query,
+                    "num": num,
+                    "engine": engine,
+                    "api_key": api_key,
+                    "gl": country_code,
+                    "hl": language_code,
+                    **kwargs
+                }
+                search = GoogleSearch(search_params)
+                data = search.get_dict()
+            elif engine in specific_class_engines:
+                # Try using specific class first, fallback to GoogleSearch with engine
+                class_name = specific_class_engines[engine]
+                try:
+                    # Dynamically import the specific class
+                    module = __import__("serpapi", fromlist=[class_name])
+                    SearchClass = getattr(module, class_name)
+
+                    # Build params - different engines use different query parameter names
+                    search_params = {"api_key": api_key}
+                    if engine == "yahoo":
+                        search_params["p"] = query  # Yahoo uses "p" instead of "q"
+                    elif engine == "ebay":
+                        search_params["_nkw"] = query  # eBay uses "_nkw"
+                    else:
+                        search_params["q"] = query
+
+                    # Add localization for engines that support it
+                    if engine in ["bing", "yahoo", "duckduckgo"]:
+                        search_params["gl"] = country_code
+                        search_params["hl"] = language_code
+
+                    search_params.update(kwargs)
+                    search = SearchClass(search_params)
+                    data = search.get_dict()
+                except (ImportError, AttributeError):
+                    # Fallback: use GoogleSearch with engine parameter
+                    search_params = {
+                        "q": query,
+                        "num": num,
+                        "engine": engine,
+                        "api_key": api_key,
+                        "gl": country_code,
+                        "hl": language_code,
+                        **kwargs
+                    }
+                    search = GoogleSearch(search_params)
+                    data = search.get_dict()
+            else:
+                # Unknown engine - try GoogleSearch with engine parameter
+                search_params = {
+                    "q": query,
+                    "num": num,
+                    "engine": engine,
+                    "api_key": api_key,
+                    "gl": country_code,
+                    "hl": language_code,
+                    **kwargs
+                }
+                search = GoogleSearch(search_params)
+                data = search.get_dict()
         except Exception as e:
             return {
                 "error": f"SerpApi request failed: {str(e)}",
@@ -275,19 +357,58 @@ class Search:
             }
 
         # Normalize SerpApi response format
-        # SerpApi returns: {"organic_results": [{"title": str, "link": str, "snippet": str, ...}], ...}
+        # Different engines return results in different keys
         normalized = {
             "results": [],
             "raw_response": data
         }
 
-        # Extract organic results
-        organic_results = data.get("organic_results", [])
-        for result in organic_results:
+        # Map engine to response key
+        engine_result_keys = {
+            "google": "organic_results",
+            "google_scholar": "organic_results",
+            "bing": "organic_results",
+            "yahoo": "organic_results",
+            "duckduckgo": "organic_results",
+            "youtube": "video_results",
+            "google_news": "news_results",
+            "google_shopping": "shopping_results",
+            "google_images": "images_results",
+        }
+
+        # Get the appropriate results key for this engine
+        results_key = engine_result_keys.get(engine, "organic_results")
+        results = data.get(results_key, [])
+
+        # If primary key doesn't exist, try fallback keys
+        if not results:
+            for fallback_key in ["organic_results", "video_results", "news_results", "shopping_results", "images_results"]:
+                if fallback_key in data and data[fallback_key]:
+                    results = data[fallback_key]
+                    break
+
+        # Extract and normalize results
+        for result in results:
+            # Different engines use different field names
+            title = result.get("title", "") or result.get("name", "") or result.get("product_title", "")
+            url = result.get("link", "") or result.get("url", "") or result.get("href", "")
+            snippet = result.get("snippet", "") or result.get("description", "") or result.get("about_this_result", {}).get("source", {}).get("description", "")
+
+            # For YouTube videos, include video info
+            if engine == "youtube" and "link" in result:
+                url = result.get("link", "")
+                snippet = result.get("description", "") or f"Video by {result.get('channel', {}).get('name', 'Unknown')}"
+
+            # For shopping, include price if available
+            if engine == "google_shopping" and "price" in result:
+                price = result.get("price", "")
+                if price:
+                    snippet = f"{snippet} - {price}".strip()
+
             normalized_result = {
-                "title": result.get("title", ""),
-                "url": result.get("link", ""),
-                "snippet": result.get("snippet", "")
+                "title": title,
+                "url": url,
+                "snippet": snippet
             }
             normalized["results"].append(normalized_result)
 
