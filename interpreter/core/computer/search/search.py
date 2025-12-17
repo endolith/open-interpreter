@@ -1098,10 +1098,13 @@ class Search:
             return self._handle_api_request_error("Serper", e)
 
         # Normalize Serper response format - always return markdown
-        # Serper returns: {"markdown": str, "text": str, "title": str, "url": str, ...}
+        # Serper returns: {"markdown": str, "text": str, "metadata": {"title": str}, ...}
+        # Title can be in metadata.title or top-level title
+        title = data.get("title", "") or data.get("metadata", {}).get("title", "")
+
         normalized = {
             "url": url,
-            "title": data.get("title", ""),
+            "title": title,
             "content": data.get("markdown", "") or data.get("text", ""),  # Prefer markdown, fallback to text
             "raw_response": data
         }
@@ -1133,11 +1136,11 @@ class Search:
         try:
             client = LinkupClient(api_key=api_key)
 
-            # Build fetch parameters - always request markdown output
+            # Build fetch parameters
+            # LinkUp fetch() returns markdown by default, no output_format parameter needed
             fetch_params = {
                 "url": url,
                 "render_js": render_js,
-                "output_format": "markdown",  # Always use markdown for normalized output
                 **kwargs
             }
 
@@ -1238,6 +1241,18 @@ class Search:
                 f"Response keys: {list(response.keys()) if isinstance(response, dict) else 'N/A'}"
             )
 
+        # Check for failed results
+        failed_results = response.get("failed_results", [])
+        if failed_results and not results:
+            # All URLs failed - return error
+            failed_urls = [fr.get("url", "unknown") for fr in failed_results if isinstance(fr, dict)]
+            errors = [fr.get("error", "unknown error") for fr in failed_results if isinstance(fr, dict)]
+            return {
+                "error": f"Tavily extract failed for all URLs",
+                "message": f"Failed to extract content from: {', '.join(failed_urls[:3])}. Errors: {', '.join(errors[:3])}",
+                "alternative": "Try using a different backend or check if the URLs are accessible"
+            }
+
         for result in results:
             if not isinstance(result, dict):
                 raise ValueError(
@@ -1249,6 +1264,9 @@ class Search:
                 "title": result.get("title", ""),
                 "content": result.get("content", "")
             })
+
+        # If some URLs failed but we have some results, include failed_results in raw_response
+        # (already included, but we could add a warning if needed)
 
         return normalized
 
