@@ -26,7 +26,8 @@ def main():
     if len(sys.argv) > 1:
         url = sys.argv[1]
     else:
-        url = "https://example.com"
+        # Use Wikipedia as default - works well with all backends
+        url = "https://en.wikipedia.org/wiki/Python_(programming_language)"
 
     # Get backend from command line if provided
     backend = None
