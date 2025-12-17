@@ -8,6 +8,7 @@ multiple backends.
 Supported backends:
 - Search: brave, tavily, linkup, serpapi, serper
 - Answer: tavily, linkup
+- Fetch: serper, linkup, tavily
 """
 
 import os
@@ -1053,6 +1054,360 @@ class Search:
             "error": "No available backends",
             "message": "No answer backends are available. Set TAVILY_API_KEY or LINKUP_API_KEY environment variable.",
             "alternative": "Install required packages: pip install tavily-python linkup-sdk"
+        }
+        print(f"❌ {error_result['error']}")
+        print(f"   {error_result['message']}")
+        return error_result
+
+    def _fetch_serper(self, url, **kwargs):
+        """
+        Fetch web page content using Serper API (scrape.serper.dev).
+
+        Args:
+            url (str): The URL to fetch
+            **kwargs: Additional Serper-specific parameters
+
+        Returns:
+            Normalized dict with "content" (markdown), "title", "url" keys, or error dict
+        """
+        try:
+            api_key = self._check_api_key("SERPER_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
+
+        # Serper scrape endpoint
+        scrape_url = "https://scrape.serper.dev"
+
+        headers = {
+            "X-API-KEY": api_key,
+            "Content-Type": "application/json"
+        }
+
+        # Ensure markdown output (default for Serper)
+        payload = {
+            "url": url,
+            "markdown": True,
+            **kwargs
+        }
+
+        try:
+            response = requests.post(scrape_url, headers=headers, data=json.dumps(payload))
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            return self._handle_api_request_error("Serper", e)
+
+        # Normalize Serper response format - always return markdown
+        # Serper returns: {"markdown": str, "text": str, "title": str, "url": str, ...}
+        normalized = {
+            "url": url,
+            "title": data.get("title", ""),
+            "content": data.get("markdown", "") or data.get("text", ""),  # Prefer markdown, fallback to text
+            "raw_response": data
+        }
+
+        return normalized
+
+    def _fetch_linkup(self, url, render_js=False, **kwargs):
+        """
+        Fetch web page content using LinkUp backend.
+
+        Args:
+            url (str): The URL to fetch
+            render_js (bool): Whether to render JavaScript (default: False)
+            **kwargs: Additional LinkUp fetch parameters
+
+        Returns:
+            Normalized dict with "content" (markdown), "title", "url" keys, or error dict
+        """
+        try:
+            from linkup import LinkupClient
+        except ImportError:
+            return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
+
+        try:
+            api_key = self._check_api_key("LINKUP_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
+
+        try:
+            client = LinkupClient(api_key=api_key)
+
+            # Build fetch parameters - always request markdown output
+            fetch_params = {
+                "url": url,
+                "render_js": render_js,
+                "output_format": "markdown",  # Always use markdown for normalized output
+                **kwargs
+            }
+
+            response = client.fetch(**fetch_params)
+        except Exception as e:
+            return self._handle_api_request_error("LinkUp", e)
+
+        # LinkUp returns a LinkupFetchResult object or dict
+        # Always extract markdown content (prefer markdown, fallback to html if needed)
+        if hasattr(response, "markdown"):
+            content = getattr(response, "markdown", "") or getattr(response, "html", "")
+        elif isinstance(response, dict):
+            content = response.get("markdown", "") or response.get("html", "")
+        else:
+            content = str(response)
+
+        normalized = {
+            "url": url,
+            "title": getattr(response, "title", "") if hasattr(response, "title") else (response.get("title", "") if isinstance(response, dict) else ""),
+            "content": content,  # Always markdown (normalized)
+            "raw_response": response
+        }
+
+        return normalized
+
+    def _fetch_tavily(self, urls, extract_mode="basic", **kwargs):
+        """
+        Fetch web page content using Tavily extract endpoint.
+
+        Args:
+            urls (str or list): Single URL string or list of URLs (max 20)
+            extract_mode (str): "basic" or "advanced" (default: "basic")
+            **kwargs: Additional Tavily extract parameters
+
+        Returns:
+            Normalized dict with "results" list (each with "content" (markdown), "title", "url"), or error dict
+        """
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            return self._handle_import_error("tavily-python", "pip install tavily-python")
+
+        try:
+            api_key = self._check_api_key("TAVILY_API_KEY")
+        except ApiKeyError as e:
+            return e.error_dict
+
+        # Normalize urls to list
+        if isinstance(urls, str):
+            urls = [urls]
+        elif not isinstance(urls, list):
+            return {
+                "error": "Invalid URLs parameter",
+                "message": "urls must be a string (single URL) or list of URLs (max 20)",
+                "alternative": "Pass a single URL string or a list of URLs"
+            }
+
+        if len(urls) > 20:
+            return {
+                "error": "Too many URLs",
+                "message": "Tavily extract endpoint supports maximum 20 URLs per request",
+                "alternative": "Split URLs into multiple requests of 20 or fewer"
+            }
+
+        try:
+            client = TavilyClient(api_key=api_key)
+
+            # Build extract parameters - always request markdown output
+            extract_params = {
+                "urls": urls,
+                "extract_mode": extract_mode,
+                "output_format": "markdown",  # Always use markdown for normalized output
+                **kwargs
+            }
+
+            response = client.extract(**extract_params)
+        except Exception as e:
+            return self._handle_api_request_error("Tavily", e)
+
+        # Tavily returns: {"results": [{"url": str, "title": str, "content": str, ...}, ...]}
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Tavily returned unexpected response type: {type(response).__name__}. "
+                f"Expected dict, got {type(response).__name__}. "
+                f"Response: {str(response)[:500]}"
+            )
+
+        normalized = {
+            "results": [],
+            "raw_response": response
+        }
+
+        results = response.get("results", [])
+        if not isinstance(results, list):
+            raise ValueError(
+                f"Tavily response missing or invalid 'results' field. "
+                f"Expected list, got {type(results).__name__}. "
+                f"Response keys: {list(response.keys()) if isinstance(response, dict) else 'N/A'}"
+            )
+
+        for result in results:
+            if not isinstance(result, dict):
+                raise ValueError(
+                    f"Tavily result item is not a dict: {type(result).__name__}. "
+                    f"Result: {str(result)[:200]}"
+                )
+            normalized["results"].append({
+                "url": result.get("url", ""),
+                "title": result.get("title", ""),
+                "content": result.get("content", "")
+            })
+
+        return normalized
+
+    def _print_fetch_result(self, url: str, result: Dict[str, Any], backend: str):
+        """Print formatted fetch result to help the AI understand what was found."""
+        if "results" in result:
+            # Tavily returns multiple results
+            results = result.get("results", [])
+            print(f"\n📄 Fetched {len(results)} page(s) from '{url}' (using `{backend}` backend):\n")
+            for i, res in enumerate(results, 1):
+                title = res.get("title", "No title")
+                content_preview = res.get("content", "")[:200] if res.get("content") else ""
+                print(f"  {i}. {title}")
+                if content_preview:
+                    print(f"     {content_preview}...")
+            print()
+        else:
+            # Single page result (Serper, LinkUp)
+            title = result.get("title", "No title")
+            content_preview = result.get("content", "")[:200] if result.get("content") else ""
+            print(f"\n📄 Fetched '{url}' (using `{backend}` backend):")
+            print(f"Title: {title}\n")
+            if content_preview:
+                print(f"Content preview: {content_preview}...\n")
+
+    def fetch(self, url: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Fetch web page content from a URL.
+
+        This method automatically selects the best available backend or uses
+        the specified one. Backends are tried in order: serper, linkup, tavily.
+
+        Args:
+            url (str): The URL to fetch
+            backend (str, optional): Force a specific backend ("serper", "linkup", or "tavily").
+                                     If None, auto-selects based on availability.
+            **kwargs: Additional backend-specific parameters:
+
+                SERPER:
+                    - Other Serper scrape parameters (markdown is always enabled)
+
+                LINKUP:
+                    - render_js (bool): Whether to render JavaScript (default: False)
+                    - Other LinkUp fetch parameters (output is always markdown)
+
+                TAVILY:
+                    - urls (list): List of URLs to fetch (max 20). If provided, overrides url parameter.
+                    - extract_mode (str): "basic" or "advanced" (default: "basic")
+                    - Other Tavily extract parameters (output is always markdown)
+
+        Returns:
+            dict:
+                For single-page backends (serper, linkup):
+                    - "url" (str): The fetched URL
+                    - "title" (str): Page title
+                    - "content" (str): Page content in markdown format
+                    - "raw_response" (dict): Original backend response
+                    - "backend" (str): Backend that was used
+
+                For multi-page backend (tavily):
+                    - "results" (list): List of result dicts, each with "url", "title", "content" (markdown)
+                    - "raw_response" (dict): Original backend response
+                    - "backend" (str): Backend that was used
+
+                OR error dict with "error", "message", "alternative" keys
+
+        Examples:
+            # Basic fetch (auto-selects backend)
+            result = computer.search.fetch("https://example.com")
+            print(result["title"])
+            print(result["content"][:500])
+
+            # Fetch with JavaScript rendering (using linkup)
+            result = computer.search.fetch(
+                "https://example.com",
+                backend="linkup",
+                render_js=True
+            )
+
+            # Fetch multiple pages at once (using tavily)
+            result = computer.search.fetch(
+                "https://example.com",
+                backend="tavily",
+                urls=["https://example.com", "https://example.org"]
+            )
+        """
+        used_backend = None
+
+        # Define backend methods
+        backend_methods = {
+            "serper": self._fetch_serper,
+            "linkup": self._fetch_linkup,
+            "tavily": self._fetch_tavily
+        }
+
+        if backend:
+            backend = backend.lower()
+
+            if backend not in backend_methods:
+                error_result = {
+                    "error": f"Unknown backend: {backend}",
+                    "message": f"Supported backends for fetch: {', '.join(backend_methods.keys())}",
+                    "alternative": "Try without specifying a backend to auto-select"
+                }
+                print(f"❌ Error: {error_result['error']}")
+                print(f"   {error_result['message']}")
+                return error_result
+
+            # For tavily, check if urls parameter is provided (overrides url)
+            if backend == "tavily" and "urls" in kwargs:
+                result = backend_methods[backend](kwargs["urls"], **{k: v for k, v in kwargs.items() if k != "urls"})
+            else:
+                # For tavily with single url, convert to list
+                if backend == "tavily":
+                    result = backend_methods[backend]([url], **kwargs)
+                else:
+                    result = backend_methods[backend](url, **kwargs)
+
+            if "error" not in result:
+                used_backend = backend
+                result["backend"] = used_backend
+                self._print_fetch_result(url, result, used_backend)
+                return result
+
+            # If specified backend failed, return the error
+            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
+            if result.get('alternative'):
+                print(f"   {result['alternative']}")
+            return result
+
+        # Auto-select backend
+        # Priority order: linkup (1k/month) > tavily (1k/month) > serper (2.5k total, non-renewable)
+        backends_to_try = ["linkup", "tavily", "serper"]
+
+        for backend_name in backends_to_try:
+            if not self._check_backend_available(backend_name):
+                continue
+
+            # For tavily, check if urls parameter is provided (overrides url)
+            if backend_name == "tavily" and "urls" in kwargs:
+                result = backend_methods[backend_name](kwargs["urls"], **{k: v for k, v in kwargs.items() if k != "urls"})
+            else:
+                # For tavily with single url, convert to list
+                if backend_name == "tavily":
+                    result = backend_methods[backend_name]([url], **kwargs)
+                else:
+                    result = backend_methods[backend_name](url, **kwargs)
+
+            if "error" not in result:
+                used_backend = backend_name
+                result["backend"] = used_backend
+                self._print_fetch_result(url, result, used_backend)
+                return result
+
+        # All backends failed or unavailable
+        error_result = {
+            "error": "No available backends",
+            "message": "No fetch backends are available. Set SERPER_API_KEY, LINKUP_API_KEY, or TAVILY_API_KEY environment variable.",
+            "alternative": "Get API keys at: https://serper.dev/, https://linkup.so/, or https://tavily.com/"
         }
         print(f"❌ {error_result['error']}")
         print(f"   {error_result['message']}")
