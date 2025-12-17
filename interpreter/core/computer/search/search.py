@@ -1224,12 +1224,8 @@ class Search:
         try:
             client = TavilyClient(api_key=api_key)
 
-            # Build extract parameters
-            # If single URL, pass directly; if multiple, pass as list
-            if len(urls) == 1:
-                response = client.extract(urls[0], extract_depth=extract_depth, **kwargs)
-            else:
-                response = client.extract(urls=urls, extract_depth=extract_depth, **kwargs)
+            # Build extract parameters - always use urls= keyword argument
+            response = client.extract(urls=urls, extract_depth=extract_depth, **kwargs)
         except Exception as e:
             return self._handle_api_request_error("Tavily", e)
 
@@ -1275,7 +1271,7 @@ class Search:
             normalized["results"].append({
                 "url": result.get("url", ""),
                 "title": result.get("title", ""),
-                "content": result.get("content", "")
+                "content": result.get("raw_content", "") or result.get("content", "")  # Tavily returns "raw_content"
             })
 
         # If some URLs failed but we have some results, include failed_results in raw_response
