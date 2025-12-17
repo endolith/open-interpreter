@@ -590,7 +590,7 @@ class Search:
         Search the web for information.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: brave, tavily, linkup, serpapi, serper.
+        the specified one. Backends are tried in order: serpapi, brave, serper, tavily, linkup.
 
         Args:
             query (str): The search query
@@ -763,8 +763,8 @@ class Search:
             return result
 
         # Auto-select backend
-        # Priority order: brave (2k/month) > tavily (1k/month) > linkup (1k/month) > serpapi (250/month) > serper (2.5k total)
-        backends_to_try = ["brave", "tavily", "linkup", "serpapi", "serper"]
+        # Priority order based on quality/reliability: serpapi (80+ engines, most comprehensive) > brave (good coverage, privacy-focused) > serper (Google-like results) > tavily > linkup
+        backends_to_try = ["serpapi", "brave", "serper", "tavily", "linkup"]
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -1274,7 +1274,7 @@ class Search:
             if content_preview:
                 print(f"Content preview: {content_preview}...\n")
 
-    def fetch(self, url: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_mode: str = "basic", **kwargs) -> Dict[str, Any]:
         """
         Fetch web page content from a URL.
 
@@ -1285,18 +1285,18 @@ class Search:
             url (str): The URL to fetch
             backend (str, optional): Force a specific backend ("serper", "linkup", or "tavily").
                                      If None, auto-selects based on availability.
+            render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
+            extract_mode (str): Extraction mode - "basic" or "advanced" (default: "basic"). Supported by: tavily
             **kwargs: Additional backend-specific parameters:
 
                 SERPER:
                     - Other Serper scrape parameters (markdown is always enabled)
 
                 LINKUP:
-                    - render_js (bool): Whether to render JavaScript (default: False)
                     - Other LinkUp fetch parameters (output is always markdown)
 
                 TAVILY:
                     - urls (list): List of URLs to fetch (max 20). If provided, overrides url parameter.
-                    - extract_mode (str): "basic" or "advanced" (default: "basic")
                     - Other Tavily extract parameters (output is always markdown)
 
         Returns:
@@ -1321,11 +1321,16 @@ class Search:
             print(result["title"])
             print(result["content"][:500])
 
-            # Fetch with JavaScript rendering (using linkup)
+            # Fetch with JavaScript rendering
             result = computer.search.fetch(
                 "https://example.com",
-                backend="linkup",
                 render_js=True
+            )
+
+            # Fetch with advanced extraction mode
+            result = computer.search.fetch(
+                "https://example.com",
+                extract_mode="advanced"
             )
 
             # Fetch multiple pages at once (using tavily)
@@ -1359,11 +1364,13 @@ class Search:
 
             # For tavily, check if urls parameter is provided (overrides url)
             if backend == "tavily" and "urls" in kwargs:
-                result = backend_methods[backend](kwargs["urls"], **{k: v for k, v in kwargs.items() if k != "urls"})
+                result = backend_methods[backend](kwargs["urls"], extract_mode=extract_mode, **{k: v for k, v in kwargs.items() if k != "urls"})
             else:
                 # For tavily with single url, convert to list
                 if backend == "tavily":
-                    result = backend_methods[backend]([url], **kwargs)
+                    result = backend_methods[backend]([url], extract_mode=extract_mode, **kwargs)
+                elif backend == "linkup":
+                    result = backend_methods[backend](url, render_js=render_js, **kwargs)
                 else:
                     result = backend_methods[backend](url, **kwargs)
 
@@ -1380,8 +1387,8 @@ class Search:
             return result
 
         # Auto-select backend
-        # Priority order: linkup (1k/month) > tavily (1k/month) > serper (2.5k total, non-renewable)
-        backends_to_try = ["linkup", "tavily", "serper"]
+        # Priority order based on quality/reliability: serper (best overall - handles static/dynamic/redirects/paywalls well) > linkup (good but fails on 404s, truncates paywalls) > tavily (most error-prone)
+        backends_to_try = ["serper", "linkup", "tavily"]
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -1389,11 +1396,13 @@ class Search:
 
             # For tavily, check if urls parameter is provided (overrides url)
             if backend_name == "tavily" and "urls" in kwargs:
-                result = backend_methods[backend_name](kwargs["urls"], **{k: v for k, v in kwargs.items() if k != "urls"})
+                result = backend_methods[backend_name](kwargs["urls"], extract_mode=extract_mode, **{k: v for k, v in kwargs.items() if k != "urls"})
             else:
                 # For tavily with single url, convert to list
                 if backend_name == "tavily":
-                    result = backend_methods[backend_name]([url], **kwargs)
+                    result = backend_methods[backend_name]([url], extract_mode=extract_mode, **kwargs)
+                elif backend_name == "linkup":
+                    result = backend_methods[backend_name](url, render_js=render_js, **kwargs)
                 else:
                     result = backend_methods[backend_name](url, **kwargs)
 
