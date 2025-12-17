@@ -1182,7 +1182,7 @@ class Search:
 
         return normalized
 
-    def _fetch_tavily(self, urls, extract_depth="basic", **kwargs):
+    def _fetch_tavily(self, urls, extract_depth=None, **kwargs):
         """
         Fetch web page content using Tavily extract endpoint.
 
@@ -1224,8 +1224,14 @@ class Search:
         try:
             client = TavilyClient(api_key=api_key)
 
-            # Build extract parameters - always use urls= keyword argument
-            response = client.extract(urls=urls, extract_depth=extract_depth, **kwargs)
+            # Build extract parameters
+            # According to Tavily docs, format defaults to "markdown" which is what we want
+            extract_params = {"urls": urls, "format": "markdown"}
+            if extract_depth is not None:
+                extract_params["extract_depth"] = extract_depth
+            extract_params.update(kwargs)
+
+            response = client.extract(**extract_params)
         except Exception as e:
             return self._handle_api_request_error("Tavily", e)
 
@@ -1301,7 +1307,7 @@ class Search:
             if content_preview:
                 print(f"Content preview: {content_preview}...\n")
 
-    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: str = "basic", **kwargs) -> Dict[str, Any]:
+    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Fetch web page content from a URL.
 
@@ -1313,7 +1319,7 @@ class Search:
             backend (str, optional): Force a specific backend ("serper", "linkup", or "tavily").
                                      If None, auto-selects based on availability.
             render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
-            extract_depth (str): Extraction depth - "basic" or "advanced" (default: "basic"). Supported by: tavily
+            extract_depth (str, optional): Extraction depth - "basic" or "advanced". Supported by: tavily (defaults to API default if not specified)
             **kwargs: Additional backend-specific parameters:
 
                 SERPER:
