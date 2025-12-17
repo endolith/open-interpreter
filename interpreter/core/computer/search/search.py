@@ -1149,6 +1149,7 @@ class Search:
             return self._handle_api_request_error("LinkUp", e)
 
         # LinkUp returns a LinkupFetchResult object or dict
+        # LinkUp fetch endpoint does NOT provide title as a separate field
         # Always extract markdown content (prefer markdown, fallback to html if needed)
         if hasattr(response, "markdown"):
             content = getattr(response, "markdown", "") or getattr(response, "html", "")
@@ -1157,21 +1158,8 @@ class Search:
         else:
             content = str(response)
 
-        # Extract title - LinkUp response objects may not have title attribute
-        # Try to get from response, or extract from markdown
+        # Title is not provided by LinkUp backend
         title = ""
-        if hasattr(response, "title"):
-            title = getattr(response, "title", "")
-        elif isinstance(response, dict):
-            title = response.get("title", "")
-
-        # If no title, try to extract from first H1 heading in markdown
-        if not title and content:
-            import re
-            # Match first H1 heading: # Title
-            h1_match = re.match(r'^#\s+(.+?)(?:\n|$)', content, re.MULTILINE)
-            if h1_match:
-                title = h1_match.group(1).strip()
 
         normalized = {
             "url": url,
