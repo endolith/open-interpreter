@@ -1224,9 +1224,8 @@ class Search:
         try:
             client = TavilyClient(api_key=api_key)
 
-            # Build extract parameters
-            # According to Tavily docs, format defaults to "markdown" which is what we want
-            extract_params = {"urls": urls, "format": "markdown"}
+            # Build extract parameters - match playground usage exactly
+            extract_params = {"urls": urls}
             if extract_depth is not None:
                 extract_params["extract_depth"] = extract_depth
             extract_params.update(kwargs)
