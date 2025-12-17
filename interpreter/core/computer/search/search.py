@@ -1182,13 +1182,13 @@ class Search:
 
         return normalized
 
-    def _fetch_tavily(self, urls, extract_mode="basic", **kwargs):
+    def _fetch_tavily(self, urls, extract_depth="basic", **kwargs):
         """
         Fetch web page content using Tavily extract endpoint.
 
         Args:
             urls (str or list): Single URL string or list of URLs (max 20)
-            extract_mode (str): "basic" or "advanced" (default: "basic")
+            extract_depth (str): "basic" or "advanced" (default: "basic")
             **kwargs: Additional Tavily extract parameters
 
         Returns:
@@ -1224,15 +1224,12 @@ class Search:
         try:
             client = TavilyClient(api_key=api_key)
 
-            # Build extract parameters - always request markdown output
-            extract_params = {
-                "urls": urls,
-                "extract_mode": extract_mode,
-                "output_format": "markdown",  # Always use markdown for normalized output
-                **kwargs
-            }
-
-            response = client.extract(**extract_params)
+            # Build extract parameters
+            # If single URL, pass directly; if multiple, pass as list
+            if len(urls) == 1:
+                response = client.extract(urls[0], extract_depth=extract_depth, **kwargs)
+            else:
+                response = client.extract(urls=urls, extract_depth=extract_depth, **kwargs)
         except Exception as e:
             return self._handle_api_request_error("Tavily", e)
 
@@ -1308,7 +1305,7 @@ class Search:
             if content_preview:
                 print(f"Content preview: {content_preview}...\n")
 
-    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_mode: str = "basic", **kwargs) -> Dict[str, Any]:
+    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: str = "basic", **kwargs) -> Dict[str, Any]:
         """
         Fetch web page content from a URL.
 
@@ -1320,7 +1317,7 @@ class Search:
             backend (str, optional): Force a specific backend ("serper", "linkup", or "tavily").
                                      If None, auto-selects based on availability.
             render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
-            extract_mode (str): Extraction mode - "basic" or "advanced" (default: "basic"). Supported by: tavily
+            extract_depth (str): Extraction depth - "basic" or "advanced" (default: "basic"). Supported by: tavily
             **kwargs: Additional backend-specific parameters:
 
                 SERPER:
@@ -1331,7 +1328,8 @@ class Search:
 
                 TAVILY:
                     - urls (list): List of URLs to fetch (max 20). If provided, overrides url parameter.
-                    - Other Tavily extract parameters (output is always markdown)
+                    - include_images (bool): Include images in extraction (default: False)
+                    - Other Tavily extract parameters
 
         Returns:
             dict:
@@ -1361,10 +1359,10 @@ class Search:
                 render_js=True
             )
 
-            # Fetch with advanced extraction mode
+            # Fetch with advanced extraction depth
             result = computer.search.fetch(
                 "https://example.com",
-                extract_mode="advanced"
+                extract_depth="advanced"
             )
 
             # Fetch multiple pages at once (using tavily)
@@ -1398,11 +1396,11 @@ class Search:
 
             # For tavily, check if urls parameter is provided (overrides url)
             if backend == "tavily" and "urls" in kwargs:
-                result = backend_methods[backend](kwargs["urls"], extract_mode=extract_mode, **{k: v for k, v in kwargs.items() if k != "urls"})
+                result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
             else:
                 # For tavily with single url, convert to list
                 if backend == "tavily":
-                    result = backend_methods[backend]([url], extract_mode=extract_mode, **kwargs)
+                    result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
                 elif backend == "linkup":
                     result = backend_methods[backend](url, render_js=render_js, **kwargs)
                 else:
@@ -1430,11 +1428,11 @@ class Search:
 
             # For tavily, check if urls parameter is provided (overrides url)
             if backend_name == "tavily" and "urls" in kwargs:
-                result = backend_methods[backend_name](kwargs["urls"], extract_mode=extract_mode, **{k: v for k, v in kwargs.items() if k != "urls"})
+                result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
             else:
                 # For tavily with single url, convert to list
                 if backend_name == "tavily":
-                    result = backend_methods[backend_name]([url], extract_mode=extract_mode, **kwargs)
+                    result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
                 elif backend_name == "linkup":
                     result = backend_methods[backend_name](url, render_js=render_js, **kwargs)
                 else:
