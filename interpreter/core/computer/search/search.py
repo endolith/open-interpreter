@@ -672,11 +672,10 @@ class Search:
                     NOTE: Use country_code and language_code parameters (not gl/hl)
 
         Returns:
-            dict: Normalized response with:
-                - "results" (list): List of result dicts with "title", "url", "snippet"
+            dict:
+                - "results": List of result dicts with "title", "url", "snippet"
                 - "raw_response" (dict): Original backend response (structure varies by backend)
                 - "backend" (str): Backend that was used
-                OR error dict with "error", "message", "alternative" keys
 
         Examples:
             # Basic search (auto-selects backend)
