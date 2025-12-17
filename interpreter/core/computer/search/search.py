@@ -590,7 +590,7 @@ class Search:
         Search the web for information.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: serpapi, brave, serper, tavily, linkup.
+        the specified one. Backends are tried in order: serper, serpapi, tavily, brave, linkup.
 
         Args:
             query (str): The search query
@@ -763,8 +763,8 @@ class Search:
             return result
 
         # Auto-select backend
-        # Priority order based on quality/reliability: serpapi (80+ engines, most comprehensive) > brave (good coverage, privacy-focused) > serper (Google-like results) > tavily > linkup
-        backends_to_try = ["serpapi", "brave", "serper", "tavily", "linkup"]
+        # Priority order based on AI agent needs: serper (rich snippets, knowledge panels, structured data, best for AI) > serpapi (comprehensive Google results) > tavily (AI-optimized) > brave (alternative sources, fewer snippets) > linkup
+        backends_to_try = ["serper", "serpapi", "tavily", "brave", "linkup"]
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
