@@ -59,19 +59,19 @@ def main():
         print(f"Testing backend: {backend_name}")
         print("="*60)
 
-            # Call the method - it will print its own output
-            result = computer.search.fetch(url, backend=backend_name)
-            results[backend_name] = result
+        # Call the method - it will print its own output
+        result = computer.search.fetch(url, backend=backend_name)
+        results[backend_name] = result
 
-            # Show a truncated version of the raw return value
-            print("\n" + "-"*60)
-            print("Returned object (truncated):")
-            print("-"*60)
-            result_str = repr(result)
-            if len(result_str) > 500:
-                print(result_str[:500] + "... [truncated]")
-            else:
-                print(result_str)
+        # Show a truncated version of the raw return value
+        print("\n" + "-"*60)
+        print("Returned object (truncated):")
+        print("-"*60)
+        result_str = repr(result)
+        if len(result_str) > 500:
+            print(result_str[:500] + "... [truncated]")
+        else:
+            print(result_str)
 
     # Summary
     print("\n\n" + "="*60)
