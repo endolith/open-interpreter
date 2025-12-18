@@ -93,15 +93,18 @@ class Search:
         return {
             "error": f"{package_name} not installed",
             "message": f"Install {package_name}: {install_cmd}",
-            "alternative": "Try using a different backend"
+            "alternative": "Try using a different backend",
+            "content": f"Error: {package_name} not installed\n\nInstall {package_name}: {install_cmd}\n\nTry using a different backend."
         }
 
     def _handle_api_request_error(self, backend_name, error):
         """Create standardized error dict for API request failures."""
+        error_msg = str(error)
         return {
-            "error": f"{backend_name} API request failed: {str(error)}",
+            "error": f"{backend_name} API request failed: {error_msg}",
             "message": "The API request encountered an error. Check your API key and internet connection.",
-            "alternative": "Try using a different backend"
+            "alternative": "Try using a different backend",
+            "content": f"Error: {backend_name} API request failed: {error_msg}\n\nThe API request encountered an error. Check your API key and internet connection.\n\nTry using a different backend."
         }
 
     def _normalize_result_item(self, result, engine=None):
@@ -1101,13 +1104,30 @@ class Search:
         # Serper returns: {"markdown": str, "text": str, "metadata": {"title": str}, ...}
         # Title can be in metadata.title or top-level title
         title = data.get("title", "") or data.get("metadata", {}).get("title", "")
+        content = data.get("markdown", "") or data.get("text", "")  # Prefer markdown, fallback to text
+
+        # Check if the content indicates a 404 or error page
+        # Serper may return 404 error pages as content, so we detect common patterns
+        content_lower = content.lower()
+        is_404 = (
+            "404" in content_lower or
+            "page can't be found" in content_lower or
+            "not found" in content_lower or
+            "http error 404" in content_lower
+        ) and len(content) < 500  # 404 pages are usually short
 
         normalized = {
             "url": url,
             "title": title,
-            "content": data.get("markdown", "") or data.get("text", ""),  # Prefer markdown, fallback to text
-            "raw_response": data
+            "content": content,
+            "raw_response": data,
+            "backend": "serper"
         }
+
+        # If it looks like a 404 page, add a note but still return the content
+        if is_404:
+            normalized["status"] = "404"
+            normalized["note"] = "This appears to be a 404 error page"
 
         return normalized
 
@@ -1411,6 +1431,7 @@ class Search:
         # Auto-select backend
         # Priority order based on quality/reliability: serper (best overall - handles static/dynamic/redirects/paywalls well) > linkup (good but fails on 404s, truncates paywalls) > tavily (most error-prone)
         backends_to_try = ["serper", "linkup", "tavily"]
+        failed_backends = []
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -1433,12 +1454,25 @@ class Search:
                 result["backend"] = used_backend
                 self._print_fetch_result(url, result, used_backend)
                 return result
+            else:
+                # Collect error for summary if all backends fail
+                failed_backends.append(f"{backend_name}: {result.get('error', 'Unknown error')}")
 
         # All backends failed or unavailable
+        if failed_backends:
+            error_msg = "All fetch backends failed"
+            error_details = "\n".join(f"  - {fb}" for fb in failed_backends)
+            content = f"Error: {error_msg}\n\nFailed backends:\n{error_details}\n\nTry using a different backend or check your API keys and internet connection."
+        else:
+            error_msg = "No available backends"
+            content = f"Error: {error_msg}\n\nNo fetch backends are available. Set SERPER_API_KEY, LINKUP_API_KEY, or TAVILY_API_KEY environment variable.\n\nGet API keys at: https://serper.dev/, https://linkup.so/, or https://tavily.com/"
+
         error_result = {
-            "error": "No available backends",
-            "message": "No fetch backends are available. Set SERPER_API_KEY, LINKUP_API_KEY, or TAVILY_API_KEY environment variable.",
-            "alternative": "Get API keys at: https://serper.dev/, https://linkup.so/, or https://tavily.com/"
+            "error": error_msg,
+            "message": "No fetch backends are available. Set SERPER_API_KEY, LINKUP_API_KEY, or TAVILY_API_KEY environment variable." if not failed_backends else "All fetch backends failed. Try using a different backend or check your API keys.",
+            "alternative": "Get API keys at: https://serper.dev/, https://linkup.so/, or https://tavily.com/" if not failed_backends else "Try using a different backend or check your API keys and internet connection.",
+            "content": content,
+            "url": url
         }
         print(f"❌ {error_result['error']}")
         print(f"   {error_result['message']}")
