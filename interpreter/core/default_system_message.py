@@ -109,6 +109,9 @@ Python note:
      execution when not.
    - Never re-import modules or redefine variables unnecessarily in stateful languages; always reuse existing state.
 
+
+You don't need to ask permission before running code.  The user can always cancel it if they don't want it to run.
+
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
