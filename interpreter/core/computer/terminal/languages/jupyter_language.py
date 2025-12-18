@@ -1,5 +1,5 @@
 """
-This is NOT jupyter language, this is just python. 
+This is NOT jupyter language, this is just python.
 Gotta split this out, generalize it, and move all the python additions to python.py, which imports this
 """
 
@@ -138,6 +138,20 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             yield from self._capture_output(message_queue)
         except GeneratorExit:
             raise  # gotta pass this up!
+        except KeyboardInterrupt:
+            # Properly handle KeyboardInterrupt: interrupt kernel, clear queue, set finish flag
+            self.finish_flag = True
+            try:
+                self.km.interrupt_kernel()
+            except:
+                pass
+            # Clear any remaining messages from the queue to prevent output sync issues
+            while not message_queue.empty():
+                try:
+                    message_queue.get_nowait()
+                except queue.Empty:
+                    break
+            yield {"type": "console", "format": "output", "content": "KeyboardInterrupt\n"}
         except:
             content = traceback.format_exc()
             yield {"type": "console", "format": "output", "content": content}
@@ -361,6 +375,16 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+                except KeyboardInterrupt:
+                    # Handle KeyboardInterrupt during output capture
+                    self.finish_flag = True
+                    # Clear any remaining messages to prevent sync issues
+                    while not message_queue.empty():
+                        try:
+                            message_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                    break
 
     def stop(self):
         self.finish_flag = True
