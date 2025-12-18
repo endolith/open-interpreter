@@ -194,7 +194,7 @@ class Search:
         }
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, timeout=60)
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
@@ -265,7 +265,7 @@ class Search:
         }
 
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
@@ -1091,7 +1091,7 @@ class Search:
         }
 
         try:
-            response = requests.post(scrape_url, headers=headers, data=json.dumps(payload))
+            response = requests.post(scrape_url, headers=headers, data=json.dumps(payload), timeout=60)
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
