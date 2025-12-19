@@ -9,6 +9,8 @@ Supported backends:
 - Search: brave, tavily, linkup, serpapi, serper
 - Answer: tavily, linkup
 - Fetch: serper, linkup, tavily
+- Crawl: tavily (not implemented yet)
+- Structured output: linkup (not implemented yet)
 """
 
 import os
