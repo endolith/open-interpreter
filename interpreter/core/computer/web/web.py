@@ -25,7 +25,7 @@ class ApiKeyError(Exception):
         super().__init__(error_dict.get("error", "API key missing"))
 
 
-class Search:
+class Web:
     def __init__(self, computer):
         self.computer = computer
         loc = locale.getdefaultlocale()[0]
@@ -680,33 +680,33 @@ class Search:
 
         Examples:
             # Basic search (auto-selects backend)
-            results = computer.search.search("machine learning tutorials")
+            results = computer.web.search("machine learning tutorials")
             for result in results["results"]:
                 print(f"{result['title']}: {result['url']}")
 
             # Search Google Scholar for academic papers (using serpapi)
-            results = computer.search.search(
+            results = computer.web.search(
                 "quantum computing",
                 backend="serpapi",
                 engine="google_scholar"
             )
 
             # Search YouTube videos (using serpapi)
-            results = computer.search.search(
+            results = computer.web.search(
                 "python tutorial",
                 backend="serpapi",
                 engine="youtube"
             )
 
             # Search Google News (using serper)
-            results = computer.search.search(
+            results = computer.web.search(
                 "AI breakthroughs",
                 backend="serper",
                 type="news"
             )
 
             # Deep web search with specific domains (using tavily)
-            results = computer.search.search(
+            results = computer.web.search(
                 "climate change research",
                 backend="tavily",
                 search_depth="advanced",
@@ -714,7 +714,7 @@ class Search:
             )
 
             # Shopping search (using serpapi)
-            results = computer.search.search(
+            results = computer.web.search(
                 "laptop",
                 backend="serpapi",
                 engine="google_shopping"
@@ -992,7 +992,7 @@ class Search:
                 OR error dict with "error", "message", "alternative" keys
 
         Example:
-            result = computer.search.answer("What is machine learning?")
+            result = computer.web.answer("What is machine learning?")
             print(result["answer"])
             for source in result["sources"]:
                 print(f"- {source['title']}: {source['url']}")
@@ -1339,24 +1339,24 @@ class Search:
 
         Examples:
             # Basic fetch (auto-selects backend)
-            result = computer.search.fetch("https://example.com")
+            result = computer.web.fetch("https://example.com")
             print(result["title"])
             print(result["content"][:500])
 
             # Fetch with JavaScript rendering
-            result = computer.search.fetch(
+            result = computer.web.fetch(
                 "https://example.com",
                 render_js=True
             )
 
             # Fetch with advanced extraction depth
-            result = computer.search.fetch(
+            result = computer.web.fetch(
                 "https://example.com",
                 extract_depth="advanced"
             )
 
             # Fetch multiple pages at once (using tavily)
-            result = computer.search.fetch(
+            result = computer.web.fetch(
                 "https://example.com",
                 backend="tavily",
                 urls=["https://example.com", "https://example.org"]
