@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for computer.search.answer() function.
+Test script for computer.web.answer() function.
 
 Usage:
     python test_search_answer.py [query] [backend]
@@ -58,7 +58,7 @@ def main():
         print("="*60)
 
         # Call the method - it will print its own output
-        result = computer.search.answer(query, backend=backend_name)
+        result = computer.web.answer(query, backend=backend_name)
         results[backend_name] = result
 
         # Show the raw return value

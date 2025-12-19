@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for computer.search.fetch() function.
+Test script for computer.web.fetch() function.
 
 Usage:
     python test_search_fetch.py [url] [backend]
@@ -41,7 +41,7 @@ def test_single_url(computer, url, backend_name):
     print("="*60)
 
     # Call the method - it will print its own output
-    result = computer.search.fetch(url, backend=backend_name)
+    result = computer.web.fetch(url, backend=backend_name)
 
     # Show a truncated version of the raw return value
     print("\n" + "-"*60)
