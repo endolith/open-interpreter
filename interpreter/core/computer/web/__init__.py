@@ -1,2 +1,2 @@
-from .web import Search
+from .web import Web
 
