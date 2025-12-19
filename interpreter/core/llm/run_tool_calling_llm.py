@@ -506,7 +506,7 @@ def run_tool_calling_llm(llm, request_params):
             tool_call_id_for_error = None
 
         # Only "execute" is supported as a direct tool call
-        # Other functions (like computer.search.brave) must be called from within Python code
+        # Other functions (like computer.web.brave) must be called from within Python code
         if function_name == "execute":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
@@ -603,7 +603,7 @@ def run_tool_calling_llm(llm, request_params):
                 f"Unsupported function call: '{function_name}'. "
                 f"Only 'execute' is supported as a direct tool call. "
                 f"To use '{function_name}', call it from within Python code using the execute function. "
-                f"For example: `computer.search.brave(query='...')`"
+                f"For example: `computer.web.brave(query='...')`"
             )
 
             # Yield error as tool response if we have tool_call_id, otherwise as assistant message

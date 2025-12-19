@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive test script for computer.search.search() with different engines and options.
+Comprehensive test script for computer.web.search() with different engines and options.
 
 This script tests various search engines and configurations across all backends.
 
@@ -46,7 +46,7 @@ def test_serpapi_engines():
         print(f"Query: '{query}', Engine: '{engine}'")
         print(f"{'-'*80}")
 
-        result = computer.search.search(query, backend="serpapi", engine=engine, num=3)
+        result = computer.web.search(query, backend="serpapi", engine=engine, num=3)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -81,7 +81,7 @@ def test_serper_types():
         print(f"Query: '{query}', Type: '{search_type}'")
         print(f"{'-'*80}")
 
-        result = computer.search.search(query, backend="serper", type=search_type, num=3)
+        result = computer.web.search(query, backend="serper", type=search_type, num=3)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -114,7 +114,7 @@ def test_brave_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = computer.search.search(query, backend="brave", **options)
+        result = computer.web.search(query, backend="brave", **options)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -147,7 +147,7 @@ def test_tavily_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = computer.search.search(query, backend="tavily", **options)
+        result = computer.web.search(query, backend="tavily", **options)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -179,7 +179,7 @@ def test_linkup_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = computer.search.search(query, backend="linkup", **options)
+        result = computer.web.search(query, backend="linkup", **options)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -226,21 +226,21 @@ The unified search() method supports many backends and engines:
 
 EXAMPLE CODE:
     # Search Google Scholar for academic papers
-    results = computer.search.search(
+    results = computer.web.search(
         "quantum computing",
         backend="serpapi",
         engine="google_scholar"
     )
 
     # Search YouTube for videos
-    results = computer.search.search(
+    results = computer.web.search(
         "python tutorial",
         backend="serpapi",
         engine="youtube"
     )
 
     # Search Google News
-    results = computer.search.search(
+    results = computer.web.search(
         "AI breakthroughs",
         backend="serper",
         type="news"
