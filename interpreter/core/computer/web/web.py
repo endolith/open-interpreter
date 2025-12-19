@@ -13,6 +13,8 @@ Supported backends:
 - Structured output: linkup (not implemented yet)
 """
 
+# NOTE: The first line of docstrings and their Return sections are shown to Open Interpreter in its system message, so make them very concise to avoid wasting tokens, and don't mention atypical things like error condition outputs that will confuse the AI.  Tell the AI the typical use case, and it will deal with errors when it gets to them.
+
 import os
 import json
 import locale
@@ -169,7 +171,7 @@ class Web:
             **kwargs: Additional Brave-specific parameters (freshness, text_decorations, spellcheck, etc.)
 
         Returns:
-            Normalized dict with "results" key, or error dict
+            Normalized dict with "results" key
         """
         country_code, language_code = self._get_locale_defaults(country_code, language_code, country_case="upper")
 
@@ -231,7 +233,7 @@ class Web:
             **kwargs: Additional Serper-specific parameters (location, page, tbs, etc.)
 
         Returns:
-            Normalized dict with "results" key, or error dict
+            Normalized dict with "results" key
         """
         # Validate search type
         supported_types = ["search", "images", "videos", "news", "shopping", "places", "maps", "patents"]
@@ -318,7 +320,7 @@ class Web:
             **kwargs: Additional SerpApi parameters (location, google_domain, safe, start, filter, tbm, etc.)
 
         Returns:
-            Normalized dict with "results" key, or error dict
+            Normalized dict with "results" key
         """
         country_code, language_code = self._get_locale_defaults(country_code, language_code)
 
@@ -477,7 +479,7 @@ class Web:
             **kwargs: Additional Tavily search parameters (search_depth, include_domains, exclude_domains, etc.)
 
         Returns:
-            Normalized dict with "results" key, or error dict
+            Normalized dict with "results" key
         """
         # Tavily doesn't use country/language codes directly, but we accept them for consistency
         try:
@@ -528,7 +530,7 @@ class Web:
             **kwargs: Additional LinkUp search parameters
 
         Returns:
-            Normalized dict with "results" key, or error dict
+            Normalized dict with "results" key
         """
         # LinkUp doesn't use country/language codes directly, but we accept them for consistency
         try:
@@ -800,7 +802,7 @@ class Web:
             **kwargs: Additional Tavily search parameters
 
         Returns:
-            Normalized dict with "answer" and "sources" keys, or error dict
+            Normalized dict with "answer" and "sources" keys
         """
         try:
             from tavily import TavilyClient
@@ -875,7 +877,7 @@ class Web:
             **kwargs: Additional LinkUp search parameters
 
         Returns:
-            Normalized dict with "answer" and "sources" keys, or error dict
+            Normalized dict with "answer" and "sources" keys
         """
         try:
             from linkup import LinkupClient
@@ -991,7 +993,6 @@ class Web:
             dict: Normalized response with:
                 - "answer" (str): The AI-generated answer
                 - "sources" (list): List of source dicts with "title", "url", "snippet"
-                OR error dict with "error", "message", "alternative" keys
 
         Example:
             result = computer.web.answer("What is machine learning?")
@@ -1070,7 +1071,7 @@ class Web:
             **kwargs: Additional Serper-specific parameters
 
         Returns:
-            Normalized dict with "content" (markdown), "title", "url" keys, or error dict
+            Normalized dict with "content" (markdown), "title", "url" keys
         """
         try:
             api_key = self._check_api_key("SERPER_API_KEY")
@@ -1123,7 +1124,7 @@ class Web:
             **kwargs: Additional LinkUp fetch parameters
 
         Returns:
-            Normalized dict with "content" (markdown), "title", "url" keys, or error dict
+            Normalized dict with "content" (markdown), "title", "url" keys
         """
         try:
             from linkup import LinkupClient
@@ -1182,7 +1183,7 @@ class Web:
             **kwargs: Additional Tavily extract parameters
 
         Returns:
-            Normalized dict with "results" list (each with "content" (markdown), "title", "url"), or error dict
+            Normalized dict with "results" list (each with "content" (markdown), "title", "url")
         """
         try:
             from tavily import TavilyClient
@@ -1336,8 +1337,6 @@ class Web:
                     - "results" (list): List of result dicts, each with "url", "title", "content" (markdown)
                     - "raw_response" (dict): Original backend response
                     - "backend" (str): Backend that was used
-
-                OR error dict with "error", "message", "alternative" keys
 
         Examples:
             # Basic fetch (auto-selects backend)
