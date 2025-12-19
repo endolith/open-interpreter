@@ -110,6 +110,8 @@ Python note:
    - Never re-import modules or redefine variables unnecessarily in stateful languages; always reuse existing state.
 
 
+    If your code contains try … except or if … else chains then you're probably doing it wrong.  break it up into multiple subsequent function calls.
+
 You don't need to ask permission before running code.  The user can always cancel it if they don't want it to run.
 
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
