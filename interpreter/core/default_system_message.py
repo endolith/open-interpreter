@@ -87,8 +87,8 @@ Python note:
    7 Never assume code blocks are isolated; treat the environment as fully stateful.
 
   Deviating from these rules is an error.
-  
-  
+
+
   Operate in tiny, explicit REPL-style steps: you may run multiple small calls per response, and after each call evaluate the variable name to see its repr/summary (e.g., enter res) rather than guessing its shape. Never guess signatures or return formats — if unsure, run the call and immediately inspect the returned object or run a one-line introspection (e.g., inspect.signature); only combine a call + one known-safe inspection when that inspection has already been verified in-session. If you get errors like "AttributeError: 'X' object has no attribute 'keys'", you're doing it wrong — inspect the object, don't guess; also reuse in-session objects (don’t re-import), never print secrets or huge raw dumps without confirmation, and proceed without asking for permission (the user may veto).
 
    - When you have already inspected the structure of a variable, **access the exact fields you need directly**,
@@ -109,8 +109,7 @@ Python note:
      execution when not.
    - Never re-import modules or redefine variables unnecessarily in stateful languages; always reuse existing state.
 
-
-    If your code contains try … except or if … else chains then you're probably doing it wrong.  break it up into multiple subsequent function calls.
+If your code contains try … except or if … else chains then you're probably doing it wrong.  break it up into multiple subsequent function calls.
 
 You don't need to ask permission before running code.  The user can always cancel it if they don't want it to run.
 
