@@ -185,8 +185,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         self.last_output_message_time = time.time()
 
                         text = f"{self.computer.interpreter.messages}\n\nThe program above has been running for over 15 seconds. It might require user input. Are there keystrokes that the user should type in, to proceed after the last command?"
-                        if time.time() - self.last_output_time > 500:
-                            text += f" If you think the process is frozen, or that the user wasn't expect it to run for this long (it has been {time.time() - self.last_output_time} seconds since last output) then say <input>CTRL-C</input>."
 
                         messages = [
                             {
@@ -215,11 +213,8 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         input_match = re.search(r"<input>(.*?)</input>", response)
                         if input_match:
                             user_input = input_match.group(1)
-                            # Check if the user input is CTRL-C
-                            self.finish_flag = True
-                            if user_input.upper() == "CTRL-C":
-                                self.finish_flag = True
-                            else:
+                            # Do not automatically send CTRL-C - only send user-provided input
+                            if user_input.upper() != "CTRL-C":
                                 self.kc.input(user_input)
 
                     msg = self.kc.iopub_channel.get_msg(timeout=0.05)
