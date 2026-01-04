@@ -21,8 +21,8 @@ interpreter.code_output_template = '''I executed that code. This was the output:
 interpreter.empty_code_output_template = "The code above was executed on my machine. It produced no text output. What's next (if anything, or are we done?)"
 interpreter.code_output_sender = "user"
 
-# Computer settings
-interpreter.computer.import_computer_api = False
+# Toolbox settings
+interpreter.toolbox.import_toolbox_api = False
 
 # Misc settings
 interpreter.auto_run = False

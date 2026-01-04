@@ -1,5 +1,5 @@
 """
-This is an Open Interpreter profile to use Cerebras. 
+This is an Open Interpreter profile to use Cerebras.
 
 Please set the CEREBRAS_API_KEY environment variable.
 
@@ -19,8 +19,8 @@ interpreter.llm.max_tokens = 4096
 interpreter.llm.context_window = 8192
 
 
-# Computer settings
-interpreter.computer.import_computer_api = False
+# Toolbox settings
+interpreter.toolbox.import_toolbox_api = False
 
 # Misc settings
 interpreter.offline = False
