@@ -34,8 +34,8 @@ interpreter.auto_run = False
 # Toggle OS Mode - https://docs.openinterpreter.com/guides/os-mode
 interpreter.os = False
 
-# Import Computer API - https://docs.openinterpreter.com/code-execution/computer-api
-interpreter.computer.import_computer_api = True
+# Import Toolbox API - https://docs.openinterpreter.com/code-execution/toolbox-api
+interpreter.toolbox.import_toolbox_api = True
 
 
 # Set Custom Instructions to improve your Interpreter's performance at a given task
