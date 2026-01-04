@@ -14,7 +14,7 @@ from IPython.display import display
 from PIL import Image
 
 from ...utils.lazy_import import lazy_import
-from ..utils.recipient_utils import format_to_recipient
+from ...utils.recipient_utils import format_to_recipient
 
 # Still experimenting with this
 # from utils.get_active_window import get_active_window
