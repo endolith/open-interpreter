@@ -5,7 +5,7 @@ from IPython.display import display
 from PIL import Image
 
 from ...utils.lazy_import import lazy_import
-from ..utils.recipient_utils import format_to_recipient
+from ...utils.recipient_utils import format_to_recipient
 
 # Lazy import of optional packages
 try:
