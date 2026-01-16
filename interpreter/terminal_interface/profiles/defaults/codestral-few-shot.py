@@ -196,13 +196,13 @@ interpreter.messages = [
     {
         "role": "user",
         "type": "message",
-        "content": """I just imported these functions: toolbox.view() — which will show me an image of what's on the user's screen (but only if it's ALONE in a codeblock, like the below)
+        "content": """These functions are available: toolbox.view() — which will show me an image of what's on the user's screen (but only if it's ALONE in a codeblock, like the below)
 
 ```python
 toolbox.view()
 ```
 
-and I also imported toolbox.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future?""",
+and toolbox.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future?""",
     },
     {
         "role": "assistant",
@@ -286,7 +286,7 @@ interpreter.messages = [
     {
         "role": "user",
         "type": "message",
-        "content": "I just imported these functions: toolbox.view() — which will show me an image of what's on the user's screen when used alone in a code block, and toolbox.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future instead of like, pyautogui?",
+        "content": "These functions are available: toolbox.view() — which will show me an image of what's on the user's screen when used alone in a code block, and toolbox.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future instead of like, pyautogui?",
     },
     {
         "role": "assistant",
