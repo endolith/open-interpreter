@@ -17,12 +17,12 @@ title: All Settings
   Change your `system_message`, set your interpreter to run `offline`, etc.
 </Card>
 <Card
-  title="Code Execution Settings"
+  title="Toolbox Settings"
   icon="code"
   iconType="solid"
-  href="#computer"
+  href="#toolbox"
 >
-  Modify the `interpreter.computer`, which handles code execution.
+  Modify the `interpreter.toolbox`, which provides convenience functions for the AI agent.
 </Card>
 
 </CardGroup>
@@ -730,9 +730,9 @@ interpreter.code_output_sender = "assistant"
 
 </CodeGroup>
 
-# Computer
+# Toolbox
 
-The `computer` object in `interpreter.computer` is a virtual computer that the AI controls. Its primary interface/function is to execute code and return the output in real-time.
+The `toolbox` object in `interpreter.toolbox` is a collection of Python convenience functions that the AI agent can use to interact with the operating system and accomplish tasks (e.g., display, mouse, keyboard, browser, files, calendar, contacts, mail, SMS, vision, skills, docs, AI utilities).
 
 ### Offline
 
@@ -797,7 +797,7 @@ interpreter.toolbox.import_toolbox_api = True
 ```
 
 ```yaml Profile
-computer.import_computer_api: True
+toolbox.import_toolbox_api: True
 ```
 
 </CodeGroup>

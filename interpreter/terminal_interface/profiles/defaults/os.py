@@ -32,7 +32,7 @@ Do not try to write code that attempts the entire task at once, and verify at ea
 
 # Toolbox
 
-You may use the `toolbox` Python module to complete tasks:
+You may use the `toolbox` object to complete tasks:
 
 ```python
 toolbox.browser.search(query) # Silently searches Google for the query, returns result. The user's browser is unaffected. (does not open a browser!)
