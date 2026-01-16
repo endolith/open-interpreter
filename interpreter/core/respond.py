@@ -441,9 +441,21 @@ def respond(interpreter):
                             f"Do NOT import toolbox or any of its sub-modules. They are already imported."
                         )
 
-                    # Replace simple import statements with pass (these are less problematic)
-                    code = code.replace("import toolbox\n", "pass\n")
-                    code = re.sub(r"import toolbox\.\w+\n", "pass\n", code)
+                    # Check for simple import statements
+                    if re.search(r"^import toolbox\b", code, re.MULTILINE):
+                        raise ValueError(
+                            "Cannot import toolbox. The `toolbox` is already available as a variable, not a module.\n"
+                            "Do NOT import toolbox. It is already imported and available as `toolbox`.\n"
+                            "Use `toolbox` directly without any import statement."
+                        )
+
+                    # Check for import toolbox.something
+                    if re.search(r"^import toolbox\.\w+", code, re.MULTILINE):
+                        raise ValueError(
+                            "Cannot import from toolbox. The `toolbox` is already available as a variable, not a module.\n"
+                            "Do NOT import toolbox or any of its sub-modules. They are already imported.\n"
+                            "Use `toolbox` directly without any import statement."
+                        )
                     # If it does this it sees the screenshot twice (which is expected jupyter behavior)
                     if any(
                         code.strip().split("\n")[-1].startswith(text)
