@@ -423,10 +423,11 @@ def respond(interpreter):
                         items = [item.strip() for item in nested_import_match.group(2).split(",")]
                         first_item = items[0]
                         raise ValueError(
-                            f"Cannot import from toolbox submodules. The `toolbox` is already available as a variable, not a module.\n"
+                            f"Cannot import from `toolbox`. The `toolbox` object is already available as a variable in your namespace.\n"
                             f"Instead of: `from toolbox.{module} import {', '.join(items)}`\n"
                             f"Use directly: `toolbox.{module}.{first_item}` (and similarly for other items)\n"
-                            f"For example, instead of `from toolbox.ai2 import client`, use `toolbox.ai2.client` directly."
+                            f"For example, instead of `from toolbox.ai2 import client`, use `toolbox.ai2.client` directly.\n"
+                            f"Do NOT import `toolbox` or try to import any of its sub-modules. The `toolbox` object is already available."
                         )
 
                     # Check for direct imports from toolbox
@@ -435,25 +436,25 @@ def respond(interpreter):
                         items = [item.strip() for item in direct_import_match.group(1).split(",")]
                         first_item = items[0]
                         raise ValueError(
-                            f"Cannot import from toolbox. The `toolbox` is already available as a variable, not a module.\n"
+                            f"Cannot import from `toolbox`. The `toolbox` object is already available as a variable in your namespace.\n"
                             f"Instead of: `from toolbox import {', '.join(items)}`\n"
                             f"Use directly: `toolbox.{first_item}` (and similarly for other items)\n"
-                            f"Do NOT import toolbox or any of its sub-modules. They are already imported."
+                            f"Do NOT import `toolbox` or try to import any of its sub-modules. The `toolbox` object is already available."
                         )
 
                     # Check for simple import statements
                     if re.search(r"^import toolbox\b", code, re.MULTILINE):
                         raise ValueError(
-                            "Cannot import toolbox. The `toolbox` is already available as a variable, not a module.\n"
-                            "Do NOT import toolbox. It is already imported and available as `toolbox`.\n"
+                            "Cannot import `toolbox`. The `toolbox` object is already available as a variable in your namespace.\n"
+                            "Do NOT import `toolbox`. It is already available as a variable named `toolbox`.\n"
                             "Use `toolbox` directly without any import statement."
                         )
 
                     # Check for import toolbox.something
                     if re.search(r"^import toolbox\.\w+", code, re.MULTILINE):
                         raise ValueError(
-                            "Cannot import from toolbox. The `toolbox` is already available as a variable, not a module.\n"
-                            "Do NOT import toolbox or any of its sub-modules. They are already imported.\n"
+                            "Cannot import from `toolbox`. The `toolbox` object is already available as a variable in your namespace.\n"
+                            "Do NOT import `toolbox` or try to import any of its sub-modules. The `toolbox` object is already available.\n"
                             "Use `toolbox` directly without any import statement."
                         )
                     # If it does this it sees the screenshot twice (which is expected jupyter behavior)

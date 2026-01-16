@@ -20,7 +20,7 @@ from .languages.shell import Shell
 
 import_toolbox_api_code = """
 import os
-os.environ["INTERPRETER_TOOLBOX_API"] = "False" # To prevent infinite recurring import of the toolbox API
+os.environ["INTERPRETER_TOOLBOX_API"] = "False" # To prevent infinite recurring injection of the toolbox API
 
 import time
 import datetime
