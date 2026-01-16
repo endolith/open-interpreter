@@ -65,15 +65,15 @@ class Toolbox:
 
         self.system_message = f"""
 
-## The `toolbox` module API
+## The `toolbox` API
 
-A python `toolbox` module is ALREADY IMPORTED, and can be used for many tasks:
+A `toolbox` object is ALREADY AVAILABLE in your execution environment, and can be used for many tasks:
 
 ```python
 {toolbox_tools}
 ```
 
-Do NOT `import toolbox`, or any of its sub-modules. They are already imported.
+Do NOT `import toolbox`, or try to import any of its sub-modules. The `toolbox` object is already available as a variable in your namespace.
 
 Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
 
