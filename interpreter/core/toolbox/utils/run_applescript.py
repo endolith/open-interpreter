@@ -7,7 +7,7 @@ def run_applescript(script):
     """
     # print("Running this AppleScript:\n", script)
     # print(
-    #     "---\nFeel free to directly run AppleScript to accomplish the user's task. This gives you more granular control than the `toolbox` module, but it is slower."
+    #     "---\nFeel free to directly run AppleScript to accomplish the user's task. This gives you more granular control than the `toolbox` object, but it is slower."
     # )
     args = ["osascript", "-e", script]
     return subprocess.check_output(args, universal_newlines=True)
@@ -19,7 +19,7 @@ def run_applescript_capture(script):
     """
     # print("Running this AppleScript:\n", script)
     # print(
-    #     "---\nFeel free to directly run AppleScript to accomplish the user's task. This gives you more granular control than the `toolbox` module, but it is slower."
+    #     "---\nFeel free to directly run AppleScript to accomplish the user's task. This gives you more granular control than the `toolbox` object, but it is slower."
     # )
     args = ["osascript", "-e", script]
     result = subprocess.run(args, capture_output=True, text=True, check=False)
