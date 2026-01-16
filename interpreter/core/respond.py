@@ -416,18 +416,33 @@ def respond(interpreter):
 
                 # don't let it import toolbox — we handle that!
                 if interpreter.toolbox.import_toolbox_api and language == "python":
+                    # Check for nested imports like "from toolbox.ai2 import client"
+                    nested_import_match = re.search(r"from toolbox\.(\w+) import (.+)", code)
+                    if nested_import_match:
+                        module = nested_import_match.group(1)
+                        items = [item.strip() for item in nested_import_match.group(2).split(",")]
+                        first_item = items[0]
+                        raise ValueError(
+                            f"Cannot import from toolbox submodules. The `toolbox` is already available as a variable, not a module.\n"
+                            f"Instead of: `from toolbox.{module} import {', '.join(items)}`\n"
+                            f"Use directly: `toolbox.{module}.{first_item}` (and similarly for other items)\n"
+                            f"For example, instead of `from toolbox.ai2 import client`, use `toolbox.ai2.client` directly."
+                        )
+
+                    # Check for direct imports from toolbox
+                    direct_import_match = re.search(r"from toolbox import (.+)", code)
+                    if direct_import_match:
+                        items = [item.strip() for item in direct_import_match.group(1).split(",")]
+                        first_item = items[0]
+                        raise ValueError(
+                            f"Cannot import from toolbox. The `toolbox` is already available as a variable, not a module.\n"
+                            f"Instead of: `from toolbox import {', '.join(items)}`\n"
+                            f"Use directly: `toolbox.{first_item}` (and similarly for other items)\n"
+                            f"Do NOT import toolbox or any of its sub-modules. They are already imported."
+                        )
+
+                    # Replace simple import statements with pass (these are less problematic)
                     code = code.replace("import toolbox\n", "pass\n")
-                    code = re.sub(
-                        r"import toolbox\.(\w+) as (\w+)", r"\2 = toolbox.\1", code
-                    )
-                    code = re.sub(
-                        r"from toolbox import (.+)",
-                        lambda m: "\n".join(
-                            f"{x.strip()} = toolbox.{x.strip()}"
-                            for x in m.group(1).split(", ")
-                        ),
-                        code,
-                    )
                     code = re.sub(r"import toolbox\.\w+\n", "pass\n", code)
                     # If it does this it sees the screenshot twice (which is expected jupyter behavior)
                     if any(
