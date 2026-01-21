@@ -212,6 +212,11 @@ def apply_profile(interpreter, profile, profile_path):
     if "computer" in profile:
         profile["toolbox"] = profile.pop("computer")
 
+    # Map llm.max_output to interpreter.max_output (max_output is on interpreter, not llm)
+    if "llm" in profile and isinstance(profile["llm"], dict) and "max_output" in profile["llm"]:
+        interpreter.max_output = profile["llm"]["max_output"]
+        del profile["llm"]["max_output"]
+
     apply_profile_to_object(interpreter, profile)
 
     return interpreter
