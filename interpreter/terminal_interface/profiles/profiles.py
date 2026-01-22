@@ -142,6 +142,50 @@ class RemoveInterpreter(ast.NodeTransformer):
         return node  # return node otherwise to keep it in the AST
 
 
+def _validate_profile(interpreter, profile):
+    """Validate profile and warn about invalid attributes that will be silently ignored."""
+    warnings = []
+
+    # Nested dicts to validate: (profile_key, obj_attribute, obj_class_name, skip_keys)
+    nested_dicts = [
+        ("llm", interpreter.llm, "Llm", set()),
+        ("computer", interpreter.computer, "Computer", {"languages"}),
+    ]
+
+    for profile_key, obj, class_name, skip_keys in nested_dicts:
+        if profile_key in profile and isinstance(profile[profile_key], dict):
+            for key in profile[profile_key]:
+                if key.startswith("_") or key in skip_keys:
+                    continue
+                if not hasattr(obj, key):
+                    warnings.append(
+                        f"Profile has '{profile_key}.{key}' but this attribute doesn't exist on the {class_name} class. "
+                        "This setting will be ignored."
+                    )
+
+    # Check for invalid top-level attributes
+    # Skip known nested dicts and special keys
+    skip_keys = {"llm", "computer", "wtf", "version", "start_script"}
+    for key in profile:
+        if key in skip_keys:
+            continue
+        if isinstance(profile[key], dict):
+            continue  # Skip nested dicts (they're handled separately)
+        if key.startswith("_"):
+            continue  # Skip private attributes
+        if not hasattr(interpreter, key):
+            warnings.append(
+                f"Profile has '{key}' but this attribute doesn't exist on the Interpreter class. "
+                "This setting will be ignored."
+            )
+
+    if warnings:
+        print("\n⚠️  Profile validation warnings:")
+        for warning in warnings:
+            print(f"   {warning}")
+        print()
+
+
 def apply_profile(interpreter, profile, profile_path):
     if "start_script" in profile:
         scope = {"interpreter": interpreter}
@@ -216,6 +260,9 @@ def apply_profile(interpreter, profile, profile_path):
     if "llm" in profile and isinstance(profile["llm"], dict) and "max_output" in profile["llm"]:
         interpreter.max_output = profile["llm"]["max_output"]
         del profile["llm"]["max_output"]
+
+    # Validate profile for common mistakes
+    _validate_profile(interpreter, profile)
 
     apply_profile_to_object(interpreter, profile)
 
