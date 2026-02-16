@@ -19,6 +19,7 @@ import sys
 from unittest.mock import Mock
 
 from interpreter.core.toolbox.toolbox import Toolbox
+from interpreter.core.toolbox.web.web import WebToolboxError
 
 
 # Comprehensive test URLs covering different content types
@@ -40,10 +41,11 @@ def test_single_url(toolbox, url, backend_name):
     print(f"Testing backend: {backend_name}")
     print("="*60)
 
-    # Call the method - it will print its own output
-    result = toolbox.web.fetch(url, backend=backend_name)
+    try:
+        result = toolbox.web.fetch(url, backend=backend_name)
+    except WebToolboxError as e:
+        result = {"error": str(e)}
 
-    # Show a truncated version of the raw return value
     print("\n" + "-"*60)
     print("Returned object (truncated):")
     print("-"*60)
