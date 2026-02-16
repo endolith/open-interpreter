@@ -29,6 +29,11 @@ class ApiKeyError(Exception):
         super().__init__(error_dict.get("error", "API key missing"))
 
 
+class WebToolboxError(Exception):
+    """Raised when a web toolbox operation fails (missing package, no backends, API error, etc.)."""
+    pass
+
+
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
@@ -93,20 +98,14 @@ class Web:
         return api_key
 
     def _handle_import_error(self, package_name, install_cmd):
-        """Handle ImportError for a package."""
-        return {
-            "error": f"{package_name} not installed",
-            "message": f"Install {package_name}: {install_cmd}",
-            "alternative": "Try using a different backend"
-        }
+        """Raise WebToolboxError when a required package is not installed."""
+        raise WebToolboxError(f"Install {package_name}: {install_cmd}")
 
     def _handle_api_request_error(self, backend_name, error):
-        """Create standardized error dict for API request failures."""
-        return {
-            "error": f"{backend_name} API request failed: {str(error)}",
-            "message": "The API request encountered an error. Check your API key and internet connection.",
-            "alternative": "Try using a different backend"
-        }
+        """Raise WebToolboxError for API request failures."""
+        raise WebToolboxError(
+            f"{backend_name} API request failed: {error}. Check your API key and internet connection."
+        )
 
     def _normalize_result_item(self, result, engine=None):
         """
@@ -178,7 +177,7 @@ class Web:
         try:
             api_key = self._check_api_key("BRAVE_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         url = "https://api.search.brave.com/res/v1/web/search"
 
@@ -202,7 +201,7 @@ class Web:
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
-            return self._handle_api_request_error("Brave Search", e)
+            self._handle_api_request_error("Brave Search", e)
 
         # Normalize Brave response format
         # Brave returns: {"web": {"results": [...]}, "news": {...}, ...}
@@ -238,18 +237,17 @@ class Web:
         # Validate search type
         supported_types = ["search", "images", "videos", "news", "shopping", "places", "maps", "patents"]
         if type not in supported_types:
-            return {
-                "error": f"Unsupported search type: {type}",
-                "message": f"Serper backend supports: {', '.join(supported_types)}",
-                "alternative": f"For Google Scholar, use backend='serpapi' with engine='google_scholar'"
-            }
+            raise WebToolboxError(
+                f"Serper backend supports: {', '.join(supported_types)}. "
+                f"For Google Scholar, use backend='serpapi' with engine='google_scholar'"
+            )
 
         country_code, language_code = self._get_locale_defaults(country_code, language_code)
 
         try:
             api_key = self._check_api_key("SERPER_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         # Map type to correct endpoint
         url = f"https://google.serper.dev/{type}"
@@ -273,7 +271,7 @@ class Web:
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
-            return self._handle_api_request_error("Serper", e)
+            self._handle_api_request_error("Serper", e)
 
         # Normalize Serper response format
         # Response format varies by search type
@@ -328,12 +326,12 @@ class Web:
         try:
             from serpapi import GoogleSearch
         except ImportError:
-            return self._handle_import_error("google-search-results", "pip install google-search-results")
+            self._handle_import_error("google-search-results", "pip install google-search-results")
 
         try:
             api_key = self._check_api_key("SERPAPI_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         # Google-based engines use GoogleSearch with engine parameter
         # These work with GoogleSearch class + engine parameter
@@ -377,11 +375,10 @@ class Web:
                     module = __import__("serpapi", fromlist=[class_name])
                     SearchClass = getattr(module, class_name)
                 except AttributeError:
-                    return {
-                        "error": f"SerpApi class {class_name} not found",
-                        "message": f"The {class_name} class is not available in your serpapi package version. Update google-search-results: pip install --upgrade google-search-results",
-                        "alternative": "Try using a different engine or backend"
-                    }
+                    raise WebToolboxError(
+                        f"The {class_name} class is not available in your serpapi package version. "
+                        "Update: pip install --upgrade google-search-results"
+                    )
 
                 # Build params - different engines use different query parameter names
                 serpapi_query_params = {
@@ -404,14 +401,12 @@ class Web:
                 search = SearchClass(search_params)
                 data = search.get_dict()
             else:
-                # Unknown engine - reject it
-                return {
-                    "error": f"Unknown SerpApi engine: {engine}",
-                    "message": f"Engine '{engine}' is not supported. Supported engines: {', '.join(google_engines + list(specific_class_engines.keys()))}",
-                    "alternative": "Use a supported engine or try a different backend"
-                }
+                raise WebToolboxError(
+                    f"Engine '{engine}' is not supported. Supported engines: "
+                    f"{', '.join(google_engines + list(specific_class_engines.keys()))}"
+                )
         except Exception as e:
-            return self._handle_api_request_error("SerpApi", e)
+            self._handle_api_request_error("SerpApi", e)
 
         # Normalize SerpApi response format
         # Different engines return results in different keys
@@ -440,11 +435,10 @@ class Web:
 
         # Check for API errors first
         if "error" in data:
-            return {
-                "error": f"SerpApi {engine} search error",
-                "message": data.get("error", "Unknown API error"),
-                "alternative": "Check your API key and query parameters"
-            }
+            raise WebToolboxError(
+                f"SerpApi {engine} search error: {data.get('error', 'Unknown API error')}. "
+                "Check your API key and query parameters."
+            )
 
         # Get the appropriate results key for this engine
         results_key = engine_result_keys.get(engine, "organic_results")
@@ -454,12 +448,10 @@ class Web:
         if not results:
             available_keys = [k for k in data.keys() if isinstance(data.get(k), list)]
             all_keys = list(data.keys())
-            return {
-                "error": f"No results found in expected key '{results_key}' for engine '{engine}'",
-                "message": f"SerpApi response did not contain results in the expected key. Available list keys: {available_keys}. All keys: {all_keys[:20]}",
-                "alternative": "Check the SerpApi response structure or try a different engine",
-                "raw_response": data
-            }
+            raise WebToolboxError(
+                f"SerpApi response did not contain results in expected key '{results_key}'. "
+                f"Available list keys: {available_keys}. All keys: {all_keys[:20]}"
+            )
 
         # Extract and normalize results
         for result in results:
@@ -485,12 +477,12 @@ class Web:
         try:
             from tavily import TavilyClient
         except ImportError:
-            return self._handle_import_error("tavily-python", "pip install tavily-python")
+            self._handle_import_error("tavily-python", "pip install tavily-python")
 
         try:
             api_key = self._check_api_key("TAVILY_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -505,7 +497,7 @@ class Web:
 
             response = client.search(**search_params)
         except Exception as e:
-            return self._handle_api_request_error("Tavily", e)
+            self._handle_api_request_error("Tavily", e)
 
         # Normalize Tavily response format
         # Tavily returns: {"results": [{"title": str, "url": str, "content": str, ...}]}
@@ -536,12 +528,12 @@ class Web:
         try:
             from linkup import LinkupClient
         except ImportError:
-            return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
+            self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
         try:
             api_key = self._check_api_key("LINKUP_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         try:
             client = LinkupClient(api_key=api_key)
@@ -556,7 +548,7 @@ class Web:
 
             response = client.search(**search_params)
         except Exception as e:
-            return self._handle_api_request_error("LinkUp", e)
+            self._handle_api_request_error("LinkUp", e)
 
         # Normalize LinkUp response format
         # LinkUp returns a LinkupSearchResults object with .results attribute
@@ -591,46 +583,30 @@ class Web:
 
     def _build_no_backends_error(self, backends_to_try, failed_results, backend_to_package, backend_to_key, kind):
         """
-        Build error dict when no backends succeeded. Message is per-backend: each backend
-        gets the correct reason (API key not set, package not installed, or request failed
-        e.g. no credits) so the user knows what to fix for each.
+        Build error message when no backends succeeded. failed_results is a list of
+        (backend_name, exception). Returns a string message for WebToolboxError.
         """
-        failed_by_backend = {b: r for b, r in failed_results}
+        failed_by_backend = {b: exc for b, exc in failed_results}
         reasons = []
-        alt_install = []
-        alt_keys = []
-        has_request_fail = False
         for b in backends_to_try:
             if not self._check_backend_available(b):
                 key_name = backend_to_key.get(b, b.upper() + "_API_KEY")
                 reasons.append((b, f"API key not set (set {key_name})"))
-                alt_keys.append(key_name)
             elif b in failed_by_backend:
-                r = failed_by_backend[b]
-                err = r.get("error", "")
-                if "not installed" in err:
+                exc = failed_by_backend[b]
+                err_str = str(exc)
+                if isinstance(exc, ApiKeyError):
+                    msg = exc.error_dict.get("message", err_str)
+                    reasons.append((b, "API key not set (" + msg + ")"))
+                elif "not installed" in err_str or "Install " in err_str:
                     pkg = backend_to_package.get(b, b)
                     reasons.append((b, f"package not installed (pip install {pkg})"))
-                    alt_install.append(pkg)
                 else:
                     reasons.append((b, "request failed (e.g. no credits, network error)"))
-                    has_request_fail = True
             else:
                 reasons.append((b, "unavailable"))
         kind_label = f"{kind} " if kind else ""
-        message = f"No {kind_label}backends are available. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
-        alt_parts = []
-        if alt_install:
-            alt_parts.append(f"pip install {' '.join(alt_install)}")
-        if alt_keys:
-            alt_parts.append(f"Set {' or '.join(alt_keys)} environment variable(s)")
-        if has_request_fail:
-            alt_parts.append("Check API key, credits, and network; try again or use another backend")
-        return {
-            "error": "No available backends",
-            "message": message,
-            "alternative": "; ".join(alt_parts) if alt_parts else "Try again or use a different backend"
-        }
+        return f"No {kind_label}backends are available. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
 
     def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
@@ -787,26 +763,14 @@ class Web:
             backend = backend.lower()
 
             if backend not in backend_methods:
-                error_result = {
-                    "error": f"Unknown backend: {backend}",
-                    "message": f"Supported backends for search: {', '.join(backend_methods.keys())}",
-                    "alternative": "Try without specifying a backend to auto-select"
-                }
-                print(f"❌ Error: {error_result['error']}")
-                print(f"   {error_result['message']}")
-                return error_result
+                raise WebToolboxError(
+                    f"Supported backends for search: {', '.join(backend_methods.keys())}. "
+                    "Try without specifying a backend to auto-select."
+                )
 
             result = backend_methods[backend](query, **backend_kwargs)
-            if "error" not in result:
-                used_backend = backend
-                result["backend"] = used_backend
-                self._print_search_result(query, result, used_backend)
-                return result
-
-            # If specified backend failed, return the error
-            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
-            if result.get('alternative'):
-                print(f"   {result['alternative']}")
+            result["backend"] = backend
+            self._print_search_result(query, result, backend)
             return result
 
         # Auto-select backend
@@ -817,24 +781,20 @@ class Web:
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
                 continue
-
-            result = backend_methods[backend_name](query, **backend_kwargs)
-
-            if "error" not in result:
-                used_backend = backend_name
-                result["backend"] = used_backend
-                self._print_search_result(query, result, used_backend)
+            try:
+                result = backend_methods[backend_name](query, **backend_kwargs)
+                result["backend"] = backend_name
+                self._print_search_result(query, result, backend_name)
                 return result
-            failed_results.append((backend_name, result))
+            except (WebToolboxError, ApiKeyError) as e:
+                failed_results.append((backend_name, e))
 
         search_backend_to_package = {"serper": "google-search-results (serper)", "serpapi": "google-search-results", "tavily": "tavily-python", "brave": "brave-search-sdk", "linkup": "linkup-sdk"}
         search_backend_to_key = {"serper": "SERPER_API_KEY", "serpapi": "SERPAPI_API_KEY", "tavily": "TAVILY_API_KEY", "brave": "BRAVE_API_KEY", "linkup": "LINKUP_API_KEY"}
-        error_result = self._build_no_backends_error(
+        message = self._build_no_backends_error(
             backends_to_try, failed_results, search_backend_to_package, search_backend_to_key, kind="search"
         )
-        print(f"❌ {error_result['error']}")
-        print(f"   {error_result['message']}")
-        return error_result
+        raise WebToolboxError(message)
 
     def _answer_tavily(self, question, answer_mode="basic", **kwargs):
         """
@@ -851,12 +811,12 @@ class Web:
         try:
             from tavily import TavilyClient
         except ImportError:
-            return self._handle_import_error("tavily-python", "pip install tavily-python")
+            self._handle_import_error("tavily-python", "pip install tavily-python")
 
         try:
             api_key = self._check_api_key("TAVILY_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -871,7 +831,7 @@ class Web:
             response = client.search(**search_params)
         except Exception as e:
             # API request failed (network error, rate limit, etc.) - return error dict for fallback
-            return self._handle_api_request_error("Tavily", e)
+            self._handle_api_request_error("Tavily", e)
 
         # Response format validation - raise exception for programming errors
         # Tavily returns: {"answer": str, "results": [{"title": str, "url": str, "content": str, ...}, ...]}
@@ -926,12 +886,12 @@ class Web:
         try:
             from linkup import LinkupClient
         except ImportError:
-            return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
+            self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
         try:
             api_key = self._check_api_key("LINKUP_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         try:
             client = LinkupClient(api_key=api_key)
@@ -947,7 +907,7 @@ class Web:
             response = client.search(**search_params)
         except Exception as e:
             # API request failed (network error, rate limit, etc.) - return error dict for fallback
-            return self._handle_api_request_error("LinkUp", e)
+            self._handle_api_request_error("LinkUp", e)
 
         # LinkUp returns a LinkupSourcedAnswer object, not a dict
         # Access attributes directly: response.answer, response.sources
@@ -1048,36 +1008,16 @@ class Web:
 
         if backend:
             backend = backend.lower()
-            if backend == "tavily":
-                result = self._answer_tavily(question, **kwargs)
-                if "error" not in result:
-                    used_backend = "tavily"
-                    result["backend"] = used_backend
-                    self._print_answer_result(question, result, used_backend)
-                    return result
-            elif backend == "linkup":
-                result = self._answer_linkup(question, **kwargs)
-                if "error" not in result:
-                    used_backend = "linkup"
-                    result["backend"] = used_backend
-                    self._print_answer_result(question, result, used_backend)
-                    return result
-            else:
-                error_result = {
-                    "error": f"Unknown backend: {backend}",
-                    "message": f"Supported backends for answer: 'tavily', 'linkup'",
-                    "alternative": "Try without specifying a backend to auto-select"
-                }
-                print(f"❌ Error: {error_result['error']}")
-                print(f"   {error_result['message']}")
-                return error_result
-            # If specified backend failed, return the error
-            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
-            if result.get('alternative'):
-                print(f"   {result['alternative']}")
+            if backend not in ("tavily", "linkup"):
+                raise WebToolboxError(
+                    "Supported backends for answer: 'tavily', 'linkup'. Try without specifying a backend to auto-select."
+                )
+            backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
+            result = backend_methods[backend](question, **kwargs)
+            result["backend"] = backend
+            self._print_answer_result(question, result, backend)
             return result
 
-        # Auto-select backend: prefer linkup over tavily
         backends_to_try = ["linkup", "tavily"]
         backend_methods = {
             "linkup": self._answer_linkup,
@@ -1088,26 +1028,22 @@ class Web:
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
                 continue
-
-            result = backend_methods[backend_name](question, **kwargs)
-
-            if "error" not in result:
-                used_backend = backend_name
-                result["backend"] = used_backend
-                self._print_answer_result(question, result, used_backend)
+            try:
+                result = backend_methods[backend_name](question, **kwargs)
+                result["backend"] = backend_name
+                self._print_answer_result(question, result, backend_name)
                 return result
-            failed_results.append((backend_name, result))
+            except (WebToolboxError, ApiKeyError) as e:
+                failed_results.append((backend_name, e))
 
-        error_result = self._build_no_backends_error(
+        message = self._build_no_backends_error(
             backends_to_try,
             failed_results,
             backend_to_package={"linkup": "linkup-sdk", "tavily": "tavily-python"},
             backend_to_key={"linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"},
             kind="answer"
         )
-        print(f"❌ {error_result['error']}")
-        print(f"   {error_result['message']}")
-        return error_result
+        raise WebToolboxError(message)
 
     def _fetch_serper(self, url, **kwargs):
         """
@@ -1123,7 +1059,7 @@ class Web:
         try:
             api_key = self._check_api_key("SERPER_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         # Serper scrape endpoint
         scrape_url = "https://scrape.serper.dev"
@@ -1145,7 +1081,7 @@ class Web:
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
-            return self._handle_api_request_error("Serper", e)
+            self._handle_api_request_error("Serper", e)
 
         # Normalize Serper response format - always return markdown
         # Serper returns: {"markdown": str, "text": str, "metadata": {"title": str}, ...}
@@ -1176,12 +1112,12 @@ class Web:
         try:
             from linkup import LinkupClient
         except ImportError:
-            return self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
+            self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
 
         try:
             api_key = self._check_api_key("LINKUP_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         try:
             client = LinkupClient(api_key=api_key)
@@ -1196,7 +1132,7 @@ class Web:
 
             response = client.fetch(**fetch_params)
         except Exception as e:
-            return self._handle_api_request_error("LinkUp", e)
+            self._handle_api_request_error("LinkUp", e)
 
         # LinkUp returns a LinkupFetchResult object or dict
         # LinkUp fetch endpoint does NOT provide title as a separate field
@@ -1235,29 +1171,25 @@ class Web:
         try:
             from tavily import TavilyClient
         except ImportError:
-            return self._handle_import_error("tavily-python", "pip install tavily-python")
+            self._handle_import_error("tavily-python", "pip install tavily-python")
 
         try:
             api_key = self._check_api_key("TAVILY_API_KEY")
         except ApiKeyError as e:
-            return e.error_dict
+            raise WebToolboxError(e.error_dict["message"]) from e
 
         # Normalize urls to list
         if isinstance(urls, str):
             urls = [urls]
         elif not isinstance(urls, list):
-            return {
-                "error": "Invalid URLs parameter",
-                "message": "urls must be a string (single URL) or list of URLs (max 20)",
-                "alternative": "Pass a single URL string or a list of URLs"
-            }
+            raise WebToolboxError(
+                "urls must be a string (single URL) or list of URLs (max 20). Pass a single URL string or a list of URLs."
+            )
 
         if len(urls) > 20:
-            return {
-                "error": "Too many URLs",
-                "message": "Tavily extract endpoint supports maximum 20 URLs per request",
-                "alternative": "Split URLs into multiple requests of 20 or fewer"
-            }
+            raise WebToolboxError(
+                "Tavily extract endpoint supports maximum 20 URLs per request. Split URLs into multiple requests of 20 or fewer."
+            )
 
         try:
             client = TavilyClient(api_key=api_key)
@@ -1271,7 +1203,7 @@ class Web:
 
             response = client.extract(**extract_params)
         except Exception as e:
-            return self._handle_api_request_error("Tavily", e)
+            self._handle_api_request_error("Tavily", e)
 
         # Tavily returns: {"results": [{"url": str, "title": str, "content": str, ...}, ...]}
         if not isinstance(response, dict):
@@ -1297,14 +1229,12 @@ class Web:
         # Check for failed results
         failed_results = response.get("failed_results", [])
         if failed_results and not results:
-            # All URLs failed - return error
             failed_urls = [fr.get("url", "unknown") for fr in failed_results if isinstance(fr, dict)]
             errors = [fr.get("error", "unknown error") for fr in failed_results if isinstance(fr, dict)]
-            return {
-                "error": f"Tavily extract failed for all URLs",
-                "message": f"Failed to extract content from: {', '.join(failed_urls[:3])}. Errors: {', '.join(errors[:3])}",
-                "alternative": "Try using a different backend or check if the URLs are accessible"
-            }
+            raise WebToolboxError(
+                f"Tavily extract failed for all URLs. Failed: {', '.join(failed_urls[:3])}. "
+                f"Errors: {', '.join(errors[:3])}. Try a different backend or check if the URLs are accessible."
+            )
 
         for result in results:
             if not isinstance(result, dict):
@@ -1423,72 +1353,48 @@ class Web:
             backend = backend.lower()
 
             if backend not in backend_methods:
-                error_result = {
-                    "error": f"Unknown backend: {backend}",
-                    "message": f"Supported backends for fetch: {', '.join(backend_methods.keys())}",
-                    "alternative": "Try without specifying a backend to auto-select"
-                }
-                print(f"❌ Error: {error_result['error']}")
-                print(f"   {error_result['message']}")
-                return error_result
+                raise WebToolboxError(
+                    f"Supported backends for fetch: {', '.join(backend_methods.keys())}. "
+                    "Try without specifying a backend to auto-select."
+                )
 
-            # For tavily, check if urls parameter is provided (overrides url)
             if backend == "tavily" and "urls" in kwargs:
                 result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
+            elif backend == "tavily":
+                result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
+            elif backend == "linkup":
+                result = backend_methods[backend](url, render_js=render_js, **kwargs)
             else:
-                # For tavily with single url, convert to list
-                if backend == "tavily":
-                    result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
-                elif backend == "linkup":
-                    result = backend_methods[backend](url, render_js=render_js, **kwargs)
-                else:
-                    result = backend_methods[backend](url, **kwargs)
+                result = backend_methods[backend](url, **kwargs)
 
-            if "error" not in result:
-                used_backend = backend
-                result["backend"] = used_backend
-                self._print_fetch_result(url, result, used_backend)
-                return result
-
-            # If specified backend failed, return the error
-            print(f"❌ {backend} backend failed: {result.get('error', 'Unknown error')}")
-            if result.get('alternative'):
-                print(f"   {result['alternative']}")
+            result["backend"] = backend
+            self._print_fetch_result(url, result, backend)
             return result
 
-        # Auto-select backend
-        # Priority order based on quality/reliability: serper (best overall - handles static/dynamic/redirects/paywalls well) > linkup (good but fails on 404s, truncates paywalls) > tavily (most error-prone)
         backends_to_try = ["serper", "linkup", "tavily"]
         failed_results = []
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
                 continue
-
-            # For tavily, check if urls parameter is provided (overrides url)
-            if backend_name == "tavily" and "urls" in kwargs:
-                result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
-            else:
-                # For tavily with single url, convert to list
-                if backend_name == "tavily":
+            try:
+                if backend_name == "tavily" and "urls" in kwargs:
+                    result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
+                elif backend_name == "tavily":
                     result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
                 elif backend_name == "linkup":
                     result = backend_methods[backend_name](url, render_js=render_js, **kwargs)
                 else:
                     result = backend_methods[backend_name](url, **kwargs)
-
-            if "error" not in result:
-                used_backend = backend_name
-                result["backend"] = used_backend
-                self._print_fetch_result(url, result, used_backend)
+                result["backend"] = backend_name
+                self._print_fetch_result(url, result, backend_name)
                 return result
-            failed_results.append((backend_name, result))
+            except (WebToolboxError, ApiKeyError) as e:
+                failed_results.append((backend_name, e))
 
         fetch_backend_to_package = {"serper": "requests (built-in)", "linkup": "linkup-sdk", "tavily": "tavily-python"}
         fetch_backend_to_key = {"serper": "SERPER_API_KEY", "linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"}
-        error_result = self._build_no_backends_error(
+        message = self._build_no_backends_error(
             backends_to_try, failed_results, fetch_backend_to_package, fetch_backend_to_key, kind="fetch"
         )
-        print(f"❌ {error_result['error']}")
-        print(f"   {error_result['message']}")
-        return error_result
+        raise WebToolboxError(message)
