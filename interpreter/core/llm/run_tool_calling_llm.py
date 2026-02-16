@@ -606,23 +606,16 @@ def run_tool_calling_llm(llm, request_params):
                 f"For example: `toolbox.web.brave(query='...')`"
             )
 
-            # Yield error as tool response if we have tool_call_id, otherwise as assistant message
+            # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
+            # The UI displays this tool response, so we do not also yield an assistant message (that caused duplicate output).
             if tool_call_id_for_error:
-                # Yield as tool response to maintain proper message ordering
                 yield {
                     "role": "tool",
                     "tool_call_id": tool_call_id_for_error,
                     "type": "message",
                     "content": error_msg
                 }
-                # Also yield as assistant message so user sees it
-                yield {
-                    "role": "assistant",
-                    "type": "message",
-                    "content": f"**Error:** {error_msg}"
-                }
             else:
-                # Fallback if we don't have tool_call_id
                 yield {
                     "role": "assistant",
                     "type": "message",
