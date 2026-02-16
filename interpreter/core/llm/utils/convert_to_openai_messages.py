@@ -39,12 +39,12 @@ def convert_to_openai_messages(
         new_message = {}
 
         if message["type"] == "message":
-            new_message["role"] = message[
-                "role"
-            ]  # This should never be `computer`, right?
+            # Default to "assistant" for older saved messages that lack role (e.g. from tool-mode streams).
+            role = message.get("role", "assistant")
+            new_message["role"] = role
 
-            if message["role"] == "user" and (
-                message == [m for m in messages if m["role"] == "user"][-1]
+            if role == "user" and (
+                message == [m for m in messages if m.get("role") == "user"][-1]
                 or interpreter.always_apply_user_message_template
             ):
                 # Only add the template for the last message?
@@ -55,7 +55,7 @@ def convert_to_openai_messages(
                 new_message["content"] = message["content"]
 
             # Preserve tool_call_id for tool role messages (required by OpenRouter and other APIs)
-            if message["role"] == "tool" and "tool_call_id" in message:
+            if role == "tool" and "tool_call_id" in message:
                 new_message["tool_call_id"] = message["tool_call_id"]
 
         elif message["type"] == "code":

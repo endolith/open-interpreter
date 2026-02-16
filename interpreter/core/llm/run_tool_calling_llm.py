@@ -290,14 +290,14 @@ def run_tool_calling_llm(llm, request_params):
                         # If we have reasoning_content, delay yielding content until after stream
                         # to ensure reasoning comes first
                         if not has_reasoning_content:
-                            yield {"type": "message", "content": delta["content"]}
+                            yield {"role": "assistant", "type": "message", "content": delta["content"]}
                             content_yielded_during_streaming = True
 
             else:
                 # If we have reasoning_content, delay yielding content until after stream
                 # to ensure reasoning comes first
                 if not has_reasoning_content:
-                    yield {"type": "message", "content": delta["content"]}
+                    yield {"role": "assistant", "type": "message", "content": delta["content"]}
                     content_yielded_during_streaming = True
 
         if (
@@ -321,6 +321,7 @@ def run_tool_calling_llm(llm, request_params):
                 # Yield the delta
                 if code_delta:
                     yield {
+                        "role": "assistant",
                         "type": "code",
                         "format": language,
                         "content": code_delta,
@@ -362,6 +363,7 @@ def run_tool_calling_llm(llm, request_params):
                         # Yield the delta
                         if code_delta:
                             yield {
+                                "role": "assistant",
                                 "type": "code",
                                 "format": language,
                                 "content": code_delta,
@@ -417,17 +419,17 @@ def run_tool_calling_llm(llm, request_params):
 
             # Yield reasoning as a message with block quote formatting
             formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
-            yield {"type": "message", "content": formatted_reasoning + "\n\n"}
+            yield {"role": "assistant", "type": "message", "content": formatted_reasoning + "\n\n"}
 
     # 2. CONTENT: Yield accumulated_review or regular content
     if accumulated_review and review_category == None:
         if accumulated_review.strip():
-            yield {"type": "message", "content": accumulated_review}
+            yield {"role": "assistant", "type": "message", "content": accumulated_review}
     elif "content" in accumulated_deltas and accumulated_deltas["content"]:
         content = accumulated_deltas["content"]
         if not accumulated_deltas.get("function_call") and not accumulated_deltas.get("tool_calls"):
             if content.strip() and not content_yielded_during_streaming:
-                yield {"type": "message", "content": content}
+                yield {"role": "assistant", "type": "message", "content": content}
 
     # 3. Finally, process and yield code blocks (function_call/tool_calls)
     tool_call_id_for_error = None  # Store tool_call_id in case we need to yield error as tool response
@@ -523,6 +525,7 @@ def run_tool_calling_llm(llm, request_params):
                         # Yield the full code (since we converted after stream, code variable is empty)
                         if code_value:
                             yield {
+                                "role": "assistant",
                                 "type": "code",
                                 "format": language,
                                 "content": code_value,
@@ -579,6 +582,7 @@ def run_tool_calling_llm(llm, request_params):
                             print(f"[ERROR] tool_call_id_for_error value: {repr(tool_call_id_for_error)}", flush=True)
                         # Still yield as assistant message so user sees the error
                         yield {
+                            "role": "assistant",
                             "type": "message",
                             "content": f"**Error:** {error_msg}"
                         }
@@ -607,7 +611,7 @@ def run_tool_calling_llm(llm, request_params):
             )
 
             # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
-            # The UI displays this tool response, so we do not also yield an assistant message (that caused duplicate output).
+            # Any assistant message content the model sent before this tool call is already yielded above with role "assistant".
             if tool_call_id_for_error:
                 yield {
                     "role": "tool",
