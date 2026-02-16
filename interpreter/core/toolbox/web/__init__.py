@@ -1,2 +1,4 @@
-from .web import Web
+from .web import Web, WebToolboxError
+
+__all__ = ["Web", "WebToolboxError"]
 
