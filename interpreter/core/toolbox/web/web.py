@@ -589,6 +589,49 @@ class Web:
             return False
         return bool(os.getenv(key_name))
 
+    def _build_no_backends_error(self, backends_to_try, failed_results, backend_to_package, backend_to_key, kind):
+        """
+        Build error dict when no backends succeeded. Message is per-backend: each backend
+        gets the correct reason (API key not set, package not installed, or request failed
+        e.g. no credits) so the user knows what to fix for each.
+        """
+        failed_by_backend = {b: r for b, r in failed_results}
+        reasons = []
+        alt_install = []
+        alt_keys = []
+        has_request_fail = False
+        for b in backends_to_try:
+            if not self._check_backend_available(b):
+                key_name = backend_to_key.get(b, b.upper() + "_API_KEY")
+                reasons.append((b, f"API key not set (set {key_name})"))
+                alt_keys.append(key_name)
+            elif b in failed_by_backend:
+                r = failed_by_backend[b]
+                err = r.get("error", "")
+                if "not installed" in err:
+                    pkg = backend_to_package.get(b, b)
+                    reasons.append((b, f"package not installed (pip install {pkg})"))
+                    alt_install.append(pkg)
+                else:
+                    reasons.append((b, "request failed (e.g. no credits, network error)"))
+                    has_request_fail = True
+            else:
+                reasons.append((b, "unavailable"))
+        kind_label = f"{kind} " if kind else ""
+        message = f"No {kind_label}backends are available. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
+        alt_parts = []
+        if alt_install:
+            alt_parts.append(f"pip install {' '.join(alt_install)}")
+        if alt_keys:
+            alt_parts.append(f"Set {' or '.join(alt_keys)} environment variable(s)")
+        if has_request_fail:
+            alt_parts.append("Check API key, credits, and network; try again or use another backend")
+        return {
+            "error": "No available backends",
+            "message": message,
+            "alternative": "; ".join(alt_parts) if alt_parts else "Try again or use a different backend"
+        }
+
     def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Search the web for information.
@@ -769,6 +812,7 @@ class Web:
         # Auto-select backend
         # Priority order based on AI agent needs: serper (rich snippets, knowledge panels, structured data, best for AI) > serpapi (comprehensive Google results) > tavily (AI-optimized) > brave (alternative sources, fewer snippets) > linkup
         backends_to_try = ["serper", "serpapi", "tavily", "brave", "linkup"]
+        failed_results = []
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -781,13 +825,13 @@ class Web:
                 result["backend"] = used_backend
                 self._print_search_result(query, result, used_backend)
                 return result
+            failed_results.append((backend_name, result))
 
-        # All backends failed or unavailable
-        error_result = {
-            "error": "No available backends",
-            "message": "No search backends are available. Set one of: BRAVE_API_KEY, TAVILY_API_KEY, LINKUP_API_KEY, SERPAPI_API_KEY, or SERPER_API_KEY.",
-            "alternative": "Get API keys at: https://brave.com/search/api/, https://tavily.com/, https://linkup.so/, https://serpapi.com/, or https://serper.dev/"
-        }
+        search_backend_to_package = {"serper": "google-search-results (serper)", "serpapi": "google-search-results", "tavily": "tavily-python", "brave": "brave-search-sdk", "linkup": "linkup-sdk"}
+        search_backend_to_key = {"serper": "SERPER_API_KEY", "serpapi": "SERPAPI_API_KEY", "tavily": "TAVILY_API_KEY", "brave": "BRAVE_API_KEY", "linkup": "LINKUP_API_KEY"}
+        error_result = self._build_no_backends_error(
+            backends_to_try, failed_results, search_backend_to_package, search_backend_to_key, kind="search"
+        )
         print(f"❌ {error_result['error']}")
         print(f"   {error_result['message']}")
         return error_result
@@ -1039,6 +1083,7 @@ class Web:
             "linkup": self._answer_linkup,
             "tavily": self._answer_tavily
         }
+        failed_results = []
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -1051,13 +1096,15 @@ class Web:
                 result["backend"] = used_backend
                 self._print_answer_result(question, result, used_backend)
                 return result
+            failed_results.append((backend_name, result))
 
-        # All backends failed or unavailable
-        error_result = {
-            "error": "No available backends",
-            "message": "No answer backends are available. Set TAVILY_API_KEY or LINKUP_API_KEY environment variable.",
-            "alternative": "Install required packages: pip install tavily-python linkup-sdk"
-        }
+        error_result = self._build_no_backends_error(
+            backends_to_try,
+            failed_results,
+            backend_to_package={"linkup": "linkup-sdk", "tavily": "tavily-python"},
+            backend_to_key={"linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"},
+            kind="answer"
+        )
         print(f"❌ {error_result['error']}")
         print(f"   {error_result['message']}")
         return error_result
@@ -1412,6 +1459,7 @@ class Web:
         # Auto-select backend
         # Priority order based on quality/reliability: serper (best overall - handles static/dynamic/redirects/paywalls well) > linkup (good but fails on 404s, truncates paywalls) > tavily (most error-prone)
         backends_to_try = ["serper", "linkup", "tavily"]
+        failed_results = []
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
@@ -1434,13 +1482,13 @@ class Web:
                 result["backend"] = used_backend
                 self._print_fetch_result(url, result, used_backend)
                 return result
+            failed_results.append((backend_name, result))
 
-        # All backends failed or unavailable
-        error_result = {
-            "error": "No available backends",
-            "message": "No fetch backends are available. Set SERPER_API_KEY, LINKUP_API_KEY, or TAVILY_API_KEY environment variable.",
-            "alternative": "Get API keys at: https://serper.dev/, https://linkup.so/, or https://tavily.com/"
-        }
+        fetch_backend_to_package = {"serper": "requests (built-in)", "linkup": "linkup-sdk", "tavily": "tavily-python"}
+        fetch_backend_to_key = {"serper": "SERPER_API_KEY", "linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"}
+        error_result = self._build_no_backends_error(
+            backends_to_try, failed_results, fetch_backend_to_package, fetch_backend_to_key, kind="fetch"
+        )
         print(f"❌ {error_result['error']}")
         print(f"   {error_result['message']}")
         return error_result
