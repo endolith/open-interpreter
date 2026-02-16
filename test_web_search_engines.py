@@ -18,6 +18,7 @@ Note: You need API keys for the backends you want to test:
 import sys
 from unittest.mock import Mock
 from interpreter.core.toolbox.toolbox import Toolbox
+from interpreter.core.toolbox.web.web import WebToolboxError
 
 
 def test_serpapi_engines():
@@ -46,7 +47,10 @@ def test_serpapi_engines():
         print(f"Query: '{query}', Engine: '{engine}'")
         print(f"{'-'*80}")
 
-        result = toolbox.web.search(query, backend="serpapi", engine=engine, num=3)
+        try:
+            result = toolbox.web.search(query, backend="serpapi", engine=engine, num=3)
+        except WebToolboxError as e:
+            result = {"error": str(e)}
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -81,7 +85,10 @@ def test_serper_types():
         print(f"Query: '{query}', Type: '{search_type}'")
         print(f"{'-'*80}")
 
-        result = toolbox.web.search(query, backend="serper", type=search_type, num=3)
+        try:
+            result = toolbox.web.search(query, backend="serper", type=search_type, num=3)
+        except WebToolboxError as e:
+            result = {"error": str(e)}
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -114,7 +121,10 @@ def test_brave_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = toolbox.web.search(query, backend="brave", **options)
+        try:
+            result = toolbox.web.search(query, backend="brave", **options)
+        except WebToolboxError as e:
+            result = {"error": str(e)}
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -147,7 +157,10 @@ def test_tavily_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = toolbox.web.search(query, backend="tavily", **options)
+        try:
+            result = toolbox.web.search(query, backend="tavily", **options)
+        except WebToolboxError as e:
+            result = {"error": str(e)}
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -179,7 +192,10 @@ def test_linkup_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = toolbox.web.search(query, backend="linkup", **options)
+        try:
+            result = toolbox.web.search(query, backend="linkup", **options)
+        except WebToolboxError as e:
+            result = {"error": str(e)}
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")

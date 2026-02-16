@@ -20,6 +20,7 @@ import sys
 from unittest.mock import Mock
 
 from interpreter.core.toolbox.toolbox import Toolbox
+from interpreter.core.toolbox.web.web import WebToolboxError
 
 
 def main():
@@ -60,11 +61,12 @@ def main():
         print(f"Testing backend: {backend_name}")
         print("="*60)
 
-        # Call the method - it will print its own output
-        result = toolbox.web.search(query, backend=backend_name)
+        try:
+            result = toolbox.web.search(query, backend=backend_name)
+        except WebToolboxError as e:
+            result = {"error": str(e)}
         results[backend_name] = result
 
-        # Show the raw return value
         print("\n" + "-"*60)
         print("Returned object:")
         print("-"*60)
