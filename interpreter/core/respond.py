@@ -548,6 +548,15 @@ def respond(interpreter):
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
 
+            # If the last message is a tool response (e.g. unsupported function call error), continue the loop
+            # so the LLM gets another turn with the error in context and can retry (e.g. with execute + Python code).
+            if (
+                interpreter.messages
+                and interpreter.messages[-1].get("role") == "tool"
+                and "Unsupported function call" in interpreter.messages[-1].get("content", "")
+            ):
+                continue
+
             loop_message = interpreter.loop_message
             if interpreter.os:
                 loop_message = loop_message.replace(
