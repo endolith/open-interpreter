@@ -189,10 +189,25 @@ class Files:
 
     def search(self, *args, **kwargs):
         """
-        Search the filesystem for the given query.
+        Semantic search over files in a directory or a list of file paths.
+        Forwards to the 'aifs' package: chunks and embeds file contents, then
+        returns the text chunks that best match the query (by embedding similarity).
+        First run indexes the path and can be slow; later runs reuse the index.
+
+        Requires the 'aifs' package (`pip install aifs`). If aifs is not installed,
+        this method raises AttributeError when called. All arguments are passed
+        through to aifs.search(); see the aifs package for the current API (e.g.
+        path, file_paths, max_results, verbose, python_docstrings_only).
+
+        Args:
+            query (str): Natural-language or keyword search query.
+            *args, **kwargs: Passed through to aifs.search().
 
         Returns:
-            list: File paths.
+            list: Matching text chunks (strings), ordered by relevance (per aifs).
+
+        Example:
+            >>> toolbox.files.search("where is the login logic", path="src")
         """
         return aifs.search(*args, **kwargs)
 
