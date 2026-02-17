@@ -189,10 +189,11 @@ class Files:
 
     def search(self, *args, **kwargs):
         """
-        Semantic search over files in a directory or a list of file paths.
-        Forwards to the 'aifs' package: chunks and embeds file contents, then
-        returns the text chunks that best match the query (by embedding similarity).
-        First run indexes the path and can be slow; later runs reuse the index.
+        Semantic search over file contents: pass query and optionally path; requires aifs library.
+
+        Forwards to the 'aifs' package: chunks and embeds file contents, then returns
+        the text chunks that best match the query (by embedding similarity). First run
+        indexes the path and can be slow; later runs reuse the index.
 
         Requires the 'aifs' package (`pip install aifs`). If aifs is not installed,
         this method raises AttributeError when called. All arguments are passed
