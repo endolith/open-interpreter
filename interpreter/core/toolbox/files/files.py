@@ -196,9 +196,12 @@ class Files:
         indexes the path and can be slow; later runs reuse the index.
 
         Requires the 'aifs' package (`pip install aifs`). If aifs is not installed,
-        this method raises AttributeError when called. All arguments are passed
-        through to aifs.search(); see the aifs package for the current API (e.g.
-        path, file_paths, max_results, verbose, python_docstrings_only).
+        this method raises ImportError with install instructions. Install implications:
+        aifs uses chroma and a local embedding model (download on first use). For
+        parsing PDF, Office, images, etc., the aifs README recommends
+        `pip install "unstructured[all-docs]"` (includes large packages). All
+        arguments are passed through to aifs.search(); see the aifs package for the
+        current API (e.g. path, file_paths, max_results, verbose, python_docstrings_only).
 
         Args:
             query (str): Natural-language or keyword search query.
@@ -210,6 +213,12 @@ class Files:
         Example:
             >>> toolbox.files.search("where is the login logic", path="src")
         """
+        if aifs is None:
+            raise ImportError(
+                "Semantic file search requires the 'aifs' package. Install with: pip install aifs\n"
+                "Note: aifs uses chroma and downloads an embedding model on first use. For PDF/Office/images, "
+                "see https://github.com/openinterpreter/aifs — optional pip install \"unstructured[all-docs]\" (large)."
+            )
         return aifs.search(*args, **kwargs)
 
     def edit(self, path, original_text, replacement_text):
