@@ -7,6 +7,7 @@ from ..utils.run_applescript import run_applescript, run_applescript_capture
 
 
 class Mail:
+    """macOS only. Mail app integration via AppleScript."""
     def __init__(self, toolbox):
         self.toolbox = toolbox
         # In the future, we should allow someone to specify their own mail app

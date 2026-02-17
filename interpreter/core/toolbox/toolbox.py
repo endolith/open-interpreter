@@ -1,5 +1,6 @@
 import inspect
 import json
+import platform
 
 from .ai.ai import Ai
 from .ai2 import Ai2
@@ -62,6 +63,9 @@ class Toolbox:
         toolbox_tools = "\n".join(
             self._get_all_toolbox_tools_signature_and_description()
         )
+        mac_only_note = ""
+        if platform.system() != "Darwin":
+            mac_only_note = "\n\nNote: `toolbox.mail`, `toolbox.sms`, `toolbox.calendar`, and `toolbox.contacts` are macOS-only and cannot be used on this system.\n"
 
         self.system_message = f"""
 
@@ -72,7 +76,7 @@ A `toolbox` object is ALREADY AVAILABLE in your execution environment, and can b
 ```python
 {toolbox_tools}
 ```
-
+{mac_only_note}
 Do NOT `import toolbox`, or try to import any of its sub-modules. The `toolbox` object is already available as a variable in your namespace.
 
 Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
@@ -98,15 +102,11 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
         self.interpreter.terminal.languages = value
 
     def _get_all_toolbox_tools_list(self):
-        return [
+        tools = [
             self.mouse,
             self.keyboard,
             self.display,
             self.clipboard,
-            self.mail,
-            self.sms,
-            self.calendar,
-            self.contacts,
             self.browser,
             self.os,
             self.web,
@@ -117,6 +117,11 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
             self.ai2,
             self.files,
         ]
+        if platform.system() == "Darwin":
+            tools = (
+                tools[:4] + [self.mail, self.sms, self.calendar, self.contacts] + tools[4:]
+            )
+        return tools
 
     def _get_all_toolbox_tools_signature_and_description(self):
         """

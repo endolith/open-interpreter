@@ -4,6 +4,7 @@ from ..utils.run_applescript import run_applescript_capture
 
 
 class Contacts:
+    """macOS only. Contacts app integration via AppleScript."""
     def __init__(self, toolbox):
         self.toolbox = toolbox
 

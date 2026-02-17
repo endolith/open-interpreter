@@ -21,6 +21,7 @@ end makeDate
 """
 
 class Calendar:
+    """macOS only. Calendar app integration via AppleScript."""
     def __init__(self, toolbox):
         self.toolbox = toolbox
         # In the future, we might consider a way to use a different calendar app. For now its Calendar
