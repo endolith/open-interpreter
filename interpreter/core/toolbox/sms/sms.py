@@ -8,6 +8,7 @@ import time
 
 
 class SMS:
+    """macOS only. SMS/iMessage via AppleScript and Messages database."""
     def __init__(self, toolbox):
         self.toolbox = toolbox
         if sys.platform.lower() == "darwin":  # Only if macOS
