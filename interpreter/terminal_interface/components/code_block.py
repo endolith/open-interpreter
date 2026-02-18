@@ -1,5 +1,6 @@
 from rich.box import MINIMAL
 from rich.console import Group
+from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -80,11 +81,12 @@ class CodeBlock(BaseBlock):
         # Create a panel for the code
         code_panel = Panel(code_table, box=MINIMAL, style="on #272722")
 
-        # Create a panel for the output (if there is any)
+        # Create a panel for the output (if there is any).
+        # Escape so Rich does not interpret [brackets] as markup (e.g. filenames like "file [note].txt").
         if self.output == "" or self.output == "None":
             output_panel = ""
         else:
-            output_panel = Panel(self.output, box=MINIMAL, style="#FFFFFF on #3b3b37")
+            output_panel = Panel(escape(self.output), box=MINIMAL, style="#FFFFFF on #3b3b37")
 
         # Create a group with the code table and output panel
         group_items = [code_panel, output_panel]
