@@ -8,7 +8,7 @@ tool_schema = {
     "type": "function",
     "function": {
         "name": "execute",
-        "description": "Executes code on the user's machine **in the users local environment** and returns the output",
+        "description": "Executes code on the user's machine **in the user's local environment** and returns the output",
         "parameters": {
             "type": "object",
             "properties": {
