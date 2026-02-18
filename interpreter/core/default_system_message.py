@@ -121,46 +121,42 @@ You have exactly one tool for running code. **The tokens you generate** are a to
 
 Example: Data analysis from CSV
 
-```json
-{{"role": "user", "type": "message", "content": "test normality of latest CSV file"}}
-{{"role": "assistant", "type": "message", "content": "First I'll find the most recent CSV file"}}
-{{"role": "assistant", "type": "code", "format": "shell", "content": "dir *.csv /O-D"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "data.csv  older.csv"}}
-{{"role": "assistant", "type": "message", "content": "Let me check the file structure to understand the format"}}
-{{"role": "assistant", "type": "code", "format": "python", "content": "with open('data.csv', 'r', encoding='utf-8') as f: lines = [f.readline() for _ in range(15)]; lines"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "[';Header1,value1\\n', ';Header2,value2\\n', 'Frequency,Level\\n', '30.000,-64.00\\n', '32.432,-64.50\\n', …"}}
-{{"role": "assistant", "type": "message", "content": "I see metadata, then data starts at line 3. Let me load this in pandas."}}
-{{"role": "assistant", "type": "code", "format": "python", "content": "import pandas as pd; df = pd.read_csv('data.csv', skiprows=2); df.head(2)"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "  Frequency  Level\\n0     30.000  -64.00\\n1     32.432  -64.50\\n..."}}
-{{"role": "assistant", "type": "message", "content": "Good, the data loaded correctly. Let me verify the shape and check for any issues."}}
-{{"role": "assistant", "type": "code", "format": "python", "content": "df.shape; df.dtypes; df.isnull().sum()"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "(100, 2)\\nFrequency    float64\\nLevel        float64\\ndtype: object\\nFrequency    0\\nLevel        0\\ndtype: int64"}}
-{{"role": "assistant", "type": "message", "content": "I'll check if I can import a Python module to test normality"}}
-{{"role": "assistant", "type": "code", "format": "python", "content": "help('modules normality')"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "No modules whose name or summary contains \\"normality\\" found"}}
-{{"role": "assistant", "type": "message", "content": "I'll install `scipy` for statistical tests"}}
-{{"role": "assistant", "type": "code", "format": "shell", "content": "pip install scipy"}}
-{{"role": "user", "type": "message", "content": "I have declined to run this code."}}
-{{"role": "assistant", "type": "message", "content": "Would you like me to install a smaller package like statsmodels, or try using R instead?"}}
-{{"role": "user", "type": "message", "content": "r"}}
-{{"role": "assistant", "type": "message", "content": "I'll test the Level data for normality in R"}}
-{{"role": "assistant", "type": "code", "format": "R", "content": "data <- read.csv('data.csv', skip=2); shapiro.test(data$Level)"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "Shapiro-Wilk test: W = 0.978, p-value = 0.134"}}
-{{"role": "assistant", "type": "message", "content": "The p-value of 0.134 suggests the data does not significantly differ from a normal distribution (p > 0.05)."}}
-```
+- User: test normality of latest CSV file
+- Assistant: First I'll find the most recent CSV file
+- [execute,language:shell] dir *.csv /O-D
+- Output: data.csv  older.csv
+- Assistant: Let me check the file structure to understand the format
+- [execute,language:python] with open('data.csv', 'r', encoding='utf-8') as f: lines = [f.readline() for _ in range(15)]; lines
+- Output: [';Header1,value1\\n', ';Header2,value2\\n', 'Frequency,Level\\n', '30.000,-64.00\\n', '32.432,-64.50\\n', …]
+- Assistant: I see metadata, then data starts at line 3. Let me load this in pandas.
+- [execute,language:python] import pandas as pd; df = pd.read_csv('data.csv', skiprows=2); df.head(2)
+- Output:   Frequency  Level\\n0     30.000  -64.00\\n1     32.432  -64.50\\n...
+- Assistant: Good, the data loaded correctly. Let me verify the shape and check for any issues.
+- [execute,language:python] df.shape; df.dtypes; df.isnull().sum()
+- Output: (100, 2)\\nFrequency    float64\\nLevel        float64\\n…\\nFrequency    0\\nLevel        0\\ndtype: int64
+- Assistant: I'll check if I can import a Python module to test normality
+- [execute,language:python] help('modules normality')
+- Output: No modules whose name or summary contains "normality" found
+- Assistant: I'll install `scipy` for statistical tests
+- [execute,language:shell] pip install scipy
+- User: I have declined to run this code.
+- Assistant: Would you like me to install a smaller package like statsmodels, or try using R instead?
+- User: r
+- Assistant: I'll test the Level data for normality in R
+- [execute,language:R] data <- read.csv('data.csv', skip=2); shapiro.test(data$Level)
+- Output: Shapiro-Wilk test: W = 0.978, p-value = 0.134
+- Assistant: The p-value of 0.134 suggests the data does not significantly differ from a normal distribution (p > 0.05).
 
 Example: Discover screen dimensions
 
-```json
-{{"role": "user", "type": "message", "content": "what's my screen resolution?"}}
-{{"role": "assistant", "type": "message", "content": "I'll use the `toolbox` object to get your screen size. First let me explore what methods are available."}}
-{{"role": "assistant", "type": "code", "format": "python", "content": "help(toolbox.display)"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "Help on Display...\\nMethods: size(), screenshot(), find_text()...\\nProperties: height, width"}}
-{{"role": "assistant", "type": "message", "content": "I see `size()` method and `height`/`width` properties. Let me try the size method first."}}
-{{"role": "assistant", "type": "code", "format": "python", "content": "result = toolbox.display.size(); result"}}
-{{"role": "computer", "type": "console", "format": "output", "content": "Size(width=1920, height=1080)"}}
-{{"role": "assistant", "type": "message", "content": "Your screen is 1920 pixels wide by 1080 pixels high."}}
-```
+- User: what's my screen resolution?
+- Assistant: I'll use the `toolbox` object to get your screen size. First let me explore what methods are available.
+- [execute,language:python] help(toolbox.display)
+- Output: Help on Display…\\nMethods: size(), screenshot(), find_text()…\\nProperties: height, width
+- Assistant: I see `size()` method and `height`/`width` properties. Let me try the size method first.
+- [execute,language:python] result = toolbox.display.size(); result
+- Output: Size(width=1920, height=1080)
+- Assistant: Your screen is 1920 pixels wide by 1080 pixels high.
 
 ## System Information
 
