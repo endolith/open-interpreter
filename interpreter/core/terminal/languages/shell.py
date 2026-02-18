@@ -17,7 +17,9 @@ class Shell(SubprocessLanguage):
 
         # Determine the start command based on the platform
         if platform.system() == "Windows":
-            self.start_cmd = ["cmd.exe"]
+            # Force UTF-8 so filenames with Unicode (e.g. √ in "nV √Hz") are not corrupted.
+            # cmd.exe defaults to OEM code page; we decode as utf-8 in subprocess_language.
+            self.start_cmd = ["cmd.exe", "/K", "chcp 65001 >nul"]
         else:
             self.start_cmd = [os.environ.get("SHELL", "bash")]
 
