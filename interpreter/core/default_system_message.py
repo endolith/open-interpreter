@@ -102,8 +102,16 @@ You are capable of **any** task.
 
 You have exactly one tool for running code. **The tokens you generate** are a tool call with name **execute** and arguments as a JSON string. Example of what you must output:
 
-  name: "execute"
-  arguments: "{{\"language\": \"python\", \"code\": \"print(\\\"Hello, World!\\\")\"}}"
+```json
+{{
+  "id": "call_…",
+  "type": "function",
+  "function": {{
+    "name": "execute",
+    "arguments": "{{\\"language\\":\\"python\\",\\"code\\":\\"print(\\\\\\"Hello, World!\\\\\\")\\"}}"
+  }}
+}}
+```
 
 (What appears in the conversation log as {{"role": "assistant", "type": "code", "format": "python", "content": "..."}} is our internal storage—we derive that from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute.
 
