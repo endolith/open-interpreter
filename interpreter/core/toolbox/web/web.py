@@ -625,7 +625,7 @@ class Web:
                                            Defaults to system locale. Supported by: brave, serpapi, serper.
             **kwargs: Additional backend-specific parameters:
 
-                BRAVE (2000 free/month):
+                BRAVE:
                     - count (int, 1-20): Number of results (default: 10, max: 20)
                     - safesearch (str): "off", "moderate", or "strict" (default: "moderate")
                     - freshness (str): "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year)
@@ -633,7 +633,7 @@ class Web:
                     - spellcheck (bool): Enable spellcheck (default: True)
                     NOTE: Use country_code and language_code parameters (not country/search_lang)
 
-                TAVILY (1000 free/month):
+                TAVILY:
                     - max_results (int): Number of results to return (default: 10)
                     - search_depth (str): "basic" or "advanced" (default: "basic")
                     - include_domains (list): List of domains to include (e.g., ["example.com"])
@@ -643,12 +643,12 @@ class Web:
                     - topic (str): "general" or "news" (default: "general")
                     - days (int): Number of days back to search (for topic="news")
 
-                LINKUP (1000 free/month):
+                LINKUP:
                     - depth (str): "standard" or "deep" (default: "standard")
                     - output_type (str): "searchResults" (default), "sourcedAnswer", or "structured"
                     - structured_output_schema (dict): Schema for structured output mode
 
-                SERPAPI (250 free/month) - supports 80+ search engines:
+                SERPAPI - supports 80+ search engines:
                     - num (int): Number of results (default: 10)
                     - engine (str): Search engine to use (default: "google")
                         Common engines:
@@ -676,7 +676,7 @@ class Web:
                     - tbm (str): Search type - "nws" (news), "isch" (images), "vid" (videos), "shop" (shopping)
                     NOTE: Use country_code and language_code parameters (not gl/hl). Each engine has specific parameters. See https://serpapi.com/ for details.
 
-                SERPER (2500 total, non-renewable) - supports multiple search types:
+                SERPER - supports multiple search types:
                     - num (int): Number of results (default: 10)
                     - type (str): Search type (default: "search")
                         Supported types:
