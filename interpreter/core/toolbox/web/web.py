@@ -986,7 +986,7 @@ class Web:
         the specified one. Backends are tried in order: linkup, tavily.
 
         Args:
-            question (str): The question to answer. Phrase as a question, not search terms.
+            question (str): The question to answer. Phrase as a QUESTION, not a string of search terms.
             backend (str, optional): Force a specific backend ("tavily" or "linkup").
                                      If None, auto-selects based on availability.
             **kwargs: Additional backend-specific parameters:
@@ -999,7 +999,7 @@ class Web:
                 - "sources" (list): List of source dicts with "title", "url", "snippet"
 
         Example:
-            result = toolbox.web.answer("What is machine learning?")
+            result = toolbox.web.answer("What is the latitude of Lilongwe in decimal format?")
             print(result["answer"])
             for source in result["sources"]:
                 print(f"- {source['title']}: {source['url']}")
