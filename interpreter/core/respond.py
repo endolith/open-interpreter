@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import sys
 import time
 import traceback
 
@@ -16,25 +15,24 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from .render_message import render_message
 
 
-def _pending_code_message(messages):
-    """The code message awaiting execution, ignoring trailing reasoning-only chunks.
-
-    Thinking models can emit a final message chunk carrying only reasoning, which
-    lands after the code block. Execution keys off the last meaningful message,
-    not strictly messages[-1], or that reasoning chunk silently stops the code
-    from running.
-    """
-    for message in reversed(messages):
-        if message.get("type") == "code":
-            return message
-        if (
-            message.get("type") == "message"
-            and not (message.get("content") or "").strip()
-            and message.get("reasoning_content")
-        ):
-            continue
-        return None
-    return None
+def _is_temporary_provider_error(error):
+    error_message = str(error).lower()
+    temporary_markers = (
+        "temporarily",
+        "temporary",
+        "retry shortly",
+        "try again later",
+        "rate-limit",
+        "rate limited",
+        "429",
+        "503",
+        "504",
+        "timeout",
+        "timed out",
+        "overloaded",
+        "unavailable",
+    )
+    return any(marker in error_message for marker in temporary_markers)
 
 
 def respond(interpreter):
@@ -45,6 +43,7 @@ def respond(interpreter):
 
     last_unsupported_code = ""
     insert_loop_message = False
+    always_retry_temporary_errors = False
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -142,6 +141,9 @@ def respond(interpreter):
                     litellm.exceptions.RateLimitError,
                     litellm.exceptions.AuthenticationError,
                 )):
+                    is_temporary_error = _is_temporary_provider_error(e)
+                    panel_border_style = "yellow" if is_temporary_error else "red"
+                    panel_title = "Warning" if is_temporary_error else "Error"
                     # Format with Rich Panel with red border for errors
                     # Check if this is an error with JSON structure that can be parsed
                     if "{" in error_str and "}" in error_str:
@@ -184,8 +186,8 @@ def respond(interpreter):
                             formatted_error = "\n".join(lines)
                             panel = Panel(
                                 formatted_error,
-                                border_style="red",
-                                title="Error",
+                                border_style=panel_border_style,
+                                title=panel_title,
                                 title_align="left"
                             )
                             # Yield a special chunk to stop Live display before printing error panel
@@ -198,8 +200,8 @@ def respond(interpreter):
                             yield {"type": "stop_live_display"}
                             panel = Panel(
                                 error_str,
-                                border_style="red",
-                                title="Error",
+                                border_style=panel_border_style,
+                                title=panel_title,
                                 title_align="left"
                             )
                             rich_print(panel)
@@ -210,13 +212,46 @@ def respond(interpreter):
                         yield {"type": "stop_live_display"}
                         panel = Panel(
                             error_str,
-                            border_style="red",
-                            title="Error",
+                            border_style=panel_border_style,
+                            title=panel_title,
                             title_align="left"
                         )
                         rich_print(panel)
                         print("")  # Add space after error
-                    sys.exit(1)
+
+                    if is_temporary_error:
+                        # Keep conversation context intact by retrying in-place from this loop.
+                        # This avoids duplicating the user's last message in history.
+                        if always_retry_temporary_errors:
+                            interpreter.display_message(
+                                "> Temporary provider error detected. Retrying your last message..."
+                            )
+                            time.sleep(2)
+                            continue
+
+                        retry_choice = input(
+                            "  This looks temporary (for example: upstream rate-limit/overload).\n"
+                            "  Retry your last message? (y = retry once, a = keep retrying, n = stop)\n\n  "
+                        ).strip().lower()
+                        print("")
+
+                        if retry_choice == "a":
+                            always_retry_temporary_errors = True
+                            interpreter.display_message(
+                                "> Temporary provider error detected. Retrying your last message..."
+                            )
+                            time.sleep(2)
+                            continue
+                        if retry_choice == "y":
+                            interpreter.display_message(
+                                "> Retrying your last message..."
+                            )
+                            time.sleep(2)
+                            continue
+
+                        break
+
+                    raise
 
                 if (
                     interpreter.offline == False
