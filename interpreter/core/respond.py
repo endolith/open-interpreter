@@ -527,6 +527,7 @@ def respond(interpreter):
 
                 # yield final "active_line" message, as if to say, no more code is running. unhighlight active lines
                 # (is this a good idea? is this our responsibility? i think so — we're saying what line of code is running! ...?)
+                # Always yield end-of-execution signal so core can add empty output when needed.
                 yield {
                     "role": "computer",
                     "type": "console",

@@ -45,6 +45,10 @@ except:
 
 
 def terminal_interface(interpreter, message):
+    # TEMP: Disable active-line instrumentation/highlighting globally while
+    # investigating streaming markdown rendering issues.
+    os.environ["INTERPRETER_ACTIVE_LINE_DETECTION"] = "false"
+
     # Auto run and offline (this.. this isn't right) don't display messages.
     # Probably worth abstracting this to something like "debug_cli" at some point.
     # If (len(interpreter.messages) == 1), they probably used the advanced "i {command}" entry, so no message should be displayed.
