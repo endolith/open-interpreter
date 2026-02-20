@@ -252,7 +252,9 @@ def respond(interpreter):
 
                         break
 
-                    raise
+                    # Preserve the previous behavior for non-temporary API errors:
+                    # show a clean error panel and exit without a Python traceback.
+                    raise SystemExit(1)
 
                 if (
                     interpreter.offline == False
