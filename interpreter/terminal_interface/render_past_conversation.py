@@ -2,22 +2,20 @@
 This is all messed up.... Uses the old streaming structure.
 """
 
-
-from .components.code_block import CodeBlock
+from rich import print as rich_print
+from rich.markdown import Markdown
 from .utils.display_markdown_message import display_markdown_message
 
 
 def _render_code_block(code, output, language):
-    block = CodeBlock()
-    block.language = language or "text"
-    block.code = code or ""
-    block.output = (output or "").strip()
-    block.refresh(cursor=False)
-    block.end()
+    language = language or "text"
+    rich_print(Markdown(f"```{language}\n{code or ''}\n```"))
+    if (output or "").strip():
+        rich_print(Markdown(f"```text\n{output.strip()}\n```"))
 
 
 def render_past_conversation(messages):
-    # History replay should not use incremental streaming behavior.
+    # History replay should not use incremental/live block rendering.
     # Messages in saved conversations are already complete.
     pending_code = None
     pending_output = ""
