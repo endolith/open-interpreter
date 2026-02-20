@@ -19,11 +19,19 @@ def render_past_conversation(messages):
     # Messages in saved conversations are already complete.
     pending_code = None
     pending_output = ""
+    has_rendered_message = False
+
+    def render_separator():
+        nonlocal has_rendered_message
+        if has_rendered_message:
+            print("")
+        has_rendered_message = True
 
     def flush_pending_code():
         nonlocal pending_code, pending_output
         if pending_code is None:
             return
+        render_separator()
         _render_code_block(
             pending_code.get("content", ""),
             pending_output,
@@ -40,12 +48,14 @@ def render_past_conversation(messages):
         if role == "user":
             flush_pending_code()
             if isinstance(content, str):
+                render_separator()
                 print(">", content)
             continue
 
         if role == "assistant" and chunk_type == "message":
             flush_pending_code()
             if isinstance(content, str) and content.strip():
+                render_separator()
                 display_markdown_message(content)
             continue
 
