@@ -223,9 +223,8 @@ def respond(interpreter):
                     # from flaky upstream providers like AtlasCloud), so always
                     # offer retry. The yellow/red panel is just a visual cue.
                     if always_retry_provider_errors:
-                        interpreter.display_message(
-                            "> Provider error. Retrying..."
-                        )
+                        print("")
+                        interpreter.display_message("> Retrying...")
                         time.sleep(2)
                         continue
 
