@@ -43,7 +43,7 @@ def respond(interpreter):
 
     last_unsupported_code = ""
     insert_loop_message = False
-    always_retry_temporary_errors = False
+    always_retry_provider_errors = False
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -220,41 +220,32 @@ def respond(interpreter):
                         rich_print(panel)
                         print("")  # Add space after error
 
-                    if is_temporary_error:
-                        # Keep conversation context intact by retrying in-place from this loop.
-                        # This avoids duplicating the user's last message in history.
-                        if always_retry_temporary_errors:
-                            interpreter.display_message(
-                                "> Temporary provider error detected. Retrying your last message..."
-                            )
-                            time.sleep(2)
-                            continue
+                    # All provider API errors are potentially transient (even 400s
+                    # from flaky upstream providers like AtlasCloud), so always
+                    # offer retry. The yellow/red panel is just a visual cue.
+                    if always_retry_provider_errors:
+                        interpreter.display_message(
+                            "> Provider error. Retrying..."
+                        )
+                        time.sleep(2)
+                        continue
 
-                        retry_choice = input(
-                            "  This looks temporary (for example: upstream rate-limit/overload).\n"
-                            "  Retry your last message? (y = retry once, a = keep retrying, n = stop)\n\n  "
-                        ).strip().lower()
-                        print("")
+                    retry_choice = input(
+                        "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  "
+                    ).strip().lower()
+                    print("")
 
-                        if retry_choice == "a":
-                            always_retry_temporary_errors = True
-                            interpreter.display_message(
-                                "> Temporary provider error detected. Retrying your last message..."
-                            )
-                            time.sleep(2)
-                            continue
-                        if retry_choice == "y":
-                            interpreter.display_message(
-                                "> Retrying your last message..."
-                            )
-                            time.sleep(2)
-                            continue
+                    if retry_choice == "a":
+                        always_retry_provider_errors = True
+                        interpreter.display_message("> Retrying...")
+                        time.sleep(2)
+                        continue
+                    if retry_choice == "y":
+                        interpreter.display_message("> Retrying...")
+                        time.sleep(2)
+                        continue
 
-                        break
-
-                    # Preserve the previous behavior for non-temporary API errors:
-                    # show a clean error panel and exit without a Python traceback.
-                    raise SystemExit(1)
+                    break
 
                 if (
                     interpreter.offline == False
