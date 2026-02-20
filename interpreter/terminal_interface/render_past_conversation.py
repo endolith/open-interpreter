@@ -4,95 +4,64 @@ This is all messed up.... Uses the old streaming structure.
 
 
 from .components.code_block import CodeBlock
-from .components.message_block import MessageBlock
 from .utils.display_markdown_message import display_markdown_message
 
 
-def render_past_conversation(messages):
-    # This is a clone of the terminal interface.
-    # So we should probably find a way to deduplicate...
+def _render_code_block(code, output, language):
+    block = CodeBlock()
+    block.language = language or "text"
+    block.code = code or ""
+    block.output = (output or "").strip()
+    block.refresh(cursor=False)
+    block.end()
 
-    active_block = None
-    render_cursor = False
-    ran_code_block = False
+
+def render_past_conversation(messages):
+    # History replay should not use incremental streaming behavior.
+    # Messages in saved conversations are already complete.
+    pending_code = None
+    pending_output = ""
+
+    def flush_pending_code():
+        nonlocal pending_code, pending_output
+        if pending_code is None:
+            return
+        _render_code_block(
+            pending_code.get("content", ""),
+            pending_output,
+            pending_code.get("format"),
+        )
+        pending_code = None
+        pending_output = ""
 
     for chunk in messages:
-        # Only addition to the terminal interface:
-        if chunk.get("role") == "user":
-            if active_block:
-                if getattr(active_block, "type", None) == "message" and hasattr(
-                    active_block, "finalize"
-                ):
-                    active_block.finalize()
-                active_block.end()
-                active_block = None
-            content = chunk.get("content", "")
+        role = chunk.get("role")
+        chunk_type = chunk.get("type")
+        content = chunk.get("content", "")
+
+        if role == "user":
+            flush_pending_code()
             if isinstance(content, str):
                 print(">", content)
             continue
 
-        # Message (assistant). MessageBlock displays from .buffer, not .message.
-        if chunk.get("type") == "message":
-            if active_block is None:
-                active_block = MessageBlock()
-            if active_block.type != "message":
-                active_block.end()
-                active_block = MessageBlock()
-            content = chunk.get("content", "")
+        if role == "assistant" and chunk_type == "message":
+            flush_pending_code()
+            if isinstance(content, str) and content.strip():
+                display_markdown_message(content)
+            continue
+
+        if role == "assistant" and chunk_type == "code":
+            flush_pending_code()
+            pending_code = chunk
+            pending_output = ""
+            continue
+
+        if role == "computer" and chunk_type == "console":
+            if chunk.get("format") == "active_line":
+                continue
             if isinstance(content, str):
-                active_block.buffer += content
+                pending_output += "\n" + content
+            continue
 
-        # Code
-        if chunk.get("type") == "code":
-            if active_block is None:
-                active_block = CodeBlock()
-            if active_block.type != "code" or ran_code_block:
-                # If the last block wasn't a code block,
-                # or it was, but we already ran it:
-                if getattr(active_block, "type", None) == "message" and hasattr(
-                    active_block, "finalize"
-                ):
-                    active_block.finalize()
-                active_block.end()
-                active_block = CodeBlock()
-            ran_code_block = False
-            render_cursor = True
-
-            if "format" in chunk:
-                active_block.language = chunk["format"]
-            content = chunk.get("content", "")
-            if isinstance(content, str):
-                active_block.code += content
-            if "active_line" in chunk:
-                active_block.active_line = chunk["active_line"]
-
-        # Console
-        if chunk.get("type") == "console":
-            ran_code_block = True
-            render_cursor = False
-            # Console output should be associated with a code block
-            if active_block is None:
-                active_block = CodeBlock()
-            if active_block.type != "code":
-                if getattr(active_block, "type", None) == "message" and hasattr(
-                    active_block, "finalize"
-                ):
-                    active_block.finalize()
-                active_block.end()
-                active_block = CodeBlock()
-            content = chunk.get("content", "")
-            if isinstance(content, str):
-                active_block.output += "\n" + content
-            active_block.output = active_block.output.strip()  # <- Aesthetic choice
-
-        if active_block:
-            active_block.refresh(cursor=render_cursor)
-
-    # (Sometimes -- like if they CTRL-C quickly -- active_block is still None here)
-    if active_block:
-        if getattr(active_block, "type", None) == "message" and hasattr(
-            active_block, "finalize"
-        ):
-            active_block.finalize()
-        active_block.end()
-        active_block = None
+    flush_pending_code()
