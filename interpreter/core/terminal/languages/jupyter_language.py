@@ -247,7 +247,11 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
 
                 if msg["msg_type"] == "stream":
                     line, active_line = self.detect_active_line(content["text"])
-                    if active_line:
+                    active_line_enabled = (
+                        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
+                        == "true"
+                    )
+                    if active_line and active_line_enabled:
                         message_queue.put(
                             {
                                 "type": "console",

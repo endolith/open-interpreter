@@ -150,15 +150,20 @@ class SubprocessLanguage(BaseLanguage):
 
                 if self.detect_active_line(line):
                     active_line = self.detect_active_line(line)
-                    self.output_queue.put(
-                        {
-                            "type": "console",
-                            "format": "active_line",
-                            "content": active_line,
-                        }
-                    )
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = re.sub(r"##active_line\d+##", "", line)
+                    active_line_enabled = (
+                        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
+                        == "true"
+                    )
+                    if active_line_enabled:
+                        self.output_queue.put(
+                            {
+                                "type": "console",
+                                "format": "active_line",
+                                "content": active_line,
+                            }
+                        )
                     if line:
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
