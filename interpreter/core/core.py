@@ -330,7 +330,13 @@ class OpenInterpreter:
                     print("Open Interpreter stopping.")
                     break
 
-                if chunk.get("content") == "":
+                # Skip empty content, except for console output - empty command output is
+                # meaningful (e.g. grep with no matches) and must be added so the LLM
+                # sees that the command ran, preventing it from re-proposing the same code.
+                if chunk.get("content") == "" and not (
+                    chunk.get("type") == "console"
+                    and chunk.get("format") == "output"
+                ):
                     continue
 
                 # If active_line is None, we finished running code.
