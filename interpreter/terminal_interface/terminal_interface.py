@@ -568,6 +568,19 @@ def terminal_interface(interpreter, message):
                     active_block = None
                     time.sleep(0.1)
 
+            # If respond() gave up without producing any assistant reply (e.g.
+            # the user chose "n" at the retry prompt), the triggering user
+            # message is still the last entry in interpreter.messages. That
+            # means the user wants to stop — exit the program.
+            if (
+                interactive
+                and interpreter.messages
+                and interpreter.messages[-1].get("role") == "user"
+            ):
+                interpreter.messages.pop()
+                interpreter.display_message("\n\n`Stopped retrying. Exiting...`")
+                break
+
             if not interactive:
                 # Don't loop
                 break

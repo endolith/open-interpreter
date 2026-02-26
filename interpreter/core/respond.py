@@ -232,6 +232,7 @@ def respond(interpreter):
                     retry_choice = input(
                         "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  "
                     ).strip().lower()
+                    retry_choice = retry_choice[:1] if retry_choice else ""
                     print("")
 
                     if retry_choice == "a":
@@ -244,7 +245,7 @@ def respond(interpreter):
                         time.sleep(2)
                         continue
 
-                    break
+                    return
 
                 if (
                     interpreter.offline == False
