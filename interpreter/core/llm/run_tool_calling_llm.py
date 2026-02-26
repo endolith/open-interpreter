@@ -1,3 +1,4 @@
+import json
 import os
 import re
 
@@ -71,6 +72,10 @@ def process_messages(messages, model=None):
 
             # Convert function_call to tool_calls
             function = message.pop("function_call")
+            # Some providers (e.g. Alibaba via OpenRouter) require function.arguments to be valid JSON string.
+            args = function.get("arguments")
+            if isinstance(args, dict):
+                function = {**function, "arguments": json.dumps(args)}
             message["tool_calls"] = [
                 {"id": tool_id, "type": "function", "function": function}
             ]
@@ -94,7 +99,8 @@ def process_messages(messages, model=None):
             last_tool_id += 1
             tool_id = generate_tool_id(last_tool_id, model)
 
-            # Add a tool call before this orphaned tool response
+            # Add a tool call before this orphaned tool response. Providers like Alibaba require
+            # function.arguments to be valid JSON; use execute-shaped payload to avoid API errors.
             processed_messages.append(
                 {
                     "role": "assistant",
@@ -104,7 +110,10 @@ def process_messages(messages, model=None):
                             "type": "function",
                             "function": {
                                 "name": "execute",
-                                "arguments": "# Automated tool call to fetch more output, triggered by the user.",
+                                "arguments": json.dumps({
+                                    "language": "python",
+                                    "code": "# Automated tool call to fetch more output, triggered by the user.",
+                                }),
                             },
                         }
                     ],
@@ -376,7 +385,6 @@ def run_tool_calling_llm(llm, request_params):
     # Don't try to parse incomplete tool_calls during streaming
 
     # Debug: Always check what we have after stream
-    import json
     has_tool_calls = "tool_calls" in accumulated_deltas and accumulated_deltas["tool_calls"]
     has_function_call = bool(accumulated_deltas.get("function_call"))
     has_content = "content" in accumulated_deltas and accumulated_deltas.get("content")
