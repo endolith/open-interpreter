@@ -579,7 +579,7 @@ def terminal_interface(interpreter, message):
             ):
                 interpreter.messages.pop()
                 interpreter.display_message("\n\n`Stopped retrying. Exiting...`")
-                break
+                raise SystemExit(1)
 
             if not interactive:
                 # Don't loop
