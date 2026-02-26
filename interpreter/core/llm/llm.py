@@ -502,12 +502,12 @@ def fixed_litellm_completions(**params):
     params["model"] = params["model"].replace(":latest", "")
 
     # Run completion
-    attempts = 4
-    first_error = None
-
+    # Keep provider retries explicit in respond.py so user choices ("n = stop")
+    # are the single source of truth for retry behavior.
     params["num_retries"] = 0
+    tried_dummy_key = False
 
-    for attempt in range(attempts):
+    while True:
         try:
             yield from litellm.completion(**params)
             return  # If the completion is successful, exit the function
@@ -515,43 +515,35 @@ def fixed_litellm_completions(**params):
             print("Exiting...")
             sys.exit(0)
         except Exception as e:
-            if attempt == 0:
-                # Store the first error
-                first_error = e
-
-            # Check if this is a function calling not supported error
-            # Only check for this if we're actually trying to use function calling (tools parameter present)
+            # Check if this is a function-calling-not-supported error.
+            # Only check for this if we're actually trying to use function calling.
             if "tools" in params:
                 error_message = str(e).lower()
-                if any(phrase in error_message for phrase in [
-                    "no endpoints found that support tool use",
-                    "tool use",
-                    "function calling",
-                    "tool calling"
-                ]):
-                    # This is a function calling not supported error - raise it as a special exception
+                if any(
+                    phrase in error_message
+                    for phrase in [
+                        "no endpoints found that support tool use",
+                        "tool use",
+                        "function calling",
+                        "tool calling",
+                    ]
+                ):
                     raise FunctionCallingNotSupportedError(str(e)) from e
 
-            # Check for other common API errors that should be shown cleanly
-            # Don't convert these errors - let them bubble up to respond.py for proper handling
-            # The existing fallback logic in respond.py handles model access issues
-
+            # LiteLLM sometimes requires an api_key parameter even when the backend
+            # provider ignores it. Retry exactly once with a dummy key, then surface
+            # the error so respond.py's retry prompt controls subsequent retries.
             if (
                 isinstance(e, litellm.exceptions.AuthenticationError)
                 and "api_key" not in params
+                and not tried_dummy_key
             ):
                 print(
                     "LiteLLM requires an API key. Trying again with a dummy API key. In the future, if this fixes it, please set a dummy API key to prevent this message. (e.g `interpreter --api_key x` or `self.api_key = 'x'`)"
                 )
-                # So, let's try one more time with a dummy API key:
                 params["api_key"] = "x"
-            if attempt == 1:
-                # Try turning up the temperature?
-                params["temperature"] = params.get("temperature", 0.0) + 0.1
+                tried_dummy_key = True
+                continue
 
-    if first_error is not None:
-        # Handle OpenRouter errors and extract clean error message
-        error_str = str(first_error)
-        # All API errors are re-raised to be caught by respond.py for display in a panel
-
-        raise first_error  # If all attempts fail, raise the first error
+            # Bubble up all provider errors to respond.py for user-facing handling.
+            raise
