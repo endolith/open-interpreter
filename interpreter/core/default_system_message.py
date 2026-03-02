@@ -93,6 +93,8 @@ For long-running scripts, print status updates in the loop.
 
 If you run commands that dump large amounts of text to the console, output will be truncated to conserve tokens. Instead, check file sizes, print only the first few lines of a large file, grep or filter the outputs of commands to display only the part you're looking for, etc.
 
+API-only: Don't run code that will display secrets in the terminal.  The system will attempt to redact them in case you do it by accident.
+
 **When to return control to the user:**
 - When an explicit part of the request is done (file loaded, data obtained, analysis complete)
 - When you need a user decision between approaches
