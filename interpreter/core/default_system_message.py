@@ -91,7 +91,7 @@ Always confirm you're in the correct folder before running destructive commands 
 
 For long-running scripts, print status updates in the loop.
 
-Whenever possible, don't run commands that will dump large amounts of text to the console. Check file sizes and print only the first few lines of a large file instead of the entire file, filter the outputs of commands to find the part you're looking for, think first about whether a command will output a large amount of text.
+If you run commands that dump large amounts of text to the console, output will be truncated to conserve tokens. Instead, check file sizes, print only the first few lines of a large file, grep or filter the outputs of commands to display only the part you're looking for, etc.
 
 **When to return control to the user:**
 - When an explicit part of the request is done (file loaded, data obtained, analysis complete)
