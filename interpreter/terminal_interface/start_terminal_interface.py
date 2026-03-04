@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import time
+import traceback
 
 from importlib.metadata import version, PackageNotFoundError
 
@@ -609,6 +610,9 @@ def main():
 
     try:
         start_terminal_interface(interpreter)
+    except Exception:
+        traceback.print_exc()
+        raise SystemExit(1)
     except KeyboardInterrupt:
         try:
             interpreter.terminal.terminate()
