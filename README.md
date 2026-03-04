@@ -362,6 +362,8 @@ You can run `interpreter -y` or set `interpreter.auto_run = True` to bypass this
 - Watch Open Interpreter like a self-driving car, and be prepared to end the process by closing your terminal.
 - Consider running Open Interpreter in a restricted environment like Google Colab or Replit. These environments are more isolated, reducing the risks of executing arbitrary code.
 
+When using a **remote API model**, message text (including code output) is sanitized with [bc-detect-secrets](https://github.com/bridgecrewio/detect-secrets) so API keys and passwords are redacted before being sent to the API. Use `--sanitize_secrets off` to disable, or `--sanitize_secrets on` to enable for local models too. See [All Settings — Sanitize secrets](docs/settings/all-settings.mdx#sanitize-secrets-api-keys-passwords).
+
 There is **experimental** support for a [safe mode](docs/SAFE_MODE.md) to help mitigate some risks.
 
 ## How Does it Work?

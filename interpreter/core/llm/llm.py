@@ -27,6 +27,7 @@ from .run_text_llm import run_text_llm
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.convert_to_openai_messages import convert_to_openai_messages
+from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
 
 
 class FunctionCallingNotSupportedError(Exception):
@@ -89,6 +90,10 @@ class Llm:
         self.api_key = None
         self.api_version = None
         self._is_loaded = False
+
+        # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
+        # "auto" = sanitize for remote models, skip for local (ollama/local/jan). "on"/"off" override.
+        self.sanitize_secrets = "auto"
 
         # Budget manager powered by LiteLLM
         self.max_budget = None
@@ -301,6 +306,9 @@ Continuing...
         if system_message == "":
             if messages[0]["role"] != "system":
                 messages = [{"role": "system", "content": system_message}] + messages
+
+        if should_sanitize_for_model(model, self.sanitize_secrets):
+            sanitize_messages(messages)
 
         ## Start forming the request
 

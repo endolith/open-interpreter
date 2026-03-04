@@ -144,6 +144,14 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter.llm, "attr_name": "api_version"},
         },
         {
+            "name": "sanitize_secrets",
+            "help_text": "redact API keys/passwords from messages sent to the LLM (auto=only for API models, on=always, off=never)",
+            "type": str,
+            "choices": ["auto", "on", "off"],
+            "default": "auto",
+            "attribute": {"object": interpreter.llm, "attr_name": "sanitize_secrets"},
+        },
+        {
             "name": "max_output",
             "nickname": "xo",
             "help_text": "optional maximum number of characters for code outputs",
