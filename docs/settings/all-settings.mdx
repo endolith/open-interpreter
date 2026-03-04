@@ -197,6 +197,35 @@ llm:
 
 </CodeGroup>
 
+### Sanitize secrets (API keys, passwords)
+
+When using a **remote API model**, Open Interpreter runs all message text (including code outputs) through [bc-detect-secrets](https://github.com/bridgecrewio/detect-secrets) to redact API keys, passwords, and other secrets before sending to the API—for example when the model runs `print(os.environ)` or code that echoes credentials. **Local models** (e.g. `ollama/`, `local/`, `jan/`) are not sanitized by default, since the data stays on your machine.
+
+- **`auto`** (default): Sanitize for remote (API) models; skip for local models.
+- **`on`**: Always sanitize (including local).
+- **`off`**: Never sanitize.
+
+This is separate from **Safe Mode** (`safe_mode`), which uses Semgrep to scan generated code for vulnerabilities before you run it. Safe Mode is optional (`pip install open-interpreter[safe]` adds semgrep).
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --sanitize_secrets auto
+interpreter --sanitize_secrets on
+interpreter --sanitize_secrets off
+```
+
+```python Python
+interpreter.llm.sanitize_secrets = "auto"  # or "on" or "off"
+```
+
+```yaml Profile
+llm:
+  sanitize_secrets: auto
+```
+
+</CodeGroup>
+
 ### LLM Supports Functions
 
 Inform Open Interpreter that the language model you're using supports function calling.
