@@ -85,7 +85,8 @@ class MessageBlock(BaseBlock):
 
             # Create sliding window display for the buffer
             formatted_buffer = create_sliding_window_display(
-                self.live.console, self.buffer.split('\n'), viewport_lines, self.debug)
+                self.live.console, self.buffer.split('\n'), viewport_lines, self.debug,
+                base_style="dim cyan" if self.reasoning_mode else None)
 
             # Add cursor if requested
             if cursor and isinstance(formatted_buffer, Text):
@@ -131,19 +132,20 @@ class MessageBlock(BaseBlock):
             try:
                 # De-stylize any code blocks in markdown
                 content = textify_markdown_code_blocks(self.buffer)
-                markdown = Markdown(content.strip())
                 if self.reasoning_mode:
-                    # Distinct style so thinking is visually separate from normal blockquotes
+                    # Text same color as box (dim cyan), markdown formatting preserved
+                    markdown = Markdown(content.strip(), style="dim cyan")
                     panel = Panel(markdown, box=ROUNDED, border_style="dim cyan", title="Thinking")
                     padded_markdown = Padding(panel, (0, 2, 0, 2))
                     self.live.console.print(padded_markdown)
-                elif self.debug:
-                    panel = Panel(markdown, box=ROUNDED, border_style="red")
-                    self.live.console.print(panel)
                 else:
-                    # Print markdown directly with horizontal padding only (2 chars left/right)
-                    padded_markdown = Padding(markdown, (1, 2, 0, 2))
-                    self.live.console.print(padded_markdown)
+                    markdown = Markdown(content.strip())
+                    if self.debug:
+                        panel = Panel(markdown, box=ROUNDED, border_style="red")
+                        self.live.console.print(panel)
+                    else:
+                        padded_markdown = Padding(markdown, (1, 2, 0, 2))
+                        self.live.console.print(padded_markdown)
             except (IndexError, ValueError, TypeError):
                 # Fallback to plain text if markdown parsing fails
                 self.live.console.print(self.buffer)
