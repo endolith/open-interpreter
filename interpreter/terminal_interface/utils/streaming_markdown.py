@@ -75,7 +75,7 @@ def calculate_window_size(console, viewport_fraction):
     return max(1, int(terminal_height * viewport_fraction))
 
 
-def create_sliding_window_display(console, current_lines, viewport_lines, debug=False):
+def create_sliding_window_display(console, current_lines, viewport_lines, debug=False, base_style=None):
     """Create display text with sliding viewport and upper ellipsis when needed.
 
     Args:
@@ -83,6 +83,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
         current_lines: List of all current text lines
         viewport_lines: Maximum number of logical lines to display
         debug: If True, wrap content in a bordered panel to show Live area boundaries
+        base_style: Optional Rich style string to apply to the text (e.g. "dim cyan")
 
     Returns:
         Rich Text, Group, or Panel renderable showing the viewport
@@ -100,6 +101,8 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
     # Get last N lines (or all lines if fewer than N)
     display_lines = logical_lines[-viewport_lines:]
     text = Text('\n'.join(display_lines))
+    if base_style:
+        text.stylize(base_style, 0, len(text))
 
     # Wrap with red ellipsis at top if content was truncated, mimicking
     # the bottom red ellipsis in a rich Live display in `ellipsis` mode.
