@@ -344,9 +344,9 @@ def terminal_interface(interpreter, message):
 
                     if "content" in chunk:
                         if active_block:
-                            if chunk.get("replace"):
+                            if chunk.get("replace") and hasattr(active_block, "replace_content"):
                                 active_block.replace_content(chunk["content"])
-                            else:
+                            elif not chunk.get("replace"):
                                 active_block.add_content(chunk["content"])
 
                     if "end" in chunk and interpreter.os:
