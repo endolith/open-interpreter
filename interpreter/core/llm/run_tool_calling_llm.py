@@ -314,8 +314,7 @@ def run_tool_calling_llm(llm, request_params):
                         if has_reasoning_content and reasoning_streamed and not reasoning_replace_yielded:
                             full_raw = accumulated_deltas.get("reasoning_content") or ""
                             if isinstance(full_raw, str) and full_raw.strip():
-                                formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in full_raw.split("\n"))
-                                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": formatted_reasoning + "\n\n", "replace": True}
+                                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
                             reasoning_replace_yielded = True
                         # No actual tool calls, so this is just regular content. Stream it;
                         # reasoning (if any) was already streamed first by the provider.
@@ -327,8 +326,7 @@ def run_tool_calling_llm(llm, request_params):
                 if has_reasoning_content and reasoning_streamed and not reasoning_replace_yielded:
                     full_raw = accumulated_deltas.get("reasoning_content") or ""
                     if isinstance(full_raw, str) and full_raw.strip():
-                        formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in full_raw.split("\n"))
-                        yield {"role": "assistant", "type": "message", "format": "reasoning", "content": formatted_reasoning + "\n\n", "replace": True}
+                        yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
                     reasoning_replace_yielded = True
                 # Stream content as it arrives; reasoning (if any) already streamed first.
                 yield {"role": "assistant", "type": "message", "content": delta["content"]}
@@ -448,8 +446,7 @@ def run_tool_calling_llm(llm, request_params):
             if not reasoning_replace_yielded:
                 full_raw = accumulated_deltas.get("reasoning_content") or ""
                 if isinstance(full_raw, str) and full_raw.strip():
-                    formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in full_raw.split("\n"))
-                    yield {"role": "assistant", "type": "message", "format": "reasoning", "content": formatted_reasoning + "\n\n", "replace": True}
+                    yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
         else:
             # Provider sent reasoning only at end (e.g. no per-chunk reasoning_content); yield full block
             reasoning_content = accumulated_deltas["reasoning_content"]
@@ -459,8 +456,7 @@ def run_tool_calling_llm(llm, request_params):
                     if "content" in accumulated_deltas:
                         print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
 
-                formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
-                yield {"role": "assistant", "type": "message", "content": formatted_reasoning + "\n\n"}
+                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": reasoning_content.rstrip() + "\n\n"}
 
     # 2. CONTENT: Yield accumulated_review or regular content
     if accumulated_review and review_category == None:
