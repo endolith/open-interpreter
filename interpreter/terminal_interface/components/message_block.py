@@ -32,11 +32,17 @@ class MessageBlock(BaseBlock):
         self.completed_blocks = []
         self.viewport_fraction = 0.3  # Increase from 0.2 to 0.3 for better visibility
         self.debug = False  # Enable debug mode to show colored borders
+        # When True, do not commit complete blocks to console; keep everything in buffer until replace_content.
+        # Used for reasoning/thinking so the blockquote replace truly replaces the streamed raw text.
+        self.reasoning_mode = False
 
     def refresh(self, cursor=True):
         """Process new content and render complete blocks incrementally."""
-        # Try to detect a complete block
-        block_result = detect_complete_block(self.buffer)
+        # In reasoning mode, never commit blocks to console so replace_content can replace the whole buffer.
+        if not self.reasoning_mode:
+            block_result = detect_complete_block(self.buffer)
+        else:
+            block_result = None
 
         if block_result:
             block_text, next_line_begin = block_result
@@ -89,7 +95,12 @@ class MessageBlock(BaseBlock):
                 formatted_buffer.renderables[-1] += "●"
 
             # Wrap streaming content in a panel to match rendered content indentation
-            if self.debug:
+            if self.reasoning_mode:
+                # Distinct style so thinking is visually separate from normal blockquotes
+                streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="dim cyan", title="Thinking")
+                padded_buffer = Padding(streaming_panel, (0, 2, 0, 2))
+                self.live.update(padded_buffer)
+            elif self.debug:
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="blue")
                 self.live.update(streaming_panel)
             else:
@@ -105,6 +116,11 @@ class MessageBlock(BaseBlock):
         self.buffer += content
         self.refresh(cursor=True)
 
+    def replace_content(self, content):
+        """Replace the entire buffer (e.g. when streamed raw reasoning is replaced with blockquote-formatted version)."""
+        self.buffer = content
+        self.refresh(cursor=False)
+
     def finalize(self):
         """Render any remaining content when the message is complete."""
         # Clear the live display to remove the streaming raw text
@@ -116,7 +132,12 @@ class MessageBlock(BaseBlock):
                 # De-stylize any code blocks in markdown
                 content = textify_markdown_code_blocks(self.buffer)
                 markdown = Markdown(content.strip())
-                if self.debug:
+                if self.reasoning_mode:
+                    # Distinct style so thinking is visually separate from normal blockquotes
+                    panel = Panel(markdown, box=ROUNDED, border_style="dim cyan", title="Thinking")
+                    padded_markdown = Padding(panel, (0, 2, 0, 2))
+                    self.live.console.print(padded_markdown)
+                elif self.debug:
                     panel = Panel(markdown, box=ROUNDED, border_style="red")
                     self.live.console.print(panel)
                 else:
