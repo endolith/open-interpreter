@@ -83,7 +83,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
         current_lines: List of all current text lines
         viewport_lines: Maximum number of logical lines to display
         debug: If True, wrap content in a bordered panel to show Live area boundaries
-        base_style: Optional Rich style string to apply to the text (e.g. "dim cyan")
+        base_style: Optional Rich style string to apply to the text (e.g. "cyan")
 
     Returns:
         Rich Text, Group, or Panel renderable showing the viewport
