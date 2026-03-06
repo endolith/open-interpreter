@@ -86,7 +86,7 @@ class MessageBlock(BaseBlock):
             # Create sliding window display for the buffer
             formatted_buffer = create_sliding_window_display(
                 self.live.console, self.buffer.split('\n'), viewport_lines, self.debug,
-                base_style="dim cyan" if self.reasoning_mode else None)
+                base_style="cyan" if self.reasoning_mode else None)
 
             # Add cursor if requested
             if cursor and isinstance(formatted_buffer, Text):
@@ -98,7 +98,7 @@ class MessageBlock(BaseBlock):
             # Wrap streaming content in a panel to match rendered content indentation
             if self.reasoning_mode:
                 # Distinct style so thinking is visually separate from normal blockquotes
-                streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="dim cyan", title="Thinking")
+                streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking")
                 padded_buffer = Padding(streaming_panel, (0, 2, 0, 2))
                 self.live.update(padded_buffer)
             elif self.debug:
@@ -133,9 +133,9 @@ class MessageBlock(BaseBlock):
                 # De-stylize any code blocks in markdown
                 content = textify_markdown_code_blocks(self.buffer)
                 if self.reasoning_mode:
-                    # Text same color as box (dim cyan), markdown formatting preserved
-                    markdown = Markdown(content.strip(), style="dim cyan")
-                    panel = Panel(markdown, box=ROUNDED, border_style="dim cyan", title="Thinking")
+                    # Text same color as box (cyan), markdown formatting preserved
+                    markdown = Markdown(content.strip(), style="cyan")
+                    panel = Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking")
                     padded_markdown = Padding(panel, (0, 2, 0, 2))
                     self.live.console.print(padded_markdown)
                 else:
