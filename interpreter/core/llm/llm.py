@@ -329,6 +329,12 @@ Continuing...
                 "require_parameters": True,  # Only use providers that support all request parameters
                 "allow_fallbacks": False,     # Disable fallbacks to maintain consistency
             }
+            # Request streaming reasoning when the model supports it, so LiteLLM forwards
+            # delta.reasoning_content from OpenRouter. Requires LiteLLM v1.63.5+ (BerriAI/litellm#8631).
+            # Only set for models that support reasoning to avoid 400 on non-reasoning OpenRouter models.
+            if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model):
+                params["include_reasoning"] = True
+                params["stream_options"] = {"include_reasoning": True}
 
         # Optional inputs
         if self.api_key:
