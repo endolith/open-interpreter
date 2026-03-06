@@ -220,6 +220,8 @@ def run_tool_calling_llm(llm, request_params):
     buffer = ""
     content_yielded_during_streaming = False  # Track if content was already yielded
     has_reasoning_content = False  # Track if we have reasoning_content (to delay content output)
+    reasoning_buffer = ""  # Incomplete line when streaming reasoning_content
+    reasoning_streamed = False  # True if we yielded reasoning during the stream (so post-stream only yields remainder)
 
     for chunk in llm.completions(**request_params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
@@ -244,6 +246,19 @@ def run_tool_calling_llm(llm, request_params):
         # Track if we have reasoning_content (even if incomplete) - this will delay content output
         if "reasoning_content" in accumulated_deltas and accumulated_deltas.get("reasoning_content"):
             has_reasoning_content = True
+
+        # Stream reasoning_content as it arrives when the provider sends it in delta chunks.
+        # LiteLLM may send reasoning_content per chunk (e.g. OpenRouter/Qwen) or only at end; we stream when present.
+        if "reasoning_content" in delta and delta["reasoning_content"]:
+            new_chunk = delta["reasoning_content"]
+            if isinstance(new_chunk, str):
+                reasoning_buffer += new_chunk
+                lines = reasoning_buffer.split("\n")
+                reasoning_buffer = lines[-1]
+                for line in lines[:-1]:
+                    formatted = (f"> {line}" if line.strip() else ">") + "\n"
+                    yield {"role": "assistant", "type": "message", "content": formatted}
+                reasoning_streamed = True
 
         if "content" in delta and delta["content"]:
             if function_call_detected:
@@ -295,19 +310,15 @@ def run_tool_calling_llm(llm, request_params):
                     # This might be regular content, not a review - yield it as message
                     # But only if we don't have actual tool_calls (might be false positive)
                     if not accumulated_deltas.get("tool_calls") and not accumulated_deltas.get("function_call"):
-                        # No actual tool calls, so this is just regular content
-                        # If we have reasoning_content, delay yielding content until after stream
-                        # to ensure reasoning comes first
-                        if not has_reasoning_content:
-                            yield {"role": "assistant", "type": "message", "content": delta["content"]}
-                            content_yielded_during_streaming = True
+                        # No actual tool calls, so this is just regular content. Stream it;
+                        # reasoning (if any) was already streamed first by the provider.
+                        yield {"role": "assistant", "type": "message", "content": delta["content"]}
+                        content_yielded_during_streaming = True
 
             else:
-                # If we have reasoning_content, delay yielding content until after stream
-                # to ensure reasoning comes first
-                if not has_reasoning_content:
-                    yield {"role": "assistant", "type": "message", "content": delta["content"]}
-                    content_yielded_during_streaming = True
+                # Stream content as it arrives; reasoning (if any) already streamed first.
+                yield {"role": "assistant", "type": "message", "content": delta["content"]}
+                content_yielded_during_streaming = True
 
         if (
             accumulated_deltas.get("function_call")
@@ -418,16 +429,25 @@ def run_tool_calling_llm(llm, request_params):
 
     # 1. REASONING: Yield reasoning_content if present (in block quotes)
     if has_reasoning_content and "reasoning_content" in accumulated_deltas and accumulated_deltas["reasoning_content"]:
-        reasoning_content = accumulated_deltas["reasoning_content"]
-        if isinstance(reasoning_content, str) and reasoning_content.strip():
-            if verbose:
-                print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
-                if "content" in accumulated_deltas:
-                    print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
+        if reasoning_streamed:
+            # We already streamed reasoning during the loop; yield any remainder (incomplete last line)
+            # and always close the blockquote with a blank line so the following content is not inside it.
+            if reasoning_buffer:
+                formatted_trailer = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_buffer.split("\n"))
+                yield {"role": "assistant", "type": "message", "content": formatted_trailer + "\n\n"}
+            else:
+                yield {"role": "assistant", "type": "message", "content": "\n\n"}
+        else:
+            # Provider sent reasoning only at end (e.g. no per-chunk reasoning_content); yield full block
+            reasoning_content = accumulated_deltas["reasoning_content"]
+            if isinstance(reasoning_content, str) and reasoning_content.strip():
+                if verbose:
+                    print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
+                    if "content" in accumulated_deltas:
+                        print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
 
-            # Yield reasoning as a message with block quote formatting
-            formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
-            yield {"role": "assistant", "type": "message", "content": formatted_reasoning + "\n\n"}
+                formatted_reasoning = "\n".join(f"> {line}" if line.strip() else ">" for line in reasoning_content.split("\n"))
+                yield {"role": "assistant", "type": "message", "content": formatted_reasoning + "\n\n"}
 
     # 2. CONTENT: Yield accumulated_review or regular content
     if accumulated_review and review_category == None:
