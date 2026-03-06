@@ -299,6 +299,8 @@ def terminal_interface(interpreter, message):
 
                 # Plain text mode
                 if interpreter.plain_text_display:
+                    if chunk.get("replace"):
+                        continue  # Replace chunk only updates display/storage; raw content was already printed
                     if "start" in chunk or "end" in chunk:
                         print("")
                     if chunk["type"] in ["code", "console"] and "format" in chunk:
@@ -336,11 +338,16 @@ def terminal_interface(interpreter, message):
                         active_block = MessageBlock()
                         # Enable debug mode if environment variable is set
                         active_block.debug = os.environ.get("OI_DEBUG_MARKDOWN", "").lower() in ("1", "true", "yes")
+                        if chunk.get("format") == "reasoning":
+                            active_block.reasoning_mode = True
                         render_cursor = True
 
                     if "content" in chunk:
                         if active_block:
-                            active_block.add_content(chunk["content"])
+                            if chunk.get("replace"):
+                                active_block.replace_content(chunk["content"])
+                            else:
+                                active_block.add_content(chunk["content"])
 
                     if "end" in chunk and interpreter.os:
                             last_message = interpreter.messages[-1]["content"]

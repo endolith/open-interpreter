@@ -383,6 +383,18 @@ class OpenInterpreter:
                     # )
                     continue
 
+                # Replace streamed reasoning with blockquote-formatted version (reasoning streamed raw, then replaced when complete)
+                if chunk.get("replace") and chunk.get("format") == "reasoning":
+                    for i in range(len(self.messages) - 1, -1, -1):
+                        if self.messages[i].get("format") == "reasoning":
+                            self.messages[i]["content"] = chunk["content"]
+                            break
+                    yield chunk  # Terminal replaces active_block content while block is still active
+                    if last_flag_base:
+                        yield {**last_flag_base, "end": True}
+                    last_flag_base = None
+                    continue
+
                 # Check if the chunk's role, type, and format (if present) match the last_flag_base
                 if (
                     last_flag_base
