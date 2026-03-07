@@ -3,7 +3,9 @@ This is all messed up.... Uses the old streaming structure.
 """
 
 from rich import print as rich_print
+from rich.box import ROUNDED
 from rich.markdown import Markdown
+from rich.panel import Panel
 from .utils.display_markdown_message import display_markdown_message
 
 
@@ -56,7 +58,11 @@ def render_past_conversation(messages):
             flush_pending_code()
             if isinstance(content, str) and content.strip():
                 render_separator()
-                display_markdown_message(content)
+                if chunk.get("format") == "reasoning":
+                    markdown = Markdown(content.strip(), style="cyan")
+                    rich_print(Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking"))
+                else:
+                    display_markdown_message(content)
             continue
 
         if role == "assistant" and chunk_type == "code":
