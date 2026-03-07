@@ -2,8 +2,10 @@ from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.padding import Padding
 
+from .display_constants import PADDING_MESSAGE
 
-def display_markdown_message(message):
+
+def display_markdown_message(message):::
     """
     Display markdown message. Renders the full message as Markdown so tables and
     other multi-line constructs are rendered correctly.
@@ -12,6 +14,6 @@ def display_markdown_message(message):
         print(message)
         return
 
-    rich_print(Padding(Markdown(message), (1, 2, 0, 2)))
+    rich_print(Padding(Markdown(message), PADDING_MESSAGE))
     if "\n" not in message and message.startswith(">"):
         print("")
