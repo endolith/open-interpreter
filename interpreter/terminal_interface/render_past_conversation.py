@@ -5,6 +5,7 @@ This is all messed up.... Uses the old streaming structure.
 from rich import print as rich_print
 from rich.box import ROUNDED
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.panel import Panel
 from .utils.display_markdown_message import display_markdown_message
 
@@ -60,7 +61,8 @@ def render_past_conversation(messages):
                 render_separator()
                 if chunk.get("format") == "reasoning":
                     markdown = Markdown(content.strip(), style="cyan")
-                    rich_print(Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking"))
+                    panel = Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking")
+                    rich_print(Padding(panel, (0, 2, 0, 2)))
                 else:
                     display_markdown_message(content)
             continue
