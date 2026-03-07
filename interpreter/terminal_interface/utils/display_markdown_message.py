@@ -1,5 +1,6 @@
 from rich import print as rich_print
 from rich.markdown import Markdown
+from rich.padding import Padding
 
 
 def display_markdown_message(message):
@@ -11,6 +12,6 @@ def display_markdown_message(message):
         print(message)
         return
 
-    rich_print(Markdown(message))
+    rich_print(Padding(Markdown(message), (1, 2, 0, 2)))
     if "\n" not in message and message.startswith(">"):
         print("")
