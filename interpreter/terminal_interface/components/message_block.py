@@ -8,6 +8,7 @@ from rich.console import Group
 from rich.padding import Padding
 
 from .base_block import BaseBlock
+from ..utils.display_constants import PADDING_MESSAGE, PADDING_PANEL
 from ..utils.streaming_markdown import (
     detect_complete_block,
     calculate_window_size,
@@ -58,7 +59,7 @@ class MessageBlock(BaseBlock):
                 self.live.console.print(panel)
             else:
                 # Print markdown directly with horizontal padding only (2 chars left/right)
-                padded_markdown = Padding(markdown, (1, 2, 0, 2))
+                padded_markdown = Padding(markdown, PADDING_MESSAGE)
                 self.live.console.print(padded_markdown)
 
             # Store the completed block
@@ -99,14 +100,14 @@ class MessageBlock(BaseBlock):
             if self.reasoning_mode:
                 # Distinct style so thinking is visually separate from normal blockquotes
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking")
-                padded_buffer = Padding(streaming_panel, (0, 2, 0, 2))
+                padded_buffer = Padding(streaming_panel, PADDING_PANEL)
                 self.live.update(padded_buffer)
             elif self.debug:
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="blue")
                 self.live.update(streaming_panel)
             else:
                 # Print streaming content directly with horizontal padding only (2 chars left/right)
-                padded_buffer = Padding(formatted_buffer, (1, 2, 0, 2))
+                padded_buffer = Padding(formatted_buffer, PADDING_MESSAGE)
                 self.live.update(padded_buffer)
         else:
             # Clear the live display if no buffer content
@@ -136,7 +137,7 @@ class MessageBlock(BaseBlock):
                     # Text same color as box (cyan), markdown formatting preserved
                     markdown = Markdown(content.strip(), style="cyan")
                     panel = Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking")
-                    padded_markdown = Padding(panel, (0, 2, 0, 2))
+                    padded_markdown = Padding(panel, PADDING_PANEL)
                     self.live.console.print(padded_markdown)
                 else:
                     markdown = Markdown(content.strip())
@@ -144,7 +145,7 @@ class MessageBlock(BaseBlock):
                         panel = Panel(markdown, box=ROUNDED, border_style="red")
                         self.live.console.print(panel)
                     else:
-                        padded_markdown = Padding(markdown, (1, 2, 0, 2))
+                        padded_markdown = Padding(markdown, PADDING_MESSAGE)
                         self.live.console.print(padded_markdown)
             except (IndexError, ValueError, TypeError):
                 # Fallback to plain text if markdown parsing fails

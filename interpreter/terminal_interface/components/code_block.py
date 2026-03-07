@@ -2,10 +2,12 @@ from rich.box import MINIMAL
 from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
+from rich.padding import Padding
 from rich.syntax import Syntax
 from rich.table import Table
 
 from .base_block import BaseBlock
+from ..utils.display_constants import PADDING_PANEL
 
 
 class CodeBlock(BaseBlock):
@@ -94,7 +96,8 @@ class CodeBlock(BaseBlock):
             # This adds some space at the top. Just looks good!
             group_items = [""] + group_items
         group = Group(*group_items)
+        padded = Padding(group, PADDING_PANEL)
 
         # Update the live display
-        self.live.update(group)
+        self.live.update(padded)
         self.live.refresh()

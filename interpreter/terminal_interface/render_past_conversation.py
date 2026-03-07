@@ -2,19 +2,24 @@
 This is all messed up.... Uses the old streaming structure.
 """
 
+from rich.console import Group
 from rich import print as rich_print
 from rich.box import ROUNDED
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
+from .utils.display_constants import PADDING_PANEL
 from .utils.display_markdown_message import display_markdown_message
 
 
 def _render_code_block(code, output, language):
     language = language or "text"
-    rich_print(Markdown(f"```{language}\n{code or ''}\n```"))
+    code_md = Markdown(f"```{language}\n{code or ''}\n```")
     if (output or "").strip():
-        rich_print(Markdown(f"```text\n{output.strip()}\n```"))
+        output_md = Markdown(f"```text\n{output.strip()}\n```")
+        rich_print(Padding(Group(code_md, output_md), PADDING_PANEL))
+    else:
+        rich_print(Padding(code_md, PADDING_PANEL))
 
 
 def render_past_conversation(messages):
@@ -62,7 +67,7 @@ def render_past_conversation(messages):
                 if chunk.get("format") == "reasoning":
                     markdown = Markdown(content.strip(), style="cyan")
                     panel = Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking")
-                    rich_print(Padding(panel, (0, 2, 0, 2)))
+                    rich_print(Padding(panel, PADDING_PANEL))
                 else:
                     display_markdown_message(content)
             continue
