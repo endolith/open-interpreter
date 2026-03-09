@@ -125,6 +125,34 @@ def process_messages(messages, model=None):
             message["tool_call_id"] = tool_id
             processed_messages.append(message)
 
+        elif message.get("role") == "tool":
+            # Tool message must follow an assistant message with tool_calls (OpenRouter/Alibaba etc.).
+            # Unsupported/invalid tool calls yield a tool response but we never store an assistant
+            # with tool_calls for that call, so we can get assistant (content) then tool (error).
+            # Insert a synthetic assistant with tool_calls using this message's tool_call_id.
+            prev = processed_messages[-1] if processed_messages else None
+            if not prev or "tool_calls" not in prev or not prev.get("tool_calls"):
+                tool_id = message.get("tool_call_id") or generate_tool_id(last_tool_id + 1, model)
+                processed_messages.append(
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": tool_id,
+                                "type": "function",
+                                "function": {
+                                    "name": "execute",
+                                    "arguments": json.dumps({
+                                        "language": "python",
+                                        "code": "# Placeholder for unsupported/invalid tool call (error was returned as tool response).",
+                                    }),
+                                },
+                            }
+                        ],
+                    }
+                )
+            processed_messages.append(message)
+
         else:
             # For non-tool-related messages, just add them as is
             processed_messages.append(message)
