@@ -13,6 +13,7 @@ from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
+from .toolbox.web.web import WebToolboxError, ApiKeyError
 
 
 def _is_temporary_provider_error(error):
@@ -587,12 +588,18 @@ def respond(interpreter):
 
             except KeyboardInterrupt:
                 break  # It's fine.
-            except:
+            except Exception as e:
+                # For expected toolbox web/API errors, surface only the concise error
+                # message to avoid cluttering the LLM context with full tracebacks.
+                if isinstance(e, (WebToolboxError, ApiKeyError)):
+                    content = str(e)
+                else:
+                    content = traceback.format_exc()
                 yield {
                     "role": "computer",
                     "type": "console",
                     "format": "output",
-                    "content": traceback.format_exc(),
+                    "content": content,
                 }
 
         else:
