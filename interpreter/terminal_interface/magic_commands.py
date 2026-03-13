@@ -38,14 +38,31 @@ def handle_undo(self, arguments):
 
     # Print out a preview of what messages were removed.
     for message in removed_messages:
-        if "content" in message and message["content"] != None:
-            self.display_message(
-                f"**Removed message:** `\"{message['content'][:30]}...\"`"
-            )
+        msg_type = message.get("type")
+        role = message.get("role")
+        label = "entry"
+
+        if role == "user" and msg_type == "message":
+            label = "user message"
+        elif role == "assistant" and msg_type == "message":
+            label = "assistant message"
+        elif msg_type == "code":
+            label = "assistant code block"
+        elif msg_type == "console":
+            if message.get("format") == "output":
+                label = "tool output"
+            else:
+                label = "console entry"
+        elif role == "tool":
+            label = "tool message"
         elif "function_call" in message:
-            self.display_message(
-                f"**Removed codeblock**"
-            )  # TODO: Could add preview of code removed here.
+            label = "code block"
+
+        if "content" in message and message["content"] is not None:
+            preview = str(message["content"])[:30] + "..."
+            self.display_message(f"**Removed {label}:** `\"{preview}\"`")
+        else:
+            self.display_message(f"**Removed {label}.**")
 
     print("")  # Aesthetics.
 
