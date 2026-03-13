@@ -290,13 +290,16 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         else:
-                            # User declined to run code.
+                            # User declined to run code. source="terminal"
+                            # marks this as UI-injected so %undo skips it
+                            # when finding the last real user message.
                             interpreter.messages.append(
                                 {
                                     "role": "user",
                                     "type": "message",
                                     "content": "I have declined to run this code.",
                                     "sent_at": time.time(),
+                                    "source": "terminal",
                                 }
                             )
                             break
