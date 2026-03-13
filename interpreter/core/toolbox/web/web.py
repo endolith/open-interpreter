@@ -602,7 +602,18 @@ class Web:
                     pkg = backend_to_package.get(b, b)
                     reasons.append((b, f"package not installed (pip install {pkg})"))
                 else:
-                    reasons.append((b, "request failed (e.g. no credits, network error)"))
+                    # Surface the actual backend error message so callers can see
+                    # why each backend failed instead of a generic placeholder.
+                    # Flatten multi-line errors to keep the aggregate message readable.
+                    clean_err = " ".join(err_str.splitlines()).strip()
+                    if isinstance(exc, WebToolboxError):
+                        # WebToolboxError messages are already user-oriented; use as-is.
+                        reasons.append((b, clean_err or "request failed"))
+                    else:
+                        # For other exception types, include them as a failure reason.
+                        reasons.append(
+                            (b, f"request failed: {clean_err}" if clean_err else "request failed")
+                        )
             else:
                 reasons.append((b, "unavailable"))
         kind_label = f"{kind} " if kind else ""
