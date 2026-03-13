@@ -238,11 +238,18 @@ class OpenInterpreter:
             if isinstance(message, dict):
                 if "role" not in message:
                     message["role"] = "user"
+                if message.get("role") == "user" and "sent_at" not in message:
+                    message["sent_at"] = time.time()
                 self.messages.append(message)
             # String (we construct a user message dict)
             elif isinstance(message, str):
                 self.messages.append(
-                    {"role": "user", "type": "message", "content": message}
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": message,
+                        "sent_at": time.time(),
+                    }
                 )
             # List (this is like the OpenAI API)
             elif isinstance(message, list):

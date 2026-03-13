@@ -1,6 +1,12 @@
 import argparse
 import os
 import sys
+
+# Disable Intel Fortran runtime's Ctrl+C handler on Windows so Ctrl+C exits cleanly
+# without "forrtl: error (200): program aborting due to control-C event" (Intel docs).
+if sys.platform == "win32":
+    os.environ.setdefault("FOR_DISABLE_CONSOLE_CTRL_HANDLER", "1")
+
 import time
 import traceback
 
@@ -317,7 +323,12 @@ def start_terminal_interface(interpreter):
     if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
         message = " ".join(sys.argv[1:])
         interpreter.messages.append(
-            {"role": "user", "type": "message", "content": "I " + message}
+            {
+                "role": "user",
+                "type": "message",
+                "content": "I " + message,
+                "sent_at": time.time(),
+            }
         )
         sys.argv = sys.argv[:1]
 
