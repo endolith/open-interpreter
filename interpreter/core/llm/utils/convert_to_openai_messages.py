@@ -2,8 +2,26 @@ import base64
 import io
 import json
 import sys
+from datetime import datetime
 
 from PIL import Image
+
+
+def _user_ts(message, messages, *, _now=None):
+    """Format sent_at for prepending to user message content. Concise: YYYY-MM-DD HH:MM."""
+    sent_at = message.get("sent_at")
+    if sent_at is not None:
+        if isinstance(sent_at, (int, float)):
+            return datetime.fromtimestamp(sent_at).strftime("%Y-%m-%d %H:%M")
+        return datetime.fromisoformat(str(sent_at).replace("Z", "+00:00")).strftime(
+            "%Y-%m-%d %H:%M"
+        )
+    if _now is None:
+        _now = datetime.now()
+    last_user = [m for m in messages if m.get("role") == "user"]
+    if last_user and message == last_user[-1]:
+        return _now.strftime("%Y-%m-%d %H:%M")
+    return None
 
 
 def convert_to_openai_messages(
@@ -53,6 +71,10 @@ def convert_to_openai_messages(
                 )
             else:
                 new_message["content"] = message["content"]
+
+            ts = _user_ts(message, messages) if role == "user" else None
+            if ts is not None:
+                new_message["content"] = f"[{ts}] " + new_message["content"]
 
             # Preserve tool_call_id for tool role messages (required by OpenRouter and other APIs)
             if role == "tool" and "tool_call_id" in message:
@@ -126,6 +148,10 @@ def convert_to_openai_messages(
                         role = "user"
                 new_message["role"] = role
                 new_message["content"] = message["content"]
+                if role == "user":
+                    ts = _user_ts(message, messages)
+                    if ts is not None:
+                        new_message["content"] = f"[{ts}] " + new_message["content"]
             else:
                 if vision == False:
                     # If no vision, we only support the format of "description"
@@ -249,8 +275,19 @@ def convert_to_openai_messages(
                             }
                         )
 
+                if message.get("role") == "user":
+                    ts = _user_ts(message, messages)
+                    if ts is not None:
+                        new_message["content"].insert(
+                            0, {"type": "text", "text": f"[{ts}] "}
+                        )
+
         elif message["type"] == "file":
-            new_message = {"role": "user", "content": message["content"]}
+            ts = _user_ts(message, messages)
+            content = message["content"]
+            if ts is not None:
+                content = f"[{ts}] " + content
+            new_message = {"role": "user", "content": content}
         elif message["type"] == "error":
             print("Ignoring 'type' == 'error' messages.")
             continue
