@@ -162,6 +162,7 @@ def terminal_interface(interpreter, message):
                                 "role": "user",
                                 "type": "message",
                                 "content": message,
+                                "sent_at": time.time(),
                             }
                         )
 
@@ -173,6 +174,7 @@ def terminal_interface(interpreter, message):
                                     "type": "image",
                                     "format": "path",
                                     "content": image_path,
+                                    "sent_at": time.time(),
                                 }
                             )
 
@@ -182,6 +184,7 @@ def terminal_interface(interpreter, message):
                             "type": "image",
                             "format": "path",
                             "content": image_paths[0],
+                            "sent_at": time.time(),
                         }
                     else:
                         # User declined, just process the text message normally
@@ -293,6 +296,7 @@ def terminal_interface(interpreter, message):
                                     "role": "user",
                                     "type": "message",
                                     "content": "I have declined to run this code.",
+                                    "sent_at": time.time(),
                                 }
                             )
                             break
