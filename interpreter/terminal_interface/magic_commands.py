@@ -14,13 +14,17 @@ def handle_undo(self, arguments):
     # Removes all messages after the most recent user entry (and the entry itself).
     # Therefore user can jump back to the latest point of conversation.
     # Also gives a visual representation of the messages removed.
+    #
+    # Messages with source != "user" (e.g. source="terminal" for
+    # "I have declined to run this code.") are UI-injected and are NOT
+    # treated as undo boundaries; we roll back to the last real user input.
 
     if len(self.messages) == 0:
         return
-    # Find the index of the last 'role': 'user' entry
+    # Find the index of the last real user entry (role=user, source absent or "user")
     last_user_index = None
     for i, message in enumerate(self.messages):
-        if message.get("role") == "user":
+        if message.get("role") == "user" and message.get("source", "user") == "user":
             last_user_index = i
 
     removed_messages = []
