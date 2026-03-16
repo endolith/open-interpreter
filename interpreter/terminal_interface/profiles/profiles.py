@@ -199,9 +199,14 @@ def apply_profile(interpreter, profile, profile_path):
             "We have updated our profile file format. Would you like to migrate your profile file to the new format? No data will be lost."
         )
         print("")
-        message = input("(y/n) ")
-        print("")
-        if message.lower() == "y":
+        while True:
+            message = input("(y/n) ").strip().lower()
+            message = message[:1] if message else ""
+            print("")
+            if message in ("y", "n"):
+                break
+            print("Please enter 'y' or 'n'.\n")
+        if message == "y":
             migrate_user_app_directory()
             print("Migration complete.")
             print("")
@@ -697,8 +702,13 @@ def reset_profile(specific_default_profile=None):
             with open(target_file, "r") as file:
                 current_profile = file.read()
             if current_profile not in historical_profiles:
-                user_input = input(f"Would you like to reset/update {filename}? (y/n) ")
-                if user_input.lower() == "y":
+                while True:
+                    user_input = input(f"Would you like to reset/update {filename}? (y/n) ").strip().lower()
+                    user_input = user_input[:1] if user_input else ""
+                    if user_input in ("y", "n"):
+                        break
+                    print("Please enter 'y' or 'n'.\n")
+                if user_input == "y":
                     send2trash.send2trash(
                         target_file
                     )  # This way, people can recover it from the trash
