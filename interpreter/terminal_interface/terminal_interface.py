@@ -216,6 +216,25 @@ def terminal_interface(interpreter, message):
                     # Specialized models can emit a code review.
                     print(chunk.get("content"), end="", flush=True)
 
+                # view_image_approval: AI wants to show image(s); prompt and store result for run_tool_calling_llm
+                if chunk.get("type") == "view_image_approval":
+                    paths = chunk.get("paths") or []
+                    if paths:
+                        max_len = 72
+                        def _truncate(p):
+                            return p if len(p) <= max_len else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
+                        lines = ["  The AI wants to view the following image(s):", ""]
+                        for p in paths:
+                            lines.append("    " + _truncate(p))
+                        lines.append("")
+                        lines.append("  (y = yes this image, n = no, a = approve all in this request)")
+                        lines.append("")
+                        prompt = "\n".join(lines) + "\n\n  "
+                        response = prompt_choice(prompt, ("y", "n", "a"))
+                        interpreter._view_image_approval = response
+                    else:
+                        interpreter._view_image_approval = "n"
+
                 # Execution notice
                 if chunk["type"] == "confirmation":
                     if not interpreter.auto_run:
