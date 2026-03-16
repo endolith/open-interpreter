@@ -60,14 +60,22 @@ class Toolbox:
             self.interpreter.max_output
         )  # Should mirror interpreter.max_output
 
+        self._system_message_override = None
+
+    @property
+    def system_message(self):
         toolbox_tools = "\n".join(
             self._get_all_toolbox_tools_signature_and_description()
         )
         mac_only_note = ""
         if platform.system() != "Darwin":
             mac_only_note = "\n\nNote: `toolbox.mail`, `toolbox.sms`, `toolbox.calendar`, and `toolbox.contacts` are macOS-only and cannot be used on this system.\n"
-
-        self.system_message = f"""
+        vision_note = ""
+        if getattr(self.interpreter.llm, "supports_vision", None) is False:
+            vision_note = "\n\nNote: On this setup (non-vision model) use `toolbox.vision.query(path=..., query='...')` for image descriptions.\n"
+        if self._system_message_override is not None:
+            return self._system_message_override
+        return f"""
 
 ## The `toolbox` API
 
@@ -76,12 +84,16 @@ A `toolbox` object is ALREADY AVAILABLE in your execution environment, and can b
 ```python
 {toolbox_tools}
 ```
-{mac_only_note}
+{mac_only_note}{vision_note}
 Do NOT `import toolbox`, or try to import any of its sub-modules. The `toolbox` object is already available as a variable in your namespace.
 
 Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
 
     """.strip()
+
+    @system_message.setter
+    def system_message(self, value):
+        self._system_message_override = value
 
     # Backward compatibility: allow profiles to use import_computer_api
     @property

@@ -367,6 +367,17 @@ def respond(interpreter):
                 else:
                     raise
 
+        # Inject image from view_image tool call (tool appends result first, then we add user image)
+        pending_path = getattr(interpreter, "_pending_view_image_path", None)
+        if pending_path is not None:
+            delattr(interpreter, "_pending_view_image_path")
+            interpreter.messages.append({
+                "role": "user",
+                "type": "image",
+                "format": "path",
+                "content": pending_path,
+            })
+
         ### RUN CODE (if it's there) ###
 
         if interpreter.messages[-1]["type"] == "code":
@@ -651,6 +662,16 @@ def respond(interpreter):
         else:
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
+
+            # If toolbox.vision.view() (or any code that emits an image via IPython display)
+            # just ran, the last message is a computer image. Continue so the LLM gets
+            # another turn and sees it, the same way screenshots are handled.
+            if (
+                interpreter.messages
+                and interpreter.messages[-1].get("type") == "image"
+                and interpreter.messages[-1].get("role") == "computer"
+            ):
+                continue
 
             # If the last message is a tool response (e.g. unsupported function call error), continue the loop
             # so the LLM gets another turn with the error in context and can retry (e.g. with execute + Python code).
