@@ -712,7 +712,7 @@ def run_tool_calling_llm(llm, request_params):
                     "paths": [path],
                 }
                 approval = getattr(llm.interpreter, "_view_image_approval", "n")
-                if approval in ("y", "a"):
+                if approval == "y":
                     llm.interpreter._pending_view_image_path = path
                     content = "Image added; you will see it when you continue."
                 else:
