@@ -50,7 +50,8 @@ def _html_error_to_renderable(error_str):
     if not md:
         return None
 
-    return Markdown(md)
+    # Leading newline so the first line of content is not clipped by the panel title bar
+    return Markdown("\n" + md)
 
 
 def _is_temporary_provider_error(error):
@@ -241,12 +242,14 @@ def respond(interpreter):
                             # Yield a special chunk to stop Live display before printing error panel
                             # This prevents Live display from overwriting the error panel
                             yield {"type": "stop_live_display"}
+                            print("")  # Newline so panel top border is not cut off
                             rich_print(panel)
                             print("")  # Add space after error
                         except Exception:
                             # Fallback if JSON parsing fails (e.g. body is HTML)
                             display = _html_error_to_renderable(error_str) or error_str
                             yield {"type": "stop_live_display"}
+                            print("")  # Newline so panel top border is not cut off
                             panel = Panel(
                                 display,
                                 border_style=panel_border_style,
@@ -260,6 +263,7 @@ def respond(interpreter):
                         # convert with html2text and render as Rich Markdown.
                         display = _html_error_to_renderable(error_str) or error_str
                         yield {"type": "stop_live_display"}
+                        print("")  # Newline so panel top border is not cut off by previous output
                         panel = Panel(
                             display,
                             border_style=panel_border_style,
