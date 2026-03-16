@@ -16,7 +16,7 @@ def handle_undo(self, arguments):
     # Also gives a visual representation of the messages removed.
     #
     # Messages with source != "user" (e.g. source="terminal" for
-    # "I have declined to run this code.") are UI-injected and are NOT
+    # "[User declined to run this code.]") are UI-injected and are NOT
     # treated as undo boundaries; we roll back to the last real user input.
 
     if len(self.messages) == 0:

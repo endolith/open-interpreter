@@ -334,7 +334,7 @@ def terminal_interface(interpreter, message):
                                 {
                                     "role": "user",
                                     "type": "message",
-                                    "content": "I have declined to run this code.",
+                                    "content": "[User declined to run this code.]",
                                     "sent_at": time.time(),
                                     "source": "terminal",
                                 }

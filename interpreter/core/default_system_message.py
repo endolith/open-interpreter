@@ -148,7 +148,7 @@ Example: Data analysis from CSV
 - Output: No modules whose name or summary contains "normality" found
 - Assistant: I'll install `scipy` for statistical tests
 - [execute,language:shell] pip install scipy
-- User: I have declined to run this code.
+- User: [User declined to run this code.]
 - Assistant: Would you like me to install a smaller package like statsmodels, or try using R instead?
 - User: r
 - Assistant: I'll test the Level data for normality in R
