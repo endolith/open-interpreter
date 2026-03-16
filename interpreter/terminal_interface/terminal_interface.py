@@ -76,6 +76,7 @@ def terminal_interface(interpreter, message):
             interpreter_intro_message.append("Press `CTRL-C` to exit.")
 
         interpreter.display_message("\n\n".join(interpreter_intro_message) + "\n")
+        print()
 
     if message:
         interactive = False
