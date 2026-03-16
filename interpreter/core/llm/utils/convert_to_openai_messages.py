@@ -215,32 +215,8 @@ def convert_to_openai_messages(
                             f"Unrecognized image format: {message['format']}"
                         )
 
-                # The extension came straight off the filename or the data URI,
-                # so it may be "jpg" or "JPG" — neither of which PIL registers
-                # as a save format ("JPEG" is the only spelling it knows), and
-                # Image.save would raise KeyError below. PIL's own extension
-                # registry maps every alias it knows to its canonical format
-                # name. The data URI mimetype is that format lowercased, so
-                # "jpg" becomes the standard "jpeg" the type expects.
-                save_format = Image.registered_extensions().get(
-                    "." + extension.lower()
-                )
-                if save_format is None:
-                    # Unknown extension (e.g. ".bin"): the bytes pass through
-                    # unmodified unless shrunk, so labeling them with a
-                    # fallback format would misstate their type (a JPEG served
-                    # as data:image/png). Detect the real format from the image
-                    # header instead; only an undetectable payload keeps PNG.
-                    try:
-                        with Image.open(
-                            io.BytesIO(base64.b64decode(encoded_string))
-                        ) as probe:
-                            save_format = probe.format or "PNG"
-                    except Exception:
-                        save_format = "PNG"
-                mimetype = save_format.lower()
-
-                content = f"data:image/{mimetype};base64,{encoded_string}"
+                content = f"data:image/{extension};base64,{encoded_string}"
+                image_was_resized = False
 
                 if shrink_images:
                     # Shrink to less than 5mb
@@ -253,6 +229,7 @@ def convert_to_openai_messages(
 
                     # If the content size is greater than 5 MB, resize the image
                     if content_size_mb > 5:
+                        image_was_resized = True
                         # Decode the base64 image
                         img_data = base64.b64decode(encoded_string)
                         img = Image.open(io.BytesIO(img_data))
@@ -310,23 +287,21 @@ def convert_to_openai_messages(
                         }
                     )
                 if message.get("format") == "path":
+                    path_text = "This image is at this path: " + message["content"]
+                    if image_was_resized:
+                        path_text += (
+                            " (Image was resized to fit size limits; fine detail may be reduced.)"
+                        )
                     if any(
                         content.get("type") == "text"
                         for content in new_message["content"]
                     ):
                         for content in new_message["content"]:
                             if content.get("type") == "text":
-                                content["text"] += (
-                                    "\nThis image is at this path: "
-                                    + message["content"]
-                                )
+                                content["text"] += "\n" + path_text
                     else:
                         new_message["content"].append(
-                            {
-                                "type": "text",
-                                "text": "This image is at this path: "
-                                + message["content"],
-                            }
+                            {"type": "text", "text": path_text}
                         )
 
                 if message.get("role") == "user":
