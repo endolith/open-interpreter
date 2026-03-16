@@ -208,6 +208,7 @@ def convert_to_openai_messages(
                         )
 
                 content = f"data:image/{extension};base64,{encoded_string}"
+                image_was_resized = False
 
                 if shrink_images:
                     # Shrink to less than 5mb
@@ -220,6 +221,7 @@ def convert_to_openai_messages(
 
                     # If the content size is greater than 5 MB, resize the image
                     if content_size_mb > 5:
+                        image_was_resized = True
                         # Decode the base64 image
                         img_data = base64.b64decode(encoded_string)
                         img = Image.open(io.BytesIO(img_data))
@@ -277,23 +279,21 @@ def convert_to_openai_messages(
                         }
                     )
                 if message.get("format") == "path":
+                    path_text = "This image is at this path: " + message["content"]
+                    if image_was_resized:
+                        path_text += (
+                            " (Image was resized to fit size limits; fine detail may be reduced.)"
+                        )
                     if any(
                         content.get("type") == "text"
                         for content in new_message["content"]
                     ):
                         for content in new_message["content"]:
                             if content.get("type") == "text":
-                                content["text"] += (
-                                    "\nThis image is at this path: "
-                                    + message["content"]
-                                )
+                                content["text"] += "\n" + path_text
                     else:
                         new_message["content"].append(
-                            {
-                                "type": "text",
-                                "text": "This image is at this path: "
-                                + message["content"],
-                            }
+                            {"type": "text", "text": path_text}
                         )
 
                 if message.get("role") == "user":
