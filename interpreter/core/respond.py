@@ -135,13 +135,22 @@ def respond(interpreter):
                 # Check for API errors - display them in a panel without tracebacks
                 # Also check for our formatted errors (containing |||)
                 error_str = str(e)
+                # Normalize provider/API errors (LiteLLM + OpenAI) so we can render
+                # them consistently using Rich, regardless of which exception class
+                # LiteLLM chose for the underlying provider (e.g. OpenRouter 5xx).
                 if isinstance(e, (
+                    # LiteLLM exception variants
+                    getattr(litellm, "APIError", Exception),
+                    getattr(litellm, "OpenAIError", Exception),
                     litellm.exceptions.APIError,
                     litellm.exceptions.OpenAIError,
                     litellm.exceptions.NotFoundError,
                     litellm.exceptions.BadRequestError,
                     litellm.exceptions.RateLimitError,
                     litellm.exceptions.AuthenticationError,
+                    # OpenAI Python client variants (defensive, in case they leak through)
+                    getattr(openai, "APIError", Exception),
+                    getattr(openai, "OpenAIError", Exception),
                 )):
                     is_temporary_error = _is_temporary_provider_error(e)
                     panel_border_style = "yellow" if is_temporary_error else "red"
