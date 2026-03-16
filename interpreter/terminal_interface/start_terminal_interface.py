@@ -640,25 +640,29 @@ def main():
             if not interpreter.offline and not interpreter.disable_telemetry:
                 feedback = None
                 if len(interpreter.messages) > 3:
-                    feedback = (
-                        input("\n\nWas Open Interpreter helpful? (y/n): ")
-                        .strip()
-                        .lower()
-                    )
-                    if feedback == "y":
+                    while True:
+                        raw = input("\n\nWas Open Interpreter helpful? (y/n): ").strip().lower()
+                        raw = raw[:1] if raw else ""
+                        if raw in ("y", "n"):
+                            break
+                        print("Please enter 'y' or 'n'.\n")
+                    if raw == "y":
                         feedback = True
-                    elif feedback == "n":
-                        feedback = False
                     else:
-                        feedback = None
-                    if feedback != None and not interpreter.contribute_conversation:
+                        feedback = False
+                    if feedback is not None and not interpreter.contribute_conversation:
                         if interpreter.llm.model == "i":
                             contribute = "y"
                         else:
                             print(
                                 "\nThanks for your feedback! Would you like to send us this chat so we can improve?\n"
                             )
-                            contribute = input("(y/n): ").strip().lower()
+                            while True:
+                                contribute = input("(y/n): ").strip().lower()
+                                contribute = contribute[:1] if contribute else ""
+                                if contribute in ("y", "n"):
+                                    break
+                                print("Please enter 'y' or 'n'.\n")
 
                         if contribute == "y":
                             interpreter.contribute_conversation = True
