@@ -698,8 +698,16 @@ def run_tool_calling_llm(llm, request_params):
             elif not os.path.exists(path):
                 content = f"view_image: file not found: {path}"
             else:
-                llm.interpreter._pending_view_image_path = path
-                content = "Image added; you will see it when you continue."
+                yield {
+                    "type": "view_image_approval",
+                    "paths": [path],
+                }
+                approval = getattr(llm.interpreter, "_view_image_approval", "n")
+                if approval in ("y", "a"):
+                    llm.interpreter._pending_view_image_path = path
+                    content = "Image added; you will see it when you continue."
+                else:
+                    content = "User declined to show image."
             if tool_call_id_for_error:
                 yield {
                     "role": "tool",
