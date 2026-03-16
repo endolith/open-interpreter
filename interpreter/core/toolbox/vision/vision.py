@@ -1,3 +1,5 @@
+"""Query/describe images (Moondream), OCR. For vision-capable models, use the view_image tool to view images; use query for descriptions."""
+
 import base64
 import contextlib
 import io
