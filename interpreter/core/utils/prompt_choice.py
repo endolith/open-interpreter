@@ -12,6 +12,8 @@ def prompt_choice(prompt, choices):
     choices = tuple(c.lower() for c in choices)
     if len(choices) <= 1:
         hint = "Please press " + "".join(f"[bold]{c}[/bold]" for c in choices) + "."
+    elif len(choices) == 2:
+        hint = "Please press [bold]" + choices[0] + "[/bold] or [bold]" + choices[1] + "[/bold]."
     else:
         hint = "Please press " + ", ".join(f"[bold]{c}[/bold]" for c in choices[:-1]) + ", or [bold]" + choices[-1] + "[/bold]."
     reprompt = "  "
