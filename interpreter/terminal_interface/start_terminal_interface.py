@@ -17,6 +17,8 @@ from interpreter.terminal_interface.contributing_conversations import (
     contribute_conversations,
 )
 
+from interpreter.core.utils.prompt_choice import prompt_choice
+
 from .conversation_navigator import conversation_navigator
 from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
@@ -640,16 +642,11 @@ def main():
             if not interpreter.offline and not interpreter.disable_telemetry:
                 feedback = None
                 if len(interpreter.messages) > 3:
-                    while True:
-                        raw = input("\n\nWas Open Interpreter helpful? (y/n): ").strip().lower()
-                        raw = raw[:1] if raw else ""
-                        if raw in ("y", "n"):
-                            break
-                        print("Please enter 'y' or 'n'.\n")
-                    if raw == "y":
-                        feedback = True
-                    else:
-                        feedback = False
+                    raw = prompt_choice(
+                        "\n\nWas Open Interpreter helpful? (y/n): ",
+                        ("y", "n"),
+                    )
+                    feedback = raw == "y"
                     if feedback is not None and not interpreter.contribute_conversation:
                         if interpreter.llm.model == "i":
                             contribute = "y"
@@ -657,12 +654,7 @@ def main():
                             print(
                                 "\nThanks for your feedback! Would you like to send us this chat so we can improve?\n"
                             )
-                            while True:
-                                contribute = input("(y/n): ").strip().lower()
-                                contribute = contribute[:1] if contribute else ""
-                                if contribute in ("y", "n"):
-                                    break
-                                print("Please enter 'y' or 'n'.\n")
+                            contribute = prompt_choice("(y/n): ", ("y", "n"))
 
                         if contribute == "y":
                             interpreter.contribute_conversation = True

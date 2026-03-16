@@ -13,6 +13,7 @@ import requests
 import send2trash
 import yaml
 
+from ...core.utils.prompt_choice import prompt_choice
 from ..utils.oi_dir import oi_dir
 from .historical_profiles import historical_profiles
 
@@ -199,13 +200,7 @@ def apply_profile(interpreter, profile, profile_path):
             "We have updated our profile file format. Would you like to migrate your profile file to the new format? No data will be lost."
         )
         print("")
-        while True:
-            message = input("(y/n) ").strip().lower()
-            message = message[:1] if message else ""
-            print("")
-            if message in ("y", "n"):
-                break
-            print("Please enter 'y' or 'n'.\n")
+        message = prompt_choice("(y/n) ", ("y", "n"))
         if message == "y":
             migrate_user_app_directory()
             print("Migration complete.")
@@ -702,12 +697,10 @@ def reset_profile(specific_default_profile=None):
             with open(target_file, "r") as file:
                 current_profile = file.read()
             if current_profile not in historical_profiles:
-                while True:
-                    user_input = input(f"Would you like to reset/update {filename}? (y/n) ").strip().lower()
-                    user_input = user_input[:1] if user_input else ""
-                    if user_input in ("y", "n"):
-                        break
-                    print("Please enter 'y' or 'n'.\n")
+                user_input = prompt_choice(
+                    f"Would you like to reset/update {filename}? (y/n) ",
+                    ("y", "n"),
+                )
                 if user_input == "y":
                     send2trash.send2trash(
                         target_file
