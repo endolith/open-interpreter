@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import time
 
+from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
@@ -152,13 +153,7 @@ def terminal_interface(interpreter, message):
                         paths_list = "\n".join(f"  - {path}" for path in image_paths)
                         prompt = f"  Found {len(image_paths)} images:\n{paths_list}\n  Upload these images to the vision model? (y/n)\n\n  "
 
-                    while True:
-                        response = input(prompt).strip().lower()
-                        response = response[:1] if response else ""
-                        print("")  # Aesthetic choice
-                        if response in ("y", "n"):
-                            break
-                        print("  Please enter 'y' or 'n'.\n")
+                    response = prompt_choice(prompt, ("y", "n"))
 
                     if response == "y":
                         # Add the text message to interpreter's message history
@@ -241,37 +236,22 @@ def terminal_interface(interpreter, message):
                             if interpreter.safe_mode == "auto":
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
-                                while True:
-                                    response = input(
-                                        "  Would you like to scan this code? (y/n)\n\n  "
-                                    ).strip().lower()
-                                    response = response[:1] if response else ""
-                                    print("")  # <- Aesthetic choice
-                                    if response in ("y", "n"):
-                                        break
-                                    print("  Please enter 'y' or 'n'.\n")
-
+                                response = prompt_choice(
+                                    "  Would you like to scan this code? (y/n)\n\n  ",
+                                    ("y", "n"),
+                                )
                                 if response == "y":
                                     should_scan_code = True
 
                         if should_scan_code:
                             scan_code(code, language, interpreter)
 
-                        while True:
-                            if interpreter.plain_text_display:
-                                response = input(
-                                    "Would you like to run this code? (y/n/e = edit)\n\n"
-                                )
-                            else:
-                                response = input(
-                                    "  Would you like to run this code? (y/n/e = edit)\n\n  "
-                                )
-                            response = response.strip().lower()
-                            response = response[:1] if response else ""
-                            print("")  # <- Aesthetic choice
-                            if response in ("y", "n", "e"):
-                                break
-                            print("  Please enter 'y', 'n', or 'e' (edit).\n")
+                        run_prompt = (
+                            "Would you like to run this code? (y/n/e = edit)\n\n"
+                            if interpreter.plain_text_display
+                            else "  Would you like to run this code? (y/n/e = edit)\n\n  "
+                        )
+                        response = prompt_choice(run_prompt, ("y", "n", "e"))
 
                         if response == "y":
                             # Create a new, identical block where the code will actually be run
