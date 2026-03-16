@@ -239,11 +239,17 @@ def respond(interpreter):
                         time.sleep(2)
                         continue
 
-                    retry_choice = input(
-                        "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  "
-                    ).strip().lower()
-                    retry_choice = retry_choice[:1] if retry_choice else ""
-                    print("")
+                    # Only accept explicit y/a/n answers; ignore anything else and reprompt.
+                    while True:
+                        retry_choice = input(
+                            "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  "
+                        ).strip().lower()
+                        retry_choice = retry_choice[:1] if retry_choice else ""
+                        print("")
+
+                        if retry_choice in ("y", "a", "n"):
+                            break
+                        print("  Please enter 'y', 'a', or 'n'.\n")
 
                     if retry_choice == "a":
                         always_retry_provider_errors = True
@@ -313,10 +319,15 @@ def respond(interpreter):
 
                     print(provider_message)
 
-                    response = input()
-                    print("")  # <- Aesthetic choice
+                    while True:
+                        response = input().strip().lower()
+                        response = response[:1] if response else ""
+                        print("")  # <- Aesthetic choice
+                        if response in ("y", "n"):
+                            break
+                        print("  Please enter 'y' or 'n'.\n")
 
-                    if response.strip().lower() == "y":
+                    if response == "y":
                         interpreter.llm.model = "i"
                         interpreter.display_message(f"> Model set to `i`")
                         interpreter.display_message(

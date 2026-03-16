@@ -152,10 +152,15 @@ def terminal_interface(interpreter, message):
                         paths_list = "\n".join(f"  - {path}" for path in image_paths)
                         prompt = f"  Found {len(image_paths)} images:\n{paths_list}\n  Upload these images to the vision model? (y/n)\n\n  "
 
-                    response = input(prompt)
-                    print("")  # Aesthetic choice
+                    while True:
+                        response = input(prompt).strip().lower()
+                        response = response[:1] if response else ""
+                        print("")  # Aesthetic choice
+                        if response in ("y", "n"):
+                            break
+                        print("  Please enter 'y' or 'n'.\n")
 
-                    if response.strip().lower() == "y":
+                    if response == "y":
                         # Add the text message to interpreter's message history
                         interpreter.messages.append(
                             {
@@ -236,35 +241,46 @@ def terminal_interface(interpreter, message):
                             if interpreter.safe_mode == "auto":
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
-                                response = input(
-                                    "  Would you like to scan this code? (y/n)\n\n  "
-                                )
-                                print("")  # <- Aesthetic choice
+                                while True:
+                                    response = input(
+                                        "  Would you like to scan this code? (y/n)\n\n  "
+                                    ).strip().lower()
+                                    response = response[:1] if response else ""
+                                    print("")  # <- Aesthetic choice
+                                    if response in ("y", "n"):
+                                        break
+                                    print("  Please enter 'y' or 'n'.\n")
 
-                                if response.strip().lower() == "y":
+                                if response == "y":
                                     should_scan_code = True
 
                         if should_scan_code:
                             scan_code(code, language, interpreter)
 
-                        if interpreter.plain_text_display:
-                            response = input(
-                                "Would you like to run this code? (y/n)\n\n"
-                            )
-                        else:
-                            response = input(
-                                "  Would you like to run this code? (y/n)\n\n  "
-                            )
-                        print("")  # <- Aesthetic choice
+                        while True:
+                            if interpreter.plain_text_display:
+                                response = input(
+                                    "Would you like to run this code? (y/n/e = edit)\n\n"
+                                )
+                            else:
+                                response = input(
+                                    "  Would you like to run this code? (y/n/e = edit)\n\n  "
+                                )
+                            response = response.strip().lower()
+                            response = response[:1] if response else ""
+                            print("")  # <- Aesthetic choice
+                            if response in ("y", "n", "e"):
+                                break
+                            print("  Please enter 'y', 'n', or 'e' (edit).\n")
 
-                        if response.strip().lower() == "y":
+                        if response == "y":
                             # Create a new, identical block where the code will actually be run
                             # Conveniently, the chunk includes everything we need to do this:
                             active_block = CodeBlock(interpreter)
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
                             active_block.code = code
-                        elif response.strip().lower() == "e":
+                        elif response == "e":
                             # Edit
 
                             # Create a temporary file
