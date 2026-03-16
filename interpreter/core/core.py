@@ -390,6 +390,14 @@ class OpenInterpreter:
                     # )
                     continue
 
+                # view_image_approval: AI wants to show image(s); user approves in terminal, result stored on interpreter
+                if chunk.get("type") == "view_image_approval":
+                    if last_flag_base:
+                        yield {**last_flag_base, "end": True}
+                        last_flag_base = None
+                    yield chunk
+                    continue
+
                 # Replace streamed reasoning with blockquote-formatted version (reasoning streamed raw, then replaced when complete)
                 if chunk.get("replace") and chunk.get("format") == "reasoning":
                     for i in range(len(self.messages) - 1, -1, -1):
