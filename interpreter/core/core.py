@@ -390,6 +390,13 @@ class OpenInterpreter:
                     # )
                     continue
 
+                # view_image_call: records the assistant's view_image tool call so it can be
+                # reconstructed as assistant+tool_calls in convert_to_openai_messages, preventing
+                # process_messages from inserting a synthetic execute call on the next turn.
+                if chunk.get("type") == "view_image_call":
+                    self.messages.append(chunk)
+                    continue
+
                 # view_image_approval: AI wants to show image(s); user approves in terminal, result stored on interpreter
                 if chunk.get("type") == "view_image_approval":
                     if last_flag_base:

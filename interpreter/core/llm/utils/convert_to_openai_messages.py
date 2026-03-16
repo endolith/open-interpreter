@@ -301,6 +301,23 @@ def convert_to_openai_messages(
                             0, {"type": "text", "text": f"[{ts}] "}
                         )
 
+        elif message["type"] == "view_image_call":
+            # Reconstructs the assistant's view_image tool call so process_messages finds a
+            # proper assistant+tool_calls before the tool response, avoiding a synthetic execute.
+            tool_call_id = message.get("tool_call_id") or "view_image_0"
+            new_message["role"] = "assistant"
+            new_message["content"] = ""
+            new_message["tool_calls"] = [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "view_image",
+                        "arguments": json.dumps({"path": message["path"]}),
+                    },
+                }
+            ]
+
         elif message["type"] == "file":
             ts = _user_ts(message, messages)
             content = message["content"]
