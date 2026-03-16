@@ -162,7 +162,7 @@ def process_messages(messages, model=None):
                                     "name": "execute",
                                     "arguments": json.dumps({
                                         "language": "python",
-                                        "code": "# Placeholder for unsupported/invalid tool call (error was returned as tool response).",
+                                        "code": "pass  # (synthetic; do not run)",
                                     }),
                                 },
                             }
@@ -698,6 +698,15 @@ def run_tool_calling_llm(llm, request_params):
             elif not os.path.exists(path):
                 content = f"view_image: file not found: {path}"
             else:
+                # Store the assistant's view_image call before the approval prompt.
+                # Without this, interpreter.messages has an orphaned role:tool response
+                # with no preceding assistant+tool_calls, causing process_messages to
+                # insert a synthetic execute call that the LLM echoes on the next turn.
+                yield {
+                    "type": "view_image_call",
+                    "tool_call_id": tool_call_id_for_error,
+                    "path": path,
+                }
                 yield {
                     "type": "view_image_approval",
                     "paths": [path],
