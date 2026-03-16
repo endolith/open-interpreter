@@ -663,13 +663,12 @@ def respond(interpreter):
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
 
-            # If toolbox.vision.view() (or any code that emits an image via IPython display)
-            # just ran, the last message is a computer image. Continue so the LLM gets
-            # another turn and sees it, the same way screenshots are handled.
+            # If an image was just shown (screenshot from display.view or approved view_image tool),
+            # continue so the LLM gets another turn to see and comment on it.
             if (
                 interpreter.messages
                 and interpreter.messages[-1].get("type") == "image"
-                and interpreter.messages[-1].get("role") == "computer"
+                and interpreter.messages[-1].get("role") in ("computer", "user")
             ):
                 continue
 
