@@ -14,6 +14,7 @@ from rich.panel import Panel
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
 from .toolbox.web.web import WebToolboxError, ApiKeyError
+from .utils.prompt_choice import prompt_choice
 
 
 def _is_temporary_provider_error(error):
@@ -239,17 +240,10 @@ def respond(interpreter):
                         time.sleep(2)
                         continue
 
-                    # Only accept explicit y/a/n answers; ignore anything else and reprompt.
-                    while True:
-                        retry_choice = input(
-                            "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  "
-                        ).strip().lower()
-                        retry_choice = retry_choice[:1] if retry_choice else ""
-                        print("")
-
-                        if retry_choice in ("y", "a", "n"):
-                            break
-                        print("  Please enter 'y', 'a', or 'n'.\n")
+                    retry_choice = prompt_choice(
+                        "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  ",
+                        ("y", "a", "n"),
+                    )
 
                     if retry_choice == "a":
                         always_retry_provider_errors = True
@@ -319,13 +313,7 @@ def respond(interpreter):
 
                     print(provider_message)
 
-                    while True:
-                        response = input().strip().lower()
-                        response = response[:1] if response else ""
-                        print("")  # <- Aesthetic choice
-                        if response in ("y", "n"):
-                            break
-                        print("  Please enter 'y' or 'n'.\n")
+                    response = prompt_choice("  ", ("y", "n"))
 
                     if response == "y":
                         interpreter.llm.model = "i"
