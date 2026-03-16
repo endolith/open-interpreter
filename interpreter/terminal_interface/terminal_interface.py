@@ -272,7 +272,9 @@ def terminal_interface(interpreter, message):
                                 tf.flush()
 
                             # Open the temporary file with the default editor
-                            subprocess.call([os.environ.get("EDITOR", "vim"), tf.name])
+                            default_editor = "notepad" if platform.system() == "Windows" else "vim"
+                            editor = os.environ.get("EDITOR", default_editor)
+                            subprocess.call([editor, tf.name])
 
                             # Read the modified code
                             with open(tf.name, "r") as tf:
