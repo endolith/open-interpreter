@@ -196,7 +196,9 @@ def convert_to_openai_messages(
                         new_messages.append(new_message)
                         continue
                     # Convert to base64
-                    extension = image_path.split(".")[-1]
+                    extension = image_path.split(".")[-1].lower()
+                    # Pillow uses "JPEG" as the format name, not "JPG"
+                    pil_format = "JPEG" if extension == "jpg" else extension.upper()
 
                     with open(image_path, "rb") as image_file:
                         encoded_string = base64.b64encode(image_file.read()).decode(
@@ -269,7 +271,7 @@ def convert_to_openai_messages(
 
                             # Convert the image back to base64
                             buffered = io.BytesIO()
-                            img.save(buffered, format=save_format)
+                            img.save(buffered, format=pil_format)
                             encoded_string = base64.b64encode(
                                 buffered.getvalue()
                             ).decode("utf-8")
