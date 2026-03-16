@@ -5,6 +5,7 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+import html2text
 import litellm
 import openai
 from rich import print as rich_print
@@ -15,6 +16,41 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from .render_message import render_message
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
+
+
+def _html_error_to_renderable(error_str):
+    """
+    If error_str contains an HTML error body (e.g. a provider 502 page),
+    convert it to a Rich Markdown renderable and return it. Otherwise return
+    None.
+
+    The exception string has a plain-text prefix before the HTML (e.g.
+    "litellm.APIError: OpenrouterException - <!DOCTYPE html>..."), so we slice
+    from the first HTML tag before handing off to html2text, which converts it
+    to Markdown for Rich to render.
+    """
+    # Quick bail-out: not HTML at all
+    lower = error_str.lower()
+    doctype_idx = lower.find("<!doctype")
+    html_idx = lower.find("<html")
+    if doctype_idx == -1 and html_idx == -1:
+        return None
+
+    # Slice from whichever HTML marker appears first
+    indices = [i for i in (doctype_idx, html_idx) if i >= 0]
+    html_part = error_str[min(indices):]
+
+    try:
+        h2t = html2text.HTML2Text()
+        h2t.body_width = 0  # Let Rich handle reflowing
+        md = h2t.handle(html_part).strip()
+    except Exception:
+        return None
+
+    if not md:
+        return None
+
+    return Markdown(md)
 
 
 def _is_temporary_provider_error(error):
@@ -207,11 +243,12 @@ def respond(interpreter):
                             yield {"type": "stop_live_display"}
                             rich_print(panel)
                             print("")  # Add space after error
-                        except:
-                            # Fallback if JSON parsing fails
+                        except Exception:
+                            # Fallback if JSON parsing fails (e.g. body is HTML)
+                            display = _html_error_to_renderable(error_str) or error_str
                             yield {"type": "stop_live_display"}
                             panel = Panel(
-                                error_str,
+                                display,
                                 border_style=panel_border_style,
                                 title=panel_title,
                                 title_align="left"
@@ -219,11 +256,12 @@ def respond(interpreter):
                             rich_print(panel)
                             print("")
                     else:
-                        # Format all other API errors in a Panel
-                        # Yield a special chunk to stop Live display before printing error panel
+                        # Format all other API errors in a Panel. If the body is HTML (e.g. provider 502 page),
+                        # convert with html2text and render as Rich Markdown.
+                        display = _html_error_to_renderable(error_str) or error_str
                         yield {"type": "stop_live_display"}
                         panel = Panel(
-                            error_str,
+                            display,
                             border_style=panel_border_style,
                             title=panel_title,
                             title_align="left"
