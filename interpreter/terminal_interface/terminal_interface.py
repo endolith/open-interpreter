@@ -262,29 +262,54 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         elif response == "e":
-                            # Edit
+                            # Edit - use mkstemp with the correct extension so the editor
+                            # can apply syntax highlighting. mkstemp is used instead of
+                            # NamedTemporaryFile because on Windows NamedTemporaryFile holds
+                            # an exclusive lock that prevents other processes from opening it.
+                            extension_map = {
+                                "python": ".py",
+                                "javascript": ".js",
+                                "typescript": ".ts",
+                                "shell": ".sh",
+                                "bash": ".sh",
+                                "r": ".r",
+                                "ruby": ".rb",
+                                "java": ".java",
+                                "html": ".html",
+                                "css": ".css",
+                                "sql": ".sql",
+                                "powershell": ".ps1",
+                                "applescript": ".applescript",
+                            }
+                            suffix = extension_map.get(language.lower(), f".{language.lower()}")
+                            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+                            try:
+                                # Close the fd immediately so the editor can open the file
+                                # on Windows (where open fds prevent other processes from
+                                # accessing the file).
+                                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                                    f.write(code)
 
-                            # Create a temporary file
-                            with tempfile.NamedTemporaryFile(
-                                suffix=".tmp", delete=False
-                            ) as tf:
-                                tf.write(code.encode())
-                                tf.flush()
+                                default_editor = "notepad" if platform.system() == "Windows" else "vim"
+                                editor = os.environ.get("EDITOR", default_editor)
+                                subprocess.call([editor, tmp_path])
 
-                            # Open the temporary file with the default editor
-                            default_editor = "notepad" if platform.system() == "Windows" else "vim"
-                            editor = os.environ.get("EDITOR", default_editor)
-                            subprocess.call([editor, tf.name])
+                                # On Windows, GUI editors like Notepad++ may be set as a
+                                # Notepad replacement and return immediately by opening the
+                                # file in an existing instance. We wait for explicit
+                                # confirmation so the user has time to finish editing before
+                                # we read the file, regardless of editor type.
+                                input("  Press Enter when done editing...")
+                                print("")
 
-                            # Read the modified code
-                            with open(tf.name, "r") as tf:
-                                code = tf.read()
+                                with open(tmp_path, "r", encoding="utf-8") as f:
+                                    code = f.read()
+                            finally:
+                                os.unlink(tmp_path)
 
                             interpreter.messages[-1]["content"] = code  # Give it code
 
-                            # Delete the temporary file
-                            os.unlink(tf.name)
-                            active_block = CodeBlock()
+                            active_block = CodeBlock(interpreter)
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
                             active_block.code = code
