@@ -18,6 +18,7 @@ import time
 
 from rich.box import ROUNDED
 from rich.console import Console as RichConsole
+from rich.padding import Padding as RichPadding
 from rich.panel import Panel
 from rich.text import Text as RichText
 
@@ -30,6 +31,7 @@ from .components.message_block import MessageBlock
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
+from .utils.display_constants import PADDING_PANEL
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 
@@ -157,7 +159,8 @@ def terminal_interface(interpreter, message):
                     for p in image_paths:
                         _content.append(p + "\n")
                     _content.append("\nUpload to vision model? (y/n)")
-                    _console.print(Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1)))
+                    _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
+                    _console.print(RichPadding(_panel, PADDING_PANEL))
                     response = prompt_choice("  ", ("y", "n"))
 
                     if response == "y":
@@ -232,7 +235,8 @@ def terminal_interface(interpreter, message):
                         for p in paths:
                             _content.append(_truncate(p) + "\n")
                         _content.append("\nAllow? (y/n)")
-                        _console.print(Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1)))
+                        _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
+                        _console.print(RichPadding(_panel, PADDING_PANEL))
                         response = prompt_choice("  ", ("y", "n"))
                         interpreter._view_image_approval = response
                     else:
