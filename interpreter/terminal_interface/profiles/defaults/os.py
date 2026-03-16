@@ -1,6 +1,7 @@
 import time
 
 from interpreter import interpreter
+from interpreter.core.utils.prompt_choice import prompt_choice
 
 interpreter.os = True
 interpreter.llm.supports_vision = True
@@ -165,12 +166,7 @@ if missing_packages:
     interpreter.display_message(
         f"> **Missing Package(s): {', '.join(['`' + p + '`' for p in missing_packages])}**\n\nThese packages are required for OS Control.\n\nInstall them?\n"
     )
-    while True:
-        user_input = input("(y/n) > ").strip().lower()
-        user_input = user_input[:1] if user_input else ""
-        if user_input in ("y", "n"):
-            break
-        print("Please enter 'y' or 'n'.\n")
+    user_input = prompt_choice("(y/n) > ", ("y", "n"))
     if user_input != "y":
         print("\nPlease try to install them manually.\n\n")
         time.sleep(2)
