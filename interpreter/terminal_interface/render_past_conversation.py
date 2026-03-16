@@ -54,31 +54,19 @@ def render_past_conversation(messages):
         content = chunk.get("content", "")
 
         if chunk_type == "view_image_call":
-            flush_pending_code()
-            path = chunk.get("path", "")
-            if path:
-                render_separator()
-                panel = Panel(
-                    f"AI requested to view image:\n{path}",
-                    box=ROUNDED,
-                    title="View Image Request",
-                    padding=(0, 1),
-                )
-                rich_print(Padding(panel, PADDING_PANEL))
             continue
 
         if role == "user":
             flush_pending_code()
             # Skip UI-injected messages (e.g. [User declined...], [The user edited...])
-            # so they don't appear as user speech when loading from history.
             if chunk.get("source") == "terminal":
                 continue
             if chunk_type == "image" and isinstance(content, str):
                 render_separator()
                 panel = Panel(
-                    f"User approved. Image shown to model:\n{content}",
+                    content,
                     box=ROUNDED,
-                    title="Image Approved",
+                    title="Image viewed",
                     padding=(0, 1),
                 )
                 rich_print(Padding(panel, PADDING_PANEL))
