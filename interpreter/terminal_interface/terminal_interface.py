@@ -309,6 +309,19 @@ def terminal_interface(interpreter, message):
 
                             interpreter.messages[-1]["content"] = code  # Give it code
 
+                            # Let the LLM know the code was user-edited before running,
+                            # so it doesn't think it produced the edited version itself.
+                            # source="terminal" marks this as UI-injected so %undo skips it.
+                            interpreter.messages.append(
+                                {
+                                    "role": "user",
+                                    "type": "message",
+                                    "content": "[The user edited your code before running it. The version above reflects their edits, not exactly what you wrote.]",
+                                    "sent_at": time.time(),
+                                    "source": "terminal",
+                                }
+                            )
+
                             active_block = CodeBlock(interpreter)
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
