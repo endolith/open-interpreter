@@ -307,16 +307,21 @@ def terminal_interface(interpreter, message):
                             finally:
                                 os.unlink(tmp_path)
 
+                            original_code = interpreter.messages[-1]["content"]
                             interpreter.messages[-1]["content"] = code  # Give it code
 
                             # Let the LLM know the code was user-edited before running,
-                            # so it doesn't think it produced the edited version itself.
+                            # including the original so it can see what changed.
                             # source="terminal" marks this as UI-injected so %undo skips it.
                             interpreter.messages.append(
                                 {
                                     "role": "user",
                                     "type": "message",
-                                    "content": "[The user edited your code before running it. The version above reflects their edits, not exactly what you wrote.]",
+                                    "content": (
+                                        f"[The user edited your code before running it. "
+                                        f"Your original code was:\n```{language}\n{original_code}\n```\n"
+                                        f"The version above is what actually ran.]"
+                                    ),
                                     "sent_at": time.time(),
                                     "source": "terminal",
                                 }
