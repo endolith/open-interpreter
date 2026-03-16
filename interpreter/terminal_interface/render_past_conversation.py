@@ -55,6 +55,10 @@ def render_past_conversation(messages):
 
         if role == "user":
             flush_pending_code()
+            # Skip UI-injected messages (e.g. [User declined...], [The user edited...])
+            # so they don't appear as user speech when loading from history.
+            if chunk.get("source") == "terminal":
+                continue
             if isinstance(content, str):
                 render_separator()
                 print(">", content)
