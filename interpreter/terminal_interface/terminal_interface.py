@@ -16,6 +16,11 @@ import subprocess
 import tempfile
 import time
 
+from rich.box import ROUNDED
+from rich.console import Console as RichConsole
+from rich.panel import Panel
+from rich.text import Text as RichText
+
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
@@ -147,14 +152,13 @@ def terminal_interface(interpreter, message):
 
                 ## If we found images, ask for approval before uploading
                 if image_paths:
-                    # Ask for approval before uploading images
-                    if len(image_paths) == 1:
-                        prompt = f"  Found image: {image_paths[0]}\n  Upload this image to the vision model? (y/n)\n\n  "
-                    else:
-                        paths_list = "\n".join(f"  - {path}" for path in image_paths)
-                        prompt = f"  Found {len(image_paths)} images:\n{paths_list}\n  Upload these images to the vision model? (y/n)\n\n  "
-
-                    response = prompt_choice(prompt, ("y", "n"))
+                    _console = RichConsole(emoji=False)
+                    _content = RichText()
+                    for p in image_paths:
+                        _content.append(p + "\n")
+                    _content.append("\nUpload to vision model? (y/n)")
+                    _console.print(Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1)))
+                    response = prompt_choice("  ", ("y", "n"))
 
                     if response == "y":
                         # Add the text message to interpreter's message history
@@ -223,14 +227,13 @@ def terminal_interface(interpreter, message):
                         max_len = 72
                         def _truncate(p):
                             return p if len(p) <= max_len else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
-                        lines = ["  The AI wants to view the following image(s):", ""]
+                        _console = RichConsole(emoji=False)
+                        _content = RichText()
                         for p in paths:
-                            lines.append("    " + _truncate(p))
-                        lines.append("")
-                        lines.append("  (y = yes this image, n = no, a = approve all in this request)")
-                        lines.append("")
-                        prompt = "\n".join(lines) + "\n\n  "
-                        response = prompt_choice(prompt, ("y", "n", "a"))
+                            _content.append(_truncate(p) + "\n")
+                        _content.append("\nAllow? (y/n)")
+                        _console.print(Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1)))
+                        response = prompt_choice("  ", ("y", "n"))
                         interpreter._view_image_approval = response
                     else:
                         interpreter._view_image_approval = "n"

@@ -397,6 +397,15 @@ class OpenInterpreter:
                     self.messages.append(chunk)
                     continue
 
+                # role:tool messages are API-internal (pairing for view_image_call, unsupported
+                # function calls, etc.) and must not be displayed to the user.
+                if chunk.get("role") == "tool" and chunk.get("type") == "message":
+                    if last_flag_base:
+                        yield {**last_flag_base, "end": True}
+                        last_flag_base = None
+                    self.messages.append(chunk)
+                    continue
+
                 # view_image_approval: AI wants to show image(s); user approves in terminal, result stored on interpreter
                 if chunk.get("type") == "view_image_approval":
                     if last_flag_base:
