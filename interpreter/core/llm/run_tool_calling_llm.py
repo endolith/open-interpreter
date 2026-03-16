@@ -30,6 +30,24 @@ tool_schema = {
     },
 }
 
+view_image_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "view_image",
+        "description": "Show an image to the model so it can see it. Use when you need to look at an image file. Path must be absolute (e.g. on Windows: r'C:\\Users\\...', on Mac/Linux: '/home/...'). The model has no access to the current working directory of Python or the shell.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the image file (e.g. PNG, JPEG). Must be an absolute path.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+}
+
 
 def generate_tool_id(tool_id_num, model=None):
     """
@@ -177,7 +195,10 @@ def run_tool_calling_llm(llm, request_params):
     tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
         i.name.lower() for i in llm.interpreter.terminal.languages
     ]
-    request_params["tools"] = [tool_schema]
+    tools = [tool_schema]
+    if getattr(llm, "supports_vision", None) is True:
+        tools.append(view_image_tool_schema)
+    request_params["tools"] = tools
 
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
@@ -665,12 +686,35 @@ def run_tool_calling_llm(llm, request_params):
                     print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
+        elif function_name == "view_image":
+            arguments = function_call.get("arguments")
+            if isinstance(arguments, str):
+                arguments = parse_partial_json(arguments)
+            path = isinstance(arguments, dict) and arguments.get("path")
+            if not path or not isinstance(path, str):
+                content = "view_image: path is required and must be a string."
+            elif not os.path.isabs(path):
+                content = "view_image: path must be absolute (e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac)."
+            elif not os.path.exists(path):
+                content = f"view_image: file not found: {path}"
+            else:
+                llm.interpreter._pending_view_image_path = path
+                content = "Image added; you will see it when you continue."
+            if tool_call_id_for_error:
+                yield {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id_for_error,
+                    "type": "message",
+                    "content": content,
+                }
+            else:
+                yield {"role": "assistant", "type": "message", "content": content}
         elif function_name:
             # Unsupported function call - yield error as tool response to maintain proper message ordering
             # The API expects: assistant (with tool_call) → tool (response) → user
             error_msg = (
                 f"Unsupported function call: '{function_name}'. "
-                f"Only 'execute' is supported as a direct tool call. "
+                f"Only 'execute' and 'view_image' (vision models only) are supported as direct tool calls. "
                 f"To use '{function_name}', call it from within Python code using the execute function. "
                 f"For example: `toolbox.web.brave(query='...')`"
             )
