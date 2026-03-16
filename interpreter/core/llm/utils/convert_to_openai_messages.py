@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 import sys
 from datetime import datetime
 
@@ -167,8 +168,26 @@ def convert_to_openai_messages(
                     encoded_string = message["content"]
 
                 elif message["format"] == "path":
-                    # Convert to base64
                     image_path = message["content"]
+                    if not os.path.exists(image_path):
+                        new_message = {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"[Image no longer available at: {image_path}. To restore context, the user can put the image back at this path or add it again from its new path in a new message.]",
+                                }
+                            ],
+                        }
+                        if message.get("role") == "user":
+                            ts = _user_ts(message, messages)
+                            if ts is not None:
+                                new_message["content"].insert(
+                                    0, {"type": "text", "text": f"[{ts}] "}
+                                )
+                        new_messages.append(new_message)
+                        continue
+                    # Convert to base64
                     extension = image_path.split(".")[-1]
 
                     with open(image_path, "rb") as image_file:
