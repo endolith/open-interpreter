@@ -30,17 +30,20 @@ tool_schema = {
     },
 }
 
+# Raster image formats supported by view_image (vision APIs and Pillow). PDF and other documents are not supported.
+VIEW_IMAGE_ALLOWED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "bmp"})
+
 view_image_tool_schema = {
     "type": "function",
     "function": {
         "name": "view_image",
-        "description": "Show an image to the model so it can see it. Use when you need to look at an image file. Path must be absolute (e.g. on Windows: r'C:\\Users\\...', on Mac/Linux: '/home/...'). The model has no access to the current working directory of Python or the shell.",
+        "description": "Show an image to the model so it can see it. Use when you need to look at an image file. Supported formats: PNG, JPEG, GIF, WebP, BMP. PDF and other document formats are not supported. Path must be absolute (e.g. on Windows: r'C:\\Users\\...', on Mac/Linux: '/home/...'). The model has no access to the current working directory of Python or the shell.",
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute path to the image file (e.g. PNG, JPEG). Must be an absolute path.",
+                    "description": "Absolute path to an image file. Supported: PNG, JPEG, GIF, WebP, BMP. Must be an absolute path.",
                 },
             },
             "required": ["path"],
@@ -698,25 +701,33 @@ def run_tool_calling_llm(llm, request_params):
             elif not os.path.exists(path):
                 content = f"view_image: file not found: {path}"
             else:
-                # Store the assistant's view_image call before the approval prompt.
-                # Without this, interpreter.messages has an orphaned role:tool response
-                # with no preceding assistant+tool_calls, causing process_messages to
-                # insert a synthetic execute call that the LLM echoes on the next turn.
-                yield {
-                    "type": "view_image_call",
-                    "tool_call_id": tool_call_id_for_error,
-                    "path": path,
-                }
-                yield {
-                    "type": "view_image_approval",
-                    "paths": [path],
-                }
-                approval = getattr(llm.interpreter, "_view_image_approval", "n")
-                if approval == "y":
-                    llm.interpreter._pending_view_image_path = path
-                    content = "Image added; you will see it when you continue."
+                ext = os.path.splitext(path)[1].lstrip(".").lower()
+                if ext not in VIEW_IMAGE_ALLOWED_EXTENSIONS:
+                    content = (
+                        f"view_image: unsupported file format '.{ext}'. "
+                        f"Supported formats: {', '.join(sorted(VIEW_IMAGE_ALLOWED_EXTENSIONS))}. "
+                        "PDF and other document formats are not supported."
+                    )
                 else:
-                    content = "User declined to show image."
+                    # Store the assistant's view_image call before the approval prompt.
+                    # Without this, interpreter.messages has an orphaned role:tool response
+                    # with no preceding assistant+tool_calls, causing process_messages to
+                    # insert a synthetic execute call that the LLM echoes on the next turn.
+                    yield {
+                        "type": "view_image_call",
+                        "tool_call_id": tool_call_id_for_error,
+                        "path": path,
+                    }
+                    yield {
+                        "type": "view_image_approval",
+                        "paths": [path],
+                    }
+                    approval = getattr(llm.interpreter, "_view_image_approval", "n")
+                    if approval == "y":
+                        llm.interpreter._pending_view_image_path = path
+                        content = "Image added; you will see it when you continue."
+                    else:
+                        content = "User declined to show image."
             if tool_call_id_for_error:
                 yield {
                     "role": "tool",
