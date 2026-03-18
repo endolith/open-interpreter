@@ -997,7 +997,7 @@ class Web:
         the specified one. Backends are tried in order: linkup, tavily.
 
         Args:
-            question (str): The question to answer. Phrase this as a QUESTION with a question mark at the end, not just a string of search terms. The AI search tool will research from the web and answer the question.
+            question (str): MUST be a natural-language question ending in "?", e.g. "What is the best vacuum cleaner in 2026?" — NOT search terms like "best vacuum cleaner 2026". An AI agent reads the web and answers the question for you.
             backend (str, optional): Force a specific backend ("tavily" or "linkup").
                                      If None, auto-selects based on availability.
             **kwargs: Additional backend-specific parameters:
