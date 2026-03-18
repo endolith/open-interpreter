@@ -78,6 +78,10 @@ class SearchResult(dict):
 class FetchResult(dict):
     """Dict subclass for web fetch results. Has a compact repr to avoid flooding the context window."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._cached = False
+
     def _get_content(self):
         """Return content string. For multi-page results, concatenates all pages."""
         if "content" in self:
@@ -113,11 +117,12 @@ class FetchResult(dict):
 
     def __repr__(self):
         backend = self.get("backend", "?")
+        cached_tag = " [cached]" if getattr(self, "_cached", False) else ""
         if "results" in self:
             # Multi-URL result from explicit urls=[...] kwarg (tavily only)
             results = self.get("results", [])
             n = len(results)
-            lines = [f"FetchResult({n} pages) [backend={backend}]"]
+            lines = [f"FetchResult({n} pages) [backend={backend}]{cached_tag}"]
             lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
             lines.append("  Quick: result.find('term') | result.links() | result['results'][i]['content']")
             for r in results[:3]:
@@ -138,7 +143,7 @@ class FetchResult(dict):
                 f"{k}[dict]" for k in self.keys()
                 if k not in ("title", "url", "content", "backend")
             )
-            lines = [f"FetchResult [backend={backend}]"]
+            lines = [f"FetchResult [backend={backend}]{cached_tag}"]
             lines.append(
                 f"  Keys: url[str], title[str], content[str={content_len:,} chars]"
                 + (f", {extra_keys}" if extra_keys else "")
@@ -209,6 +214,9 @@ class Web:
         lang, country = loc.split('_', 1)
         self._default_lang = lang.lower()
         self._default_country = country.upper()
+        # Session-scoped cache: keyed by URL. Web page content doesn't change mid-session,
+        # so re-fetching the same URL is always wasteful.
+        self._fetch_cache: Dict[str, "FetchResult"] = {}
 
     def _get_locale_defaults(self, country_code=None, language_code=None, country_case="lower"):
         """
@@ -1451,6 +1459,14 @@ class Web:
             "tavily": self._fetch_tavily
         }
 
+        # Multi-URL calls (tavily urls=[...]) bypass the cache — too varied to key simply.
+        is_multi_url = "urls" in kwargs
+
+        if not is_multi_url and url in self._fetch_cache:
+            cached = self._fetch_cache[url]
+            cached._cached = True
+            return cached
+
         if backend:
             backend = backend.lower()
 
@@ -1460,7 +1476,7 @@ class Web:
                     "Try without specifying a backend to auto-select."
                 )
 
-            if backend == "tavily" and "urls" in kwargs:
+            if is_multi_url:
                 result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
             elif backend == "tavily":
                 result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
@@ -1471,7 +1487,11 @@ class Web:
                 result = backend_methods[backend](url, **kwargs)
 
             result["backend"] = backend
-            return FetchResult(result)
+            result["backend"] = backend
+            fetch_result = FetchResult(result)
+            if not is_multi_url:
+                self._fetch_cache[url] = fetch_result
+            return fetch_result
 
         backends_to_try = ["serper", "linkup", "tavily"]
         failed_results = []
@@ -1480,7 +1500,7 @@ class Web:
             if not self._check_backend_available(backend_name):
                 continue
             try:
-                if backend_name == "tavily" and "urls" in kwargs:
+                if is_multi_url:
                     result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
                 elif backend_name == "tavily":
                     result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
@@ -1490,7 +1510,10 @@ class Web:
                 else:
                     result = backend_methods[backend_name](url, **kwargs)
                 result["backend"] = backend_name
-                return FetchResult(result)
+                fetch_result = FetchResult(result)
+                if not is_multi_url:
+                    self._fetch_cache[url] = fetch_result
+                return fetch_result
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
