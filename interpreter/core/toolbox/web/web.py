@@ -31,7 +31,10 @@ class ApiKeyError(Exception):
 
 class WebToolboxError(Exception):
     """Raised when a web toolbox operation fails (missing package, no backends, API error, etc.)."""
-    pass
+
+    def _render_traceback_(self):
+        # Suppress the full Jupyter/IPython traceback — just show the message.
+        return [f"WebToolboxError: {self}"]
 
 
 class SearchResult(dict):
