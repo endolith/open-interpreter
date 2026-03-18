@@ -61,7 +61,7 @@ class SearchResult(dict):
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[list of {title,url,snippet}], raw_response[dict], backend[str]")
-        lines.append("  Access: result['results'][i]['title'|'url'|'snippet'] | result.fetch(i)")
+        lines.append("  → result['results'][i] | result.fetch(i)")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -124,7 +124,7 @@ class FetchResult(dict):
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]{cached_tag}"]
             lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
-            lines.append("  Quick: result.find('term') | result.links() | result['results'][i]['content']")
+            lines.append("  → page=result.fetch(i) → page.find()|page.links()|page['results'][i]['content']")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
                 url = r.get("url", "")
@@ -149,7 +149,7 @@ class FetchResult(dict):
                 + (f", {extra_keys}" if extra_keys else "")
                 + ", backend[str]"
             )
-            lines.append("  Quick: result.find('term') | result.links()")
+            lines.append("  → page=result.fetch(i) → page.find()|page.links()")
             if title:
                 lines.append(f"  \"{title}\"")
             else:
@@ -179,7 +179,7 @@ class AnswerResult(dict):
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
         lines.append("  Keys: answer[str], sources[list of {title,url,snippet}], backend[str]")
-        lines.append("  Access: result['sources'][i]['title'|'url'|'snippet'] | result.fetch(i)")
+        lines.append("  → result['answer']|result['sources'][i]|result.fetch(i)")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -954,7 +954,7 @@ class Web:
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            print("→ result['results'][i] | result.fetch(i)")
+            print("→ result['results'][i]|result.fetch(i)")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -968,7 +968,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result['results'][i] | result.fetch(i)")
+                print("→ result['results'][i]|result.fetch(i)")
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1154,7 +1154,7 @@ class Web:
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            print("→ result['answer'] | result['sources'] | result.fetch(i)")
+            print("→ result['answer']|result['sources']|result.fetch(i)")
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
@@ -1170,7 +1170,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                print("→ result['answer'] | result['sources'] | result.fetch(i)")
+                print("→ result['answer']|result['sources']|result.fetch(i)")
                 return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1469,7 +1469,7 @@ class Web:
         if not is_multi_url and url in self._fetch_cache:
             cached = self._fetch_cache[url]
             cached._cached = True
-            print("→ result.find() | result.links()")
+            print("→ page=result.fetch(i) → page.find()|page.links()")
             return cached
 
         if backend:
@@ -1495,7 +1495,7 @@ class Web:
             fetch_result = FetchResult(result)
             if not is_multi_url:
                 self._fetch_cache[url] = fetch_result
-            print("→ result.find() | result.links()")
+            print("→ page=result.fetch(i) → page.find()|page.links()")
             return fetch_result
 
         backends_to_try = ["serper", "linkup", "tavily"]
@@ -1518,7 +1518,7 @@ class Web:
                 fetch_result = FetchResult(result)
                 if not is_multi_url:
                     self._fetch_cache[url] = fetch_result
-                print("→ result.find() | result.links()")
+                print("→ page=result.fetch(i) → page.find()|page.links()")
                 return fetch_result
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
