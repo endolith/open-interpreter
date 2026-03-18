@@ -133,7 +133,7 @@ class FetchResult(dict):
             )
             lines = [f"FetchResult [backend={backend}]"]
             lines.append(
-                f"  Keys: url[str], title[str], content[str={content_len:,} chars]"
+                f"  Keys: url[str], title[str], content[str={content_len} chars]"
                 + (f", {extra_keys}" if extra_keys else "")
                 + ", backend[str]"
             )
