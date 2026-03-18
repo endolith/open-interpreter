@@ -1015,6 +1015,10 @@ class Web:
             for source in result["sources"]:
                 print(f"- {source['title']}: {source['url']}")
         """
+        if "?" not in question:
+            print(f"⚠️  web.answer() expects a question ending in '?', not search terms.\n"
+                  f"   Try rephrasing: \"{question}?\"")
+
         if backend:
             backend = backend.lower()
             if backend not in ("tavily", "linkup"):
