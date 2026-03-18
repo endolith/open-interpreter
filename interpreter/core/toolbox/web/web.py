@@ -70,6 +70,39 @@ class SearchResult(dict):
 class FetchResult(dict):
     """Dict subclass for web fetch results. Has a compact repr to avoid flooding the context window."""
 
+    def _get_content(self):
+        """Return content string. For multi-page results, concatenates all pages."""
+        if "content" in self:
+            return self["content"]
+        return "\n\n".join(r.get("content", "") for r in self.get("results", []))
+
+    def find(self, term, context=100, max_results=None):
+        """
+        Find all occurrences of term in content (case-insensitive).
+        Returns a list of snippet strings, each with up to `context` chars of surrounding text.
+        Pass max_results to cap the number of matches returned.
+        """
+        import re
+        content = self._get_content()
+        pattern = re.compile(re.escape(term), re.IGNORECASE)
+        snippets = []
+        for m in pattern.finditer(content):
+            start = max(0, m.start() - context)
+            end = min(len(content), m.end() + context)
+            snippets.append(content[start:end].replace("\n", " ").strip())
+            if max_results is not None and len(snippets) >= max_results:
+                break
+        return snippets
+
+    def links(self):
+        """
+        Extract hyperlinks from content.
+        Returns a list of (anchor_text, url) tuples parsed from markdown [text](url) syntax.
+        """
+        import re
+        content = self._get_content()
+        return re.findall(r'\[([^\]]*)\]\((https?://[^)]+)\)', content)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         if "results" in self:
@@ -78,6 +111,7 @@ class FetchResult(dict):
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]"]
             lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
+            lines.append("  Quick: result.find('term') | result.links()")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
                 url = r.get("url", "")
@@ -103,6 +137,7 @@ class FetchResult(dict):
                 + (f", {extra_keys}" if extra_keys else "")
                 + ", backend[str]"
             )
+            lines.append("  Quick: result.find('term') | result.links()")
             lines.append(f"  Title: \"{title}\"")
             lines.append(f"  URL: {url}")
             if preview:
