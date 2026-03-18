@@ -1015,8 +1015,6 @@ class Web:
             for source in result["sources"]:
                 print(f"- {source['title']}: {source['url']}")
         """
-        used_backend = None
-
         if backend:
             backend = backend.lower()
             if backend not in ("tavily", "linkup"):
