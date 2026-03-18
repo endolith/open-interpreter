@@ -8,7 +8,7 @@ multiple backends.
 Supported backends:
 - Search: serper, serpapi, tavily, brave, linkup
 - Answer:  linkup, tavily
-- Fetch: serper, linkup, tavily
+- Fetch: linkup, tavily, serper
 - Crawl: tavily (not implemented yet)
 - Structured output: linkup (not implemented yet)
 """
