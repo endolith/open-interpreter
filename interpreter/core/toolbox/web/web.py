@@ -34,6 +34,84 @@ class WebToolboxError(Exception):
     pass
 
 
+class SearchResult(dict):
+    """Dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        results = self.get("results", [])
+        n = len(results)
+        lines = [f"SearchResult({n} results) [backend={backend}]"]
+        lines.append("  Keys: results[list of {title,url,snippet}], raw_response[dict], backend[str]")
+        for r in results[:3]:
+            title = r.get("title", "")[:60]
+            url = r.get("url", "")
+            domain = url.split("/")[2] if url.count("/") >= 2 else url
+            lines.append(f"  \u2022 \"{title}\" \u2014 {domain}")
+        if n > 3:
+            lines.append(f"  ... {n - 3} more. Access: result['results'][i]['title'|'url'|'snippet']")
+        return "\n".join(lines)
+
+
+class FetchResult(dict):
+    """Dict subclass for web fetch results. Has a compact repr to avoid flooding the context window."""
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        if "results" in self:
+            # Multi-page result (tavily)
+            results = self.get("results", [])
+            n = len(results)
+            lines = [f"FetchResult({n} pages) [backend={backend}]"]
+            lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
+            for r in results[:3]:
+                title = r.get("title", "")[:50]
+                url = r.get("url", "")
+                domain = url.split("/")[2] if url.count("/") >= 2 else url
+                content_len = len(r.get("content", ""))
+                lines.append(f"  \u2022 \"{title}\" \u2014 {domain} ({content_len:,} chars)")
+            if n > 3:
+                lines.append(f"  ... {n - 3} more. Access: result['results'][i]['url'|'title'|'content']")
+        else:
+            # Single-page result (serper, linkup)
+            title = self.get("title", "No title")
+            url = self.get("url", "")
+            content = self.get("content", "")
+            content_len = len(content)
+            preview = content[:150].replace("\n", " ") if content else ""
+            extra_keys = ", ".join(
+                f"{k}[dict]" for k in self.keys()
+                if k not in ("title", "url", "content", "backend")
+            )
+            lines = [f"FetchResult [backend={backend}]"]
+            lines.append(
+                f"  Keys: url[str], title[str], content[str={content_len:,} chars]"
+                + (f", {extra_keys}" if extra_keys else "")
+                + ", backend[str]"
+            )
+            lines.append(f"  Title: \"{title}\"")
+            lines.append(f"  URL: {url}")
+            if preview:
+                lines.append(f"  \"{preview}...\"")
+        return "\n".join(lines)
+
+
+class AnswerResult(dict):
+    """Dict subclass for web answer results. Has a compact repr to avoid flooding the context window."""
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        answer = self.get("answer", "")
+        sources = self.get("sources", [])
+        n_sources = len(sources)
+        lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
+        lines.append("  Keys: answer[str], sources[list of {title,url,snippet}], backend[str]")
+        if answer:
+            for line in answer.split("\n"):
+                lines.append(f"  {line}")
+        return "\n".join(lines)
+
+
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
@@ -781,8 +859,7 @@ class Web:
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            self._print_search_result(query, result, backend)
-            return result
+            return SearchResult(result)
 
         # Auto-select backend
         # Priority order based on AI agent needs: serper (rich snippets, knowledge panels, structured data, best for AI) > serpapi (comprehensive Google results) > tavily (AI-optimized) > brave (alternative sources, fewer snippets) > linkup
@@ -795,8 +872,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                self._print_search_result(query, result, backend_name)
-                return result
+                return SearchResult(result)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
@@ -942,53 +1018,6 @@ class Web:
 
         return normalized
 
-    def _print_search_result(self, query: str, result: Dict[str, Any], backend: str):
-        """Print formatted search result to help the AI understand what was found."""
-        results = result.get("results", [])
-
-        print(f"\n🔍 Search results for '{query}' (using `{backend}` backend):")
-        print(f"Found {len(results)} results\n")
-
-        if results:
-            print("Top results:")
-            for i, res in enumerate(results[:5], 1):  # Show first 5 results
-                title = res.get("title", "No title")
-                url = res.get("url", "")
-                print(f"  {i}. {title}")
-                if url:
-                    print(f"     {url}")
-            if len(results) > 5:
-                print(f"  ... and {len(results) - 5} more results")
-            print()
-
-    def _print_answer_result(self, question: str, result: Dict[str, Any], backend: str):
-        """Print formatted answer result to help the AI understand what was found."""
-        answer_text = result.get("answer", "")
-        sources = result.get("sources", [])
-
-        # Backend library information
-        backend_info = {
-            "tavily": ("tavily", "TavilyClient", "from tavily import TavilyClient"),
-            "linkup": ("linkup-sdk", "LinkupClient", "from linkup import LinkupClient"),
-        }
-        lib_name, client_name, import_stmt = backend_info.get(backend, ("", "", ""))
-
-        print(f"\n📝 Answer (using `{backend}` backend):")
-        print(f"{answer_text}\n")
-
-        if sources:
-            print(f"📚 Sources ({len(sources)}):")
-            for i, source in enumerate(sources[:3], 1):  # Show first 3 sources
-                title = source.get("title", "No title")
-                print(f"  {i}. {title}")
-            if len(sources) > 3:
-                print(f"  ... and {len(sources) - 3} more sources")
-            print()
-
-        if lib_name:
-            print(f"💡 For more control, use {lib_name} directly: {import_stmt}")
-            print()
-
     def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Get AI-generated answer with web sources. PREFERRED for questions requiring a direct answer about current web knowledge.
@@ -1028,8 +1057,7 @@ class Web:
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            self._print_answer_result(question, result, backend)
-            return result
+            return AnswerResult(result)
 
         backends_to_try = ["linkup", "tavily"]
         backend_methods = {
@@ -1044,8 +1072,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                self._print_answer_result(question, result, backend_name)
-                return result
+                return AnswerResult(result)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
@@ -1266,28 +1293,6 @@ class Web:
 
         return normalized
 
-    def _print_fetch_result(self, url: str, result: Dict[str, Any], backend: str):
-        """Print formatted fetch result to help the AI understand what was found."""
-        if "results" in result:
-            # Tavily returns multiple results
-            results = result.get("results", [])
-            print(f"\n📄 Fetched {len(results)} page(s) from '{url}' (using `{backend}` backend):\n")
-            for i, res in enumerate(results, 1):
-                title = res.get("title", "No title")
-                content_preview = res.get("content", "")[:200] if res.get("content") else ""
-                print(f"  {i}. {title}")
-                if content_preview:
-                    print(f"     {content_preview}...")
-            print()
-        else:
-            # Single page result (Serper, LinkUp)
-            title = result.get("title", "No title")
-            content_preview = result.get("content", "")[:200] if result.get("content") else ""
-            print(f"\n📄 Fetched '{url}' (using `{backend}` backend):")
-            print(f"Title: {title}\n")
-            if content_preview:
-                print(f"Content preview: {content_preview}...\n")
-
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Fetch web page content from a URL.
@@ -1353,8 +1358,6 @@ class Web:
                 urls=["https://example.com", "https://example.org"]
             )
         """
-        used_backend = None
-
         # Define backend methods
         backend_methods = {
             "serper": self._fetch_serper,
@@ -1381,8 +1384,7 @@ class Web:
                 result = backend_methods[backend](url, **kwargs)
 
             result["backend"] = backend
-            self._print_fetch_result(url, result, backend)
-            return result
+            return FetchResult(result)
 
         backends_to_try = ["serper", "linkup", "tavily"]
         failed_results = []
@@ -1400,8 +1402,7 @@ class Web:
                 else:
                     result = backend_methods[backend_name](url, **kwargs)
                 result["backend"] = backend_name
-                self._print_fetch_result(url, result, backend_name)
-                return result
+                return FetchResult(result)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
