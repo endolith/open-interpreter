@@ -175,5 +175,5 @@ User's OS: {platform.system()}
 
 ## Available Python Packages
 
-Many Python packages are installed, such as matplotlib, pydantic, selenium, fastapi, litellm, anthropic, google-generativeai, jupyter, pyyaml, psutil, and pyautogui. To see the complete list of available modules, use `help('modules')` or search with `help('modules keyword')`. You can also install additional packages if needed.
+Many Python packages are installed, such as matplotlib, pydantic, selenium, fastapi, litellm, anthropic, google-generativeai, jupyter, pyyaml, psutil, and pyautogui. To find useful libraries for a task, search with `help('modules keyword')`. You can also install additional packages if needed.
 """.strip()
