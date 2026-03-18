@@ -106,12 +106,12 @@ class FetchResult(dict):
     def __repr__(self):
         backend = self.get("backend", "?")
         if "results" in self:
-            # Multi-page result (tavily)
+            # Multi-URL result from explicit urls=[...] kwarg (tavily only)
             results = self.get("results", [])
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]"]
             lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
-            lines.append("  Quick: result.find('term') | result.links()")
+            lines.append("  Quick: result.find('term') | result.links() | result['results'][i]['content']")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
                 url = r.get("url", "")
@@ -119,9 +119,9 @@ class FetchResult(dict):
                 content_len = len(r.get("content", ""))
                 lines.append(f"  \u2022 \"{title}\" \u2014 {domain} ({content_len:,} chars)")
             if n > 3:
-                lines.append(f"  ... {n - 3} more. Access: result['results'][i]['url'|'title'|'content']")
+                lines.append(f"  ... {n - 3} more")
         else:
-            # Single-page result (serper, linkup)
+            # Single-page result (all backends for single-URL fetch)
             title = self.get("title", "No title")
             url = self.get("url", "")
             content = self.get("content", "")
@@ -170,6 +170,24 @@ class AnswerResult(dict):
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
         return "\n".join(lines)
+
+
+def _normalize_tavily_single_page(result):
+    """
+    Tavily's extract API always returns a list, even for a single URL.
+    Unwrap it to the flat {url, title, content, raw_response} structure
+    that serper and linkup return, so FetchResult is consistent across backends.
+    Only used for single-URL fetches; multi-URL calls keep the list structure.
+    """
+    pages = result.get("results", [])
+    if not pages:
+        raise WebToolboxError(
+            "Tavily returned no results for this URL. "
+            "The page may be inaccessible or blocked. Try a different backend."
+        )
+    flat = pages[0].copy()
+    flat["raw_response"] = result.get("raw_response", {})
+    return flat
 
 
 class Web:
@@ -1380,18 +1398,17 @@ class Web:
                     - Other Tavily extract parameters
 
         Returns:
-            dict:
-                For single-page backends (serper, linkup):
-                    - "url" (str): The fetched URL
-                    - "title" (str): Page title
-                    - "content" (str): Page content in markdown format
-                    - "raw_response" (dict): Original backend response
-                    - "backend" (str): Backend that was used
+            dict (single URL):
+                - "url" (str): The fetched URL
+                - "title" (str): Page title
+                - "content" (str): Page content in markdown format
+                - "raw_response" (dict): Original backend response
+                - "backend" (str): Backend that was used
 
-                For multi-page backend (tavily):
-                    - "results" (list): List of result dicts, each with "url", "title", "content" (markdown)
-                    - "raw_response" (dict): Original backend response
-                    - "backend" (str): Backend that was used
+            dict (multi-URL, tavily only via urls=[...] kwarg):
+                - "results" (list): List of result dicts, each with "url", "title", "content" (markdown)
+                - "raw_response" (dict): Original backend response
+                - "backend" (str): Backend that was used
 
         Examples:
             # Basic fetch (auto-selects backend)
@@ -1438,6 +1455,7 @@ class Web:
                 result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
             elif backend == "tavily":
                 result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
+                result = _normalize_tavily_single_page(result)
             elif backend == "linkup":
                 result = backend_methods[backend](url, render_js=render_js, **kwargs)
             else:
@@ -1457,6 +1475,7 @@ class Web:
                     result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
                 elif backend_name == "tavily":
                     result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
+                    result = _normalize_tavily_single_page(result)
                 elif backend_name == "linkup":
                     result = backend_methods[backend_name](url, render_js=render_js, **kwargs)
                 else:
