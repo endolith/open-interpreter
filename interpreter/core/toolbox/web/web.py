@@ -1487,7 +1487,6 @@ class Web:
                 result = backend_methods[backend](url, **kwargs)
 
             result["backend"] = backend
-            result["backend"] = backend
             fetch_result = FetchResult(result)
             if not is_multi_url:
                 self._fetch_cache[url] = fetch_result
