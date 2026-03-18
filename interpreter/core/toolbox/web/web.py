@@ -28,6 +28,11 @@ class ApiKeyError(Exception):
         self.error_dict = error_dict
         super().__init__(error_dict.get("error", "API key missing"))
 
+    def _render_traceback_(self):
+        # Suppress the full Jupyter/IPython traceback — just show the message.
+        msg = self.error_dict.get("message", str(self))
+        return [f"ApiKeyError: {msg}"]
+
 
 class WebToolboxError(Exception):
     """Raised when a web toolbox operation fails (missing package, no backends, API error, etc.)."""
