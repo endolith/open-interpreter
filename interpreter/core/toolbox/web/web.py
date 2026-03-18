@@ -37,19 +37,33 @@ class WebToolboxError(Exception):
 class SearchResult(dict):
     """Dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
 
+    def __init__(self, data, web=None):
+        super().__init__(data)
+        self._web = web
+
+    def fetch(self, index):
+        """Fetch the full page for search result at the given index. Returns a FetchResult."""
+        results = self.get("results", [])
+        url = results[index]["url"]
+        return self._web.fetch(url)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         results = self.get("results", [])
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[list of {title,url,snippet}], raw_response[dict], backend[str]")
-        for r in results[:3]:
-            title = r.get("title", "")[:60]
+        lines.append("  Access: result['results'][i]['title'|'url'|'snippet'] | result.fetch(i)")
+        for i, r in enumerate(results[:5]):
+            title = r.get("title", "")[:70]
             url = r.get("url", "")
             domain = url.split("/")[2] if url.count("/") >= 2 else url
-            lines.append(f"  \u2022 \"{title}\" \u2014 {domain}")
-        if n > 3:
-            lines.append(f"  ... {n - 3} more. Access: result['results'][i]['title'|'url'|'snippet']")
+            snippet = r.get("snippet", "")[:120]
+            lines.append(f"  {i}. \"{title}\" \u2014 {domain}")
+            if snippet:
+                lines.append(f"     {snippet}")
+        if n > 5:
+            lines.append(f"  ... {n - 5} more")
         return "\n".join(lines)
 
 
@@ -859,7 +873,7 @@ class Web:
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            return SearchResult(result)
+            return SearchResult(result, web=self)
 
         # Auto-select backend
         # Priority order based on AI agent needs: serper (rich snippets, knowledge panels, structured data, best for AI) > serpapi (comprehensive Google results) > tavily (AI-optimized) > brave (alternative sources, fewer snippets) > linkup
@@ -872,7 +886,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                return SearchResult(result)
+                return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
