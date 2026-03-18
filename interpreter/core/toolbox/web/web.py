@@ -113,6 +113,16 @@ class FetchResult(dict):
 class AnswerResult(dict):
     """Dict subclass for web answer results. Has a compact repr to avoid flooding the context window."""
 
+    def __init__(self, data, web=None):
+        super().__init__(data)
+        self._web = web
+
+    def fetch(self, index):
+        """Fetch the full page for source at the given index. Returns a FetchResult."""
+        sources = self.get("sources", [])
+        url = sources[index]["url"]
+        return self._web.fetch(url)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         answer = self.get("answer", "")
@@ -120,6 +130,7 @@ class AnswerResult(dict):
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
         lines.append("  Keys: answer[str], sources[list of {title,url,snippet}], backend[str]")
+        lines.append("  Access: result['sources'][i]['title'|'url'|'snippet'] | result.fetch(i)")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -1071,7 +1082,7 @@ class Web:
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            return AnswerResult(result)
+            return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
         backend_methods = {
@@ -1086,7 +1097,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                return AnswerResult(result)
+                return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
