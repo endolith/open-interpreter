@@ -125,8 +125,7 @@ class FetchResult(dict):
                 lines.append(f"  ... {n - 3} more")
         else:
             # Single-page result (all backends for single-URL fetch)
-            title = self.get("title", "No title")
-            url = self.get("url", "")
+            title = self.get("title", "")
             content = self.get("content", "")
             content_len = len(content)
             preview = content[:150].replace("\n", " ") if content else ""
@@ -136,15 +135,17 @@ class FetchResult(dict):
             )
             lines = [f"FetchResult [backend={backend}]"]
             lines.append(
-                f"  Keys: url[str], title[str], content[str={content_len} chars]"
+                f"  Keys: url[str], title[str], content[str={content_len:,} chars]"
                 + (f", {extra_keys}" if extra_keys else "")
                 + ", backend[str]"
             )
             lines.append("  Quick: result.find('term') | result.links()")
-            lines.append(f"  Title: \"{title}\"")
-            lines.append(f"  URL: {url}")
+            if title:
+                lines.append(f"  \"{title}\"")
+            else:
+                lines.append("  [no title]")
             if preview:
-                lines.append(f"  \"{preview}...\"")
+                lines.append(f"  {preview}...")
         return "\n".join(lines)
 
 
