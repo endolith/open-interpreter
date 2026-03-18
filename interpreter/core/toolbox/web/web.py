@@ -6,9 +6,9 @@ for search, fetch, answer, crawl, and structured output operations with
 multiple backends.
 
 Supported backends:
-- Search: serper, serpapi, tavily, brave, linkup
-- Answer:  linkup, tavily
-- Fetch: linkup, tavily, serper
+- Search: linkup, serper, serpapi, brave, tavily
+- Answer: linkup, tavily
+- Fetch: linkup, serper, tavily
 - Crawl: tavily (not implemented yet)
 - Structured output: linkup (not implemented yet)
 """
