@@ -106,7 +106,15 @@ def format_last_usage_markdown(usage: dict) -> str:
                 label = k.replace("_", " ").title()
                 body.append(f"- **Prompt — {label}:** {_format_detail_value(v)}\n")
 
-    shown = {"prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details"}
+    completion_details = usage.get("completion_tokens_details")
+    if completion_details:
+        d = _to_plain(completion_details) if not isinstance(completion_details, dict) else completion_details
+        if isinstance(d, dict):
+            for k, v in sorted(d.items()):
+                label = k.replace("_", " ").title()
+                body.append(f"- **Completion — {label}:** {_format_detail_value(v)}\n")
+
+    shown = {"prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details", "completion_tokens_details"}
     rest = {k: v for k, v in usage.items() if k not in shown and v not in (None, {})}
     if rest:
         body.append("\n**Other usage fields:**\n\n```json\n")
