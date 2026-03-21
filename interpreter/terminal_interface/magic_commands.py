@@ -77,7 +77,7 @@ def handle_help(self, arguments):
         "%save_message [path]": "Saves messages to a specified JSON path. If no path is provided, it defaults to 'messages.json'.",
         "%load_message [path]": "Loads messages from a specified JSON path. If no path is provided, it defaults to 'messages.json'.",
         "%tokens [prompt]": "EXPERIMENTAL: Calculate the tokens used by the next request based on the current conversation's messages and estimate the cost of that request; optionally provide a prompt to also calculate the tokens used by that prompt and the total amount of tokens that will be sent with the next request",
-        "%usage": "Show token usage from the last LLM API response (prompt/completion totals and provider fields such as cached prompt tokens when returned)",
+        "%usage": "Show token usage for the last model response (same as one API call in plain chat; if tools ran, shows only the final model call of that reply)",
         "%help": "Show this help message.",
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
