@@ -98,6 +98,9 @@ class Llm:
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
+        # Filled from the final streaming chunk when the API sends usage (see stream_usage.record_stream_chunk_usage).
+        self.last_completion_usage = None
+
     def run(self, messages):
         """
         We're responsible for formatting the call into the llm.completions object,
@@ -318,6 +321,9 @@ Continuing...
             "stream": True,
         }
 
+        # OpenAI-compatible: final stream chunk may include usage (prompt/completion/cached breakdown).
+        stream_options = {"include_usage": True}
+
         # Reasoning tokens: Some models support separate reasoning content
         # Set to {"exclude": True} to disable, or remove this line to allow reasoning tokens
         # params["reasoning"] = {"exclude": True}
@@ -334,7 +340,9 @@ Continuing...
             # Only set for models that support reasoning to avoid 400 on non-reasoning OpenRouter models.
             if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model):
                 params["include_reasoning"] = True
-                params["stream_options"] = {"include_reasoning": True}
+                stream_options["include_reasoning"] = True
+
+        params["stream_options"] = stream_options
 
         # Optional inputs
         if self.api_key:
