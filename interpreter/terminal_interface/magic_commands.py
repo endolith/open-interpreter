@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime
 
+from ..core.llm.utils.stream_usage import format_last_usage_markdown
 from ..core.utils.system_debug_info import system_info
 from .utils.count_tokens import count_messages_tokens
 from .utils.export_to_markdown import export_to_markdown
@@ -76,6 +77,7 @@ def handle_help(self, arguments):
         "%save_message [path]": "Saves messages to a specified JSON path. If no path is provided, it defaults to 'messages.json'.",
         "%load_message [path]": "Loads messages from a specified JSON path. If no path is provided, it defaults to 'messages.json'.",
         "%tokens [prompt]": "EXPERIMENTAL: Calculate the tokens used by the next request based on the current conversation's messages and estimate the cost of that request; optionally provide a prompt to also calculate the tokens used by that prompt and the total amount of tokens that will be sent with the next request",
+        "%usage": "Show token usage from the last LLM API response (prompt/completion totals and provider fields such as cached prompt tokens when returned)",
         "%help": "Show this help message.",
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
@@ -189,6 +191,18 @@ def handle_load_message(self, json_path):
         self.messages = json.load(f)
 
     self.display_message(f"> messages json loaded from {os.path.abspath(json_path)}")
+
+
+def handle_last_usage(self, arguments):
+    usage = self.llm.last_completion_usage
+    if not usage:
+        self.display_message(
+            "> No usage recorded yet. Send a message to the model first.\n\n"
+            "If this stays empty, your provider may omit usage on the stream "
+            "(OpenAI-compatible APIs often need `stream_options.include_usage`)."
+        )
+        return
+    self.display_message(format_last_usage_markdown(usage))
 
 
 def handle_count_tokens(self, prompt):
@@ -350,6 +364,7 @@ def handle_magic_command(self, user_input):
         "load_message": handle_load_message,
         "undo": handle_undo,
         "tokens": handle_count_tokens,
+        "usage": handle_last_usage,
         "info": handle_info,
         "jupyter": jupyter,
         "markdown": markdown,

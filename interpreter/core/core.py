@@ -500,6 +500,7 @@ class OpenInterpreter:
         self.toolbox._has_imported_toolbox_api = False  # Flag reset
         self.messages = []
         self.last_messages_count = 0
+        self.llm.last_completion_usage = None
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.

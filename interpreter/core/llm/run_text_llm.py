@@ -1,3 +1,6 @@
+from .utils.stream_usage import record_stream_chunk_usage
+
+
 def run_text_llm(llm, params):
     ## Setup
 
@@ -20,6 +23,8 @@ def run_text_llm(llm, params):
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
             print("Chunk in coding_llm", chunk)
+
+        record_stream_chunk_usage(llm, chunk)
 
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
