@@ -3,8 +3,11 @@
 
 Env: DASHSCOPE_API_KEY
 
-Example (Git Bash):  export DASHSCOPE_API_KEY='sk-...' && python scripts/dashscope_usage_probe.py
-Example (cmd):       set DASHSCOPE_API_KEY=sk-... && python scripts/dashscope_usage_probe.py
+Optional arg: model id (default qwen3.5-plus). On Singapore compatible-mode we have seen
+qwen3-max return prompt_tokens_details.cached_tokens (e.g. 0) while qwen3.5-plus sometimes
+omits cached_tokens entirely in the same usage object — provider/model-dependent.
+
+Example (Git Bash):  export DASHSCOPE_API_KEY='sk-...' && python scripts/dashscope_usage_probe.py qwen3-max
 """
 
 from __future__ import annotations
@@ -24,9 +27,11 @@ def main() -> None:
         print("Set DASHSCOPE_API_KEY first.", file=sys.stderr)
         sys.exit(1)
 
+    model = sys.argv[1] if len(sys.argv) > 1 else "qwen3.5-plus"
+
     payload = json.dumps(
         {
-            "model": "qwen3.5-plus",
+            "model": model,
             "messages": [{"role": "user", "content": "hi"}],
             "stream": False,
         }
@@ -52,7 +57,7 @@ def main() -> None:
         print(err_body[:4000])
         sys.exit(1)
 
-    print(f"HTTP {status}")
+    print(f"HTTP {status}  model={model}")
     data = json.loads(body)
     if "error" in data:
         print(json.dumps(data, indent=2))
