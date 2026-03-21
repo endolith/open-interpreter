@@ -1,5 +1,6 @@
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
+from .utils.stream_usage import record_stream_chunk_usage
 
 function_schema = {
     "name": "execute",
@@ -46,6 +47,8 @@ def run_function_calling_llm(llm, request_params):
     review_category = None
 
     for chunk in llm.completions(**request_params):
+        record_stream_chunk_usage(llm, chunk)
+
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
