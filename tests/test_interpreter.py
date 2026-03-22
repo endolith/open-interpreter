@@ -596,7 +596,7 @@ def test_authenticated_acknowledging_breaking_server():
                 ):
                     raise (
                         Exception(
-                            "It shouldn't have finished this soon, poem so far is: "
+                            "It shouldn't have finished this soon, poem is: "
                             + poem
                         )
                     )
