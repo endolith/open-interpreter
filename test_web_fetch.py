@@ -35,8 +35,8 @@ TEST_URLS = {
 }
 
 
-def test_single_url(toolbox, url, backend_name):
-    """Test a single URL with a specific backend."""
+def run_single_url(toolbox, url, backend_name):
+    """Run fetch for one URL with a specific backend (CLI helper, not a pytest test)."""
     print("\n" + "="*60)
     print(f"Testing backend: {backend_name}")
     print("="*60)
@@ -139,7 +139,7 @@ def main():
 
             url_results = {}
             for backend_name in backends_to_test:
-                result = test_single_url(toolbox, url, backend_name)
+                result = run_single_url(toolbox, url, backend_name)
                 url_results[backend_name] = result
 
             all_results[url_type] = url_results
@@ -160,7 +160,7 @@ def main():
 
         results = {}
         for backend_name in backends_to_test:
-            result = test_single_url(computer, url, backend_name)
+            result = run_single_url(computer, url, backend_name)
             results[backend_name] = result
 
         # Summary
