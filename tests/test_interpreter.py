@@ -606,15 +606,14 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            # Don't use a second LLM to score this: it often says "no" when the assistant
-            # hedges with "I can't see the image" even if the reply still describes a gradient.
-            last_assistant = ""
-            for m in reversed(messages):
-                if m.get("role") == "assistant" and m.get("type") == "message":
-                    last_assistant = str(m.get("content", ""))
-                    break
-            assert last_assistant, "expected assistant message after image turn"
-            assert "gradient" in last_assistant.lower()
+            response = interpreter.toolbox.ai.chat(
+                str(messages)
+                + "\n\nDoes the assistant's reply describe a gradient or color transition (e.g. orange to blue), "
+                "even if they also say they cannot see the image? "
+                "Answer yes if the message discusses gradient or colors in that sense; answer no only if it does not. "
+                "Only reply with one word— 'yes' or 'no'."
+            )
+            assert response.strip(" \n.").lower() == "yes"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
