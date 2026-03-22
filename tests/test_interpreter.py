@@ -270,17 +270,22 @@ def run_server():
     async_interpreter.server.run()
 
 
-async def wait_for_websocket_complete(websocket, max_attempts=5):
-    """Wait for WebSocket 'complete' status message with retry limit."""
+async def wait_for_websocket_complete(websocket, timeout=180.0):
+    """Wait for WebSocket 'complete' status. Streaming sends many chunks before complete."""
 
     import asyncio
     import json
+    import time
 
     accumulated_content = ""
+    deadline = time.monotonic() + timeout
 
-    for attempt in range(1, max_attempts + 1):
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         try:
-            message = await websocket.recv()
+            message = await asyncio.wait_for(websocket.recv(), timeout=remaining)
             message_data = json.loads(message)
             if "error" in message_data:
                 raise Exception(message_data["content"])
@@ -294,11 +299,13 @@ async def wait_for_websocket_complete(websocket, max_attempts=5):
             }:
                 print("Received expected message from server")
                 return accumulated_content
+        except asyncio.TimeoutError:
+            break
         except Exception as e:
-            print(f"WebSocket receive failed (attempt {attempt}/{max_attempts}): {e}")
+            print(f"WebSocket receive failed: {e}")
             await asyncio.sleep(1)
-    else:
-        raise Exception(f"Never received 'complete' status after {max_attempts} attempts")
+
+    raise Exception(f"Never received 'complete' status within {timeout}s")
 
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
