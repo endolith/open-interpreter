@@ -37,6 +37,24 @@ import pytest
 from websocket import create_connection
 
 
+def _wait_for_tcp(host, port, timeout=45.0, interval=0.25):
+    """Wait until a process is accepting TCP connections (uvicorn can be slow to bind on Windows)."""
+    import socket
+
+    deadline = time.time() + timeout
+    last_err = None
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=2.0):
+                return
+        except OSError as e:
+            last_err = e
+            time.sleep(interval)
+    raise RuntimeError(
+        f"Nothing accepted connections on {host}:{port} within {timeout}s (last error: {last_err!r})"
+    )
+
+
 def test_hallucinations():
     # We should be resiliant to common hallucinations.
 
@@ -110,9 +128,6 @@ def test_authenticated_acknowledging_breaking_server():
 
     process = multiprocessing.Process(target=run_auth_server)
     process.start()
-
-    # Give the server a moment to start
-    time.sleep(2)
 
     import asyncio
     import json
@@ -235,6 +250,7 @@ def test_authenticated_acknowledging_breaking_server():
     # Get the current event loop and run the test function
     loop = asyncio.get_event_loop()
     try:
+        _wait_for_tcp("localhost", 8000)
         loop.run_until_complete(test_fastapi_server())
     finally:
         # Kill server process (no signal.SIGKILL on Windows — use Process API)
@@ -292,9 +308,6 @@ def test_server():
 
     process = multiprocessing.Process(target=run_server)
     process.start()
-
-    # Give the server a moment to start
-    time.sleep(2)
 
     import asyncio
     import json
@@ -604,13 +617,16 @@ def test_server():
 
     # Get the current event loop and run the test function
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(test_fastapi_server())
-    # Kill server process (no signal.SIGKILL on Windows — use Process API)
-    process.terminate()
-    process.join(timeout=5)
-    if process.is_alive():
-        process.kill()
-    process.join()
+    try:
+        _wait_for_tcp("localhost", 8000)
+        loop.run_until_complete(test_fastapi_server())
+    finally:
+        # Kill server process (no signal.SIGKILL on Windows — use Process API)
+        process.terminate()
+        process.join(timeout=5)
+        if process.is_alive():
+            process.kill()
+        process.join()
 
 
 @pytest.mark.skip(reason="Mac only")
