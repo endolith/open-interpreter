@@ -82,7 +82,7 @@ server = ["fastapi", "janus", "uvicorn"]
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.10.1"
-chardet = "^5.0"
+chardet = "^5.0" # dev: tests/core/computer/files/test_files.py imports it; files.py uses chardet only if installed
 isort = "^5.12.0"
 pre-commit = "^3.5.0"
 pytest = "^7.4.0"
