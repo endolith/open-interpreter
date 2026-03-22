@@ -361,15 +361,26 @@ def test_hallucinations():
     wrappers, and loose object literals — each should run and produce the
     expected numeric or print output."""
 
+    def _assert_first_substantive_output(expected_stripped: str):
+        # _respond_and_store may yield empty console/output before Jupyter execute_result
+        # (empty outputs are passed through on purpose — e.g. empty grep — so the first
+        # format=output chunk is not always the expression result).
+        for chunk in interpreter._respond_and_store():
+            if chunk.get("format") != "output":
+                continue
+            content = chunk.get("content")
+            if content is None or str(content).strip() == "":
+                continue
+            assert str(content).strip() == expected_stripped
+            return
+        raise AssertionError(f"no non-empty output chunk; expected {expected_stripped!r}")
+
     code = """10+12executeexecute\n"""
 
     interpreter.messages = [
         {"role": "assistant", "type": "code", "format": "python", "content": code}
     ]
-    for chunk in interpreter._respond_and_store():
-        if chunk.get("format") == "output":
-            assert chunk.get("content") == "22"
-            break
+    _assert_first_substantive_output("22")
 
     code = """{
     "language": "python",
@@ -379,10 +390,7 @@ def test_hallucinations():
     interpreter.messages = [
         {"role": "assistant", "type": "code", "format": "python", "content": code}
     ]
-    for chunk in interpreter._respond_and_store():
-        if chunk.get("format") == "output":
-            assert chunk.get("content") == "22"
-            break
+    _assert_first_substantive_output("22")
 
     code = """functions.execute({
     "language": "python",
@@ -392,20 +400,14 @@ def test_hallucinations():
     interpreter.messages = [
         {"role": "assistant", "type": "code", "format": "python", "content": code}
     ]
-    for chunk in interpreter._respond_and_store():
-        if chunk.get("format") == "output":
-            assert chunk.get("content") == "22"
-            break
+    _assert_first_substantive_output("22")
 
     code = """{language: "python", code: "print('hello')" }"""
 
     interpreter.messages = [
         {"role": "assistant", "type": "code", "format": "python", "content": code}
     ]
-    for chunk in interpreter._respond_and_store():
-        if chunk.get("format") == "output":
-            assert chunk.get("content").strip() == "hello"
-            break
+    _assert_first_substantive_output("hello")
 
 
 def test_streaming_output_chunks_are_incremental():
