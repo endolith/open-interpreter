@@ -160,7 +160,7 @@ def main():
 
         results = {}
         for backend_name in backends_to_test:
-            result = run_single_url(computer, url, backend_name)
+            result = run_single_url(toolbox, url, backend_name)
             results[backend_name] = result
 
         # Summary
