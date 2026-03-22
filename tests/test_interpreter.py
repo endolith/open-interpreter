@@ -237,9 +237,11 @@ def test_authenticated_acknowledging_breaking_server():
     try:
         loop.run_until_complete(test_fastapi_server())
     finally:
-        # Kill server process
+        # Kill server process (no signal.SIGKILL on Windows — use Process API)
         process.terminate()
-        os.kill(process.pid, signal.SIGKILL)  # Send SIGKILL signal
+        process.join(timeout=5)
+        if process.is_alive():
+            process.kill()
         process.join()
 
 
@@ -603,9 +605,11 @@ def test_server():
     # Get the current event loop and run the test function
     loop = asyncio.get_event_loop()
     loop.run_until_complete(test_fastapi_server())
-    # Kill server process
+    # Kill server process (no signal.SIGKILL on Windows — use Process API)
     process.terminate()
-    os.kill(process.pid, signal.SIGKILL)  # Send SIGKILL signal
+    process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
     process.join()
 
 
