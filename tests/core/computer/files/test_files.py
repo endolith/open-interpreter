@@ -1,8 +1,7 @@
 import unittest
 from unittest import mock
-import chardet
 
-from interpreter.core.toolbox.files.files import Files
+from interpreter.core.toolbox.files.files import Files, TextFileReader
 
 
 class TestFiles(unittest.TestCase):
@@ -63,24 +62,20 @@ class TestTextFileReader(unittest.TestCase):
 
         # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
 
         # Assert
-        mock_open.assert_called_with("example.txt", "r", encoding=None)
+        mock_open.assert_called_with("example.txt", "r", encoding="utf-8")
         self.assertIsInstance(reader, TextFileReader)
 
-    @mock.patch("interpreter.core.toolbox.files.files.chardet.detect")
-    def test_detect_encoding(self):
-        # Arrange
-        mock_detect = mock.patch("interpreter.core.toolbox.files.files.chardet.detect")
+    @mock.patch("chardet.detect")
+    def test_detect_encoding(self, mock_detect):
         mock_detect.return_value = {"encoding": "utf-8"}
-        mock_open = mock.mock_open(read_data=self.test_content.encode())
+        mock_open = mock.mock_open(read_data=self.test_content.encode("utf-8"))
 
-        # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
 
-        # Assert
         mock_detect.assert_called_once()
         self.assertEqual(reader.encoding, "utf-8")
 
@@ -90,7 +85,7 @@ class TestTextFileReader(unittest.TestCase):
 
         # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
             lines = reader.read_lines(1, 3)
             lines_with_numbers = reader.read_lines(1, 3, show_line_numbers=True)
 
@@ -104,7 +99,7 @@ class TestTextFileReader(unittest.TestCase):
 
         # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
             chars = reader.read_characters(0, 5)
             chars_with_numbers = reader.read_characters(0, 5, show_line_numbers=True)
 
@@ -118,7 +113,7 @@ class TestTextFileReader(unittest.TestCase):
 
         # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
             matches = reader.search("TODO")
             matches_with_numbers = reader.search("TODO", show_line_numbers=True)
 
@@ -132,7 +127,7 @@ class TestTextFileReader(unittest.TestCase):
 
         # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
             filtered = reader.filter_lines(lambda x: "Line" in x)
             filtered_with_numbers = reader.filter_lines(lambda x: "Line" in x, show_line_numbers=True)
 
@@ -146,7 +141,7 @@ class TestTextFileReader(unittest.TestCase):
 
         # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
             section = reader.find_section("### Section", lines_after=1)
             section_with_numbers = reader.find_section("### Section", lines_after=1, show_line_numbers=True)
 
@@ -154,14 +149,13 @@ class TestTextFileReader(unittest.TestCase):
         self.assertEqual(section, ["Section content"])
         self.assertEqual(section_with_numbers, [(6, "Section content")])
 
-    def test_get_metadata(self):
-        # Arrange
-        mock_open = mock.mock_open(read_data=self.test_content)
+    @mock.patch("chardet.detect", return_value={"encoding": "utf-8", "confidence": 0.99})
+    @mock.patch("interpreter.core.toolbox.files.files.os.path.getsize", return_value=100)
+    def test_get_metadata(self, mock_getsize, mock_chardet_detect):
+        mock_open = mock.mock_open(read_data=self.test_content.encode("utf-8"))
 
-        # Act
         with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
-            reader = self.files.get_reader("example.txt")
+            reader = self.files.get_reader("example.txt", encoding="utf-8")
             metadata = reader.get_metadata()
 
-        # Assert
         self.assertEqual(metadata["line_count"], 6)
