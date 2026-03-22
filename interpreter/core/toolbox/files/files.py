@@ -116,7 +116,8 @@ class TextFileReader:
             if section_name in line:
                 start = i + 1
                 end = min(start + lines_after, len(self.content))
-                for j, section_line in enumerate(self.content[start:end], start=start):
+                # 1-based line numbers: content index k → line k + 1
+                for j, section_line in enumerate(self.content[start:end], start=start + 1):
                     result.append(self._format_line(j, section_line, show_line_numbers))
                 break
         return result
