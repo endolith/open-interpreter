@@ -207,15 +207,23 @@ def _normalize_tavily_single_page(result):
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
-        loc = locale.getdefaultlocale()[0]
-        # Remove encoding suffix if present (e.g., 'en_US.UTF-8' -> 'en_US')
-        loc = loc.split('.')[0]
+        # locale.getlocale(LC_CTYPE) -> (language_region, encoding), e.g. ("en_US", "UTF-8").
+        # language_region can be None if unset — then we fall back below.
+        language_region, encoding = locale.getlocale(locale.LC_CTYPE)
+        if language_region:
+            tag = language_region
+        else:
+            tag = "en_US"
+        # Drop encoding suffix if present: "en_US.UTF-8" -> "en_US".
+        tag = tag.split(".", 1)[0]
+        # Drop locale modifier if present: "sr_RS@latin" -> "sr_RS".
+        tag = tag.split("@", 1)[0]
         # Split on underscore to get language and country (standard format: 'en_US')
-        lang, country = loc.split('_', 1)
+        lang, country = tag.split("_", 1)
         self._default_lang = lang.lower()
         self._default_country = country.upper()
-        # Session-scoped cache: keyed by URL. Web page content doesn't change mid-session,
-        # so re-fetching the same URL is always wasteful.
+        # Session-scoped cache: keyed by URL. Web page content doesn't change
+        # mid-session, so re-fetching the same URL is always wasteful.
         self._fetch_cache: Dict[str, "FetchResult"] = {}
 
     def _get_locale_defaults(self, country_code=None, language_code=None, country_case="lower"):
