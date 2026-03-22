@@ -49,311 +49,24 @@ _SERVER_HOST = "127.0.0.1"
 # URLs. Starts as None because no server has been started yet.
 _server_port = None
 
-
-def _allocate_server_port():
-    """Pick a free TCP port for a server subprocess.
-
-    Binding to port 0 lets the OS assign a free port. The socket is closed
-    before the subprocess starts, so another process could in theory grab the
-    port in between; this is an accepted race (see issue #165)."""
-
+def _wait_for_tcp(host, port, timeout=45.0, interval=0.25):
+    """Wait until a process is accepting TCP connections (uvicorn can be slow to bind on Windows)."""
     import socket
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((_SERVER_HOST, 0))
-        return sock.getsockname()[1]
-
-
-def _server_ws_url():
-    """WebSocket URL of the running test server."""
-
-    return f"ws://{_SERVER_HOST}:{_server_port}/"
-
-
-def _server_http_url(path):
-    """HTTP URL of the running test server for the given path."""
-
-    return f"http://{_SERVER_HOST}:{_server_port}{path}"
-
-
-def _start_server_subprocess(target):
-    # The old code always bound port 8000, which collided when parallel CI runs
-    # (or a stray process) tried to use it; a failed bind then surfaced as an
-    # opaque 120s timeout in _wait_for_server. Pick a free port per subprocess
-    # and hand it to uvicorn via INTERPRETER_PORT, which spawn children inherit
-    # from the parent's environment.
-    global _server_port
-    _server_port = _allocate_server_port()
-    prior_port = os.environ.get("INTERPRETER_PORT")
-    os.environ["INTERPRETER_PORT"] = str(_server_port)
-    try:
-        process = _MP_SPAWN.Process(target=target)
-        process.start()
-        return process
-    finally:
-        # Spawn children read the env var at start; restore the parent's value
-        # so the test run is not left with a stale INTERPRETER_PORT set.
-        if prior_port is None:
-            os.environ.pop("INTERPRETER_PORT", None)
-        else:
-            os.environ["INTERPRETER_PORT"] = prior_port
-
-
-def _wait_for_server(process, timeout=120):
-    import urllib.error
-    import urllib.request
-
-    url = f"http://{_SERVER_HOST}:{_server_port}/heartbeat"
     deadline = time.time() + timeout
+    last_err = None
     while time.time() < deadline:
-        if not process.is_alive():
-            raise RuntimeError(
-                f"Server subprocess exited before becoming ready (exit code {process.exitcode})"
-            )
         try:
-            urllib.request.urlopen(url, timeout=1)
-            return
-        except urllib.error.URLError:
-            time.sleep(0.5)
-    raise TimeoutError(
-        f"Server at {_SERVER_HOST}:{_server_port} did not respond within {timeout}s"
+            with socket.create_connection((host, port), timeout=2.0):
+                return
+        except OSError as e:
+            last_err = e
+            time.sleep(interval)
+    raise RuntimeError(
+        f"Nothing accepted connections on {host}:{port} within {timeout}s (last error: {last_err!r})"
     )
 
 
-def _stop_server_subprocess(process):
-    if process.is_alive():
-        process.terminate()
-        process.join(timeout=5)
-    if process.is_alive():
-        process.kill()
-        process.join()
-
-
-async def _wait_for_websocket_complete(
-    websocket,
-    max_messages=500,
-    recv_timeout=300.0,
-    acknowledge=False,
-    phase="unknown",
-    server_process=None,
-):
-    """Read WebSocket chunks until the server sends a 'complete' status.
-
-    The old while True loops hung forever when 'complete' never arrived (for example
-    on auth failure). Bound both message count and per-recv wait time.
-
-    While awaiting a message, `server_process.is_alive()` is polled so a child
-    that crashes mid-turn (including a port-race socket bind failure from issue
-    #165) aborts with its exit code instead of blocking until the recv timeout
-    expires.
-    """
-
-    import asyncio
-    import json
-
-    accumulated_content = ""
-    messages_received = 0
-    for _ in range(max_messages):
-        loop = asyncio.get_running_loop()
-        recv_task = asyncio.create_task(websocket.recv())
-        try:
-            deadline = loop.time() + recv_timeout
-            while not recv_task.done():
-                if server_process is not None and not server_process.is_alive():
-                    raise RuntimeError(
-                        f"Server subprocess exited during WebSocket wait (phase: {phase}, "
-                        f"exit code {server_process.exitcode}, port {_server_port})"
-                    )
-                remaining = deadline - loop.time()
-                if remaining <= 0:
-                    raise Exception(
-                        f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
-                        f"(phase: {phase}, messages received: {messages_received}, "
-                        f"port {_server_port})"
-                    )
-                await asyncio.wait({recv_task}, timeout=min(remaining, 0.1))
-            try:
-                message = recv_task.result()
-            except asyncio.TimeoutError as exc:
-                raise Exception(
-                    f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
-                    f"(phase: {phase}, messages received: {messages_received}, "
-                    f"port {_server_port})"
-                ) from exc
-        finally:
-            if not recv_task.done():
-                recv_task.cancel()
-                try:
-                    await recv_task
-                except asyncio.CancelledError:
-                    pass
-        messages_received += 1
-
-        message_data = json.loads(message)
-        if acknowledge and "id" in message_data:
-            await websocket.send(json.dumps({"ack": message_data["id"]}))
-        if "error" in message_data:
-            raise Exception(message_data["content"])
-        print("Received from WebSocket:", message_data)
-        content = message_data.get("content")
-        if type(content) == str:
-            accumulated_content += content
-        elif content:
-            accumulated_content += str(content)
-        if (
-            message_data.get("role") == "server"
-            and message_data.get("type") == "status"
-            and message_data.get("content") == "complete"
-        ):
-            print("Received expected message from server")
-            return accumulated_content
-
-    raise Exception(
-        f"Never received 'complete' status after {max_messages} messages "
-        f"(phase: {phase}, port {_server_port})"
-    )
-
-
-def test_wait_for_websocket_complete_dead_server():
-    """A server subprocess that has already exited aborts the wait immediately.
-
-    The health check turns a crashed child into a fast, descriptive failure
-    (phase and exit code) instead of an opaque hang until the recv timeout."""
-
-    import asyncio
-    from unittest.mock import AsyncMock, Mock
-
-    process = Mock()
-    process.is_alive.return_value = False
-    process.exitcode = 1
-    websocket = Mock()
-    websocket.recv = AsyncMock()
-
-    async def scenario():
-        with pytest.raises(
-            RuntimeError,
-            match=r"Server subprocess exited during WebSocket wait \(phase: dead_process, exit code 1",
-        ):
-            await _wait_for_websocket_complete(
-                websocket, phase="dead_process", server_process=process
-            )
-
-    asyncio.run(scenario())
-
-
-def test_wait_for_websocket_complete_process_dies_mid_recv():
-    """A server subprocess that dies during the recv aborts the wait promptly.
-
-    The poll-while-awaiting loop checks is_alive() while the recv is pending, so
-    a child that crashes mid-turn fails fast with its exit code instead of
-    blocking until the recv timeout expires."""
-
-    import asyncio
-    from unittest.mock import Mock
-
-    process = Mock()
-    process.is_alive.side_effect = [True, True, False]
-    process.exitcode = 7
-    websocket = Mock()
-
-    async def never_returns():
-        await asyncio.Event().wait()
-
-    websocket.recv = never_returns
-
-    async def scenario():
-        with pytest.raises(
-            RuntimeError,
-            match=r"Server subprocess exited during WebSocket wait \(phase: mid_recv_death, exit code 7",
-        ):
-            await _wait_for_websocket_complete(
-                websocket, phase="mid_recv_death", server_process=process
-            )
-
-    asyncio.run(scenario())
-
-
-def test_wait_for_websocket_complete_recv_timeout():
-    """A stalled WebSocket recv raises a phase-labeled timeout error.
-
-    The recv_timeout bound guards against a server that stops streaming; the
-    error names the phase and the number of messages already received so CI
-    failures are diagnosable."""
-
-    import asyncio
-    from unittest.mock import Mock
-
-    websocket = Mock()
-
-    # A recv that never resolves (like a server that stops streaming) drives the
-    # poll loop to the deadline branch, where the per-recv timeout is enforced.
-    async def never_returns():
-        await asyncio.Event().wait()
-
-    websocket.recv = never_returns
-
-    async def scenario():
-        with pytest.raises(
-            Exception,
-            match=r"No WebSocket message within .*waiting for 'complete' \(phase: timeout_phase, messages received: 0",
-        ):
-            await _wait_for_websocket_complete(
-                websocket, recv_timeout=0.01, phase="timeout_phase"
-            )
-
-    asyncio.run(scenario())
-
-
-def test_wait_for_websocket_complete_message_limit():
-    """Exhausting max_messages without 'complete' raises a phase-labeled error.
-
-    The message-count bound replaces the old while-True loop so a server that
-    never sends 'complete' fails fast instead of hanging forever."""
-
-    import asyncio
-    import json
-    from unittest.mock import AsyncMock, Mock
-
-    websocket = Mock()
-    websocket.recv = AsyncMock(
-        side_effect=[
-            json.dumps({"role": "assistant", "type": "message", "content": "hi"})
-        ]
-    )
-
-    async def scenario():
-        with pytest.raises(
-            Exception,
-            match=r"Never received 'complete' status after 1 messages \(phase: exhausted_phase",
-        ):
-            await _wait_for_websocket_complete(
-                websocket, max_messages=1, phase="exhausted_phase"
-            )
-
-    asyncio.run(scenario())
-
-
-def _last_assistant_message(messages):
-    for message in reversed(messages):
-        if message.get("role") == "assistant" and message.get("type") == "message":
-            return str(message.get("content", ""))
-    return ""
-
-
-def _last_assistant_text(messages):
-    """Last assistant message or code block (models often reply with code only)."""
-
-    for message in reversed(messages):
-        if message.get("role") != "assistant":
-            continue
-        if message.get("type") in ("message", "code"):
-            content = message.get("content")
-            if content:
-                return str(content)
-    return ""
-
-
-@pytest.mark.timeout(120)
 def test_hallucinations():
     """Common LLM code hallucinations are normalized before execution.
 
@@ -515,8 +228,6 @@ def test_authenticated_acknowledging_breaking_server():
 
     process = _start_server_subprocess(run_auth_server)
 
-    _wait_for_server(process)
-
     import asyncio
     import json
 
@@ -635,7 +346,8 @@ def test_authenticated_acknowledging_breaking_server():
     # is no current event loop (e.g. pytest has not set one up). asyncio.run()
     # creates a fresh loop, runs the coroutine, and closes it cleanly.
     try:
-        asyncio.run(test_fastapi_server())
+        _wait_for_tcp("localhost", 8000)
+        loop.run_until_complete(test_fastapi_server())
     finally:
         # Kill server process (no signal.SIGKILL on Windows — use Process API)
         process.terminate()
@@ -701,10 +413,6 @@ def test_server():
     streams each user turn over WebSocket, and verifies the response flow: the
     math turn writes code without auto-executing it, and the file turn answers
     in plain text."""
-
-    process = _start_server_subprocess(run_server)
-
-    _wait_for_server(process)
 
     import asyncio
     import json
@@ -1002,13 +710,16 @@ def test_server():
 
     # Get the current event loop and run the test function
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(test_fastapi_server())
-    # Kill server process (no signal.SIGKILL on Windows — use Process API)
-    process.terminate()
-    process.join(timeout=5)
-    if process.is_alive():
-        process.kill()
-    process.join()
+    try:
+        _wait_for_tcp("localhost", 8000)
+        loop.run_until_complete(test_fastapi_server())
+    finally:
+        # Kill server process (no signal.SIGKILL on Windows — use Process API)
+        process.terminate()
+        process.join(timeout=5)
+        if process.is_alive():
+            process.kill()
+        process.join()
 
 
 @pytest.mark.skip(reason="Mac only — manual harness; use darwin_ci in test_platform_ci.py for CI")
