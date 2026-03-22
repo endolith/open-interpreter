@@ -2,14 +2,14 @@ import unittest
 from unittest import mock
 import chardet
 
-from interpreter.core.computer.files.files import Files
+from interpreter.core.toolbox.files.files import Files
 
 
 class TestFiles(unittest.TestCase):
     def setUp(self):
         self.files = Files(mock.Mock())
 
-    @mock.patch("interpreter.core.computer.files.files.aifs")
+    @mock.patch("interpreter.core.toolbox.files.files.aifs")
     def test_search(self, mock_aifs):
         # Arrange
         mock_args = ["foo", "bar"]
@@ -27,7 +27,7 @@ class TestFiles(unittest.TestCase):
         mock_write = mock_open.return_value.write
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             self.files.edit("example/filepath/file", "foobar", "foobarbaz")
 
         # Assert
@@ -41,7 +41,7 @@ class TestFiles(unittest.TestCase):
 
         # Act
         with self.assertRaises(ValueError) as context_manager:
-            with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+            with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
                 self.files.edit("example/filepath/file", "barbaz", "foobarbaz")
 
         # Assert
@@ -62,22 +62,22 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
 
         # Assert
         mock_open.assert_called_with("example.txt", "r", encoding=None)
         self.assertIsInstance(reader, TextFileReader)
 
-    @mock.patch("interpreter.core.computer.files.files.chardet.detect")
+    @mock.patch("interpreter.core.toolbox.files.files.chardet.detect")
     def test_detect_encoding(self):
         # Arrange
-        mock_detect = mock.patch("interpreter.core.computer.files.files.chardet.detect")
+        mock_detect = mock.patch("interpreter.core.toolbox.files.files.chardet.detect")
         mock_detect.return_value = {"encoding": "utf-8"}
         mock_open = mock.mock_open(read_data=self.test_content.encode())
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
 
         # Assert
@@ -89,7 +89,7 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
             lines = reader.read_lines(1, 3)
             lines_with_numbers = reader.read_lines(1, 3, show_line_numbers=True)
@@ -103,7 +103,7 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
             chars = reader.read_characters(0, 5)
             chars_with_numbers = reader.read_characters(0, 5, show_line_numbers=True)
@@ -117,7 +117,7 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
             matches = reader.search("TODO")
             matches_with_numbers = reader.search("TODO", show_line_numbers=True)
@@ -131,7 +131,7 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
             filtered = reader.filter_lines(lambda x: "Line" in x)
             filtered_with_numbers = reader.filter_lines(lambda x: "Line" in x, show_line_numbers=True)
@@ -145,7 +145,7 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
             section = reader.find_section("### Section", lines_after=1)
             section_with_numbers = reader.find_section("### Section", lines_after=1, show_line_numbers=True)
@@ -159,7 +159,7 @@ class TestTextFileReader(unittest.TestCase):
         mock_open = mock.mock_open(read_data=self.test_content)
 
         # Act
-        with mock.patch("interpreter.core.computer.files.files.open", mock_open):
+        with mock.patch("interpreter.core.toolbox.files.files.open", mock_open):
             reader = self.files.get_reader("example.txt")
             metadata = reader.get_metadata()
 
