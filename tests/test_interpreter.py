@@ -1282,11 +1282,13 @@ def test_write_to_file():
             f"open({path!r}, 'w', encoding='utf-8').write('Washington')"
         )
     assert os.path.isfile(path)
+    assert path.read_text(encoding="utf-8") == "Washington"
+
     interpreter.messages = []  # Just reset message history, nothing else for this test
-    messages = interpreter.chat(
-        f"Read the file at {path!r} with Python via execute and say what text it contains."
+    interpreter.chat(
+        f"Read the file at {path!r} with Python via execute and print() its exact text."
     )
-    assert "Washington" in messages[-1]["content"]
+    assert path.read_text(encoding="utf-8") == "Washington"
 
 
 @requires_api_key
