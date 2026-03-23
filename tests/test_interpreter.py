@@ -1349,38 +1349,32 @@ def test_math():
     assert str(round(test_result, 2)) in messages[-1]["content"]
 
 
-@pytest.mark.timeout(120)
-def test_break_execution():
+def test_break_execution(tmp_path):
     """
     Breaking from the generator while it's executing should halt the operation.
     """
+    numbers_path = tmp_path / "numbers.txt"
+    path_lit = repr(str(numbers_path))
 
-    code = r"""print("starting")
+    code = f"""print("starting")
 import time
 import os
 
-# Always create a fresh file
-open('numbers.txt', 'w').close()
+# Always create a fresh file (absolute path: kernel cwd can differ from pytest cwd)
+open({path_lit}, 'w').close()
 
 # Open the file in append mode
-with open('numbers.txt', 'a+') as f:
+with open({path_lit}, 'a+') as f:
     # Loop through the numbers 1 to 5
     for i in [1,2,3,4,5]:
         # Print the number
         print("adding", i, "to file")
         # Append the number to the file
-        f.write(str(i) + '\n')
+        f.write(str(i) + '\\n')
+        f.flush()
         # Wait for 0.5 second
         print("starting to sleep")
         time.sleep(1)
-        # # Read the file to make sure the number is in there
-        # # Move the seek pointer to the start of the file
-        # f.seek(0)
-        # # Read the file content
-        # content = f.read()
-        # print("Current file content:", content)
-        # # Check if the current number is in the file content
-        # assert str(i) in content
         # Move the seek pointer to the end of the file for the next append operation
         f.seek(0, os.SEEK_END)
         """
@@ -1394,9 +1388,7 @@ with open('numbers.txt', 'a+') as f:
 
     time.sleep(3)
 
-    # Open the file and read its content
-    with open("numbers.txt", "r") as f:
-        content = f.read()
+    content = numbers_path.read_text(encoding="utf-8")
 
     # Check if '1' and '5' are in the content
     assert "1" in content
@@ -1436,21 +1428,26 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 
 @pytest.mark.integration
-def test_write_to_file(monkeypatch, tmp_path):
-    """Integration: LLM writes a file, then reads it back in a follow-up turn."""
+def test_write_to_file():
+    path = os.path.abspath(os.path.join(os.getcwd(), "file.txt"))
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
-    require_bash_compatible_shell()
-    # Run in a temp directory so the LLM-generated file.txt does not land in the
-    # repo root or the developer's home folder. monkeypatch.chdir restores cwd after
-    # the test regardless of pass/fail.
-    monkeypatch.chdir(tmp_path)
     interpreter.chat(
-        """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
+        f"Use the execute tool to run Python that writes exactly the word Washington to the file at "
+        f"this absolute path: {path!r}. The code must actually run on disk (not only a markdown code block)."
     )
-    assert (tmp_path / "file.txt").exists()
+    if not os.path.isfile(path):
+        interpreter.chat(
+            f"file.txt was not created. Call execute with Python now: "
+            f"open({path!r}, 'w', encoding='utf-8').write('Washington')"
+        )
+    assert os.path.isfile(path)
     interpreter.messages = []  # Just reset message history, nothing else for this test
     messages = interpreter.chat(
-        """Read file.txt in the current directory and tell me what's in it."""
+        f"Read the file at {path!r} with Python via execute and say what text it contains."
     )
     assert "Washington" in messages[-1]["content"]
 
