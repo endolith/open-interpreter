@@ -1,0 +1,22 @@
+---
+description: Activate conda env oi_classic before running terminal commands in this repo
+alwaysApply: true
+---
+
+# Conda environment `oi_classic`
+
+Before running **any** terminal command in this project (Python, pytest, pip, scripts, tooling), ensure the **`oi_classic`** conda environment is active.
+
+## How to run commands
+
+- Prefer a single line so activation cannot be skipped:
+
+```bash
+conda activate oi_classic && <your-command>
+```
+
+- If `conda` is not on `PATH` in non-interactive shells (common on Windows Git Bash), initialize conda in that session first, then activate — match whatever already works in your machine’s shell profile.
+
+## Do not
+
+- Run `python`, `pytest`, `pip`, or project entrypoints without `oi_classic` active unless the user explicitly asks to use another interpreter.
