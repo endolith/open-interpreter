@@ -38,7 +38,7 @@ view_image_tool_schema = {
     "type": "function",
     "function": {
         "name": "view_image",
-        "description": "Show an image to the model so it can see it. Use when you need to look at an image file. Supported formats: PNG, JPEG, GIF, WebP, BMP. PDF and other document formats are not supported. Path must be absolute (e.g. on Windows: r'C:\\Users\\...', on Mac/Linux: '/home/...'). The model has no access to the current working directory of Python or the shell.",
+        "description": "Load an image from disk so you can see it. Only for files that actually exist on the user's machine at an absolute path they gave you or that code wrote. Do not invent paths (e.g. /mnt/data/, /tmp/placeholder). If the user already attached an image in this chat (inline / base64), describe that attachment directly—do not call view_image. Supported formats: PNG, JPEG, GIF, WebP, BMP. PDF is not supported. Path must be absolute (Windows: r'C:\\Users\\...', Mac/Linux: '/home/...').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -78,6 +78,33 @@ def generate_tool_id(tool_id_num, model=None):
     else:
         # Original format for other models
         return f"toolu_{tool_id_num}"
+
+
+def _inline_user_image_in_turn_after_last_assistant_text(messages):
+    """
+    True if any user message after the last assistant *text* reply includes an image_url
+    part. Those images are already on the API request; offering view_image spuriously leads
+    models to hallucinate filesystem paths (e.g. /mnt/data/image.png) and fail vision.
+    """
+    last_text_i = -1
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if m.get("role") != "assistant":
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and c.strip():
+            last_text_i = i
+            break
+    for m in messages[last_text_i + 1 :]:
+        if m.get("role") != "user":
+            continue
+        c = m.get("content")
+        if not isinstance(c, list):
+            continue
+        for part in c:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                return True
+    return False
 
 
 def process_messages(messages, model=None):
@@ -201,7 +228,10 @@ def run_tool_calling_llm(llm, request_params):
     ]
     tools = [tool_schema]
     if getattr(llm, "supports_vision", None) is True:
-        tools.append(view_image_tool_schema)
+        if not _inline_user_image_in_turn_after_last_assistant_text(
+            request_params["messages"]
+        ):
+            tools.append(view_image_tool_schema)
     request_params["tools"] = tools
 
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)

@@ -110,28 +110,9 @@ class AsyncInterpreter(OpenInterpreter):
         # For the 01. This lets the OAI compatible server accumulate context before responding.
         self.context_mode = False
 
-    def _clear_pending_confirmation(self):
-        self.pending_confirmation = None
-        self.pending_confirmation_digest = None
-
-    def _cancel_pending_approval(self):
-        self._approval_granted = False
-        self._approval_event.set()
-
-    def _reset_respond_iterator(self):
-        self._respond_iterator = None
-        self._clear_pending_confirmation()
-
-    def _approve_pending_confirmation(self, digest: Optional[str] = None) -> bool:
-        if self.pending_confirmation is None:
-            return False
-
-        if digest is not None and digest != self.pending_confirmation_digest:
-            return False
-
-        self._approval_granted = True
-        self._approval_event.set()
-        return True
+        # No terminal to answer view_image prompts; websocket clients typically do not reply.
+        # OpenInterpreter() in CLI uses terminal_interface for approval instead.
+        self._view_image_approval = "y"
 
     async def input(self, chunk):
         """
