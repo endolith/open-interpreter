@@ -3,6 +3,7 @@ import platform
 import re
 import signal
 import time
+from pathlib import Path
 from random import randint
 
 import pytest
@@ -1429,7 +1430,8 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 @pytest.mark.integration
 def test_write_to_file():
-    path = os.path.abspath(os.path.join(os.getcwd(), "file.txt"))
+    path = Path.cwd() / "file.txt"
+    path_str = str(path)
     try:
         os.remove(path)
     except OSError:
@@ -1437,19 +1439,19 @@ def test_write_to_file():
 
     interpreter.chat(
         f"Use the execute tool to run Python that writes exactly the word Washington to the file at "
-        f"this absolute path: {path!r}. The code must actually run on disk (not only a markdown code block)."
+        f"this absolute path: {path_str!r}. The code must actually run on disk (not only a markdown code block)."
     )
     if not os.path.isfile(path):
         interpreter.chat(
             f"file.txt was not created. Call execute with Python now: "
-            f"open({path!r}, 'w', encoding='utf-8').write('Washington')"
+            f"open({path_str!r}, 'w', encoding='utf-8').write('Washington')"
         )
     assert os.path.isfile(path)
     assert path.read_text(encoding="utf-8") == "Washington"
 
     interpreter.messages = []  # Just reset message history, nothing else for this test
     interpreter.chat(
-        f"Read the file at {path!r} with Python via execute and print() its exact text."
+        f"Read the file at {path_str!r} with Python via execute and print() its exact text."
     )
     assert path.read_text(encoding="utf-8") == "Washington"
 
