@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 
@@ -16,6 +17,12 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from .render_message import render_message
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
+
+_LITELLM_OPTIONAL_API_EXCEPTIONS = tuple(
+    getattr(litellm.exceptions, name)
+    for name in ("ServiceUnavailableError", "InternalServerError")
+    if hasattr(litellm.exceptions, name)
+)
 
 
 def _html_error_to_renderable(error_str):
@@ -52,6 +59,14 @@ def _html_error_to_renderable(error_str):
 
     # Leading newline so the first line of content is not clipped by the panel title bar
     return Markdown("\n" + md)
+
+
+def _stdin_is_interactive():
+    """False for uvicorn workers, pytest, and other environments with no real TTY."""
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, OSError, ValueError):
+        return False
 
 
 def _is_temporary_provider_error(error):
@@ -186,6 +201,7 @@ def respond(interpreter):
                     litellm.exceptions.BadRequestError,
                     litellm.exceptions.RateLimitError,
                     litellm.exceptions.AuthenticationError,
+                    *_LITELLM_OPTIONAL_API_EXCEPTIONS,
                     # OpenAI Python client variants (defensive, in case they leak through)
                     getattr(openai, "APIError", Exception),
                     getattr(openai, "OpenAIError", Exception),
@@ -282,18 +298,30 @@ def respond(interpreter):
                         time.sleep(2)
                         continue
 
-                    retry_choice = prompt_choice(
-                        "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  ",
-                        ("y", "a", "n"),
-                    )
+                    if _stdin_is_interactive():
+                        retry_choice = prompt_choice(
+                            "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  ",
+                            ("y", "a", "n"),
+                        )
 
-                    if retry_choice == "a":
-                        always_retry_provider_errors = True
-                        interpreter.display_message("> Retrying...")
-                        time.sleep(2)
-                        continue
-                    if retry_choice == "y":
-                        interpreter.display_message("> Retrying...")
+                        if retry_choice == "a":
+                            always_retry_provider_errors = True
+                            interpreter.display_message("> Retrying...")
+                            time.sleep(2)
+                            continue
+                        if retry_choice == "y":
+                            interpreter.display_message("> Retrying...")
+                            time.sleep(2)
+                            continue
+
+                        interpreter._stopped_retrying = True
+                        return
+
+                    if is_temporary_error and noninteractive_llm_retries < 3:
+                        noninteractive_llm_retries += 1
+                        interpreter.display_message(
+                            f"> Retrying ({noninteractive_llm_retries}/3, no TTY)..."
+                        )
                         time.sleep(2)
                         continue
 
@@ -370,6 +398,9 @@ def respond(interpreter):
                     raise
                 else:
                     raise
+
+            else:
+                noninteractive_llm_retries = 0
 
         # Inject image from view_image tool call (tool appends result first, then we add user image)
         pending_path = getattr(interpreter, "_pending_view_image_path", None)
