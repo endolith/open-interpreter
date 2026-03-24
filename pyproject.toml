@@ -32,9 +32,6 @@ einops = { version = "^0.8.0", optional = true }
 torchvision = { version = "^0.18.0", optional = true }
 easyocr = { version = "^1.7.1", optional = true }
 
-# Optional [server] dependencies
-janus = { version = "^1.0.0", optional = true }
-
 # Required dependencies
 python = ">=3.9,<4"
 setuptools = "*"
@@ -73,16 +70,18 @@ pyautogui = "^0.9.54"
 typer = "^0.12.5"
 fastapi = "^0.115.8"
 uvicorn = "^0.30.1"
+janus = "^1.0.0"
+chardet = "^5.0"
 
 [tool.poetry.extras]
 os = ["opencv-python", "pyautogui", "plyer", "pywinctl", "pytesseract", "sentence-transformers", "ipywidgets", "timm", "screeninfo"]
 safe = ["semgrep"]
 local = ["opencv-python", "pytesseract", "torch", "transformers", "einops", "torchvision", "easyocr"]
-server = ["fastapi", "janus", "uvicorn"]
+# fastapi, uvicorn, janus are core deps; kept for installs that still use `pip install .[server]`
+server = ["fastapi", "uvicorn", "janus"]
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.10.1"
-chardet = "^5.0" # dev: tests/core/computer/files/test_files.py imports it; files.py uses chardet only if installed
 isort = "^5.12.0"
 pre-commit = "^3.5.0"
 pytest = "^7.4.0"
