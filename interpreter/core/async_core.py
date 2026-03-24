@@ -20,6 +20,8 @@ from .core import OpenInterpreter
 
 last_start_time = 0
 
+# fastapi / uvicorn / janus are required only for AsyncInterpreter + Server. Import
+# failures must leave defined names so this module loads; Server.__init__ raises clearly.
 try:
     import janus
     import uvicorn
@@ -36,9 +38,14 @@ try:
     )
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
     from starlette.status import HTTP_403_FORBIDDEN
-except:
-    # Server dependencies are not required by the main package.
-    pass
+except ImportError:
+    janus = None
+    uvicorn = None
+    APIRouter = None
+    FastAPI = None
+    File = Form = HTTPException = Request = UploadFile = WebSocket = None
+    JSONResponse = PlainTextResponse = StreamingResponse = None
+    HTTP_403_FORBIDDEN = 403
 
 
 complete_message = {"role": "server", "type": "status", "content": "complete"}
@@ -105,7 +112,10 @@ class AsyncInterpreter(OpenInterpreter):
         )
         self.acknowledged_outputs = []
 
-        self.server = Server(self)
+        try:
+            self.server = Server(self)
+        except ImportError:
+            self.server = None
 
         # For the 01. This lets the OAI compatible server accumulate context before responding.
         self.context_mode = False
@@ -1107,6 +1117,11 @@ class Server:
     DEFAULT_PORT = 8000
 
     def __init__(self, async_interpreter, host=None, port=None):
+        if FastAPI is None or uvicorn is None or janus is None:
+            raise ImportError(
+                "Server mode requires fastapi, uvicorn, and janus. "
+                "Install with: pip install fastapi uvicorn janus"
+            )
         self.app = FastAPI()
         router = create_router(async_interpreter)
         # Expose the router itself: newer FastAPI keeps include_router()
