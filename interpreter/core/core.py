@@ -4,6 +4,7 @@ It's the main file. `from interpreter import interpreter` will import an instanc
 """
 import json
 import os
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -270,10 +271,8 @@ class OpenInterpreter:
             #                 "Use a multimodal model and set `interpreter.llm.supports_vision` to True to handle image messages."
             #             )
 
-            # This is where it all happens!
-            yield from self._respond_and_store()
-
-            # Save conversation if we've turned conversation_history on
+            # Ensure we have a filename/path early so we can persist even if the
+            # stream is interrupted before normal completion (Ctrl-C, early break, etc).
             if self.conversation_history:
                 # If it's the first message, set the conversation name
                 if not self.conversation_filename:
@@ -295,14 +294,31 @@ class OpenInterpreter:
                 # Check if the directory exists, if not, create it
                 if not os.path.exists(self.conversation_history_path):
                     os.makedirs(self.conversation_history_path)
-                # Write or overwrite the file
-                with open(
-                    os.path.join(
+
+            try:
+                # This is where it all happens!
+                yield from self._respond_and_store()
+            finally:
+                # Persist conversation even if the consumer stops reading the stream early.
+                # This makes conversation saving robust to Ctrl-C and early UI breaks.
+                if self.conversation_history and self.conversation_filename:
+                    final_path = os.path.join(
                         self.conversation_history_path, self.conversation_filename
-                    ),
-                    "w",
-                ) as f:
-                    json.dump(self.messages, f)
+                    )
+                    # Write atomically to avoid partially-written files on interruption.
+                    fd, tmp_path = tempfile.mkstemp(
+                        prefix=f".{self.conversation_filename}.",
+                        suffix=".tmp",
+                        dir=self.conversation_history_path,
+                    )
+                    try:
+                        with os.fdopen(fd, "w", encoding="utf-8") as f:
+                            json.dump(self.messages, f)
+                        os.replace(tmp_path, final_path)
+                    finally:
+                        # If anything failed before replace, clean up the temp file.
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
             return
 
         raise Exception(
