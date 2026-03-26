@@ -49,10 +49,11 @@ def conversation_navigator(interpreter):
         )
         readable_names_and_filenames[name] = filename
 
-    # Add the option to open the folder. This doesn't map to a filename, we'll catch it
+    # Add the option to open the folder or start a new conversation. These don't map to filenames, we'll catch them
     readable_names_and_filenames_list = list(readable_names_and_filenames.keys())
     readable_names_and_filenames_list = [
-        "Open Folder →"
+        "New Conversation →",
+        "Open Folder →",
     ] + readable_names_and_filenames_list
 
     # Use inquirer to let the user select a file
@@ -67,6 +68,11 @@ def conversation_navigator(interpreter):
 
     # User chose to exit
     if not answers:
+        return
+
+    # If the user selected to start a new conversation, do so
+    if answers["name"] == "New Conversation →":
+        interpreter.chat()
         return
 
     # If the user selected to open the folder, do so and return
