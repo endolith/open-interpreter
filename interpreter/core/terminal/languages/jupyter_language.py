@@ -202,6 +202,13 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         }
                         if self.interpreter.llm.api_key:
                             params["api_key"] = self.interpreter.llm.api_key
+                        # Use the same provider endpoint config as the active interpreter model.
+                        # Without this, routed models (e.g., dashscope/* rewritten as openai/*)
+                        # can accidentally call OpenAI with a non-OpenAI key in this side-channel.
+                        if self.interpreter.llm.api_base:
+                            params["api_base"] = self.interpreter.llm.api_base
+                        if self.interpreter.llm.api_version:
+                            params["api_version"] = self.interpreter.llm.api_version
 
                         response = ""
                         for chunk in litellm.completion(**params):
