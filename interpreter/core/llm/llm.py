@@ -434,7 +434,9 @@ Continuing...
         if self.model.lower().startswith("dashscope/"):
             model_name = self.model.split("/", 1)[1].lower()
             if self.api_base is None:
-                self.api_base = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                # Default: Global (US Virginia). International (Singapore):
+                # https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+                self.api_base = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
             if self.api_key is None:
                 self.api_key = os.environ.get("DASHSCOPE_API_KEY")
             # Qwen3.5 is a unified vision-language architecture — there are no separate

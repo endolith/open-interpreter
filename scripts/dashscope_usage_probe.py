@@ -3,7 +3,7 @@
 
 Env: DASHSCOPE_API_KEY
 
-Optional arg: model id (default qwen3.5-plus). On Singapore compatible-mode we have seen
+Optional arg: model id (default qwen3.5-plus). On compatible-mode (default: US Global) we have seen
 qwen3-max return prompt_tokens_details.cached_tokens (e.g. 0) while qwen3.5-plus sometimes
 omits cached_tokens entirely in the same usage object — provider/model-dependent.
 
@@ -18,7 +18,9 @@ import sys
 import urllib.error
 import urllib.request
 
-URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+# Default: Global (US). International (Singapore):
+# https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
+URL = "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 
 def main() -> None:
