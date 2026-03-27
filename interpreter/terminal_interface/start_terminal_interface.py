@@ -83,7 +83,7 @@ def start_terminal_interface(interpreter):
         {
             "name": "model",
             "nickname": "m",
-            "help_text": "language model to use",
+            "help_text": "language model to use (e.g. gpt-4o, openrouter/..., deepseek/..., dashscope/...)",
             "type": str,
             "attribute": {"object": interpreter.llm, "attr_name": "model"},
         },
@@ -552,7 +552,8 @@ Use """ to write multi-line messages.
 
     if interpreter.llm.api_base:
         if (
-            not interpreter.llm.model.lower().startswith("openai/")
+            "/" not in interpreter.llm.model
+            and not interpreter.llm.model.lower().startswith("openai/")
             and not interpreter.llm.model.lower().startswith("azure/")
             and not interpreter.llm.model.lower().startswith("ollama")
             and not interpreter.llm.model.lower().startswith("jan")
