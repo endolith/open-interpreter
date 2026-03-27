@@ -1,11 +1,7 @@
 import base64
-import io
 import json
 import os
-import sys
 from datetime import datetime
-
-from PIL import Image
 
 
 def _user_ts(message, messages, *, _now=None):
@@ -189,8 +185,6 @@ def convert_to_openai_messages(
                         continue
                     # Convert to base64
                     extension = image_path.split(".")[-1].lower()
-                    # Pillow uses "JPEG" as the format name, not "JPG"
-                    pil_format = "JPEG" if extension == "jpg" else extension.upper()
 
                     with open(image_path, "rb") as image_file:
                         encoded_string = base64.b64encode(image_file.read()).decode(
@@ -209,11 +203,19 @@ def convert_to_openai_messages(
 
                 content = f"data:image/{extension};base64,{encoded_string}"
                 image_was_resized = False
+                use_shrink = (
+                    message["shrink"]
+                    if "shrink" in message
+                    else shrink_images
+                )
 
-                if shrink_images:
-                    # Shrink to less than 5mb
+                if use_shrink:
+                    import io
+                    import sys
 
-                    # Calculate size
+                    from PIL import Image
+
+                    # Shrink to less than 5mb (string size heuristic; good enough for API limits)
                     content_size_bytes = sys.getsizeof(str(content))
 
                     # Convert the size to MB
@@ -221,6 +223,7 @@ def convert_to_openai_messages(
 
                     # If the content size is greater than 5 MB, resize the image
                     if content_size_mb > 5:
+                        pil_format = "JPEG" if extension == "jpg" else extension.upper()
                         image_was_resized = True
                         # Decode the base64 image
                         img_data = base64.b64decode(encoded_string)
@@ -261,12 +264,14 @@ def convert_to_openai_messages(
                                 "Attempted to shrink the image but failed. Sending to the LLM anyway."
                             )
 
+                # OpenAI-style detail: high when sending full-resolution pixels; low when shrinking (smaller tokens).
+                _detail = "low" if use_shrink else "high"
                 new_message = {
                     "role": "user",
                     "content": [
                         {
                             "type": "image_url",
-                            "image_url": {"url": content, "detail": "low"},
+                            "image_url": {"url": content, "detail": _detail},
                         }
                     ],
                 }

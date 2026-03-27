@@ -406,12 +406,18 @@ def respond(interpreter):
         pending_path = getattr(interpreter, "_pending_view_image_path", None)
         if pending_path is not None:
             delattr(interpreter, "_pending_view_image_path")
-            interpreter.messages.append({
+            pending_shrink = getattr(interpreter, "_pending_view_image_shrink", None)
+            if pending_shrink is not None:
+                delattr(interpreter, "_pending_view_image_shrink")
+            img_msg = {
                 "role": "user",
                 "type": "image",
                 "format": "path",
                 "content": pending_path,
-            })
+            }
+            if pending_shrink is not None:
+                img_msg["shrink"] = pending_shrink
+            interpreter.messages.append(img_msg)
 
         ### RUN CODE (if it's there) ###
 
