@@ -428,6 +428,23 @@ Continuing...
         if self._is_loaded:
             return
 
+        # Route explicit DashScope models (dashscope/<model>) to DashScope defaults.
+        # Use an explicit provider prefix so model families like deepseek-* can still
+        # target other providers (e.g., deepseek/*) without ambiguous auto-routing.
+        if self.model.lower().startswith("dashscope/"):
+            model_name = self.model.split("/", 1)[1].lower()
+            if self.api_base is None:
+                self.api_base = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            if self.api_key is None:
+                self.api_key = os.environ.get("DASHSCOPE_API_KEY")
+            # Qwen3.5 is a unified vision-language architecture — there are no separate
+            # VL variants because every model in the family natively supports image input.
+            # LiteLLM's registry does not know this yet, so we set it explicitly.
+            if model_name.startswith("qwen3.5") and self.supports_vision is None:
+                self.supports_vision = True
+            # Route through OpenAI-compatible formatting for DashScope's compatible endpoint.
+            self.model = f"openai/{model_name}"
+
         if self.model.startswith("ollama/") and not ":" in self.model:
             self.model = self.model + ":latest"
 
