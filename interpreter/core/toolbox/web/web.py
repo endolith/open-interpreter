@@ -16,65 +16,20 @@ Supported backends:
 # NOTE: The first line of docstrings and their Return sections are shown to Open Interpreter in its system message, so make them very concise to avoid wasting tokens, and don't mention atypical things like error condition outputs that will confuse the AI.  Tell the AI the typical use case, and it will deal with errors when it gets to them.
 
 import os
-import sys
 import json
-import locale
 import requests
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any
 
 from babel import Locale
 from babel.core import UnknownLocaleError
 
 
-def _windows_user_default_locale() -> Optional[Locale]:
-    """BCP 47 locale from the OS (e.g. en-US). Avoids libc LC_CTYPE strings like English_United States."""
-    try:
-        import ctypes
-    except ImportError:
-        return None
-    try:
-        buf = ctypes.create_unicode_buffer(85)
-        n = ctypes.windll.kernel32.GetUserDefaultLocaleName(buf, len(buf))
-        if n <= 1:
-            return None
-        s = buf.value.strip()
-        if not s:
-            return None
-        return Locale.parse(s, sep="-")
-    except (UnknownLocaleError, ValueError, AttributeError, OSError):
-        return None
-
-
-def _libc_locale_tag_parseable(tag: str) -> bool:
-    """True if tag looks like en_US / de_DE (Babel can parse), not English_United States."""
-    if "_" not in tag:
-        return False
-    left, right = tag.split("_", 1)
-    return len(left) == 2 and len(right) == 2 and left.isalpha() and right.isalpha()
-
-
 def _default_locale_from_environment() -> Locale:
-    """
-    Resolve ISO language + territory for search APIs (Brave/Serper/SerpApi).
-    Order: Babel env (LANG/LC_*), Windows BCP-47, libc tag if already ISO-like, else en_US.
-    """
+    """System locale via Babel (LANG/LC_*); search APIs need ISO language + territory codes."""
     try:
         return Locale.default("LC_CTYPE")
     except (UnknownLocaleError, TypeError, ValueError, OSError):
-        pass
-    if sys.platform == "win32":
-        loc = _windows_user_default_locale()
-        if loc is not None:
-            return loc
-    try:
-        language_region = locale.getlocale(locale.LC_CTYPE)[0]
-        if language_region:
-            tag = language_region.split(".", 1)[0].split("@", 1)[0]
-            if _libc_locale_tag_parseable(tag):
-                return Locale.parse(tag)
-    except (UnknownLocaleError, TypeError, ValueError, OSError):
-        pass
-    return Locale.parse("en_US")
+        return Locale.parse("en_US")
 
 
 def _normalize_locale_language_for_hl(lang: str) -> str:
@@ -105,12 +60,6 @@ def _normalize_locale_country_for_gl(country: str) -> str:
     except (UnknownLocaleError, ValueError):
         pass
     return "US"
-
-
-def _locale_to_defaults(loc: Locale) -> Tuple[str, str]:
-    lang = (loc.language or "en").lower()
-    territory = (loc.territory or "US").upper()
-    return lang, territory
 
 
 class ApiKeyError(Exception):
@@ -298,7 +247,9 @@ def _normalize_tavily_single_page(result):
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
-        self._default_lang, self._default_country = _locale_to_defaults(_default_locale_from_environment())
+        _loc = _default_locale_from_environment()
+        self._default_lang = (_loc.language or "en").lower()
+        self._default_country = (_loc.territory or "US").upper()
         # Session-scoped cache: keyed by URL. Web page content doesn't change
         # mid-session, so re-fetching the same URL is always wasteful.
         self._fetch_cache: Dict[str, "FetchResult"] = {}
