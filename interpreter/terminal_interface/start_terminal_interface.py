@@ -111,6 +111,14 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter.llm, "attr_name": "supports_functions"},
         },
         {
+            "name": "shrink_images",
+            "nickname": "si",
+            "help_text": "resize large images before sending (may reduce detail). Default: off. When you upload images or approve view_image, you are asked y/n; this flag sets the default for images without that prompt (e.g. replay).",
+            "type": bool,
+            "action": argparse.BooleanOptionalAction,
+            "attribute": {"object": interpreter, "attr_name": "shrink_images"},
+        },
+        {
             "name": "context_window",
             "nickname": "cw",
             "help_text": "optional context window size for the language model",
