@@ -158,12 +158,17 @@ def terminal_interface(interpreter, message):
                     _content = RichText()
                     for p in image_paths:
                         _content.append(p + "\n")
-                    _content.append("\nUpload to vision model? (y/n)")
+                    _content.append(
+                        "\nf = upload full resolution\n"
+                        "r = upload with resize if large\n"
+                        "n = don't upload"
+                    )
                     _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
                     _console.print(RichPadding(_panel, PADDING_PANEL))
-                    response = prompt_choice("  ", ("y", "n"))
+                    response = prompt_choice("  ", ("f", "r", "n"))
 
-                    if response == "y":
+                    if response in ("f", "r"):
+                        _shrink = response == "r"
                         # Add the text message to interpreter's message history
                         interpreter.messages.append(
                             {
@@ -183,6 +188,7 @@ def terminal_interface(interpreter, message):
                                     "format": "path",
                                     "content": image_path,
                                     "sent_at": time.time(),
+                                    "shrink": _shrink,
                                 }
                             )
 
@@ -193,6 +199,7 @@ def terminal_interface(interpreter, message):
                             "format": "path",
                             "content": image_paths[0],
                             "sent_at": time.time(),
+                            "shrink": _shrink,
                         }
                     else:
                         # User declined, just process the text message normally
@@ -234,10 +241,14 @@ def terminal_interface(interpreter, message):
                         _content = RichText()
                         for p in paths:
                             _content.append(_truncate(p) + "\n")
-                        _content.append("\nAllow? (y/n)")
+                        _content.append(
+                            "\nf = show full resolution\n"
+                            "r = show with resize if large\n"
+                            "n = don't show"
+                        )
                         _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
                         _console.print(RichPadding(_panel, PADDING_PANEL))
-                        response = prompt_choice("  ", ("y", "n"))
+                        response = prompt_choice("  ", ("f", "r", "n"))
                         interpreter._view_image_approval = response
                     else:
                         interpreter._view_image_approval = "n"
