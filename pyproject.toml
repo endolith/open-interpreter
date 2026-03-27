@@ -46,6 +46,7 @@ dependencies = [
     "uvicorn>=0.30.1,<0.31.0",
     "janus>=1.0.0,<2.0.0",
     "chardet>=5.0,<6.0",
+    "babel>=2.12,<3.0",
 ]
 
 [project.optional-dependencies]
@@ -158,6 +159,7 @@ fastapi = "^0.115.8"
 uvicorn = "^0.30.1"
 janus = "^1.0.0"
 chardet = "^5.0"
+babel = "^2.12"
 
 [tool.poetry.extras]
 os = ["opencv-python", "pyautogui", "plyer", "pywinctl", "pytesseract", "sentence-transformers", "ipywidgets", "timm", "screeninfo"]

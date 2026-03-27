@@ -16,90 +16,101 @@ Supported backends:
 # NOTE: The first line of docstrings and their Return sections are shown to Open Interpreter in its system message, so make them very concise to avoid wasting tokens, and don't mention atypical things like error condition outputs that will confuse the AI.  Tell the AI the typical use case, and it will deal with errors when it gets to them.
 
 import os
+import sys
 import json
 import locale
 import requests
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
+
+from babel import Locale
+from babel.core import UnknownLocaleError
 
 
-# Windows often reports LC_CTYPE as human-readable names (e.g. "English_United States") instead
-# of ISO tags like "en_US". Brave/SerpApi/Serper expect ISO 639-1 for interface language and
-# ISO 3166-1 alpha-2 for country — e.g. search_lang=en, country=US, not "english" / "UNITED STATES".
-_LONG_LANGUAGE_TO_ISO639_1 = {
-    "english": "en",
-    "spanish": "es",
-    "french": "fr",
-    "german": "de",
-    "italian": "it",
-    "portuguese": "pt",
-    "dutch": "nl",
-    "russian": "ru",
-    "japanese": "ja",
-    "korean": "ko",
-    "chinese": "zh",
-    "polish": "pl",
-    "turkish": "tr",
-    "arabic": "ar",
-    "hebrew": "he",
-    "hindi": "hi",
-    "swedish": "sv",
-    "norwegian": "no",
-    "danish": "da",
-    "finnish": "fi",
-    "czech": "cs",
-    "greek": "el",
-    "hungarian": "hu",
-    "romanian": "ro",
-    "ukrainian": "uk",
-    "thai": "th",
-    "vietnamese": "vi",
-    "indonesian": "id",
-}
-_LONG_COUNTRY_TO_ISO3166 = {
-    "UNITED STATES": "US",
-    "UNITED KINGDOM": "GB",
-    "GREAT BRITAIN": "GB",
-    "CANADA": "CA",
-    "AUSTRALIA": "AU",
-    "GERMANY": "DE",
-    "FRANCE": "FR",
-    "ITALY": "IT",
-    "SPAIN": "ES",
-    "JAPAN": "JP",
-    "CHINA": "CN",
-    "KOREA, REPUBLIC OF": "KR",
-    "KOREA": "KR",
-    "BRAZIL": "BR",
-    "MEXICO": "MX",
-    "INDIA": "IN",
-    "RUSSIAN FEDERATION": "RU",
-    "RUSSIA": "RU",
-    "NETHERLANDS": "NL",
-    "SWEDEN": "SE",
-    "NORWAY": "NO",
-    "POLAND": "PL",
-    "TURKEY": "TR",
-}
+def _windows_user_default_locale() -> Optional[Locale]:
+    """BCP 47 locale from the OS (e.g. en-US). Avoids libc LC_CTYPE strings like English_United States."""
+    try:
+        import ctypes
+    except ImportError:
+        return None
+    try:
+        buf = ctypes.create_unicode_buffer(85)
+        n = ctypes.windll.kernel32.GetUserDefaultLocaleName(buf, len(buf))
+        if n <= 1:
+            return None
+        s = buf.value.strip()
+        if not s:
+            return None
+        return Locale.parse(s, sep="-")
+    except (UnknownLocaleError, ValueError, AttributeError, OSError):
+        return None
+
+
+def _libc_locale_tag_parseable(tag: str) -> bool:
+    """True if tag looks like en_US / de_DE (Babel can parse), not English_United States."""
+    if "_" not in tag:
+        return False
+    left, right = tag.split("_", 1)
+    return len(left) == 2 and len(right) == 2 and left.isalpha() and right.isalpha()
+
+
+def _default_locale_from_environment() -> Locale:
+    """
+    Resolve ISO language + territory for search APIs (Brave/Serper/SerpApi).
+    Order: Babel env (LANG/LC_*), Windows BCP-47, libc tag if already ISO-like, else en_US.
+    """
+    try:
+        return Locale.default("LC_CTYPE")
+    except (UnknownLocaleError, TypeError, ValueError, OSError):
+        pass
+    if sys.platform == "win32":
+        loc = _windows_user_default_locale()
+        if loc is not None:
+            return loc
+    try:
+        language_region = locale.getlocale(locale.LC_CTYPE)[0]
+        if language_region:
+            tag = language_region.split(".", 1)[0].split("@", 1)[0]
+            if _libc_locale_tag_parseable(tag):
+                return Locale.parse(tag)
+    except (UnknownLocaleError, TypeError, ValueError, OSError):
+        pass
+    return Locale.parse("en_US")
 
 
 def _normalize_locale_language_for_hl(lang: str) -> str:
-    """Map locale language string to ISO 639-1 for hl= / search_lang (two letters)."""
+    """ISO 639-1 for hl= / search_lang."""
     if not lang:
         return "en"
-    s = lang.strip().lower()
+    s = lang.strip()
     if len(s) == 2 and s.isalpha():
-        return s
-    return _LONG_LANGUAGE_TO_ISO639_1.get(s, "en")
+        return s.lower()
+    try:
+        loc = Locale.parse(s.replace("_", "-"), sep="-")
+        return (loc.language or "en").lower()
+    except (UnknownLocaleError, ValueError):
+        return "en"
 
 
 def _normalize_locale_country_for_gl(country: str) -> str:
-    """Map locale country string to ISO 3166-1 alpha-2 (uppercase) for gl= / country."""
+    """ISO 3166-1 alpha-2 (uppercase) for gl= / country."""
     if not country:
         return "US"
-    s = " ".join(country.replace("\u00a0", " ").split()).upper()
+    s = " ".join(country.replace("\u00a0", " ").split()).strip()
     if len(s) == 2 and s.isalpha():
-        return s
-    return _LONG_COUNTRY_TO_ISO3166.get(s, "US")
+        return s.upper()
+    try:
+        loc = Locale.parse(s.replace("_", "-"), sep="-")
+        if loc.territory:
+            return loc.territory.upper()
+    except (UnknownLocaleError, ValueError):
+        pass
+    return "US"
+
+
+def _locale_to_defaults(loc: Locale) -> Tuple[str, str]:
+    lang = (loc.language or "en").lower()
+    territory = (loc.territory or "US").upper()
+    return lang, territory
 
 
 class ApiKeyError(Exception):
@@ -287,25 +298,7 @@ def _normalize_tavily_single_page(result):
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
-        # locale.getlocale(LC_CTYPE) -> (language_region, encoding), e.g. ("en_US", "UTF-8").
-        # language_region can be None if unset — then we fall back below.
-        language_region, encoding = locale.getlocale(locale.LC_CTYPE)
-        if language_region:
-            tag = language_region
-        else:
-            tag = "en_US"
-        # Drop encoding suffix if present: "en_US.UTF-8" -> "en_US".
-        tag = tag.split(".", 1)[0]
-        # Drop locale modifier if present: "sr_RS@latin" -> "sr_RS".
-        tag = tag.split("@", 1)[0]
-        # Split on underscore to get language and country (standard format: 'en_US').
-        # Non-ISO tags (e.g. 'C', 'English_United States') are normalized below.
-        try:
-            lang, country = tag.split("_", 1)
-        except ValueError:
-            lang, country = "en", "US"
-        self._default_lang = _normalize_locale_language_for_hl(lang)
-        self._default_country = _normalize_locale_country_for_gl(country)
+        self._default_lang, self._default_country = _locale_to_defaults(_default_locale_from_environment())
         # Session-scoped cache: keyed by URL. Web page content doesn't change
         # mid-session, so re-fetching the same URL is always wasteful.
         self._fetch_cache: Dict[str, "FetchResult"] = {}
