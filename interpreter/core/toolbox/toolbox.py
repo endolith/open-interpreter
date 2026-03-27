@@ -41,7 +41,7 @@ class Toolbox:
         self.vision = Vision(self)
         self.skills = Skills(self)
         self.ai = Ai(self)
-        self.ai2 = Ai2(self)
+        self._ai2 = None
         self.files = Files(self)
 
         self.emit_images = True
@@ -58,6 +58,17 @@ class Toolbox:
         )  # Should mirror interpreter.max_output
 
         self._system_message_override = None
+
+    @property
+    def ai2(self):
+        """Lazily initialize ai2 so LiteLLM setup only happens on first real use."""
+        if self._ai2 is None:
+            self._ai2 = Ai2(self)
+        return self._ai2
+
+    @ai2.setter
+    def ai2(self, value):
+        self._ai2 = value
 
     @property
     def system_message(self):
