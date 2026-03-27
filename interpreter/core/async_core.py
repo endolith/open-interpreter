@@ -18,15 +18,10 @@ from .core import OpenInterpreter
 
 last_start_time = 0
 
-# fastapi / uvicorn / janus are optional at import time so this module always loads.
-# Import each stack separately: if janus is missing, uvicorn/fastapi must still bind
-# (janus was listed first in a single try/except, one janus ImportError zeroed FastAPI).
+# fastapi / uvicorn / janus are required only for AsyncInterpreter + Server. Import
+# failures must leave defined names so this module loads; Server.__init__ raises clearly.
 try:
     import janus
-except ImportError:
-    janus = None
-
-try:
     import uvicorn
     from fastapi import (
         APIRouter,
@@ -41,6 +36,7 @@ try:
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
     from starlette.status import HTTP_403_FORBIDDEN
 except ImportError:
+    janus = None
     uvicorn = None
     APIRouter = None
     FastAPI = None
@@ -121,10 +117,6 @@ class AsyncInterpreter(OpenInterpreter):
             self.respond_thread.start()
 
     async def output(self):
-        if janus is None:
-            raise ImportError(
-                "AsyncInterpreter.output requires janus. Install with: pip install janus"
-            )
         if self.output_queue == None:
             self.output_queue = janus.Queue()
         return await self.output_queue.async_q.get()
@@ -975,10 +967,10 @@ class Server:
     DEFAULT_PORT = 8000
 
     def __init__(self, async_interpreter, host=None, port=None):
-        if FastAPI is None or uvicorn is None:
+        if FastAPI is None or uvicorn is None or janus is None:
             raise ImportError(
-                "Server mode requires fastapi and uvicorn. "
-                "Install with: pip install fastapi uvicorn"
+                "Server mode requires fastapi, uvicorn, and janus. "
+                "Install with: pip install fastapi uvicorn janus"
             )
         self.app = FastAPI()
         router = create_router(async_interpreter)
