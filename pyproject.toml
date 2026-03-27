@@ -1,3 +1,89 @@
+[project]
+name = "open-interpreter"
+version = "0.4.3"
+description = "Let language models run code"
+readme = "README.md"
+requires-python = ">=3.9,<3.14"
+authors = [
+    { name = "Killian Lucas", email = "killian@openinterpreter.com" },
+]
+dependencies = [
+    "setuptools",
+    "astor>=0.8.1,<0.9.0",
+    "git-python>=1.0.3,<2.0.0",
+    "inquirer>=3.1.3,<4.0.0",
+    "pyyaml>=6.0.1,<7.0.0",
+    "rich>=13.4.2,<14.0.0",
+    "six>=1.16.0,<2.0.0",
+    "tokentrim>=0.1.13,<0.2.0",
+    "wget>=3.2,<4.0",
+    "psutil>=5.9.6,<6.0.0",
+    "pyreadline3>=3.4.1,<4.0.0; sys_platform == 'win32'",
+    "html2image>=2.0.4.3,<3.0.0",
+    "send2trash>=1.8.2,<2.0.0",
+    "ipykernel>=6.26.0,<7.0.0",
+    "jupyter-client>=8.6.0,<9.0.0",
+    "matplotlib>=3.8.2,<4.0.0",
+    "toml>=0.10.2,<0.11.0",
+    "tiktoken>=0.8.0,<0.9.0",
+    "platformdirs>=4.2.0,<5.0.0",
+    "pydantic>=2.6.4,<3.0.0",
+    "google-generativeai>=0.7.1,<0.8.0",
+    "pyperclip>=1.9.0,<2.0.0",
+    "yaspin>=3.0.2,<4.0.0",
+    "shortuuid>=1.0.13,<2.0.0",
+    "litellm>=1.41.26,<2.0.0",
+    "bc-detect-secrets>=1.5,<2.0",
+    "starlette>=0.42,<0.46",
+    "html2text>=2024.2.26,<2025.0.0",
+    "markdown-it-py>=3.0.0,<4.0.0",
+    "selenium>=4.24.0,<5.0.0",
+    "webdriver-manager>=4.0.2,<5.0.0",
+    "anthropic>=0.37.1,<0.38.0",
+    "pyautogui>=0.9.54,<0.10.0",
+    "typer>=0.12.5,<0.13.0",
+    "fastapi>=0.115.8,<0.116.0",
+    "uvicorn>=0.30.1,<0.31.0",
+    "janus>=1.0.0,<2.0.0",
+    "chardet>=5.0,<6.0",
+]
+
+[project.optional-dependencies]
+os = [
+    "opencv-python>=4.8.1.78,<5.0.0.0",
+    "pyautogui>=0.9.54,<0.10.0",
+    "plyer>=2.1.0,<3.0.0",
+    "pywinctl>=0.3,<0.4",
+    "pytesseract>=0.3.10,<0.4.0",
+    "sentence-transformers>=2.5.1,<3.0.0",
+    "ipywidgets>=8.1.2,<9.0.0",
+    "timm>=0.9.16,<0.10.0",
+    "screeninfo>=0.8.1,<0.9.0",
+]
+safe = [
+    "semgrep>=1.52.0,<2.0.0",
+]
+local = [
+    "opencv-python>=4.8.1.78,<5.0.0.0",
+    "pytesseract>=0.3.10,<0.4.0",
+    "torch>=2.2.1,<3.0.0",
+    "transformers==4.41.2",
+    "einops>=0.8.0,<0.9.0",
+    "torchvision>=0.18.0,<0.19.0",
+    "easyocr>=1.7.1,<2.0.0",
+]
+server = [
+    "fastapi>=0.115.8,<0.116.0",
+    "uvicorn>=0.30.1,<0.31.0",
+    "janus>=1.0.0,<2.0.0",
+]
+
+[project.scripts]
+i = "interpreter.terminal_interface.start_terminal_interface:main"
+interpreter = "interpreter.terminal_interface.start_terminal_interface:main"
+wtf = "scripts.wtf:main"
+interpreter-classic = "interpreter.terminal_interface.start_terminal_interface:main"
+
 [tool.poetry]
 name = "open-interpreter"
 packages = [
