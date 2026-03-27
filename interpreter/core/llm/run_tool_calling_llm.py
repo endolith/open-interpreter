@@ -755,9 +755,11 @@ def run_tool_calling_llm(llm, request_params):
                         "type": "view_image_approval",
                         "paths": [path],
                     }
+                    # f/r/n from terminal (single prompt): full res / resize / decline. "y" = legacy full res.
                     approval = getattr(llm.interpreter, "_view_image_approval", "n")
-                    if approval == "y":
+                    if approval in ("f", "r", "y"):
                         llm.interpreter._pending_view_image_path = path
+                        llm.interpreter._pending_view_image_shrink = approval == "r"
                         content = "Image added; you will see it when you continue."
                     else:
                         content = "User declined to show image."
