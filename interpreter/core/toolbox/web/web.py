@@ -22,6 +22,86 @@ import requests
 from typing import Optional, Dict, List, Any
 
 
+# Windows often reports LC_CTYPE as human-readable names (e.g. "English_United States") instead
+# of ISO tags like "en_US". Brave/SerpApi/Serper expect ISO 639-1 for interface language and
+# ISO 3166-1 alpha-2 for country — e.g. search_lang=en, country=US, not "english" / "UNITED STATES".
+_LONG_LANGUAGE_TO_ISO639_1 = {
+    "english": "en",
+    "spanish": "es",
+    "french": "fr",
+    "german": "de",
+    "italian": "it",
+    "portuguese": "pt",
+    "dutch": "nl",
+    "russian": "ru",
+    "japanese": "ja",
+    "korean": "ko",
+    "chinese": "zh",
+    "polish": "pl",
+    "turkish": "tr",
+    "arabic": "ar",
+    "hebrew": "he",
+    "hindi": "hi",
+    "swedish": "sv",
+    "norwegian": "no",
+    "danish": "da",
+    "finnish": "fi",
+    "czech": "cs",
+    "greek": "el",
+    "hungarian": "hu",
+    "romanian": "ro",
+    "ukrainian": "uk",
+    "thai": "th",
+    "vietnamese": "vi",
+    "indonesian": "id",
+}
+_LONG_COUNTRY_TO_ISO3166 = {
+    "UNITED STATES": "US",
+    "UNITED KINGDOM": "GB",
+    "GREAT BRITAIN": "GB",
+    "CANADA": "CA",
+    "AUSTRALIA": "AU",
+    "GERMANY": "DE",
+    "FRANCE": "FR",
+    "ITALY": "IT",
+    "SPAIN": "ES",
+    "JAPAN": "JP",
+    "CHINA": "CN",
+    "KOREA, REPUBLIC OF": "KR",
+    "KOREA": "KR",
+    "BRAZIL": "BR",
+    "MEXICO": "MX",
+    "INDIA": "IN",
+    "RUSSIAN FEDERATION": "RU",
+    "RUSSIA": "RU",
+    "NETHERLANDS": "NL",
+    "SWEDEN": "SE",
+    "NORWAY": "NO",
+    "POLAND": "PL",
+    "TURKEY": "TR",
+}
+
+
+def _normalize_locale_language_for_hl(lang: str) -> str:
+    """Map locale language string to ISO 639-1 for hl= / search_lang (two letters)."""
+    if not lang:
+        return "en"
+    s = lang.strip().lower()
+    if len(s) == 2 and s.isalpha():
+        return s
+    return _LONG_LANGUAGE_TO_ISO639_1.get(s, "en")
+
+
+def _normalize_locale_country_for_gl(country: str) -> str:
+    """Map locale country string to ISO 3166-1 alpha-2 (uppercase) for gl= / country."""
+    if not country:
+        return "US"
+    s = " ".join(country.replace("\u00a0", " ").split()).upper()
+    if len(s) == 2 and s.isalpha():
+        return s
+    return _LONG_COUNTRY_TO_ISO3166.get(s, "US")
+
+
 class ApiKeyError(Exception):
     """Exception raised when an API key is missing. Contains error dict."""
     def __init__(self, error_dict):
@@ -218,10 +298,14 @@ class Web:
         tag = tag.split(".", 1)[0]
         # Drop locale modifier if present: "sr_RS@latin" -> "sr_RS".
         tag = tag.split("@", 1)[0]
-        # Split on underscore to get language and country (standard format: 'en_US')
-        lang, country = tag.split("_", 1)
-        self._default_lang = lang.lower()
-        self._default_country = country.upper()
+        # Split on underscore to get language and country (standard format: 'en_US').
+        # Non-ISO tags (e.g. 'C', 'English_United States') are normalized below.
+        try:
+            lang, country = tag.split("_", 1)
+        except ValueError:
+            lang, country = "en", "US"
+        self._default_lang = _normalize_locale_language_for_hl(lang)
+        self._default_country = _normalize_locale_country_for_gl(country)
         # Session-scoped cache: keyed by URL. Web page content doesn't change
         # mid-session, so re-fetching the same URL is always wasteful.
         self._fetch_cache: Dict[str, "FetchResult"] = {}
@@ -239,9 +323,15 @@ class Web:
             tuple: (country_code, language_code) with defaults applied
         """
         if country_code is None:
-            country_code = self._default_country.lower() if country_case == "lower" else self._default_country
+            country_code = self._default_country
+        else:
+            country_code = _normalize_locale_country_for_gl(country_code)
         if language_code is None:
             language_code = self._default_lang
+        else:
+            language_code = _normalize_locale_language_for_hl(language_code)
+        if country_case == "lower":
+            country_code = country_code.lower()
         return country_code, language_code
 
     def _check_api_key(self, key_name):
@@ -368,13 +458,14 @@ class Web:
             "X-Subscription-Token": api_key
         }
 
+        # kwargs last would let stray keys (e.g. country=...) override normalized locale — merge first.
         params = {
+            **kwargs,
             "q": query,
             "count": min(count, 20),  # Brave has a max of 20
             "country": country_code,
             "search_lang": language_code,
             "safesearch": safesearch,
-            **kwargs
         }
 
         try:
@@ -439,12 +530,12 @@ class Web:
         }
 
         payload = {
+            **kwargs,
             "q": query,
             "num": num,
             "gl": country_code,
             "hl": language_code,
             "autocorrect": autocorrect,
-            **kwargs
         }
 
         try:
@@ -538,13 +629,13 @@ class Web:
             if engine in google_engines:
                 # Use GoogleSearch with engine parameter for Google-based engines
                 search_params = {
+                    **kwargs,
                     "q": query,
                     "num": num,
                     "engine": engine,
                     "api_key": api_key,
                     "gl": country_code,
                     "hl": language_code,
-                    **kwargs
                 }
                 search = GoogleSearch(search_params)
                 data = search.get_dict()
@@ -567,18 +658,17 @@ class Web:
                     "ebay": "_nkw",
                     "youtube": "search_query",  # YouTube uses "search_query" not "q"
                 }
-                search_params = {"api_key": api_key}
+                search_params = {**kwargs, "api_key": api_key}
                 query_param = serpapi_query_params.get(engine, "q")
                 search_params[query_param] = query
                 if num:
                     search_params["num"] = num
 
-                # Add localization for engines that support it
+                # Add localization for engines that support it (after kwargs so locale wins)
                 if engine in ["bing", "yahoo", "duckduckgo", "youtube"]:
                     search_params["gl"] = country_code
                     search_params["hl"] = language_code
 
-                search_params.update(kwargs)
                 search = SearchClass(search_params)
                 data = search.get_dict()
             else:
