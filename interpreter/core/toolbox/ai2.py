@@ -465,5 +465,23 @@ class Ai2:
         return self._default_model
 
 
+class _LazyAi2Singleton:
+    """Create module-level ai2 only when it is first accessed."""
+
+    def __init__(self):
+        self._instance = None
+
+    def _target(self):
+        if self._instance is None:
+            self._instance = Ai2()
+        return self._instance
+
+    def __getattr__(self, name):
+        return getattr(self._target(), name)
+
+    def __repr__(self):
+        return repr(self._target())
+
+
 # Convenience singleton
-ai2 = Ai2()
+ai2 = _LazyAi2Singleton()
