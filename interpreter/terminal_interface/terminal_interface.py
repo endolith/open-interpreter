@@ -22,6 +22,9 @@ from rich.padding import Padding as RichPadding
 from rich.panel import Panel
 from rich.text import Text as RichText
 
+from ..core.llm.utils.convert_to_openai_messages import (
+    image_path_exceeds_shrink_threshold,
+)
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
@@ -158,17 +161,31 @@ def terminal_interface(interpreter, message):
                     _content = RichText()
                     for p in image_paths:
                         _content.append(p + "\n")
-                    _content.append(
-                        "\nf = upload full resolution\n"
-                        "r = upload with resize if large\n"
-                        "n = don't upload"
+                    _any_large = any(
+                        image_path_exceeds_shrink_threshold(p) for p in image_paths
                     )
-                    _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
-                    _console.print(RichPadding(_panel, PADDING_PANEL))
-                    response = prompt_choice("  ", ("f", "r", "n"))
+                    if _any_large:
+                        _content.append(
+                            "\nf = upload full resolution\n"
+                            "r = upload with resize if large\n"
+                            "n = don't upload"
+                        )
+                        _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
+                        _console.print(RichPadding(_panel, PADDING_PANEL))
+                        response = prompt_choice("  ", ("f", "r", "n"))
+                    else:
+                        _content.append(
+                            "\ny = upload image\n"
+                            "n = don't upload"
+                        )
+                        _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
+                        _console.print(RichPadding(_panel, PADDING_PANEL))
+                        response = prompt_choice("  ", ("y", "n"))
 
-                    if response in ("f", "r"):
-                        _shrink = response == "r"
+                    if (_any_large and response in ("f", "r")) or (
+                        not _any_large and response == "y"
+                    ):
+                        _shrink = _any_large and response == "r"
                         # Add the text message to interpreter's message history
                         interpreter.messages.append(
                             {
@@ -241,14 +258,26 @@ def terminal_interface(interpreter, message):
                         _content = RichText()
                         for p in paths:
                             _content.append(_truncate(p) + "\n")
-                        _content.append(
-                            "\nf = show full resolution\n"
-                            "r = show with resize if large\n"
-                            "n = don't show"
+                        _large = any(
+                            image_path_exceeds_shrink_threshold(p) for p in paths
                         )
-                        _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
-                        _console.print(RichPadding(_panel, PADDING_PANEL))
-                        response = prompt_choice("  ", ("f", "r", "n"))
+                        if _large:
+                            _content.append(
+                                "\nf = show full resolution\n"
+                                "r = show with resize if large\n"
+                                "n = don't show"
+                            )
+                            _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
+                            _console.print(RichPadding(_panel, PADDING_PANEL))
+                            response = prompt_choice("  ", ("f", "r", "n"))
+                        else:
+                            _content.append(
+                                "\ny = show image\n"
+                                "n = don't show"
+                            )
+                            _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
+                            _console.print(RichPadding(_panel, PADDING_PANEL))
+                            response = prompt_choice("  ", ("y", "n"))
                         interpreter._view_image_approval = response
                     else:
                         interpreter._view_image_approval = "n"
