@@ -1,7 +1,22 @@
 import base64
 import json
 import os
+import sys
 from datetime import datetime
+
+
+def data_url_exceeds_shrink_threshold(data_url: str) -> bool:
+    """True when base64 data URL string size is over the ~5MB heuristic used before resizing."""
+    return sys.getsizeof(str(data_url)) / (1024 * 1024) > 5
+
+
+def image_path_exceeds_shrink_threshold(path: str) -> bool:
+    """Same check as the shrink branch below: build the data URL from disk and test size."""
+    extension = path.split(".")[-1].lower()
+    with open(path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+    content = f"data:image/{extension};base64,{encoded_string}"
+    return data_url_exceeds_shrink_threshold(content)
 
 
 def _user_ts(message, messages, *, _now=None):
@@ -211,18 +226,12 @@ def convert_to_openai_messages(
 
                 if use_shrink:
                     import io
-                    import sys
 
                     from PIL import Image
 
                     # Shrink to less than 5mb (string size heuristic; good enough for API limits)
-                    content_size_bytes = sys.getsizeof(str(content))
-
-                    # Convert the size to MB
-                    content_size_mb = content_size_bytes / (1024 * 1024)
-
-                    # If the content size is greater than 5 MB, resize the image
-                    if content_size_mb > 5:
+                    if data_url_exceeds_shrink_threshold(content):
+                        content_size_mb = sys.getsizeof(str(content)) / (1024 * 1024)
                         pil_format = "JPEG" if extension == "jpg" else extension.upper()
                         image_was_resized = True
                         # Decode the base64 image
