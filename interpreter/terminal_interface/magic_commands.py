@@ -8,6 +8,7 @@ from datetime import datetime
 from ..core.llm.utils.stream_usage import format_last_usage_markdown
 from ..core.utils.system_debug_info import system_info
 from .utils.count_tokens import count_messages_tokens
+from .utils.downloads_path import get_downloads_path
 from .utils.export_to_markdown import export_to_markdown
 
 
@@ -247,19 +248,6 @@ def handle_count_tokens(self, prompt):
     self.display_message("\n".join(outputs))
 
 
-def get_downloads_path():
-    if os.name == "nt":
-        # For Windows
-        downloads = os.path.join(os.environ["USERPROFILE"], "Downloads")
-    else:
-        # For MacOS and Linux
-        downloads = os.path.join(os.path.expanduser("~"), "Downloads")
-        # For some GNU/Linux distros, there's no '~/Downloads' dir by default
-        if not os.path.exists(downloads):
-            os.makedirs(downloads)
-    return downloads
-
-
 def install_and_import(package):
     try:
         module = __import__(package)
@@ -338,9 +326,11 @@ def markdown(self, export_path: str):
         print("No messages to export.")
         return
 
-    # If user doesn't specify the export path, then save the exported PDF in '~/Downloads'
+    # If user doesn't specify the export path, then save under the default Downloads folder
     if not export_path:
-        export_path = get_downloads_path() + f"/{self.conversation_filename[:-4]}md"
+        export_path = os.path.join(
+            get_downloads_path(), self.conversation_filename[:-4] + "md"
+        )
 
     export_to_markdown(self.messages, export_path)
 
