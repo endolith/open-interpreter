@@ -3,26 +3,61 @@ import sys
 
 import platformdirs
 
-# Windows Known Folder: FOLDERID_Downloads — respects Properties > Location (e.g. D:\Downloads).
-# ctypes SHGetFolderPath(CSIDL_PROFILE)\Downloads and platformdirs.user_downloads_dir() do not.
-_WIN_DOWNLOADS_GUID = "{374DE290-123F-4565-9164-39C4925E467B}"
-_WIN_SHELL_FOLDER_KEYS = (
-    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
-)
+# Windows: use SHGetKnownFolderPath(FOLDERID_Downloads) — same as Explorer for relocated
+# folders. platformdirs.user_downloads_dir() uses SHGetFolderPath+CSIDL_PROFILE\Downloads;
+# PyPI "userpaths" uses profile\Downloads if that path exists — both miss D:\Downloads-style moves.
 
 
 def _windows_downloads_dir() -> str:
-    import winreg
+    import ctypes
+    import ctypes.wintypes as w
 
-    for subkey in _WIN_SHELL_FOLDER_KEYS:
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey) as key:
-                raw, _ = winreg.QueryValueEx(key, _WIN_DOWNLOADS_GUID)
-        except OSError:
-            continue
-        return os.path.normpath(os.path.expandvars(raw))
-    return os.path.join(os.environ["USERPROFILE"], "Downloads")
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_ulong),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    ole32 = ctypes.WinDLL("ole32", use_last_error=True)
+
+    CLSIDFromString = ole32.CLSIDFromString
+    CLSIDFromString.argtypes = (w.LPCOLESTR, ctypes.POINTER(GUID))
+    CLSIDFromString.restype = ctypes.HRESULT
+
+    SHGetKnownFolderPath = shell32.SHGetKnownFolderPath
+    SHGetKnownFolderPath.argtypes = (
+        ctypes.POINTER(GUID),
+        w.DWORD,
+        w.HANDLE,
+        ctypes.POINTER(ctypes.c_wchar_p),
+    )
+    SHGetKnownFolderPath.restype = ctypes.HRESULT
+
+    CoTaskMemFree = ole32.CoTaskMemFree
+    CoTaskMemFree.argtypes = (ctypes.c_void_p,)
+    CoTaskMemFree.restype = None
+
+    folder_id = GUID()
+    hr = CLSIDFromString(
+        "{374DE290-123F-4565-9164-39C4925E467B}", ctypes.byref(folder_id)
+    )
+    if hr != 0:
+        raise OSError(hr, "CLSIDFromString(FOLDERID_Downloads)")
+
+    path_out = ctypes.c_wchar_p()
+    hr = SHGetKnownFolderPath(
+        ctypes.byref(folder_id), 0, None, ctypes.byref(path_out)
+    )
+    if hr != 0:
+        raise OSError(hr, "SHGetKnownFolderPath(FOLDERID_Downloads)")
+
+    try:
+        return os.path.normpath(path_out.value)
+    finally:
+        CoTaskMemFree(path_out)
 
 
 def get_downloads_path() -> str:
