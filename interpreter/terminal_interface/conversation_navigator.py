@@ -91,11 +91,17 @@ def conversation_navigator(interpreter):
 
     # Set the interpreter's settings to the loaded messages
     interpreter.messages = messages
+    
+    alert_text = "⚠️ **SYSTEM ALERT:** This conversation was just resumed from a saved state. **Your Python REPL environment has been completely reset.** All previously imported modules, defined functions, and variables from earlier in this conversation are GONE. You must redefine them if you need them."
+    
     interpreter.messages.append({
         "role": "user",
         "type": "message",
-        "content": "⚠️ **SYSTEM ALERT:** This conversation was just resumed from a saved state. **Your Python REPL environment has been completely reset.** All previously imported modules, defined functions, and variables from earlier in this conversation are GONE. You must redefine them if you need them."
+        "content": alert_text
     })
+    
+    interpreter.display_message(f"\n> {alert_text}\n")
+    
     interpreter.conversation_filename = selected_filename
 
     # Start the chat
