@@ -136,6 +136,9 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             message_queue = queue.Queue()
             self._execute_code(preprocessed_code, message_queue)
             yield from self._capture_output(message_queue)
+
+            if getattr(self, "kc", None) and self.kc.is_alive():
+                yield from self._get_active_state()
         except GeneratorExit:
             raise  # gotta pass this up!
         except KeyboardInterrupt:
@@ -394,6 +397,31 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
 
     def stop(self):
         self.finish_flag = True
+
+    def _get_active_state(self):
+        state_code = """
+import types as __oi_types
+__oi_globals = globals()
+__oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps1', 'is_wsl', 'REPLHooks', 'get_last_command', 'PS1', 'ip', 'plt']
+__oi_vars = [k for k, v in __oi_globals.items() if not k.startswith('_') and not isinstance(v, __oi_types.ModuleType) and k not in __oi_exclude]
+__oi_mods = [k for k, v in __oi_globals.items() if not k.startswith('_') and isinstance(v, __oi_types.ModuleType) and k not in __oi_exclude]
+
+__oi_res = "\\n[Active Python Namespace]"
+if __oi_vars:
+    __oi_res += f"\\nVariables: {', '.join(__oi_vars)}"
+if __oi_mods:
+    __oi_res += f"\\nModules: {', '.join(__oi_mods)}"
+if not __oi_vars and not __oi_mods:
+    __oi_res += f"\\nEmpty"
+print(__oi_res)
+"""
+        message_queue = queue.Queue()
+        self.finish_flag = False
+        self._execute_code(state_code.strip(), message_queue)
+        
+        for output in self._capture_output(message_queue):
+            if output.get("type") == "console" and output.get("format") == "output":
+                yield output
 
     def preprocess_code(self, code):
         return preprocess_python(code)
