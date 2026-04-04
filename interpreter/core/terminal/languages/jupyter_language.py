@@ -401,7 +401,9 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
     def _get_active_state(self):
         state_code = """
 import types as __oi_types
+import os as __oi_os
 __oi_globals = globals()
+__oi_cwd = __oi_os.getcwd()
 __oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps1', 'is_wsl', 'REPLHooks', 'get_last_command', 'PS1', 'ip', 'plt']
 __oi_mods = []
 __oi_funcs = []
@@ -417,7 +419,7 @@ for __oi_k, __oi_v in __oi_globals.items():
     else:
         __oi_vars.append(__oi_k)
 
-__oi_parts = []
+__oi_parts = [f"CWD: {__oi_cwd}"]
 if __oi_mods:
     __oi_parts.append(f"Already imported: {', '.join(__oi_mods)}")
 if __oi_vars:
@@ -425,10 +427,7 @@ if __oi_vars:
 if __oi_funcs:
     __oi_parts.append(f"Functions/Classes: {', '.join(__oi_funcs)}")
 
-if not __oi_parts:
-    __oi_res = "\\n[Python REPL State: Empty]"
-else:
-    __oi_res = f"\\n[Python REPL State: {' | '.join(__oi_parts)}]"
+__oi_res = f"\\n[Python REPL State: {' | '.join(__oi_parts)}]"
 print(__oi_res)
 """
         message_queue = queue.Queue()
