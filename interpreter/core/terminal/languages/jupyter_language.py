@@ -403,14 +403,27 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
 import types as __oi_types
 __oi_globals = globals()
 __oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps1', 'is_wsl', 'REPLHooks', 'get_last_command', 'PS1', 'ip', 'plt']
-__oi_vars = [k for k, v in __oi_globals.items() if not k.startswith('_') and not isinstance(v, __oi_types.ModuleType) and k not in __oi_exclude]
-__oi_mods = [k for k, v in __oi_globals.items() if not k.startswith('_') and isinstance(v, __oi_types.ModuleType) and k not in __oi_exclude]
+__oi_mods = []
+__oi_funcs = []
+__oi_vars = []
+
+for k, v in __oi_globals.items():
+    if k.startswith('_') or k in __oi_exclude:
+        continue
+    if isinstance(v, __oi_types.ModuleType):
+        __oi_mods.append(k)
+    elif callable(v):
+        __oi_funcs.append(k)
+    else:
+        __oi_vars.append(k)
 
 __oi_parts = []
 if __oi_mods:
     __oi_parts.append(f"Already imported: {', '.join(__oi_mods)}")
 if __oi_vars:
     __oi_parts.append(f"Variables: {', '.join(__oi_vars)}")
+if __oi_funcs:
+    __oi_parts.append(f"Functions/Classes: {', '.join(__oi_funcs)}")
 
 if not __oi_parts:
     __oi_res = "\\n[Python REPL State: Empty]"
