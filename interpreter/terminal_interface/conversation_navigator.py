@@ -92,12 +92,14 @@ def conversation_navigator(interpreter):
     # Set the interpreter's settings to the loaded messages
     interpreter.messages = messages
 
+    current_cwd = os.getcwd()
+
     alert_text = (
         "⚠️ **SYSTEM ALERT:** This conversation was just resumed from a saved state.\n\n"
         "**1. Python REPL Reset:** Your Python environment has been completely cleared. "
         "All previously imported modules, defined functions, and variables are GONE. "
         "You must redefine them if you need them.\n\n"
-        "**2. CWD Reset:** The Current Working Directory (CWD) has been reset to the default. "
+        f"**2. CWD Reset:** The Current Working Directory (CWD) has been reset to: `{current_cwd}`. "
         "You MUST `import os` and `os.chdir()` back to the directory you were actively working in "
         "before running any relative file operations."
     )
