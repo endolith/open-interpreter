@@ -406,13 +406,16 @@ __oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps
 __oi_vars = [k for k, v in __oi_globals.items() if not k.startswith('_') and not isinstance(v, __oi_types.ModuleType) and k not in __oi_exclude]
 __oi_mods = [k for k, v in __oi_globals.items() if not k.startswith('_') and isinstance(v, __oi_types.ModuleType) and k not in __oi_exclude]
 
-__oi_res = "\\n[Active Python Namespace]"
-if __oi_vars:
-    __oi_res += f"\\nVariables: {', '.join(__oi_vars)}"
+__oi_parts = []
 if __oi_mods:
-    __oi_res += f"\\nModules: {', '.join(__oi_mods)}"
-if not __oi_vars and not __oi_mods:
-    __oi_res += f"\\nEmpty"
+    __oi_parts.append(f"Already imported: {', '.join(__oi_mods)}")
+if __oi_vars:
+    __oi_parts.append(f"Variables: {', '.join(__oi_vars)}")
+
+if not __oi_parts:
+    __oi_res = "\\n[Python REPL State: Empty]"
+else:
+    __oi_res = f"\\n[Python REPL State: {' | '.join(__oi_parts)}]"
 print(__oi_res)
 """
         message_queue = queue.Queue()
