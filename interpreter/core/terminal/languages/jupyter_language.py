@@ -407,15 +407,15 @@ __oi_mods = []
 __oi_funcs = []
 __oi_vars = []
 
-for k, v in __oi_globals.items():
-    if k.startswith('_') or k in __oi_exclude:
+for __oi_k, __oi_v in __oi_globals.items():
+    if __oi_k.startswith('_') or __oi_k in __oi_exclude:
         continue
-    if isinstance(v, __oi_types.ModuleType):
-        __oi_mods.append(k)
-    elif callable(v):
-        __oi_funcs.append(k)
+    if isinstance(__oi_v, __oi_types.ModuleType):
+        __oi_mods.append(__oi_k)
+    elif callable(__oi_v):
+        __oi_funcs.append(__oi_k)
     else:
-        __oi_vars.append(k)
+        __oi_vars.append(__oi_k)
 
 __oi_parts = []
 if __oi_mods:
