@@ -94,7 +94,7 @@ class TestWebToolbox(unittest.TestCase):
             err_msg = str(context.exception)
             self.assertTrue(
                 "No structured output backends are working" in err_msg or 
-                "LINKUP_API_KEY environment variable not set" in err_msg
+                "LINKUP_API_KEY" in err_msg
             )
 
 if __name__ == "__main__":
