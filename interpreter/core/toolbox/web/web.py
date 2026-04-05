@@ -832,7 +832,7 @@ class Web:
             else:
                 reasons.append((b, "unavailable"))
         kind_label = f"{kind} " if kind else ""
-        return f"No {kind_label}backends are available. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
+        return f"No {kind_label}backends are working. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
 
     def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
