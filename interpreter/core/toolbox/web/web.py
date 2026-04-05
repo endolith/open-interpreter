@@ -870,7 +870,7 @@ class Web:
 
     def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
-        Search the web for information.
+        Search the web for links and snippets.
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: serper, serpapi, tavily, brave, linkup.
@@ -1634,7 +1634,7 @@ class Web:
 
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
-        Fetch web page content from a URL.
+        Fetch web page content from a URL as markdown.
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: serper, linkup, tavily.
