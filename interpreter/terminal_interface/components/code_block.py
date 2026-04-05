@@ -5,6 +5,7 @@ from rich.panel import Panel
 from rich.padding import Padding
 from rich.syntax import Syntax
 from rich.table import Table
+import os
 
 from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
@@ -56,6 +57,10 @@ class CodeBlock(BaseBlock):
         ):
             code += "●"
 
+        syntax_language = self.language
+        if os.name == "nt" and syntax_language.lower() in ["shell", "bash"]:
+            syntax_language = "bat"
+
         # Add each line of code to the table
         code_lines = code.strip().split("\n")
         for i, line in enumerate(code_lines, start=1):
@@ -66,14 +71,14 @@ class CodeBlock(BaseBlock):
             ):
                 # This is the active line, print it with a white background
                 syntax = Syntax(
-                    line, self.language, theme="bw", line_numbers=False, word_wrap=True
+                    line, syntax_language, theme="bw", line_numbers=False, word_wrap=True
                 )
                 code_table.add_row(syntax, style="black on white")
             else:
                 # This is not the active line, print it normally
                 syntax = Syntax(
                     line,
-                    self.language,
+                    syntax_language,
                     theme="monokai",
                     line_numbers=False,
                     word_wrap=True,
