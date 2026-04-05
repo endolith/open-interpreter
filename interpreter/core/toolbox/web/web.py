@@ -956,10 +956,7 @@ class Web:
                     NOTE: Use country_code and language_code parameters (not gl/hl)
 
         Returns:
-            dict:
-                - "results": List of result dicts with "title", "url", "snippet"
-                - "raw_response" (dict): Original backend response (structure varies by backend)
-                - "backend" (str): Backend that was used
+            SearchResult: {"results": list, "raw_response": dict, "backend": str}
 
         Examples:
             # Basic search (auto-selects backend)
@@ -1253,7 +1250,7 @@ class Web:
 
     def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
-        Get AI-generated answer with web sources. PREFERRED for questions requiring a direct answer about current web knowledge.
+        AI-synthesized answer from web sources. PREFERRED for direct questions about current events
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: linkup, tavily.
@@ -1267,9 +1264,7 @@ class Web:
                 - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
 
         Returns:
-            dict: Normalized response with:
-                - "answer" (str): The AI-generated answer
-                - "sources" (list): List of source dicts with "title", "url", "snippet"
+            AnswerResult: {"answer": str, "sources": list, "backend": str}
 
         Example:
             result = toolbox.web.answer("What is the latitude of Lilongwe in decimal format?")
@@ -1322,7 +1317,7 @@ class Web:
 
     def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", **kwargs) -> Dict[str, Any]:
         """
-        Search and extract specific fields into a JSON format defined by schema (dict or Pydantic). PREFERRED for data extraction.
+        Search and extract specific fields defined by schema (dict or Pydantic). PREFERRED for data extraction.
 
         This method is best for tasks requiring extracting specific fields (like author, year, title)
         directly from web resources into a schema-defined format.
@@ -1335,9 +1330,7 @@ class Web:
                 - For linkup: depth ("standard" or "deep"), etc.
 
         Returns:
-            dict: Normalized response with:
-                - "structured_output" (dict): The data matching the provided schema.
-                - "sources" (list): List of source dicts used for extraction.
+            StructuredOutputResult: {"structured_output": dict, "sources": list, "backend": str}
 
         Example:
             # Using journal article schema
@@ -1659,17 +1652,7 @@ class Web:
                     - Other Tavily extract parameters
 
         Returns:
-            dict (single URL):
-                - "url" (str): The fetched URL
-                - "title" (str): Page title
-                - "content" (str): Page content in markdown format
-                - "raw_response" (dict): Original backend response
-                - "backend" (str): Backend that was used
-
-            dict (multi-URL, tavily only via urls=[...] kwarg):
-                - "results" (list): List of result dicts, each with "url", "title", "content" (markdown)
-                - "raw_response" (dict): Original backend response
-                - "backend" (str): Backend that was used
+            FetchResult: {"url": str, "title": str, "content": str, "raw_response": dict, "backend": str}
 
         Examples:
             # Basic fetch (auto-selects backend)
