@@ -83,7 +83,7 @@ class Toolbox:
             mac_only_note = "\n\nNote: `toolbox.mail`, `toolbox.sms`, `toolbox.calendar`, and `toolbox.contacts` are macOS-only and cannot be used on this system.\n"
         vision_note = ""
         if getattr(self.interpreter.llm, "supports_vision", None) is False:
-            vision_note = "\n\nNote: On this setup (non-vision model) use `toolbox.vision.query(path=..., query='...')` for image descriptions.\n"
+            vision_note = "\n\nNote: The `view_image` tool is not available as this is a non-vision model; use `toolbox.vision.query(path=..., query='...')` for image descriptions.\n"
         if self._system_message_override is not None:
             return self._system_message_override
         return f"""
