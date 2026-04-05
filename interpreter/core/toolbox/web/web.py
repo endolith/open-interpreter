@@ -1320,9 +1320,9 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def structured_output(self, query: str, schema: Any, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", **kwargs) -> Dict[str, Any]:
         """
-        Search the web and extract data in a specific structured format (JSON). PREFERRED for data extraction tasks.
+        Search and extract specific fields into a JSON format defined by schema (dict or Pydantic). PREFERRED for data extraction.
 
         This method is best for tasks requiring extracting specific fields (like author, year, title)
         directly from web resources into a schema-defined format.
@@ -1330,8 +1330,7 @@ class Web:
         Args:
             query (str): The search query or data extraction prompt.
             schema (dict or Pydantic model): The JSON schema defining the desired output structure.
-            backend (str, optional): Force a specific backend (currently only "linkup").
-                                     If None, auto-selects based on availability.
+            backend (str, optional): Force a specific backend (default: "linkup").
             **kwargs: Additional backend-specific parameters:
                 - For linkup: depth ("standard" or "deep"), etc.
 
@@ -1354,12 +1353,39 @@ class Web:
             result = toolbox.web.structured_output("Attention is All You Need journal article", schema=schema)
             print(result["structured_output"]["author_last_name"])
         """
-        # Handle Pydantic model conversion to dict schema
-        if hasattr(schema, "model_json_schema") and callable(schema.model_json_schema):
-            schema = schema.model_json_schema()
-        elif hasattr(schema, "schema_json") and callable(schema.schema_json): # Older pydantic v1
-            import json
-            schema = json.loads(schema.schema_json())
+        import json
+
+        # LinkUp SDK expects a Pydantic model CLASS or a JSON STRING or None.
+        # It does NOT accept a dictionary directly.
+        is_pydantic = False
+        try:
+            # Check if it's a Pydantic class (v1 or v2)
+            if isinstance(schema, type):
+                # Try to import any version of Pydantic to check inheritance
+                try:
+                    from pydantic import BaseModel as BM2
+                    if issubclass(schema, BM2):
+                        is_pydantic = True
+                except ImportError:
+                    pass
+
+                if not is_pydantic:
+                    try:
+                        from pydantic.v1 import BaseModel as BM1
+                        if issubclass(schema, BM1):
+                            is_pydantic = True
+                    except ImportError:
+                        pass
+            elif hasattr(schema, "__pydantic_model__"): # some wrappers
+                 is_pydantic = True
+        except Exception:
+            # If any check fails, treat as non-pydantic
+            pass
+
+        if not is_pydantic and isinstance(schema, dict):
+            # Convert dictionary to JSON string as expected by the LinkUp SDK
+            schema = json.dumps(schema)
+        # If it is a Pydantic class or already a string, pass it through to the backend.
 
         if backend:
             backend = backend.lower()
