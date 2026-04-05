@@ -17,6 +17,44 @@
 
 <br>
 
+## This is Endolith's fork of Open Interpreter
+
+Since upstream maintenance has been very slow, I've just been piling up vibe-coded changes (of ambiguous quality) in my `classic/develop` branch. I use this branch very frequently, and it works pretty well. While Open Interpreter Classic has its flaws, I haven't found another tool that really does the same things. Major changes vs the upstream branch (`classic/main`):
+
+- **computer → toolbox**: Renamed in the hope that the LLMs understand how to use it better. Breaking change, renamed entire API.
+- **Web search tools** for the AI to find info online:
+  - `search`: list of search results
+  - `answer`: AI-synthesized answers with citations
+  - `structured_output`: JSON schema extraction via LinkUp
+  - `fetch`: web page as markdown
+  - Multiple backends with fallbacks: LinkUp, Tavily, SerpApi, Brave, Serper
+  - Automatic locale detection for country/language-specific results
+  - Result classes (`SearchResult`, `FetchResult`, `AnswerResult`) with compact repr to avoid flooding the context window
+  - Per-session fetch cache to avoid redundant requests
+- **ai2 module**: for OI to delegate tasks in loops: `boolean_query`, `choice_query`, `single_response`
+- Better LLM API stuff:
+  - **Reasoning models support**: reasoning_content streaming, cyan "Thinking" panels
+  - **OpenRouter support**: via LiteLLM
+  - **DashScope integration**: Qwen models, vision enabled for newer models
+  - **Mistral compatibility**: tool ID length, image role mapping
+  - **API error handling**: retry prompts, normalized error panels, clean exits
+  - **Usage tracking**: %usage command, token stats, cost monitoring
+  - **Profile validation**: warns about invalid configuration attributes
+- **Edit commands before running**: temp file editing with system $EDITOR support
+- **view_image tool**: Allow vision-capable LLMs to request to view image files; includes image resize/shrink prompts for large files
+- **Incremental markdown rendering**: raw streaming / rendering of markdown blocks one at a time to avoid screen flickering
+- **Python REPL state output**: shows variables, modules, CWD for the LLM's context, alerts when REPL was restarted
+- **Conversation improvements**:
+  - User message timestamps
+  - "New Conversation" menu option in `--conversations` navigator (in case you change your mind)
+  - Atomic file saving (corruption-resistant)
+- **Secret redaction**: Try to avoid sending passwords and secrets environment variables to the LLM's server
+- **System message enhancements**: geolocation, encourage REPL-like coding, etc.
+- **Windows support**: Downloads folder detection via `SHGetKnownFolderPath`, UTF-8 code page for shell, `bat` syntax highlighting
+- **TextFileReader**: convenience class with encoding auto-detect
+- **HTML output suppression**: prevents browser from opening unnecessarily
+- **Python 3.13 support?** and a bunch of fixed tests in the process. Dubious.
+
 **Open Interpreter** lets LLMs run code (Python, Javascript, Shell, and more) locally. You can chat with Open Interpreter through a ChatGPT-like interface in your terminal by running `$ interpreter` after installing.
 
 This provides a natural-language interface to your computer's general-purpose capabilities:
@@ -58,7 +96,7 @@ After installation, simply run `interpreter`:
 interpreter
 ```
 
-Open Interpreter will default to OpenAI's **GPT-4o** and will ask you to enter a key, which you can obtain from [OpenAI's API keys page](https://platform.openai.com/api-keys).  For other providers or local models, see below.
+Open Interpreter will default to OpenAI's **GPT-4o** and will ask you to enter a key, which you can obtain from [OpenAI's API keys page](https://platform.openai.com/api-keys). For other providers or local models, see below.
 
 ### Python
 
