@@ -18,7 +18,7 @@ Supported backends:
 import os
 import json
 import requests
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, Any
 
 from babel import Locale
 from babel.core import UnknownLocaleError
