@@ -336,7 +336,8 @@ def terminal_interface(interpreter, message):
                                 "python": ".py",
                                 "javascript": ".js",
                                 "typescript": ".ts",
-                                "shell": ".sh",
+                                "shell": ".bat" if platform.system() == "Windows" else ".sh",
+                                "cmd": ".bat",
                                 "bash": ".sh",
                                 "r": ".r",
                                 "ruby": ".rb",
@@ -356,9 +357,13 @@ def terminal_interface(interpreter, message):
                                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                                     f.write(code)
 
-                                default_editor = "notepad" if platform.system() == "Windows" else "vim"
-                                editor = os.environ.get("EDITOR", default_editor)
-                                subprocess.call([editor, tmp_path])
+                                editor = os.environ.get("EDITOR")
+                                if editor:
+                                    subprocess.call([editor, tmp_path])
+                                elif platform.system() == "Windows":
+                                    os.startfile(tmp_path)
+                                else:
+                                    subprocess.call(["vim", tmp_path])
 
                                 # On Windows, GUI editors like Notepad++ may be set as a
                                 # Notepad replacement and return immediately by opening the
