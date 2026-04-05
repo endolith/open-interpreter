@@ -10,7 +10,7 @@ Supported backends:
 - Answer: linkup, tavily
 - Fetch: linkup, serper, tavily
 - Crawl: tavily (not implemented yet)
-- Structured output: linkup (not implemented yet)
+- Structured output: linkup
 """
 
 # NOTE: The first line of docstrings and their Return sections are shown to Open Interpreter in its system message, so make them very concise to avoid wasting tokens, and don't mention atypical things like error condition outputs that will confuse the AI.  Tell the AI the typical use case, and it will deal with errors when it gets to them.
@@ -223,6 +223,40 @@ class AnswerResult(dict):
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
+        return "\n".join(lines)
+
+
+class StructuredOutputResult(dict):
+    """Dict subclass for web search results with structured output (JSON)."""
+
+    def __init__(self, data, web=None):
+        super().__init__(data)
+        self._web = web
+
+    def fetch(self, index):
+        """Fetch the full page for source at the given index. Returns a FetchResult."""
+        sources = self.get("sources", [])
+        if not sources:
+            raise WebToolboxError("No sources available in this result to fetch.")
+        url = sources[index]["url"]
+        return self._web.fetch(url)
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        data = self.get("structured_output", {})
+        # Show some of the fields to be helpful but not flood repr
+        keys = list(data.keys()) if isinstance(data, dict) else []
+        lines = [f"StructuredOutputResult({len(keys)} top-level keys) [backend={backend}]"]
+        lines.append(f"  Keys: {', '.join(keys[:10])}{'...' if len(keys) > 10 else ''}")
+        # Pretty print a bit of JSON as preview — use 2-space indent, max 6 lines
+        try:
+            preview = json.dumps(data, indent=2)
+            for line in preview.splitlines()[:6]:
+                lines.append(f"  {line}")
+            if len(preview.splitlines()) > 6:
+                lines.append("  ...")
+        except (TypeError, ValueError):
+            lines.append(f"  {str(data)[:200]}...")
         return "\n".join(lines)
 
 
@@ -1157,6 +1191,66 @@ class Web:
 
         return normalized
 
+    def _structured_output_linkup(self, query, structured_output_schema, depth="standard", **kwargs):
+        """
+        Get JSON structured output using LinkUp backend.
+
+        Args:
+            query: The search query
+            structured_output_schema: Dict representing JSON schema
+            depth: "standard" or "deep" (default: "standard")
+            **kwargs: Additional LinkUp search parameters
+
+        Returns:
+            Normalized dict with "structured_output" and optionally "sources"
+        """
+        try:
+            from linkup import LinkupClient
+        except ImportError:
+            self._handle_import_error("linkup-sdk", "pip install linkup-sdk")
+
+        try:
+            api_key = self._check_api_key("LINKUP_API_KEY")
+        except ApiKeyError as e:
+            raise WebToolboxError(e.error_dict["message"]) from e
+
+        try:
+            client = LinkupClient(api_key=api_key)
+
+            # Build search parameters
+            search_params = {
+                "query": query,
+                "depth": depth,
+                "output_type": "structured",
+                "structured_output_schema": structured_output_schema,
+                **kwargs
+            }
+
+            response = client.search(**search_params)
+        except Exception as e:
+            self._handle_api_request_error("LinkUp", e)
+
+        # LinkUp returns a LinkupStructuredOutput object with .structured_output attribute
+        # and .sources attribute.
+        structured_data = getattr(response, "structured_output", response)
+
+        # If response was a dict and had specific keys (e.g. if SDK version changes)
+        if isinstance(structured_data, dict) and "structured_output" in structured_data:
+            structured_data = structured_data["structured_output"]
+
+        normalized = {
+            "structured_output": structured_data,
+            "sources": []
+        }
+
+        # Check if sources are available
+        sources = getattr(response, "sources", [])
+        if sources and isinstance(sources, list):
+            for source in sources:
+                normalized["sources"].append(self._normalize_result_item(source))
+
+        return normalized
+
     def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Get AI-generated answer with web sources. PREFERRED for questions requiring a direct answer about current web knowledge.
@@ -1223,6 +1317,84 @@ class Web:
             backend_to_package={"linkup": "linkup-sdk", "tavily": "tavily-python"},
             backend_to_key={"linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"},
             kind="answer"
+        )
+        raise WebToolboxError(message)
+
+    def structured_output(self, query: str, schema: Any, backend: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Search the web and extract data in a specific structured format (JSON). PREFERRED for data extraction tasks.
+
+        This method is best for tasks requiring extracting specific fields (like author, year, title)
+        directly from web resources into a schema-defined format.
+
+        Args:
+            query (str): The search query or data extraction prompt.
+            schema (dict or Pydantic model): The JSON schema defining the desired output structure.
+            backend (str, optional): Force a specific backend (currently only "linkup").
+                                     If None, auto-selects based on availability.
+            **kwargs: Additional backend-specific parameters:
+                - For linkup: depth ("standard" or "deep"), etc.
+
+        Returns:
+            dict: Normalized response with:
+                - "structured_output" (dict): The data matching the provided schema.
+                - "sources" (list): List of source dicts used for extraction.
+
+        Example:
+            # Using journal article schema
+            schema = {
+                "type": "object",
+                "properties": {
+                    "author_last_name": {"type": "string", "description": "Last name of the first author"},
+                    "year": {"type": "integer", "description": "Year of publication"},
+                    "title": {"type": "string", "description": "Full title of the article"}
+                },
+                "required": ["author_last_name", "year", "title"]
+            }
+            result = toolbox.web.structured_output("Attention is All You Need journal article", schema=schema)
+            print(result["structured_output"]["author_last_name"])
+        """
+        # Handle Pydantic model conversion to dict schema
+        if hasattr(schema, "model_json_schema") and callable(schema.model_json_schema):
+            schema = schema.model_json_schema()
+        elif hasattr(schema, "schema_json") and callable(schema.schema_json): # Older pydantic v1
+            import json
+            schema = json.loads(schema.schema_json())
+
+        if backend:
+            backend = backend.lower()
+            if backend != "linkup":
+                 raise WebToolboxError(
+                    "Only LinkUp currently supports structured output via backend='linkup'."
+                )
+            backend_methods = {"linkup": self._structured_output_linkup}
+            result = backend_methods[backend](query, schema, **kwargs)
+            result["backend"] = backend
+            print("→ result['structured_output']|result['sources']|result.fetch(i)")
+            return StructuredOutputResult(result, web=self)
+
+        # Default/Auto-select (currently only linkup)
+        backends_to_try = ["linkup"]
+        backend_methods = {"linkup": self._structured_output_linkup}
+        failed_results = []
+
+        for backend_name in backends_to_try:
+            if not self._check_backend_available(backend_name):
+                continue
+            try:
+                result = backend_methods[backend_name](query, schema, **kwargs)
+                result["backend"] = backend_name
+                print("→ result['structured_output']|result['sources']|result.fetch(i)")
+                return StructuredOutputResult(result, web=self)
+            except (WebToolboxError, ApiKeyError) as e:
+                failed_results.append((backend_name, e))
+
+        message = self._build_no_backends_error(
+            backends_to_try,
+            failed_results,
+            backend_to_package={"linkup": "linkup-sdk"},
+            backend_to_key={"linkup": "LINKUP_API_KEY"},
+            kind="structured output"
         )
         raise WebToolboxError(message)
 
