@@ -47,6 +47,7 @@ Major changes vs the upstream branch (`classic/main`):
 - `openrouter/xiaomi/mimo-v2-flash`: Surprisingly good for how cheap it is. Fast. No vision.
 - `openrouter/openai/gpt-4.1-mini`: Better than `gpt-5-mini`.
 - `openrouter/minimax/minimax-m2.5`: Seems ok. Table formatted wrong. Pretty autonomous. `dir` recursively by default
+- `openrouter/xiaomi/mimo-v2-omni`: OK?  Vision.  Prints thoughts and asks for the same image more than once and other weird things.
 
 (Note that lack of caching of input tokens affects the cost a lot since conversations get very long and it doesn't have `responses` API (yet).)
 
