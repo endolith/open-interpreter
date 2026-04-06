@@ -1,23 +1,4 @@
-# ● Open Interpreter
-
-<p align="center">
-    <a href="https://discord.gg/Hvz9Axh84z">
-        <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
-    <a href="docs/README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
-    <a href="docs/README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
-    <a href="docs/README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
-    <a href="docs/README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
-    <a href="docs/README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
-    <a href="LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
-    <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentation</a><br>
-</p>
-
-![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
-
-<br>
-
-## This is Endolith's fork of Open Interpreter
+# This is Endolith's fork of Open Interpreter
 
 Since upstream maintenance has been very slow, I've just been piling up vibe-coded changes (of dubious quality) in my `classic/develop` branch, which I've now made the default. I use this branch very frequently, and it works pretty well. While Open Interpreter Classic is old and has its flaws, I haven't found another tool that really does the same things.
 
@@ -59,7 +40,7 @@ Major changes vs the upstream branch (`classic/main`):
 - **TextFileReader**: convenience class with encoding auto-detect. (The LLMs never actually use this; I don't know if it works.)
 - **Python 3.13 support?** and a bunch of fixed tests in the process. Dubious.
 
-### Models I've been using:
+## Models I've been using:
 
 - `dashscope/qwen3.5-plus` == `dashscope/qwen3.5-397b-a17b`: Good and cheap and has vision, but no input token caching, so more expensive than it should be.
 - `openrouter/xiaomi/mimo-v2-pro`: Pretty good. No vision.
@@ -69,7 +50,7 @@ Major changes vs the upstream branch (`classic/main`):
 
 (Note that lack of caching of input tokens affects the cost a lot since conversations get very long and it doesn't have `responses` API (yet).)
 
-### Not as good:
+## Not as good:
 
 - `dashscope/qwen3.6-plus`: Misusing commands, trying to import a module it knows isn't installed, hallucinating arguments
 - `dashscope/qwen3.5-122b-a10b`: Incorrect tool calls
@@ -78,6 +59,24 @@ Major changes vs the upstream branch (`classic/main`):
 - `openrouter/minimax/minimax-m2.7` : Hallucinating URLs and not using convenience functions, asking dumb questions
 - `google/gemma-4-31b-it`: Slow, yappy, markdown formatting issues
 - `openrouter/openrouter/auto`: "temporarily rate-limited upstream" over and over
+
+----
+
+# ● Open Interpreter
+
+<p align="center">
+    <a href="https://discord.gg/Hvz9Axh84z">
+        <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
+    <a href="docs/README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
+    <a href="docs/README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="docs/README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
+    <a href="docs/README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
+    <a href="docs/README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
+    <a href="LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <br>
+    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentation</a><br>
+</p>
+<img alt="local_explorer" src="https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a">
 
 **Open Interpreter** lets LLMs run code (Python, Javascript, Shell, and more) locally. You can chat with Open Interpreter through a ChatGPT-like interface in your terminal by running `$ interpreter` after installing.
 
