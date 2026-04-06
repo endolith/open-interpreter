@@ -1,4 +1,5 @@
 import re
+import shutil
 
 from rich.box import MINIMAL, ROUNDED
 from rich.markdown import Markdown
@@ -36,9 +37,33 @@ class MessageBlock(BaseBlock):
         # When True, do not commit complete blocks to console; keep everything in buffer until replace_content.
         # Used for reasoning/thinking so the blockquote replace truly replaces the streamed raw text.
         self.reasoning_mode = False
+        try:
+            self._last_width = os.get_terminal_size().columns
+        except:
+            self._last_width = shutil.get_terminal_size().columns
 
     def refresh(self, cursor=True):
         """Process new content and render complete blocks incrementally."""
+        # Force re-detection of terminal size to handle window narrowing during streamed output
+        self.live.console._width = None
+        self.live.console._height = None
+
+        try:
+            current_size = os.get_terminal_size()
+        except:
+            current_size = shutil.get_terminal_size()
+
+        current_width = current_size.columns
+        if current_width != self._last_width:
+            # If the terminal was resized during a live display, the terminal's
+            # automatic reflow will have shifted our cursor position, leading to
+            # "garbled" text as Live tries to clear an area that doesn't exist anymore.
+            # We restart the live display to anchor it to a fresh position.
+            self.live.stop()
+            self._last_width = current_width
+            self.live = create_live_display(self.live.console)
+            self.live.start()
+
         # In reasoning mode, never commit blocks to console so replace_content can replace the whole buffer.
         if not self.reasoning_mode:
             block_result = detect_complete_block(self.buffer)
@@ -84,10 +109,15 @@ class MessageBlock(BaseBlock):
             if viewport_lines < 1:
                 viewport_lines = 3  # Minimum viewport size
 
+            # Calculate width offset for wrapping (padding/borders)
+            # Default 4 (PADDING_MESSAGE is 2 left, 2 right)
+            # reasoning_mode/debug use a Panel (+2 for borders) and PADDING_PANEL (4)
+            width_offset = 6 if (self.reasoning_mode or self.debug) else 4
+
             # Create sliding window display for the buffer
             formatted_buffer = create_sliding_window_display(
                 self.live.console, self.buffer.split('\n'), viewport_lines, self.debug,
-                base_style="cyan" if self.reasoning_mode else None)
+                base_style="cyan" if self.reasoning_mode else None, width_offset=width_offset)
 
             # Add cursor if requested
             if cursor and isinstance(formatted_buffer, Text):
