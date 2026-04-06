@@ -10,6 +10,7 @@ except ImportError:
 
 import os
 import platform
+import shutil
 import random
 import re
 import subprocess
@@ -363,13 +364,33 @@ def terminal_interface(interpreter, message):
                                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                                     f.write(code)
 
-                                editor = os.environ.get("EDITOR")
+                                editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
                                 if editor:
                                     subprocess.call([editor, tmp_path])
                                 elif platform.system() == "Windows":
                                     os.startfile(tmp_path)
                                 else:
-                                    subprocess.call(["vim", tmp_path])
+                                    # Try common Linux editors in order
+                                    # Skip GUI editors if no display is available
+                                    has_display = os.environ.get("DISPLAY") is not None
+                                    editors = ["gedit", "kate"] if has_display else []
+                                    editors.extend(["nano", "vi"])
+                                    
+                                    for try_editor in editors:
+                                        if shutil.which(try_editor):
+                                            subprocess.call([try_editor, tmp_path])
+                                            break
+                                    else:
+                                        # No editor found - show error and pause
+                                        print("\n" + "="*60)
+                                        print("ERROR: Could not find a suitable text editor.")
+                                        print("Please set one of these environment variables:")
+                                        print("  - VISUAL (preferred, e.g., gedit, kate)")
+                                        print("  - EDITOR (e.g., nano, vi)")
+                                        print("Or install one of: gedit, kate, nano, vi")
+                                        print("="*60 + "\n")
+                                        input("Press Enter to continue without editing...")
+                                        continue
 
                                 # On Windows, GUI editors like Notepad++ may be set as a
                                 # Notepad replacement and return immediately by opening the
