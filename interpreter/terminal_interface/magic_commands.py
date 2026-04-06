@@ -83,6 +83,7 @@ def handle_help(self, arguments):
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
         "%markdown [path]": "Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.",
+        "%width": "Show current terminal width/height and re-detect if needed.",
     }
 
     base_message = ["> **Available Commands:**\n\n"]
@@ -165,6 +166,35 @@ def handle_info(self, arguments):
 def handle_reset(self, arguments):
     self.reset()
     self.display_message("> Reset Done")
+
+
+def handle_width(self, arguments):
+    import shutil
+    import os
+
+    try:
+        os_size = os.get_terminal_size()
+    except Exception as e:
+        os_size = f"Error: {e}"
+
+    shutil_size = shutil.get_terminal_size()
+    env_cols = os.environ.get("COLUMNS")
+    env_lines = os.environ.get("LINES")
+
+    output = [
+        "> **Terminal Dimensions Check:**\n",
+        f"- `shutil.get_terminal_size()`: {shutil_size.columns}x{shutil_size.lines}",
+        f"- `os.get_terminal_size()`: {os_size}",
+        f"- Environment `COLUMNS`: {env_cols}",
+        f"- Environment `LINES`: {env_lines}",
+    ]
+
+    if env_cols or env_lines:
+        output.append(
+            "\n> *Note: Environment variables (COLUMNS/LINES) can override auto-detection and prevent updates when you resize.*"
+        )
+
+    self.display_message("\n".join(output))
 
 
 def default_handle(self, arguments):
@@ -358,6 +388,7 @@ def handle_magic_command(self, user_input):
         "info": handle_info,
         "jupyter": jupyter,
         "markdown": markdown,
+        "width": handle_width,
     }
 
     user_input = user_input[1:].strip()  # Capture the part after the `%`
