@@ -19,41 +19,65 @@
 
 ## This is Endolith's fork of Open Interpreter
 
-Since upstream maintenance has been very slow, I've just been piling up vibe-coded changes (of ambiguous quality) in my `classic/develop` branch. I use this branch very frequently, and it works pretty well. While Open Interpreter Classic has its flaws, I haven't found another tool that really does the same things. Major changes vs the upstream branch (`classic/main`):
+Since upstream maintenance has been very slow, I've just been piling up vibe-coded changes (of dubious quality) in my `classic/develop` branch, which I've now made the default. I use this branch very frequently, and it works pretty well. While Open Interpreter Classic is old and has its flaws, I haven't found another tool that really does the same things.
+
+Major changes vs the upstream branch (`classic/main`):
 
 - **computer → toolbox**: Renamed in the hope that the LLMs understand how to use it better. Breaking change, renamed entire API.
+  - First line of docstring and Returns are always shown to LLM in system message to hint at how to use tools
+  - As well as encouragement to use `help()` to RTFM (which they rarely do)
 - **Web search tools** for the AI to find info online:
+  - Multiple backends with fallbacks: LinkUp, Tavily, SerpApi, Brave, Serper
   - `search`: list of search results
   - `answer`: AI-synthesized answers with citations
   - `structured_output`: JSON schema extraction via LinkUp
   - `fetch`: web page as markdown
-  - Multiple backends with fallbacks: LinkUp, Tavily, SerpApi, Brave, Serper
+  - Result classes with compact repr to avoid flooding the context window
   - Automatic locale detection for country/language-specific results
-  - Result classes (`SearchResult`, `FetchResult`, `AnswerResult`) with compact repr to avoid flooding the context window
-  - Per-session fetch cache to avoid redundant requests
 - **ai2 module**: for OI to delegate tasks in loops: `boolean_query`, `choice_query`, `single_response`
+  - They don't use this on their own, you have to tell them.
 - Better LLM API stuff:
-  - **Reasoning models support**: reasoning_content streaming, cyan "Thinking" panels
-  - **OpenRouter support**: via LiteLLM
-  - **DashScope integration**: Qwen models, vision enabled for newer models
+  - **Reasoning models support**: `reasoning_content` streaming, cyan "Thinking" panels
+  - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini ` with `OPENROUTER_API_KEY` env var set
+  - **DashScope integration**: Qwen models, vision enabled for newer models. `DASHSCOPE_API_KEY` env var.
   - **Mistral compatibility**: tool ID length, image role mapping
-  - **API error handling**: retry prompts, normalized error panels, clean exits
-  - **Usage tracking**: %usage command, token stats, cost monitoring
-  - **Profile validation**: warns about invalid configuration attributes
-- **Edit commands before running**: temp file editing with system $EDITOR support
-- **view_image tool**: Allow vision-capable LLMs to request to view image files; includes image resize/shrink prompts for large files
+  - **API error handling**: Error presented in a panel with rendering of markdown/HTML, retry prompts, clean exits
+  - **Usage tracking**: `%usage` command with token stats
+- **Profile validation**: warns about invalid configuration attributes
+- **Edit commands before running**: temp file editing with `$EDITOR` env var support
+- **`view_image` tool**: Allow vision-capable LLMs to request to view image files; includes image resize/shrink prompts for large files
 - **Incremental markdown rendering**: raw streaming / rendering of markdown blocks one at a time to avoid screen flickering
 - **Python REPL state output**: shows variables, modules, CWD for the LLM's context, alerts when REPL was restarted
 - **Conversation improvements**:
-  - User message timestamps
+  - User message timestamps so it knows the date and how much time has passed
   - "New Conversation" menu option in `--conversations` navigator (in case you change your mind)
   - Atomic file saving (corruption-resistant)
 - **Secret redaction**: Try to avoid sending passwords and secrets environment variables to the LLM's server
-- **System message enhancements**: geolocation, encourage REPL-like coding, etc.
+- **System message enhancements**: rough geolocation, encourage REPL-like coding, etc.
 - **Windows support**: Downloads folder detection via `SHGetKnownFolderPath`, UTF-8 code page for shell, `bat` syntax highlighting
-- **TextFileReader**: convenience class with encoding auto-detect
 - **HTML output suppression**: prevents browser from opening unnecessarily
+- **TextFileReader**: convenience class with encoding auto-detect. (The LLMs never actually use this; I don't know if it works.)
 - **Python 3.13 support?** and a bunch of fixed tests in the process. Dubious.
+
+### Models I've been using:
+
+- `dashscope/qwen3.5-plus` == `dashscope/qwen3.5-397b-a17b`: Good and cheap and has vision, but no input token caching, so more expensive than it should be.
+- `openrouter/xiaomi/mimo-v2-pro`: Pretty good. No vision.
+- `openrouter/xiaomi/mimo-v2-flash`: Surprisingly good for how cheap it is. Fast. No vision.
+- `openrouter/openai/gpt-4.1-mini`: Better than `gpt-5-mini`.
+- `openrouter/minimax/minimax-m2.5`: Seems ok. Table formatted wrong. Pretty autonomous. `dir` recursively by default
+
+(Note that lack of caching of input tokens affects the cost a lot since conversations get very long and it doesn't have `responses` API (yet).)
+
+### Not as good:
+
+- `dashscope/qwen3.6-plus`: Misusing commands, trying to import a module it knows isn't installed, hallucinating arguments
+- `dashscope/qwen3.5-122b-a10b`: Incorrect tool calls
+- `deepseek/deepseek-v3.2-exp` ≈ `deepseek/deepseek-v3.2`: Incorrect tool calls, kinda slow, dumb
+- `google/gemini-3-flash` ≈ `gemini-3.1-flash-lite-preview`: Surprisingly bad at using tools
+- `openrouter/minimax/minimax-m2.7` : Hallucinating URLs and not using convenience functions, asking dumb questions
+- `google/gemma-4-31b-it`: Slow, yappy, markdown formatting issues
+- `openrouter/openrouter/auto`: "temporarily rate-limited upstream" over and over
 
 **Open Interpreter** lets LLMs run code (Python, Javascript, Shell, and more) locally. You can chat with Open Interpreter through a ChatGPT-like interface in your terminal by running `$ interpreter` after installing.
 
