@@ -154,7 +154,6 @@ class Ai2:
         Reasoning models (GPT-5, O1, O3, etc.) only support temperature=1.0,
         so we override any other value. For other models, we use the requested temperature.
         """
-        # TODO: Verify this
         if model and (model.startswith("gpt-5") or model.startswith("o1") or model.startswith("o3")):
             return 1.0
         return requested_temperature
