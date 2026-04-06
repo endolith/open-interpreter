@@ -5,6 +5,7 @@ from rich.panel import Panel
 from rich.padding import Padding
 from rich.syntax import Syntax
 from rich.table import Table
+import shutil
 import os
 
 from .base_block import BaseBlock
@@ -30,6 +31,10 @@ class CodeBlock(BaseBlock):
         self.code = ""
         self.active_line = None
         self.margin_top = True
+        try:
+            self._last_width = os.get_terminal_size().columns
+        except:
+            self._last_width = shutil.get_terminal_size().columns
 
     def end(self):
         self.active_line = None
@@ -39,6 +44,32 @@ class CodeBlock(BaseBlock):
     def refresh(self, cursor=True):
         if not self.code and not self.output:
             return
+
+        # Ensure we have fresh terminal dimensions even if the console object has cached stale ones.
+        # This fixes issues where resizing the window during a conversation caused garbled wrapping.
+        self.live.console._width = None
+        self.live.console._height = None
+
+        try:
+            current_size = os.get_terminal_size()
+        except:
+            current_size = shutil.get_terminal_size()
+
+        current_width = current_size.columns
+        if current_width != self._last_width:
+            # Re-start live display on resize (critical for Windows terminal reflow)
+            self.live.stop()
+            self._last_width = current_width
+            # CodeBlock doesn't have a create_live_display helper, but it uses defaults from BaseBlock
+            # We recreate it here similar to BaseBlock.__init__
+            from rich.live import Live
+            from rich.console import Console
+            self.live = Live(
+                auto_refresh=False,
+                console=Console(emoji=False),
+                vertical_overflow="visible",
+            )
+            self.live.start()
 
         # Get code
         code = self.code
