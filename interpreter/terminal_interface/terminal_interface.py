@@ -60,6 +60,12 @@ def terminal_interface(interpreter, message):
     # investigating streaming markdown rendering issues.
     os.environ["INTERPRETER_ACTIVE_LINE_DETECTION"] = "false"
 
+    # Avoid stale environment variables locking terminal width on Windows.
+    # shutil (and some of Rich) prioritize these, which prevents auto-detection
+    # after a window resize.
+    os.environ.pop("COLUMNS", None)
+    os.environ.pop("LINES", None)
+
     # Auto run and offline (this.. this isn't right) don't display messages.
     # Probably worth abstracting this to something like "debug_cli" at some point.
     # If (len(interpreter.messages) == 1), they probably used the advanced "i {command}" entry, so no message should be displayed.
