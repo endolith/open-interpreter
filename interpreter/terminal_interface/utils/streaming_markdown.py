@@ -5,7 +5,9 @@ This module provides block-based incremental rendering for streaming markdown co
 similar to the approach demonstrated in dev_examples/rich_markdown_example.py.
 """
 
+import os
 import re
+import shutil
 import textwrap
 from markdown_it import MarkdownIt
 from rich.align import Align
@@ -71,11 +73,14 @@ def calculate_window_size(console, viewport_fraction):
     Returns:
         Number of lines for viewport (minimum 1)
     """
-    terminal_height = console.size.height
+    try:
+        terminal_height = os.get_terminal_size().lines
+    except:
+        terminal_height = shutil.get_terminal_size().lines
     return max(1, int(terminal_height * viewport_fraction))
 
 
-def create_sliding_window_display(console, current_lines, viewport_lines, debug=False, base_style=None):
+def create_sliding_window_display(console, current_lines, viewport_lines, debug=False, base_style=None, width_offset=4):
     """Create display text with sliding viewport and upper ellipsis when needed.
 
     Args:
@@ -84,12 +89,21 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
         viewport_lines: Maximum number of logical lines to display
         debug: If True, wrap content in a bordered panel to show Live area boundaries
         base_style: Optional Rich style string to apply to the text (e.g. "cyan")
+        width_offset: Total horizontal characters to subtract from terminal width (padding/borders)
 
     Returns:
         Rich Text, Group, or Panel renderable showing the viewport
     """
-    # Terminal width for wrapping calculations
-    terminal_width = console.size.width
+    # Terminal width for wrapping calculations. Subtract offset to account for
+    # horizontal padding (e.g. PADDING_MESSAGE) and borders.
+    # We prefer os.get_terminal_size() as shutil.get_terminal_size() can be
+    # 'locked' by stale environment variables on some Windows systems.
+    try:
+        size = os.get_terminal_size()
+    except:
+        size = shutil.get_terminal_size()
+
+    terminal_width = max(10, size.columns - width_offset)
 
     # Convert text lines to logical display lines accounting for wrapping
     logical_lines = []
@@ -109,7 +123,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
     # https://rich.readthedocs.io/en/latest/live.html#vertical-overflow
     if len(logical_lines) > viewport_lines:
         text = Group(
-            Align.center(Text("...", style="red"), width=console.size.width),
+            Align.center(Text("...", style="red"), width=size.columns),
             text
         )
 
