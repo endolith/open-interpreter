@@ -29,9 +29,14 @@ def run_text_llm(llm, params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
+        delta = chunk["choices"][0]["delta"]
 
-        content = chunk["choices"][0]["delta"].get("content", "")
+        # Stream reasoning_content as it arrives
+        if "reasoning_content" in delta and delta["reasoning_content"]:
+            yield {"role": "assistant", "type": "message", "format": "reasoning", "content": delta["reasoning_content"]}
+            continue
 
+        content = delta.get("content", "")
         if content == None:
             continue
 
