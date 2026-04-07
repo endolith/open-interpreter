@@ -98,6 +98,12 @@ class Llm:
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
+        # Reasoning settings: Use include_reasoning=True to request reasoning tokens
+        # (delta.reasoning_content) from OpenRouter/LiteLLM. Use reasoning_effort
+        # ("low", "medium", "high") to control the intensity of thinking for OpenAI o1/o3 models.
+        self.include_reasoning = None  # None (auto), True, or False
+        self.reasoning_effort = None   # "low", "medium", "high"
+
         # Filled from the final streaming chunk when the API sends usage (see stream_usage.record_stream_chunk_usage).
         self.last_completion_usage = None
 
@@ -338,9 +344,27 @@ Continuing...
             # Request streaming reasoning when the model supports it, so LiteLLM forwards
             # delta.reasoning_content from OpenRouter. Requires LiteLLM v1.63.5+ (BerriAI/litellm#8631).
             # Only set for models that support reasoning to avoid 400 on non-reasoning OpenRouter models.
-            if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model):
+            if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model or self.model):
+                # We use extra_body to pass include_reasoning for OpenRouter models.
+                # This ensures the parameter is passed even if it's missing from LiteLLM's 
+                # internal supported_openai_params whitelist for a specific model (e.g. Mimo).
+                params["extra_body"] = params.get("extra_body", {})
+                params["extra_body"]["include_reasoning"] = True
+                
+                # Also set standard params for LiteLLM to handle unified mapping
                 params["include_reasoning"] = True
                 stream_options["include_reasoning"] = True
+
+        # Override reasoning settings if explicitly set on interpreter.llm
+        if self.include_reasoning is not None:
+            params["include_reasoning"] = self.include_reasoning
+            stream_options["include_reasoning"] = self.include_reasoning
+            if model.startswith("openrouter/"):
+                params["extra_body"] = params.get("extra_body", {})
+                params["extra_body"]["include_reasoning"] = self.include_reasoning
+
+        if self.reasoning_effort:
+            params["reasoning_effort"] = self.reasoning_effort
 
         params["stream_options"] = stream_options
 
