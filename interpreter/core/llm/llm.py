@@ -345,11 +345,11 @@ Continuing...
             # delta.reasoning_content from OpenRouter. Requires LiteLLM v1.63.5+ (BerriAI/litellm#8631).
             # Only set for models that support reasoning to avoid 400 on non-reasoning OpenRouter models.
             if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model or self.model):
-                # We use extra_body to pass include_reasoning for OpenRouter models.
-                # This ensures the parameter is passed even if it's missing from LiteLLM's 
-                # internal supported_openai_params whitelist for a specific model (e.g. Mimo).
+                # We use extra_body to pass reasoning parameters for OpenRouter models.
+                # This ensures the tokens are requested via both legacy and modern API formats.
                 params["extra_body"] = params.get("extra_body", {})
                 params["extra_body"]["include_reasoning"] = True
+                params["extra_body"]["reasoning"] = {"enabled": True}
                 
                 # Also set standard params for LiteLLM to handle unified mapping
                 params["include_reasoning"] = True
@@ -362,9 +362,15 @@ Continuing...
             if model.startswith("openrouter/"):
                 params["extra_body"] = params.get("extra_body", {})
                 params["extra_body"]["include_reasoning"] = self.include_reasoning
+                params["extra_body"]["reasoning"] = {"enabled": self.include_reasoning}
 
         if self.reasoning_effort:
             params["reasoning_effort"] = self.reasoning_effort
+            if model.startswith("openrouter/"):
+                params["extra_body"] = params.get("extra_body", {})
+                if "reasoning" not in params["extra_body"]:
+                    params["extra_body"]["reasoning"] = {}
+                params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
 
         params["stream_options"] = stream_options
 
