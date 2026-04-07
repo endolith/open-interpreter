@@ -29,14 +29,15 @@ def run_text_llm(llm, params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
-
         delta = chunk["choices"][0]["delta"]
-        content = delta.get("content", "")
-        # Thinking models (e.g. DeepSeek via OpenRouter) stream their chain
-        # of thought separately; providers require it passed back verbatim.
-        reasoning = delta.get("reasoning_content") or ""
 
-        if content == None and not reasoning:
+        # Stream reasoning_content as it arrives
+        if "reasoning_content" in delta and delta["reasoning_content"]:
+            yield {"role": "assistant", "type": "message", "format": "reasoning", "content": delta["reasoning_content"]}
+            continue
+
+        content = delta.get("content", "")
+        if content == None:
             continue
 
         content = content or ""
