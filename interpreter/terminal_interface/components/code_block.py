@@ -60,7 +60,10 @@ class CodeBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content permanently and clear the Live area."""
-        self.live.update("")
+        if self.live.is_started:
+            self.live.update("")
+            self.live.refresh()
+            self.live.stop()
 
         if self.code.strip():
             self._print_permanent_block(self.code, "code")
@@ -112,7 +115,19 @@ class CodeBlock(BaseBlock):
             self.margin_top = False
 
         group_items.append(panel)
+        
+        was_started = self.live.is_started
+        if was_started:
+            self.live.update("")
+            self.live.refresh()
+            self.live.stop()
+            
         self.live.console.print(Padding(Group(*group_items), PADDING_PANEL))
+        
+        if was_started:
+            from ..utils.streaming_markdown import create_live_display
+            self.live = create_live_display(self.live.console)
+            self.live.start()
 
     def refresh(self, cursor=True):
         """Process content, pop completed blocks, and update the Live sliding window."""
