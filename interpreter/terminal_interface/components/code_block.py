@@ -29,7 +29,6 @@ class CodeBlock(BaseBlock):
         super().__init__()
 
         # Override the base Live display with our specialized streaming configuration
-        self.live.stop()
         self.live = create_live_display(self.live.console)
         # We start it in refresh or let BaseBlock handle it? BaseBlock.init starts it.
         self.live.start()
