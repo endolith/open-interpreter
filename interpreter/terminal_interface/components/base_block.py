@@ -15,7 +15,6 @@ class BaseBlock:
             console=Console(emoji=False),
             vertical_overflow="visible",
         )
-        self.live.start()
 
     def update_from_message(self, message):
         raise NotImplementedError("Subclasses must implement this method")
