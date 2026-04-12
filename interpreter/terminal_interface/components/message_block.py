@@ -24,7 +24,6 @@ class MessageBlock(BaseBlock):
         super().__init__()
 
         # Override the Live display with our streaming configuration
-        self.live.stop()  # Stop the base Live display
         self.live = create_live_display(self.live.console)  # Use our streaming Live display
         self.live.start()
 
