@@ -78,6 +78,13 @@ class MessageBlock(BaseBlock):
 
             # Render the complete block directly to console (above the Live viewport)
             markdown = Markdown(content.strip())
+            
+            was_started = self.live.is_started
+            if was_started:
+                self.live.update("")
+                self.live.refresh()
+                self.live.stop()
+                
             if self.debug:
                 # In debug mode, still use panel for visual distinction
                 panel = Panel(markdown, box=ROUNDED, border_style="green")
@@ -86,6 +93,10 @@ class MessageBlock(BaseBlock):
                 # Print markdown directly with horizontal padding only (2 chars left/right)
                 padded_markdown = Padding(markdown, PADDING_MESSAGE)
                 self.live.console.print(padded_markdown)
+                
+            if was_started:
+                self.live = create_live_display(self.live.console)
+                self.live.start()
 
             # Store the completed block
             self.completed_blocks.append(content)
@@ -156,7 +167,10 @@ class MessageBlock(BaseBlock):
     def finalize(self):
         """Render any remaining content when the message is complete."""
         # Clear the live display to remove the streaming raw text
-        self.live.update("")
+        if self.live.is_started:
+            self.live.update("")
+            self.live.refresh()
+            self.live.stop()
 
         # Render any remaining buffer content as markdown
         if self.buffer.strip():
