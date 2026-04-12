@@ -127,42 +127,112 @@ class CodeBlock(BaseBlock):
 
         current_width = current_size.columns
         if current_width != self._last_width:
+            # Re-start live display on resize (critical for Windows terminal reflow)
             self.live.stop()
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()
 
-        # 1. Detect and pop complete blocks from code
+        should_highlight = self.highlight_active_line if self.highlight_active_line is not None else True
+
+        # If active line highlighting is disabled, we permanently render the code block when it finishes
+        # streaming to avoid repeated refreshes corrupting terminal history.
+        # We know it's finished streaming if self.active_line is not None OR self.output has content.
+        if not should_highlight and self.code.strip() and (self.active_line is not None or self.output.strip()):
+            self._print_permanent_block(self.code, "code")
+            self.code_lines_popped += len(self.code.split('\n'))
+            self.code = ""
+
+        # 1. Detect and pop complete blocks from output (to prevent terminal history corruption)
         while True:
-            block_result = detect_complete_block(self.code)
+            block_result = detect_complete_block(self.output)
             if not block_result:
                 break
 
             block_text, next_idx = block_result
-            self._print_permanent_block(block_text, "code")
+            self._print_permanent_block(block_text, "output")
 
-            lines = self.code.split('\n')
-            self.code = '\n'.join(lines[next_idx:])
-            self.code_lines_popped += next_idx
+            lines = self.output.split('\n')
+            self.output = '\n'.join(lines[next_idx:])
 
-        # 2. Detect and pop complete blocks from output (if code is mostly finished/popped)
-        if not self.code.strip():
-            while True:
-                block_result = detect_complete_block(self.output)
-                if not block_result:
-                    break
-
-                block_text, next_idx = block_result
-                self._print_permanent_block(block_text, "output")
-
-                lines = self.output.split('\n')
-                self.output = '\n'.join(lines[next_idx:])
-
-        # 3. Render the remaining content in a Live sliding window
+        # 2. Render the remaining content
         if not self.code.strip() and not self.output.strip():
             self.live.update("")
             return
 
+        # If highlighting is enabled AND execution has started (active_line is not None)
+        if should_highlight and self.active_line is not None and self.code.strip():
+            # Get code
+            code = self.code
+
+            # Create a table for the code
+            code_table = Table(
+                show_header=False, show_footer=False, box=None, padding=0, expand=True
+            )
+            code_table.add_column()
+
+            # Add cursor only if active line highliting is true
+            if cursor:
+                code += "●"
+
+            syntax_language = self.language
+            if os.name == "nt" and syntax_language.lower() in ["shell", "bash"]:
+                syntax_language = "bat"
+
+            # Add each line of code to the table
+            code_lines = code.strip().split("\n")
+            for i, line in enumerate(code_lines, start=1):
+                if i == self.active_line:
+                    # This is the active line, print it with a white background
+                    syntax = Syntax(
+                        line, syntax_language, theme="bw", line_numbers=False, word_wrap=True
+                    )
+                    code_table.add_row(syntax, style="black on white")
+                else:
+                    # This is not the active line, print it normally
+                    syntax = Syntax(
+                        line,
+                        syntax_language,
+                        theme="monokai",
+                        line_numbers=False,
+                        word_wrap=True,
+                    )
+                    code_table.add_row(syntax)
+
+            # Create a panel for the code
+            code_panel = Panel(code_table, box=MINIMAL, style="on #272722")
+
+            group_items = [code_panel]
+
+            # Create a panel for the output (if there is any).
+            # We format remaining output as sliding window
+            if self.output.strip():
+                viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+                viewport_lines = max(viewport_lines, 3)
+                output_lines = self.output.strip().split('\n')
+                
+                formatted_output = create_sliding_window_display(
+                    self.live.console, output_lines, viewport_lines, width_offset=6)
+                
+                # Escape so Rich does not interpret [brackets] as markup
+                output_panel = Panel(formatted_output, box=MINIMAL, style="#FFFFFF on #3b3b37")
+                group_items.append(output_panel)
+                
+            if self.margin_top:
+                # This adds some space at the top. Just looks good!
+                group_items = [""] + group_items
+                self.margin_top = False
+                
+            # Create a group with the code table and output panel
+            group = Group(*group_items)
+            padded = Padding(group, PADDING_PANEL)
+
+            # Update the live display
+            self.live.update(padded)
+            self.live.refresh()
+            return
+
+        # 3. Otherwise, stream as raw non-highlighted text in a Live sliding window
         # Prepare streaming buffer lines
         buffer_lines = []
         if self.code.strip():
@@ -195,6 +265,14 @@ class CodeBlock(BaseBlock):
         # Wrap in a panel to match visual style
         title = f" {self.language} " if self.language else " Code "
         streaming_panel = Panel(formatted_buffer, box=MINIMAL, style="on #272722", title=title)
-        self.live.update(Padding(streaming_panel, PADDING_PANEL))
+        
+        group_items = []
+        if self.margin_top:
+            group_items.append("")
+            self.margin_top = False
+            
+        group_items.append(streaming_panel)
+        # Update the live display
+        self.live.update(Padding(Group(*group_items), PADDING_PANEL))
         self.live.refresh()
 
