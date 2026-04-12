@@ -466,8 +466,7 @@ def terminal_interface(interpreter, message):
                     continue
 
                 if "end" in chunk and active_block:
-                    # For message blocks, finalize before ending (skip refresh to avoid duplication)
-                    if chunk["type"] == "message" and hasattr(active_block, 'finalize'):
+                    if hasattr(active_block, 'finalize'):
                         active_block.finalize()
                     else:
                         active_block.refresh(cursor=False)
@@ -541,7 +540,7 @@ def terminal_interface(interpreter, message):
                 # Assistant code blocks
                 elif chunk["role"] == "assistant" and chunk["type"] == "code":
                     if "start" in chunk:
-                        active_block = CodeBlock()
+                        active_block = CodeBlock(interpreter)
                         active_block.language = chunk["format"]
                         render_cursor = True
 
