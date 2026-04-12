@@ -333,7 +333,13 @@ def terminal_interface(interpreter, message):
                             active_block = CodeBlock(interpreter)
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
-                            active_block.code = code
+                            
+                            should_highlight = interpreter.highlight_active_line if hasattr(interpreter, 'highlight_active_line') and interpreter.highlight_active_line is not None else True
+                            if should_highlight:
+                                active_block.code = code
+                            # If should_highlight is False and the code hasn't been edited, 
+                            # we leave active_block.code empty to avoid printing a duplicate 
+                            # static code block below the y/n prompt.
                         elif response == "e":
                             # Edit - use mkstemp with the correct extension so the editor
                             # can apply syntax highlighting. mkstemp is used instead of
