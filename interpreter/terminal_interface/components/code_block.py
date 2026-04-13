@@ -12,7 +12,6 @@ import os
 from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
 from ..utils.streaming_markdown import (
-    detect_complete_block,
     calculate_window_size,
     create_sliding_window_display,
     create_live_display,
@@ -157,19 +156,11 @@ class CodeBlock(BaseBlock):
             self.code_lines_popped += len(self.code.split('\n'))
             self.code = ""
 
-        # 1. Detect and pop complete blocks from output (to prevent terminal history corruption)
-        while True:
-            block_result = detect_complete_block(self.output)
-            if not block_result:
-                break
+        # Execution stdout/stderr is plain text, not markdown. detect_complete_block()
+        # would split it into many top-level "paragraph" panels; keep one buffer and
+        # print it once in finalize().
 
-            block_text, next_idx = block_result
-            self._print_permanent_block(block_text, "output")
-
-            lines = self.output.split('\n')
-            self.output = '\n'.join(lines[next_idx:])
-
-        # 2. Render the remaining content
+        # Render the remaining content
         if not self.code.strip() and not self.output.strip():
             self.live.update("")
             return
@@ -246,7 +237,7 @@ class CodeBlock(BaseBlock):
             self.live.refresh()
             return
 
-        # 3. Otherwise, stream as raw non-highlighted text in a Live sliding window
+        # Otherwise, stream as raw non-highlighted text in a Live sliding window
         # Prepare streaming buffer lines
         buffer_lines = []
         if self.code.strip():
