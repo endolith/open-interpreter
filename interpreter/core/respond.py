@@ -89,6 +89,14 @@ def _is_temporary_provider_error(error):
     return any(marker in error_message for marker in temporary_markers)
 
 
+def _temporary_error_signature(error):
+    """
+    Normalize temporary provider errors so repeated retries with the same
+    upstream failure don't spam duplicate full error panels.
+    """
+    return re.sub(r"\s+", " ", str(error)).strip()
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -99,6 +107,7 @@ def respond(interpreter):
     insert_loop_message = False
     always_retry_provider_errors = False
     temporary_provider_error_retries = 0
+    last_temporary_provider_error_signature = None
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -210,6 +219,20 @@ def respond(interpreter):
                     is_temporary_error = _is_temporary_provider_error(e)
                     panel_border_style = "yellow" if is_temporary_error else "red"
                     panel_title = "Warning" if is_temporary_error else "Error"
+                    temporary_error_signature = (
+                        _temporary_error_signature(e) if is_temporary_error else None
+                    )
+                    if (
+                        is_temporary_error
+                        and temporary_error_signature
+                        == last_temporary_provider_error_signature
+                    ):
+                        temporary_provider_error_retries += 1
+                        interpreter.display_message(
+                            f"> Temporary upstream provider error; retrying ({temporary_provider_error_retries})..."
+                        )
+                        time.sleep(2)
+                        continue
                     # Format with Rich Panel with red border for errors
                     # Check if this is an error with JSON structure that can be parsed
                     if "{" in error_str and "}" in error_str:
@@ -293,6 +316,7 @@ def respond(interpreter):
                     # Temporary provider errors (including upstream rate limits)
                     # are retried automatically to avoid blocking on user input.
                     if is_temporary_error:
+                        last_temporary_provider_error_signature = temporary_error_signature
                         temporary_provider_error_retries += 1
                         interpreter.display_message(
                             f"> Temporary upstream provider error; retrying ({temporary_provider_error_retries})..."
@@ -402,6 +426,7 @@ def respond(interpreter):
 
             else:
                 temporary_provider_error_retries = 0
+                last_temporary_provider_error_signature = None
 
         # Inject image from view_image tool call (tool appends result first, then we add user image)
         pending_path = getattr(interpreter, "_pending_view_image_path", None)
