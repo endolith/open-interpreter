@@ -83,7 +83,11 @@ def handle_undo(self, arguments):
             label = "code block"
 
         if "content" in message and message["content"] is not None:
-            preview = str(message["content"])[:30] + "..."
+            # Single-line preview only: newlines break Rich Markdown inline code spans,
+            # so a line like "# ..." would be parsed as a heading outside the code.
+            preview = " ".join(str(message["content"]).split())
+            preview = preview.replace("`", "'")
+            preview = preview[:30] + "..."
             self.display_message(f"**Removed {label}:** `\"{preview}\"`")
         else:
             self.display_message(f"**Removed {label}.**")
