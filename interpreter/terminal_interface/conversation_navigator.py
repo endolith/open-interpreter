@@ -104,11 +104,18 @@ def conversation_navigator(interpreter):
         "before running any relative file operations."
     )
 
-    interpreter.messages.append({
-        "role": "user",
-        "type": "message",
-        "content": alert_text
-    })
+    # Mark this as terminal-injected UI context so command history features
+    # can treat it differently from real user prompts.
+    interpreter.messages.append(
+        {
+            "role": "user",
+            "type": "message",
+            "content": alert_text,
+            "source": "terminal",
+            "format": "system_alert",
+            "alert_kind": "conversation_resumed",
+        }
+    )
 
     interpreter.display_message(f"---\n{alert_text}\n\n---")
 
