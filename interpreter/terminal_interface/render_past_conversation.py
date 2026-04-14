@@ -58,8 +58,13 @@ def render_past_conversation(messages):
 
         if role == "user":
             flush_pending_code()
-            # Skip UI-injected messages (e.g. [User declined...], [The user edited...])
+            # Most UI-injected terminal messages should not render in replay,
+            # but resumed-session alerts are user-facing context and should.
             if chunk.get("source") == "terminal":
+                if chunk.get("format") == "system_alert":
+                    if isinstance(content, str) and content.strip():
+                        render_separator()
+                        display_markdown_message(f"---\n{content}\n\n---")
                 continue
             if chunk_type == "image" and isinstance(content, str):
                 render_separator()
