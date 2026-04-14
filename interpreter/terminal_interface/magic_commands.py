@@ -23,11 +23,19 @@ def handle_undo(self, arguments):
 
     if len(self.messages) == 0:
         return
-    # Preserve trailing terminal-injected status messages (e.g. resumed-session
-    # system alerts). These are UI context and should remain visible after undo.
-    trailing_terminal_messages = []
-    while self.messages and self.messages[-1].get("source") == "terminal":
-        trailing_terminal_messages.insert(0, self.messages.pop())
+    def should_preserve_terminal_message(message):
+        # Only preserve conversation-resume alerts.
+        # Other terminal-injected entries (e.g. declined-run markers) are
+        # transient workflow artifacts and should be undoable.
+        return (
+            message.get("source") == "terminal"
+            and message.get("format") == "system_alert"
+            and message.get("alert_kind") == "conversation_resumed"
+        )
+
+    trailing_preserved_messages = []
+    while self.messages and should_preserve_terminal_message(self.messages[-1]):
+        trailing_preserved_messages.insert(0, self.messages.pop())
 
     # Find the index of the last real user entry (role=user, source absent or "user")
     last_user_index = None
@@ -41,7 +49,7 @@ def handle_undo(self, arguments):
     if last_user_index is not None:
         removed_messages = self.messages[last_user_index:]
         self.messages = self.messages[:last_user_index]
-    self.messages.extend(trailing_terminal_messages)
+    self.messages.extend(trailing_preserved_messages)
 
     print("")  # Aesthetics.
 
