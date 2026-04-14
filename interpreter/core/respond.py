@@ -98,6 +98,7 @@ def respond(interpreter):
     last_unsupported_code = ""
     insert_loop_message = False
     always_retry_provider_errors = False
+    temporary_provider_error_retries = 0
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -289,9 +290,17 @@ def respond(interpreter):
                         rich_print(panel)
                         print("")  # Add space after error
 
-                    # All provider API errors are potentially transient (even 400s
-                    # from flaky upstream providers like AtlasCloud), so always
-                    # offer retry. The yellow/red panel is just a visual cue.
+                    # Temporary provider errors (including upstream rate limits)
+                    # are retried automatically to avoid blocking on user input.
+                    if is_temporary_error:
+                        temporary_provider_error_retries += 1
+                        interpreter.display_message(
+                            f"> Temporary upstream provider error; retrying ({temporary_provider_error_retries})..."
+                        )
+                        time.sleep(2)
+                        continue
+
+                    # For non-temporary provider errors, offer manual retry.
                     if always_retry_provider_errors:
                         print("")
                         interpreter.display_message("> Retrying...")
@@ -316,14 +325,6 @@ def respond(interpreter):
 
                         interpreter._stopped_retrying = True
                         return
-
-                    if is_temporary_error and noninteractive_llm_retries < 3:
-                        noninteractive_llm_retries += 1
-                        interpreter.display_message(
-                            f"> Retrying ({noninteractive_llm_retries}/3, no TTY)..."
-                        )
-                        time.sleep(2)
-                        continue
 
                     interpreter._stopped_retrying = True
                     return
@@ -400,7 +401,7 @@ def respond(interpreter):
                     raise
 
             else:
-                noninteractive_llm_retries = 0
+                temporary_provider_error_retries = 0
 
         # Inject image from view_image tool call (tool appends result first, then we add user image)
         pending_path = getattr(interpreter, "_pending_view_image_path", None)
