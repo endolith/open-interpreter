@@ -92,6 +92,14 @@ def conversation_navigator(interpreter):
     # Set the interpreter's settings to the loaded messages
     interpreter.messages = messages
 
+    # Drop any prior resume alerts from saved history so we never stack
+    # duplicates across resume / undo / autosave cycles.
+    interpreter.messages = [
+        m
+        for m in interpreter.messages
+        if m.get("alert_kind") != "conversation_resumed"
+    ]
+
     current_cwd = os.getcwd()
 
     alert_text = (
