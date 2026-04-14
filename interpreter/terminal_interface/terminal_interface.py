@@ -731,6 +731,13 @@ def terminal_interface(interpreter, message):
                     active_block = None
                     time.sleep(0.1)
 
+            # Blank line before the next "> " prompt: Rich MessageBlock/CodeBlock + Live
+            # often end without an extra newline on stdout (see streaming refactors:
+            # e.g. CodeBlock finalize, MessageBlock finalize). Without this, the reply
+            # and prompt visually run together on Windows/ConPTY.
+            if interactive:
+                print("", flush=True)
+
             # Only exit when the user chose "n" at the API retry prompt (not when
             # they declined to run code). respond() sets _stopped_retrying in that case.
             if (
