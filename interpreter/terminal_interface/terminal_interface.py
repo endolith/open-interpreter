@@ -311,7 +311,7 @@ def terminal_interface(interpreter, message):
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
                                 response = prompt_choice(
-                                    "  Would you like to scan this code? (y/n)\n\n  ",
+                                    "\n  Would you like to scan this code? (y/n)\n\n  ",
                                     ("y", "n"),
                                 )
                                 if response == "y":
@@ -321,9 +321,9 @@ def terminal_interface(interpreter, message):
                             scan_code(code, language, interpreter)
 
                         run_prompt = (
-                            "Would you like to run this code? (y/n/e = edit)\n\n"
+                            "\nWould you like to run this code? (y/n/e = edit)\n\n"
                             if interpreter.plain_text_display
-                            else "  Would you like to run this code? (y/n/e = edit)\n\n  "
+                            else "\n  Would you like to run this code? (y/n/e = edit)\n\n  "
                         )
                         response = prompt_choice(run_prompt, ("y", "n", "e"))
 
