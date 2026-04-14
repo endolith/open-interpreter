@@ -97,6 +97,15 @@ def _temporary_error_signature(error):
     return re.sub(r"\s+", " ", str(error)).strip()
 
 
+def _render_temporary_retry_status(retry_count):
+    """
+    Update a single in-place status line for temporary upstream retries.
+    """
+    dots = "." * ((retry_count - 1) % 3 + 1)
+    sys.stdout.write(f"\r  ▌ Temporary upstream provider error; retrying{dots}")
+    sys.stdout.flush()
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -228,9 +237,7 @@ def respond(interpreter):
                         == last_temporary_provider_error_signature
                     ):
                         temporary_provider_error_retries += 1
-                        interpreter.display_message(
-                            f"> Temporary upstream provider error; retrying ({temporary_provider_error_retries})..."
-                        )
+                        _render_temporary_retry_status(temporary_provider_error_retries)
                         time.sleep(2)
                         continue
                     # Format with Rich Panel with red border for errors
@@ -318,9 +325,7 @@ def respond(interpreter):
                     if is_temporary_error:
                         last_temporary_provider_error_signature = temporary_error_signature
                         temporary_provider_error_retries += 1
-                        interpreter.display_message(
-                            f"> Temporary upstream provider error; retrying ({temporary_provider_error_retries})..."
-                        )
+                        _render_temporary_retry_status(temporary_provider_error_retries)
                         time.sleep(2)
                         continue
 
@@ -425,6 +430,8 @@ def respond(interpreter):
                     raise
 
             else:
+                if temporary_provider_error_retries > 0:
+                    print("")
                 temporary_provider_error_retries = 0
                 last_temporary_provider_error_signature = None
 
