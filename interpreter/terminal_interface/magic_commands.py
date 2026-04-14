@@ -37,6 +37,11 @@ def handle_undo(self, arguments):
     while self.messages and should_preserve_terminal_message(self.messages[-1]):
         trailing_preserved_messages.insert(0, self.messages.pop())
 
+    # At most one resume alert should remain attached after undo; older copies
+    # are redundant and were stacking when this list had multiple entries.
+    if len(trailing_preserved_messages) > 1:
+        trailing_preserved_messages = [trailing_preserved_messages[-1]]
+
     # Find the index of the last real user entry (role=user, source absent or "user")
     last_user_index = None
     for i, message in enumerate(self.messages):
@@ -237,6 +242,15 @@ def handle_load_message(self, json_path):
         json_path += ".json"
     with open(json_path, "r") as f:
         self.messages = json.load(f)
+
+    resume_idxs = [
+        i
+        for i, m in enumerate(self.messages)
+        if m.get("alert_kind") == "conversation_resumed"
+    ]
+    if len(resume_idxs) > 1:
+        drop = set(resume_idxs[:-1])
+        self.messages = [m for i, m in enumerate(self.messages) if i not in drop]
 
     self.display_message(f"> messages json loaded from {os.path.abspath(json_path)}")
 
