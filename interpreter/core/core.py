@@ -25,6 +25,8 @@ from .utils.truncate_output import truncate_output
 # After this many user messages, run one extra completion to rename the JSON once
 # (isolated `llm.run` message list — same pattern as `toolbox.ai.chat`, leaves `interpreter.messages` unchanged).
 _CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES = 2
+# Slug segment before `__` + date; keeps filenames short and navigator-friendly.
+_CONVERSATION_TITLE_SLUG_MAX_LEN = 50
 
 
 class OpenInterpreter:
@@ -175,11 +177,11 @@ class OpenInterpreter:
         )
         return self.contribute_conversation and not overrides
 
-    def _conversation_auto_title_transcript(self):
+    def _conversation_auto_title_transcript_user_only(self):
+        """User prompts only — avoids assistant narration (refusals, meta) driving the title."""
         lines = []
         for m in self.messages:
-            role = m.get("role")
-            if role not in ("user", "assistant"):
+            if m.get("role") != "user":
                 continue
             content = m.get("content")
             if not isinstance(content, str):
@@ -187,19 +189,32 @@ class OpenInterpreter:
             text = content.strip()
             if not text:
                 continue
-            prefix = "User: " if role == "user" else "Assistant: "
-            lines.append(prefix + text)
-        body = "\n\n".join(lines)
-        if len(body) > 12000:
-            body = body[-12000:]
+            lines.append(text)
+        body = "\n---\n".join(lines)
+        if len(body) > 8000:
+            body = body[-8000:]
         return body
 
     def _sanitize_conversation_title_slug(self, raw):
         s = raw.strip().split("\n")[0].strip()
+        if "." in s:
+            head, _, tail = s.partition(".")
+            if len(head) >= 8 and len(tail) > 0:
+                s = head
         s = s.replace(" ", "_")
-        for char in '<>:"/\\|?*!\n':
+        for char in '<>:"/\\|?*!\n.,;':
             s = s.replace(char, "")
-        return s
+        while "__" in s:
+            s = s.replace("__", "_")
+        s = s.strip("_")
+        max_len = _CONVERSATION_TITLE_SLUG_MAX_LEN
+        if len(s) <= max_len:
+            return s
+        cut = s[:max_len]
+        u = cut.rfind("_")
+        if u >= max_len // 2:
+            return cut[:u].rstrip("_")
+        return cut.rstrip("_")
 
     def _maybe_upgrade_conversation_title(self, final_path):
         if self.offline or self._conversation_title_upgraded:
@@ -221,7 +236,7 @@ class OpenInterpreter:
         if not sep or not date_segment:
             return
 
-        transcript = self._conversation_auto_title_transcript()
+        transcript = self._conversation_auto_title_transcript_user_only()
         if not transcript:
             return
 
@@ -230,15 +245,18 @@ class OpenInterpreter:
                 "role": "system",
                 "type": "message",
                 "content": (
-                    "Write one short title for this chat log (max 40 characters). "
-                    "Describe the user's actual task or topic. Reply with the title only: "
-                    "no quotes, no punctuation except spaces, no file path characters."
+                    "You label a saved chat file. Output exactly one line and nothing else.\n"
+                    "The line must be a short topic label (like a concise folder name), "
+                    "3–6 words, at most 40 characters total, using underscores instead of spaces.\n"
+                    "Name only what the user is trying to accomplish (tools, files, domain). "
+                    "Do not mention the assistant, refusals, consent, or how the conversation went. "
+                    "Do not start with The_user or User_ or They_. No full sentences."
                 ),
             },
             {
                 "role": "user",
                 "type": "message",
-                "content": transcript,
+                "content": "User messages from this session (oldest to newest):\n\n" + transcript,
             },
         ]
 
