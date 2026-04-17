@@ -177,11 +177,22 @@ class OpenInterpreter:
         )
         return self.contribute_conversation and not overrides
 
+    def _is_user_message_for_conversation_title(self, m):
+        if m.get("role") != "user":
+            return False
+        if m.get("source") == "terminal":
+            return False
+        if m.get("alert_kind"):
+            return False
+        if m.get("format") == "system_alert":
+            return False
+        return True
+
     def _conversation_auto_title_transcript_user_only(self):
-        """User prompts only — avoids assistant narration (refusals, meta) driving the title."""
+        """User prompts only (no terminal alerts); assistant text is never sent."""
         lines = []
         for m in self.messages:
-            if m.get("role") != "user":
+            if not self._is_user_message_for_conversation_title(m):
                 continue
             content = m.get("content")
             if not isinstance(content, str):
@@ -197,24 +208,16 @@ class OpenInterpreter:
 
     def _sanitize_conversation_title_slug(self, raw):
         s = raw.strip().split("\n")[0].strip()
-        if "." in s:
-            head, _, tail = s.partition(".")
-            if len(head) >= 8 and len(tail) > 0:
-                s = head
         s = s.replace(" ", "_")
-        for char in '<>:"/\\|?*!\n.,;':
+        for char in '<>:"/\\|?*!\n':
             s = s.replace(char, "")
         while "__" in s:
             s = s.replace("__", "_")
         s = s.strip("_")
         max_len = _CONVERSATION_TITLE_SLUG_MAX_LEN
-        if len(s) <= max_len:
-            return s
-        cut = s[:max_len]
-        u = cut.rfind("_")
-        if u >= max_len // 2:
-            return cut[:u].rstrip("_")
-        return cut.rstrip("_")
+        if len(s) > max_len:
+            s = s[:max_len]
+        return s.rstrip("_")
 
     def _maybe_upgrade_conversation_title(self, final_path):
         if self.offline or self._conversation_title_upgraded:
@@ -226,7 +229,8 @@ class OpenInterpreter:
         n_user = sum(
             1
             for m in self.messages
-            if m.get("role") == "user" and isinstance(m.get("content"), str)
+            if self._is_user_message_for_conversation_title(m)
+            and isinstance(m.get("content"), str)
         )
         if n_user < _CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES:
             return
@@ -245,18 +249,29 @@ class OpenInterpreter:
                 "role": "system",
                 "type": "message",
                 "content": (
-                    "You label a saved chat file. Output exactly one line and nothing else.\n"
-                    "The line must be a short topic label (like a concise folder name), "
-                    "3–6 words, at most 40 characters total, using underscores instead of spaces.\n"
-                    "Name only what the user is trying to accomplish (tools, files, domain). "
-                    "Do not mention the assistant, refusals, consent, or how the conversation went. "
-                    "Do not start with The_user or User_ or They_. No full sentences."
+                    "You output a single line: a filename slug for the user's task. "
+                    "No other text on that line, no preamble, no quotes.\n\n"
+                    "The line must look like a short Unix-style folder name: "
+                    "words in Title_Case separated by underscores, at most 5 words, "
+                    "at most 36 characters total on the line.\n\n"
+                    "Name only the substance of the work: file types, tools, data, or domain "
+                    "(e.g. SRT_GPX_batch_generation or Route_elevation_chart).\n\n"
+                    "Do not narrate the chat. Do not describe what anyone said or wants. "
+                    "Forbidden prefixes and words include: First_, The_, User_, They_, "
+                    "He_, She_, I_, We_, This_, Here_, saying_, asking_, wants_, told_, "
+                    "declined_, refused_, assistant_, conversation_.\n\n"
+                    "Good: Match_SRT_files_to_GPX\n"
+                    "Bad: First_the_user_is_saying_find_all_srt_files"
                 ),
             },
             {
                 "role": "user",
                 "type": "message",
-                "content": "User messages from this session (oldest to newest):\n\n" + transcript,
+                "content": (
+                    "Infer the task label from these user prompts only (oldest first). "
+                    "Reply with one slug line only:\n\n"
+                    + transcript
+                ),
             },
         ]
 
