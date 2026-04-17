@@ -22,6 +22,10 @@ from .respond import respond
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
+# After this many user messages, run one extra completion to rename the JSON once
+# (isolated `llm.run` message list — same pattern as `toolbox.ai.chat`, leaves `interpreter.messages` unchanged).
+_CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES = 2
+
 
 class OpenInterpreter:
     """
@@ -112,6 +116,7 @@ class OpenInterpreter:
         self.conversation_history = conversation_history
         self.conversation_filename = conversation_filename
         self.conversation_history_path = conversation_history_path
+        self._conversation_title_upgraded = False
 
         # OS control mode related attributes
         self.os = os
@@ -169,6 +174,97 @@ class OpenInterpreter:
             self.offline or not self.conversation_history or self.disable_telemetry
         )
         return self.contribute_conversation and not overrides
+
+    def _conversation_auto_title_transcript(self):
+        lines = []
+        for m in self.messages:
+            role = m.get("role")
+            if role not in ("user", "assistant"):
+                continue
+            content = m.get("content")
+            if not isinstance(content, str):
+                continue
+            text = content.strip()
+            if not text:
+                continue
+            prefix = "User: " if role == "user" else "Assistant: "
+            lines.append(prefix + text)
+        body = "\n\n".join(lines)
+        if len(body) > 12000:
+            body = body[-12000:]
+        return body
+
+    def _sanitize_conversation_title_slug(self, raw):
+        s = raw.strip().split("\n")[0].strip()
+        s = s.replace(" ", "_")
+        for char in '<>:"/\\|?*!\n':
+            s = s.replace(char, "")
+        return s
+
+    def _maybe_upgrade_conversation_title(self, final_path):
+        if self.offline or self._conversation_title_upgraded:
+            return
+        if not self.conversation_filename or not self.conversation_filename.endswith(
+            ".json"
+        ):
+            return
+        n_user = sum(
+            1
+            for m in self.messages
+            if m.get("role") == "user" and isinstance(m.get("content"), str)
+        )
+        if n_user < _CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES:
+            return
+
+        base = self.conversation_filename[:-5]
+        _, sep, date_segment = base.partition("__")
+        if not sep or not date_segment:
+            return
+
+        transcript = self._conversation_auto_title_transcript()
+        if not transcript:
+            return
+
+        title_messages = [
+            {
+                "role": "system",
+                "type": "message",
+                "content": (
+                    "Write one short title for this chat log (max 40 characters). "
+                    "Describe the user's actual task or topic. Reply with the title only: "
+                    "no quotes, no punctuation except spaces, no file path characters."
+                ),
+            },
+            {
+                "role": "user",
+                "type": "message",
+                "content": transcript,
+            },
+        ]
+
+        content = ""
+        try:
+            for chunk in self.llm.run(title_messages):
+                if "content" in chunk:
+                    content += chunk.get("content") or ""
+        except Exception:
+            return
+
+        if not content:
+            return
+        slug = self._sanitize_conversation_title_slug(content)
+        if not slug:
+            return
+
+        new_filename = f"{slug}__{date_segment}.json"
+        if new_filename == self.conversation_filename:
+            self._conversation_title_upgraded = True
+            return
+
+        new_path = os.path.join(self.conversation_history_path, new_filename)
+        os.replace(final_path, new_path)
+        self.conversation_filename = new_filename
+        self._conversation_title_upgraded = True
 
     def chat(self, message=None, display=True, stream=False, blocking=True):
         try:
@@ -315,6 +411,7 @@ class OpenInterpreter:
                         with os.fdopen(fd, "w", encoding="utf-8") as f:
                             json.dump(self.messages, f)
                         os.replace(tmp_path, final_path)
+                        self._maybe_upgrade_conversation_title(final_path)
                     finally:
                         # If anything failed before replace, clean up the temp file.
                         if os.path.exists(tmp_path):
