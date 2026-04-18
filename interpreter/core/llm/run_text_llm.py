@@ -68,9 +68,11 @@ def _find_closing_fence(text, start, at_eof=False, opener_len=len(FENCE)):
 
 
 def run_text_llm(llm, params):
+    skip_execution_instructions = params.pop("skip_execution_instructions", False)
+
     ## Setup
 
-    if llm.execution_instructions:
+    if llm.execution_instructions and not skip_execution_instructions:
         try:
             # Add the system message
             params["messages"][0][
