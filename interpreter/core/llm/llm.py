@@ -107,13 +107,16 @@ class Llm:
         # Filled from the final streaming chunk when the API sends usage (see stream_usage.record_stream_chunk_usage).
         self.last_completion_usage = None
 
-    def run(self, messages):
+    def run(self, messages, *, auxiliary_title_request=False):
         """
         We're responsible for formatting the call into the llm.completions object,
         starting with LMC messages in interpreter.messages, going to OpenAI compatible messages into the llm,
         respecting whether it's a vision or function model, respecting its context window and max tokens, etc.
 
         And then processing its output, whether it's a function or non function calling model, into LMC format.
+
+        auxiliary_title_request: one-off naming completion — text path only, tight max_tokens,
+        no reasoning request, LiteLLM timeout, and no code-execution system suffix on the prompt.
         """
 
         if not self._is_loaded:
@@ -388,6 +391,21 @@ Continuing...
         if hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
 
+        if auxiliary_title_request:
+            # Avoid huge reasoning streams and hung streams with no wall clock (OpenRouter etc.).
+            # Not a litellm re-import — this path still uses the same completions() generator.
+            params["timeout"] = 120
+            params["max_tokens"] = min(int(params.get("max_tokens") or 512), 128)
+            params["include_reasoning"] = False
+            params.pop("reasoning_effort", None)
+            if "stream_options" in params:
+                params["stream_options"].pop("include_reasoning", None)
+            if model.startswith("openrouter/") and params.get("extra_body"):
+                eb = params["extra_body"]
+                eb.pop("include_reasoning", None)
+                eb.pop("reasoning", None)
+            params["skip_execution_instructions"] = True
+
         # Set some params directly on LiteLLM
         if self.max_budget:
             litellm.max_budget = self.max_budget
@@ -409,7 +427,7 @@ Continuing...
                 print("\n")
             print("\n\n\n")
 
-        if self.supports_functions:
+        if self.supports_functions and not auxiliary_title_request:
             # yield from run_function_calling_llm(self, params)
             try:
                 yield from run_tool_calling_llm(self, params)

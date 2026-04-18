@@ -2,9 +2,11 @@ from .utils.stream_usage import record_stream_chunk_usage
 
 
 def run_text_llm(llm, params):
+    skip_execution_instructions = params.pop("skip_execution_instructions", False)
+
     ## Setup
 
-    if llm.execution_instructions:
+    if llm.execution_instructions and not skip_execution_instructions:
         try:
             # Add the system message
             params["messages"][0][
