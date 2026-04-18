@@ -25,8 +25,8 @@ from .utils.truncate_output import truncate_output
 # After this many user messages, run one extra completion to rename the JSON once
 # (isolated `llm.run` message list — same pattern as `toolbox.ai.chat`, leaves `interpreter.messages` unchanged).
 _CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES = 2
-# Slug segment before `__` + date; keeps filenames short and navigator-friendly.
-_CONVERSATION_TITLE_SLUG_MAX_LEN = 50
+# Slug segment before `__` + date (sanitized in code; navigator stays readable).
+_CONVERSATION_TITLE_SLUG_MAX_LEN = 80
 # Per-turn cap so code or tool dumps do not dominate the title prompt.
 _CONVERSATION_TITLE_TRANSCRIPT_CHUNK_CHARS = 2500
 _CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS = 12000
@@ -228,17 +228,30 @@ class OpenInterpreter:
         return body
 
     def _sanitize_conversation_title_slug(self, raw):
+        """Turn model output into a Windows-safe filename segment (no strict format on the model)."""
         s = raw.strip().split("\n")[0].strip()
-        s = s.replace(" ", "_")
-        for char in '<>:"/\\|?*!\n,\'':
+        s = s.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        for char in '<>:"/\\|?*':
             s = s.replace(char, "")
+        out_chars = []
+        for c in s:
+            if c.isalnum() or c in "_-":
+                out_chars.append(c)
+            elif c.isspace() or c in ".,;:!?\'\"()[]{}":
+                out_chars.append(" ")
+            else:
+                out_chars.append(" ")
+        s = "".join(out_chars)
+        while "  " in s:
+            s = s.replace("  ", " ")
+        s = "_".join(p for p in s.split(" ") if p)
         while "__" in s:
             s = s.replace("__", "_")
-        s = s.strip("_")
+        s = s.strip("._-")
         max_len = _CONVERSATION_TITLE_SLUG_MAX_LEN
         if len(s) > max_len:
             s = s[:max_len]
-        return s.rstrip("_")
+        return s.rstrip("._-")
 
     def _maybe_upgrade_conversation_title(self, final_path):
         if self.offline or self._conversation_title_upgraded:
