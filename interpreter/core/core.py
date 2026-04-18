@@ -235,10 +235,8 @@ class OpenInterpreter:
             s = s.replace(char, "")
         out_chars = []
         for c in s:
-            if c.isalnum() or c in "_-":
+            if c.isalnum() or c in "_-'":
                 out_chars.append(c)
-            elif c.isspace() or c in ".,;:!?\'\"()[]{}":
-                out_chars.append(" ")
             else:
                 out_chars.append(" ")
         s = "".join(out_chars)
@@ -283,29 +281,23 @@ class OpenInterpreter:
                 "role": "system",
                 "type": "message",
                 "content": (
-                    "You name a saved chat thread after reading an excerpt of the conversation.\n\n"
-                    "You will get a transcript: lines starting with User: or Assistant:, oldest first. "
-                    "Use both sides to infer the subject matter. The transcript may end with "
-                    "“[…truncated…]” on long turns.\n\n"
+                    "You read an excerpt of a conversation: lines labeled User: or Assistant:, "
+                    "oldest first. Long turns may end with “[…truncated…]”.\n\n"
                     "Reply with exactly one line and nothing else: a short topic title for the whole "
-                    "thread, the way a human would label it in a file browser or reading list. "
-                    "Think catalog or episode title, not a summary of who said what.\n\n"
-                    "Good topics (style and substance; your line uses underscores not spaces):\n"
-                    "- LIDAR_processing_git_repo\n"
-                    "- Mic_phantom_power_capabilities\n"
-                    "- Fitness_supplements_advice\n"
-                    "- SRT_to_GPX_batch_export\n\n"
-                    "Bad topics (never do this):\n"
-                    "- The_user_asked_me_to_check_crontab\n"
-                    "- Assistant_explains_how_to_run_sudo\n"
-                    "- User_wants_help_with_their_script\n\n"
-                    "Format for your one line:\n"
-                    "- Title_Case words separated by underscores; no spaces; at most 6 words; "
-                    "at most 40 characters total.\n"
-                    "- Name the subject domain, artifact, or problem. No dialogue, no play-by-play, "
-                    "no “user” or “assistant” or “they asked”.\n"
-                    "- No commas, no markdown, no code fences.\n"
-                    "- Do not copy labels User: or Assistant: into your title."
+                    "thread — what it is about, the way someone would label it in a reading list or "
+                    "file list. Use normal words and spaces; a handful of words is enough.\n\n"
+                    "Name the subject (tools, domain, data, problem). Do not narrate the chat: "
+                    "no play-by-play, no “the user asked…”, no “assistant will…”, and do not echo "
+                    "the words User: or Assistant: as part of your title.\n\n"
+                    "Good examples:\n"
+                    "- LIDAR processing git repo\n"
+                    "- Mic phantom power capabilities\n"
+                    "- Advice on fitness supplements\n"
+                    "- Matching SRT files to GPX exports\n\n"
+                    "Bad examples:\n"
+                    "- The user asked me to check root crontab\n"
+                    "- User wants help with their script\n\n"
+                    "No markdown, no quotation marks around the line."
                 ),
             },
             {
