@@ -27,6 +27,9 @@ from .utils.truncate_output import truncate_output
 _CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES = 2
 # Slug segment before `__` + date; keeps filenames short and navigator-friendly.
 _CONVERSATION_TITLE_SLUG_MAX_LEN = 50
+# Per-turn cap so code or tool dumps do not dominate the title prompt.
+_CONVERSATION_TITLE_TRANSCRIPT_CHUNK_CHARS = 2500
+_CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS = 12000
 
 
 class OpenInterpreter:
@@ -188,28 +191,46 @@ class OpenInterpreter:
             return False
         return True
 
-    def _conversation_auto_title_transcript_user_only(self):
-        """User prompts only (no terminal alerts); assistant text is never sent."""
+    def _is_assistant_message_for_conversation_title(self, m):
+        if m.get("role") != "assistant":
+            return False
+        if m.get("type") == "review":
+            return False
+        content = m.get("content")
+        if not isinstance(content, str):
+            return False
+        return bool(content.strip())
+
+    def _clip_conversation_title_text(self, text):
+        cap = _CONVERSATION_TITLE_TRANSCRIPT_CHUNK_CHARS
+        text = text.strip()
+        if len(text) > cap:
+            return text[:cap] + "\n[…truncated…]"
+        return text
+
+    def _conversation_auto_title_transcript(self):
+        """Ordered User:/Assistant: turns; skips terminal-injected user alerts only."""
         lines = []
         for m in self.messages:
-            if not self._is_user_message_for_conversation_title(m):
+            label = None
+            if self._is_user_message_for_conversation_title(m):
+                label = "User"
+            elif self._is_assistant_message_for_conversation_title(m):
+                label = "Assistant"
+            else:
                 continue
-            content = m.get("content")
-            if not isinstance(content, str):
-                continue
-            text = content.strip()
-            if not text:
-                continue
-            lines.append(text)
-        body = "\n---\n".join(lines)
-        if len(body) > 8000:
-            body = body[-8000:]
+            clipped = self._clip_conversation_title_text(m["content"])
+            lines.append(f"{label}: {clipped}")
+        body = "\n\n".join(lines)
+        cap = _CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS
+        if len(body) > cap:
+            body = body[-cap:]
         return body
 
     def _sanitize_conversation_title_slug(self, raw):
         s = raw.strip().split("\n")[0].strip()
         s = s.replace(" ", "_")
-        for char in '<>:"/\\|?*!\n':
+        for char in '<>:"/\\|?*!\n,\'':
             s = s.replace(char, "")
         while "__" in s:
             s = s.replace("__", "_")
@@ -240,7 +261,7 @@ class OpenInterpreter:
         if not sep or not date_segment:
             return
 
-        transcript = self._conversation_auto_title_transcript_user_only()
+        transcript = self._conversation_auto_title_transcript()
         if not transcript:
             return
 
@@ -249,31 +270,39 @@ class OpenInterpreter:
                 "role": "system",
                 "type": "message",
                 "content": (
-                    "You output a single line: a filename slug for the user's task. "
-                    "No other text on that line, no preamble, no quotes.\n\n"
-                    "The line must look like a short Unix-style folder name: "
-                    "words in Title_Case separated by underscores, at most 5 words, "
-                    "at most 36 characters total on the line.\n\n"
-                    "Name only the substance of the work: file types, tools, data, or domain "
-                    "(e.g. SRT_GPX_batch_generation or Route_elevation_chart).\n\n"
-                    "Do not narrate the chat. Do not describe what anyone said or wants. "
-                    "Forbidden prefixes and words include: First_, The_, User_, They_, "
-                    "He_, She_, I_, We_, This_, Here_, saying_, asking_, wants_, told_, "
-                    "declined_, refused_, assistant_, conversation_.\n\n"
-                    "Good: Match_SRT_files_to_GPX\n"
-                    "Bad: First_the_user_is_saying_find_all_srt_files"
+                    "You name a saved chat thread after reading an excerpt of the conversation.\n\n"
+                    "You will get a transcript: lines starting with User: or Assistant:, oldest first. "
+                    "Use both sides to infer the subject matter. The transcript may end with "
+                    "“[…truncated…]” on long turns.\n\n"
+                    "Reply with exactly one line and nothing else: a short topic title for the whole "
+                    "thread, the way a human would label it in a file browser or reading list. "
+                    "Think catalog or episode title, not a summary of who said what.\n\n"
+                    "Good topics (style and substance; your line uses underscores not spaces):\n"
+                    "- LIDAR_processing_git_repo\n"
+                    "- Mic_phantom_power_capabilities\n"
+                    "- Fitness_supplements_advice\n"
+                    "- SRT_to_GPX_batch_export\n\n"
+                    "Bad topics (never do this):\n"
+                    "- The_user_asked_me_to_check_crontab\n"
+                    "- Assistant_explains_how_to_run_sudo\n"
+                    "- User_wants_help_with_their_script\n\n"
+                    "Format for your one line:\n"
+                    "- Title_Case words separated by underscores; no spaces; at most 6 words; "
+                    "at most 40 characters total.\n"
+                    "- Name the subject domain, artifact, or problem. No dialogue, no play-by-play, "
+                    "no “user” or “assistant” or “they asked”.\n"
+                    "- No commas, no markdown, no code fences.\n"
+                    "- Do not copy labels User: or Assistant: into your title."
                 ),
             },
             {
                 "role": "user",
                 "type": "message",
-                "content": (
-                    "Infer the task label from these user prompts only (oldest first). "
-                    "Reply with one slug line only:\n\n"
-                    + transcript
-                ),
+                "content": transcript,
             },
         ]
+
+        self.display_message("> Generating a short title for this conversation…")
 
         content = ""
         try:
