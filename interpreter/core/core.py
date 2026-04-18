@@ -33,6 +33,24 @@ _CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS = 12000
 # `%rename` sends more transcript so long threads still inform the title.
 _CONVERSATION_TITLE_TRANSCRIPT_MANUAL_TOTAL_CHARS = 250000
 
+_CONVERSATION_TITLE_TRANSCRIPT_OMITTED_MARKER = (
+    "\n\n[ … middle of conversation omitted … ]\n\n"
+)
+
+
+def _conversation_title_transcript_trim_to_cap(body, cap):
+    """Keep start and end of the transcript under ``cap`` chars so topics that drift still surface."""
+    if len(body) <= cap:
+        return body
+    marker = _CONVERSATION_TITLE_TRANSCRIPT_OMITTED_MARKER
+    inner = cap - len(marker)
+    if inner < 100:
+        return body[-cap:]
+    head_len = inner // 2
+    tail_len = inner - head_len
+    return body[:head_len] + marker + body[-tail_len:]
+
+
 _CONVERSATION_TITLE_SYSTEM_PROMPT = (
     "You label chat logs for a filing system. You only ever output one line: "
     "a topic HEADING, like a Wikipedia article title or a course catalog line — "
@@ -303,7 +321,7 @@ class OpenInterpreter:
         self.display_message("> Generating a short title for this conversation…")
         content = ""
         try:
-            for chunk in self.llm.run(title_messages):
+            for chunk in self.llm.run(title_messages, auxiliary_title_request=True):
                 # Reasoning streams as type message with format "reasoning" but still uses
                 # "content"; without this skip the filename becomes the model's scratchpad.
                 if chunk.get("format") == "reasoning":
