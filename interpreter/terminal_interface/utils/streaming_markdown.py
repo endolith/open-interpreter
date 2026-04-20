@@ -131,7 +131,15 @@ def create_live_display(console):
     Returns:
         Rich Live display object configured for streaming
     """
-    return Live(console=console, refresh_per_second=20,
+    # auto_refresh=False prevents the background refresh thread from redrawing
+    # the Live area on a timer. With it enabled (the default), the Live display
+    # erases anything written directly to /dev/tty by child processes (e.g. sudo's
+    # "[sudo] password for user:" prompt) within one refresh cycle (~50ms at 20fps).
+    # The prompt has no trailing newline, so it never scrolls past the Live anchor
+    # into terminal history — it simply disappears on the next timer tick.
+    # With auto_refresh=False the display only redraws when OI explicitly pushes a
+    # new chunk, which doesn't happen while the shell is blocked waiting for input.
+    return Live(console=console, auto_refresh=False,
                 vertical_overflow="ellipsis")
 
 
