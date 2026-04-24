@@ -596,6 +596,26 @@ def fixed_litellm_completions(**params):
     params["num_retries"] = 0
     tried_dummy_key = False
 
+    # DeepSeek models via OpenRouter have thinking mode enabled by default and require
+    # reasoning_content on EVERY prior assistant message in the request — even turns
+    # where the model chose not to think (empty string is accepted). Without this
+    # the API returns 400 "reasoning_content must be passed back to the API".
+    # We skip this only when reasoning was explicitly disabled by the caller.
+    _model = params.get("model", "")
+    _extra_body = params.get("extra_body", {})
+    _reasoning_explicitly_disabled = (
+        _extra_body.get("include_reasoning") is False
+        or params.get("include_reasoning") is False
+    )
+    if (
+        _model.startswith("openrouter/")
+        and "deepseek" in _model.lower()
+        and not _reasoning_explicitly_disabled
+    ):
+        for msg in params.get("messages", []):
+            if msg.get("role") == "assistant" and "reasoning_content" not in msg:
+                msg["reasoning_content"] = ""
+
     while True:
         try:
             yield from litellm.completion(**params)

@@ -47,6 +47,7 @@ def convert_to_openai_messages(
     Converts LMC messages into OpenAI messages
     """
     new_messages = []
+    pending_assistant_reasoning = None
 
     # if function_calling == False:
     #     prev_message = None
@@ -67,6 +68,22 @@ def convert_to_openai_messages(
             continue
 
         new_message = {}
+
+        # Preserve streamed reasoning for providers that require it in follow-up turns
+        # (e.g., DeepSeek/OpenRouter thinking mode). We attach it to the next assistant
+        # message so the request payload mirrors the provider's expected shape.
+        if (
+            message.get("type") == "message"
+            and message.get("role", "assistant") == "assistant"
+            and message.get("format") == "reasoning"
+        ):
+            reasoning_text = message.get("content")
+            if isinstance(reasoning_text, str):
+                if pending_assistant_reasoning is None:
+                    pending_assistant_reasoning = reasoning_text
+                else:
+                    pending_assistant_reasoning += reasoning_text
+            continue
 
         if message["type"] == "message":
             # Default to "assistant" for older saved messages that lack role (e.g. from tool-mode streams).
@@ -346,6 +363,15 @@ def convert_to_openai_messages(
         else:
             raise Exception(f"Unable to convert this message type: {message}")
 
+        if (
+            pending_assistant_reasoning is not None
+            and new_message.get("role") == "assistant"
+        ):
+            # OpenRouter accepts "reasoning_content" as an alias of "reasoning".
+            # We use the alias to match DeepSeek error semantics and maximize compatibility.
+            new_message["reasoning_content"] = pending_assistant_reasoning
+            pending_assistant_reasoning = None
+
         if isinstance(new_message["content"], str):
             new_message["content"] = new_message["content"].strip()
 
@@ -355,33 +381,48 @@ def convert_to_openai_messages(
         combined_messages = []
         current_role = None
         current_content = []
+        # Accumulate extra fields (e.g. reasoning_content) from messages being merged.
+        # These must survive the combining step so that providers like DeepSeek that
+        # require reasoning_content to be passed back don't receive a stripped message.
+        current_extra: dict = {}
+
+        def _flush(role, content_parts, extra):
+            msg = {"role": role, "content": "\n".join(content_parts)}
+            msg.update(extra)
+            combined_messages.append(msg)
+
+        def _msg_extra(message):
+            """Extra fields (not role/content) from a single new_message dict."""
+            return {k: v for k, v in message.items() if k not in ("role", "content") and v is not None}
 
         for message in new_messages:
             if isinstance(message["content"], str):
                 if current_role is None:
                     current_role = message["role"]
                     current_content.append(message["content"])
+                    current_extra.update(_msg_extra(message))
                 elif current_role == message["role"]:
+                    # Same role: accumulate content and extra fields
                     current_content.append(message["content"])
+                    current_extra.update(_msg_extra(message))
                 else:
-                    combined_messages.append(
-                        {"role": current_role, "content": "\n".join(current_content)}
-                    )
+                    # Role changed: flush the previous block, then start a new one
+                    _flush(current_role, current_content, current_extra)
                     current_role = message["role"]
                     current_content = [message["content"]]
+                    current_extra = _msg_extra(message)
             else:
                 if current_content:
-                    combined_messages.append(
-                        {"role": current_role, "content": "\n".join(current_content)}
-                    )
+                    _flush(current_role, current_content, current_extra)
                     current_content = []
+                    current_extra = {}
                 combined_messages.append(message)
 
         # Add the last message
         if current_content:
-            combined_messages.append(
-                {"role": current_role, "content": " ".join(current_content)}
-            )
+            msg = {"role": current_role, "content": " ".join(current_content)}
+            msg.update(current_extra)
+            combined_messages.append(msg)
 
         new_messages = combined_messages
 

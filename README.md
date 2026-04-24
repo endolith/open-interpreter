@@ -18,7 +18,7 @@ Major changes vs the upstream branch (`classic/main`):
 - **ai2 module**: for OI to delegate tasks in loops: `boolean_query`, `choice_query`, `single_response`
   - They don't use this on their own, you have to tell them.
 - Better LLM API stuff:
-  - **Reasoning models support**: `reasoning_content` streaming, cyan "Thinking" panels
+  - **Reasoning models support**: `reasoning_content` streaming, cyan "Thinking" panels, `include_reasoning`/`reasoning_effort` params on `interpreter.llm`, OpenRouter extra_body reasoning, DeepSeek V4 thinking-mode compatibility
   - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini ` with `OPENROUTER_API_KEY` env var set
   - **DashScope integration**: Qwen models, vision enabled for newer models. `DASHSCOPE_API_KEY` env var.
   - **Mistral compatibility**: tool ID length, image role mapping
