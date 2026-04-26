@@ -476,15 +476,27 @@ Continuing...
         if self._is_loaded:
             return
 
-        # Route explicit DashScope models (dashscope/<model>) to DashScope defaults.
-        # Use an explicit provider prefix so model families like deepseek-* can still
-        # target other providers (e.g., deepseek/*) without ambiguous auto-routing.
-        if self.model.lower().startswith("dashscope/"):
-            model_name = self.model.split("/", 1)[1].lower()
+        # Route explicit DashScope models to DashScope defaults (OpenAI-compatible).
+        # Prefixes avoid ambiguous auto-routing vs other providers (e.g. deepseek/*).
+        # Slugs:
+        # - dashscope-intl/<model> (Singapore ap-southeast-1)
+        # - dashscope-us/<model> (Virginia, US us-east-1)
+        model_lower = self.model.lower()
+        dashscope_route = None
+        if model_lower.startswith("dashscope-intl/"):
+            dashscope_route = (
+                self.model.split("/", 1)[1].lower(),
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            )
+        elif model_lower.startswith("dashscope-us/"):
+            dashscope_route = (
+                self.model.split("/", 1)[1].lower(),
+                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+            )
+        if dashscope_route is not None:
+            model_name, _dashscope_default_base = dashscope_route
             if self.api_base is None:
-                # Default: Global (US Virginia). International (Singapore):
-                # https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-                self.api_base = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+                self.api_base = _dashscope_default_base
             if self.api_key is None:
                 self.api_key = os.environ.get("DASHSCOPE_API_KEY")
             # Qwen3.5 is a unified vision-language architecture — there are no separate
