@@ -83,7 +83,7 @@ def start_terminal_interface(interpreter):
         {
             "name": "model",
             "nickname": "m",
-            "help_text": "language model to use (e.g. gpt-4o, openrouter/..., deepseek/..., dashscope/...)",
+            "help_text": "language model to use (e.g. gpt-4o, openrouter/..., deepseek/..., dashscope-us/...)",
             "type": str,
             "attribute": {"object": interpreter.llm, "attr_name": "model"},
         },

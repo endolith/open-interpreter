@@ -20,7 +20,7 @@ Major changes vs the upstream branch (`classic/main`):
 - Better LLM API stuff:
   - **Reasoning models support**: `reasoning_content` streaming, cyan "Thinking" panels, `include_reasoning`/`reasoning_effort` params on `interpreter.llm`, OpenRouter extra_body reasoning, DeepSeek V4 thinking-mode compatibility
   - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini ` with `OPENROUTER_API_KEY` env var set
-  - **DashScope integration**: Qwen models, vision enabled for newer models. `DASHSCOPE_API_KEY` env var.
+  - **DashScope integration**: Qwen models, vision enabled for newer models. `DASHSCOPE_API_KEY` env var. Use `dashscope-us/...` or `dashscope-intl/...` to pick the US vs Singapore OpenAI-compatible endpoint.
   - **Mistral compatibility**: tool ID length, image role mapping
   - **API error handling**: Error presented in a panel with rendering of markdown/HTML, retry prompts, clean exits
   - **Usage tracking**: `%usage` command with token stats
@@ -43,7 +43,7 @@ Major changes vs the upstream branch (`classic/main`):
 
 ## Models I've been using:
 
-- `dashscope/qwen3.5-plus` == `dashscope/qwen3.5-397b-a17b`: Good and cheap and has vision, but no input token caching, so more expensive than it should be.
+- `dashscope-us/qwen3.5-plus` == `dashscope-us/qwen3.5-397b-a17b`: Good and cheap and has vision, but no input token caching, so more expensive than it should be.
 - `openrouter/xiaomi/mimo-v2-pro`: Pretty good. No vision.
 - `openrouter/xiaomi/mimo-v2-flash`: Surprisingly good for how cheap it is. Fast. No vision.
 - `openrouter/openai/gpt-4.1-mini`: Better than `gpt-5-mini`.
@@ -54,8 +54,8 @@ Major changes vs the upstream branch (`classic/main`):
 
 ## Not as good:
 
-- `dashscope/qwen3.6-plus`: Misusing commands, trying to import a module it knows isn't installed, hallucinating arguments
-- `dashscope/qwen3.5-122b-a10b`: Incorrect tool calls
+- `dashscope-us/qwen3.6-plus`: Misusing commands, trying to import a module it knows isn't installed, hallucinating arguments
+- `dashscope-us/qwen3.5-122b-a10b`: Incorrect tool calls
 - `deepseek/deepseek-v3.2-exp` ≈ `deepseek/deepseek-v3.2`: Incorrect tool calls, kinda slow, dumb
 - `google/gemini-3-flash` ≈ `gemini-3.1-flash-lite-preview`: Surprisingly bad at using tools
 - `openrouter/minimax/minimax-m2.7` : Hallucinating URLs and not using convenience functions, asking dumb questions
