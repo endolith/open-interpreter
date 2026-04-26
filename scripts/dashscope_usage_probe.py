@@ -3,11 +3,17 @@
 
 Env: DASHSCOPE_API_KEY
 
-Optional arg: model id (default qwen3.5-plus). On compatible-mode (default: US Global) we have seen
+Optional arg: model id (default dashscope-us/qwen3.5-plus). On compatible-mode we have seen
 qwen3-max return prompt_tokens_details.cached_tokens (e.g. 0) while qwen3.5-plus sometimes
 omits cached_tokens entirely in the same usage object — provider/model-dependent.
 
-Example (Git Bash):  export DASHSCOPE_API_KEY='sk-...' && python scripts/dashscope_usage_probe.py qwen3-max
+Use model slug prefixes to choose region endpoint, matching interpreter behavior:
+- `dashscope-us/<model>` (US Virginia)
+- `dashscope-intl/<model>` (Singapore International)
+
+Examples (Git Bash):
+  export DASHSCOPE_API_KEY='sk-...' && python scripts/dashscope_usage_probe.py dashscope-us/qwen3-max
+  export DASHSCOPE_API_KEY='sk-...' && python scripts/dashscope_usage_probe.py dashscope-intl/qwen3-max
 """
 
 from __future__ import annotations
@@ -18,9 +24,10 @@ import sys
 import urllib.error
 import urllib.request
 
-# Default: Global (US). International (Singapore):
-# https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
-URL = "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions"
+# US (Virginia) (us-east-1)
+URL_US = "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions"
+# Singapore (ap-southeast-1)
+URL_INTL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 
 def main() -> None:
@@ -29,7 +36,22 @@ def main() -> None:
         print("Set DASHSCOPE_API_KEY first.", file=sys.stderr)
         sys.exit(1)
 
-    model = sys.argv[1] if len(sys.argv) > 1 else "qwen3.5-plus"
+    model_slug = sys.argv[1] if len(sys.argv) > 1 else "dashscope-us/qwen3.5-plus"
+    model_slug_lower = model_slug.lower()
+    if model_slug_lower.startswith("dashscope-intl/"):
+        model = model_slug.split("/", 1)[1]
+        url = URL_INTL
+        region = "intl"
+    elif model_slug_lower.startswith("dashscope-us/"):
+        model = model_slug.split("/", 1)[1]
+        url = URL_US
+        region = "us"
+    else:
+        print(
+            "Model must start with dashscope-us/ or dashscope-intl/ (e.g. dashscope-us/qwen3-max).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     payload = json.dumps(
         {
@@ -40,7 +62,7 @@ def main() -> None:
     ).encode("utf-8")
 
     req = urllib.request.Request(
-        URL,
+        url,
         data=payload,
         headers={
             "Authorization": f"Bearer {key}",
@@ -59,7 +81,7 @@ def main() -> None:
         print(err_body[:4000])
         sys.exit(1)
 
-    print(f"HTTP {status}  model={model}")
+    print(f"HTTP {status}  model={model_slug}  region={region}  url={url}")
     data = json.loads(body)
     if "error" in data:
         print(json.dumps(data, indent=2))
