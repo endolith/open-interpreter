@@ -44,6 +44,7 @@ Major changes vs the upstream branch (`classic/main`):
 ## Models I've been using:
 
 - `dashscope-us/qwen3.5-plus` == `dashscope-us/qwen3.5-397b-a17b`: Good and cheap and has vision, but no input token caching, so more expensive than it should be.
+- `deepseek/deepseek-v4-flash`: New favorite for text?  Cached and cheap, calls tools well, actually uses python as a REPL instead of writing a brand new script each time.  No vision.
 - `openrouter/xiaomi/mimo-v2-pro`: Pretty good. No vision.
 - `openrouter/xiaomi/mimo-v2-flash`: Surprisingly good for how cheap it is. Fast. No vision.
 - `openrouter/openai/gpt-4.1-mini`: Better than `gpt-5-mini`.
