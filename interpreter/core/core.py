@@ -18,7 +18,7 @@ from .toolbox.toolbox import Toolbox
 from .terminal.terminal import Terminal
 from .default_system_message import default_system_message
 from .llm.llm import Llm
-from .respond import respond
+from .respond import respond, _is_temporary_provider_error, _render_temporary_retry_status
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
@@ -320,19 +320,27 @@ class OpenInterpreter:
             },
         ]
         self.display_message("> Generating a short title for this conversation…")
-        content = ""
-        try:
-            for chunk in self.llm.run(title_messages, auxiliary_title_request=True):
-                # Reasoning streams as type message with format "reasoning" but still uses
-                # "content"; without this skip the filename becomes the model's scratchpad.
-                if chunk.get("format") == "reasoning":
-                    continue
-                if chunk.get("type") == "code":
-                    continue
-                if "content" in chunk:
-                    content += chunk.get("content") or ""
-        except Exception:
-            return ""
+        retry_count = 0
+        while True:
+            content = ""
+            try:
+                for chunk in self.llm.run(title_messages, auxiliary_title_request=True):
+                    # Reasoning streams as type message with format "reasoning" but still uses
+                    # "content"; without this skip the filename becomes the model's scratchpad.
+                    if chunk.get("format") == "reasoning":
+                        continue
+                    if chunk.get("type") == "code":
+                        continue
+                    if "content" in chunk:
+                        content += chunk.get("content") or ""
+                break  # success
+            except Exception as e:
+                if _is_temporary_provider_error(e):
+                    retry_count += 1
+                    _render_temporary_retry_status(retry_count)
+                    time.sleep(min(2**retry_count, 30))
+                else:
+                    return ""
         if not content:
             return ""
         return self._sanitize_conversation_title_slug(content)
