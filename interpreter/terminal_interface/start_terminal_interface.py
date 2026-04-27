@@ -12,17 +12,12 @@ import traceback
 
 from importlib.metadata import version, PackageNotFoundError
 
-from interpreter.terminal_interface.contributing_conversations import (
-    contribute_conversation_launch_logic,
-    contribute_conversations,
-)
-
-from interpreter.core.utils.prompt_choice import prompt_choice
-
-from .conversation_navigator import conversation_navigator
 from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
-from .validate_llm_settings import validate_llm_settings
+
+# validate_llm_settings, contributing_conversations, and conversation_navigator
+# import litellm (directly or transitively) and are deferred to after
+# argparse parses args, so --help / --version exit before they load.
 
 
 def start_terminal_interface(interpreter):
@@ -444,6 +439,16 @@ Use """ to write multi-line messages.
         print(f"Open Interpreter {oi_version} {update_name}")
         return
 
+    # Deferred: these import litellm (directly or transitively). Placed after all
+    # quick-exit flags so --help / --version / --profiles etc. never load them.
+    from interpreter.terminal_interface.contributing_conversations import (
+        contribute_conversation_launch_logic,
+        contribute_conversations,
+    )
+    from interpreter.core.utils.prompt_choice import prompt_choice
+    from .conversation_navigator import conversation_navigator
+    from .validate_llm_settings import validate_llm_settings
+
     if args.no_highlight_active_line:
         interpreter.highlight_active_line = False
 
@@ -637,6 +642,17 @@ def get_argument_dictionary(arguments: list[dict], key: str) -> dict:
 
 
 def main():
+    # --help / -h / --version exit immediately inside start_terminal_interface
+    # (argparse calls sys.exit), so skip the heavy interpreter import entirely.
+    _FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
+    if _FAST_EXIT_FLAGS.intersection(sys.argv):
+        class _Stub:
+            pass
+        _stub = _Stub()
+        _stub.llm = _Stub()
+        start_terminal_interface(_stub)
+        return  # unreachable; already exited
+
     from interpreter import interpreter
 
     try:
@@ -646,6 +662,8 @@ def main():
         raise SystemExit(1)
     except KeyboardInterrupt:
         try:
+            from interpreter.terminal_interface.contributing_conversations import contribute_conversations
+            from interpreter.core.utils.prompt_choice import prompt_choice
             interpreter.terminal.terminate()
 
             if not interpreter.offline and not interpreter.disable_telemetry:
