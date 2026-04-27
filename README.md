@@ -22,7 +22,7 @@ Major changes vs the upstream branch (`classic/main`):
   - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini ` with `OPENROUTER_API_KEY` env var set
   - **DashScope integration**: Qwen models, vision enabled for newer models. `DASHSCOPE_API_KEY` env var. Use `dashscope-us/...` or `dashscope-intl/...` to pick the US vs Singapore OpenAI-compatible endpoint.
   - **Mistral compatibility**: tool ID length, image role mapping
-  - **API error handling**: Error presented in a panel with rendering of markdown/HTML, retry prompts, clean exits
+  - **API error handling**: Error presented in a panel with rendering of markdown/HTML, retry prompts, auto-retry on temporary provider errors, clean exits
   - **Usage tracking**: `%usage` command with token stats
 - **Profile validation**: warns about invalid configuration attributes
 - **Edit commands before running**: temp file editing with `$EDITOR` env var support
