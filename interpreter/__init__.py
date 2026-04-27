@@ -62,28 +62,30 @@ if "--os" in sys.argv:
     run_async_main()
     exit()
 
-from .core.async_core import AsyncInterpreter
-from .core.terminal.base_language import BaseLanguage
-from .core.core import OpenInterpreter
+# Skip heavy imports (litellm etc.) for flags that exit immediately — the CLI
+# entry point exits via argparse/sys.exit before it ever needs these names.
+_FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
+if not _FAST_EXIT_FLAGS.intersection(sys.argv):
+    from .core.async_core import AsyncInterpreter
+    from .core.terminal.base_language import BaseLanguage
+    from .core.core import OpenInterpreter
 
-interpreter = OpenInterpreter()
-toolbox = interpreter.toolbox
+    interpreter = OpenInterpreter()
+    toolbox = interpreter.toolbox
 
+    class _LazyAi2Proxy:
+        """Expose interpreter.ai2 without constructing Ai2 until first use."""
 
-class _LazyAi2Proxy:
-    """Expose interpreter.ai2 without constructing Ai2 until first use."""
+        def _target(self):
+            return interpreter.toolbox.ai2
 
-    def _target(self):
-        return interpreter.toolbox.ai2
+        def __getattr__(self, name):
+            return getattr(self._target(), name)
 
-    def __getattr__(self, name):
-        return getattr(self._target(), name)
+        def __repr__(self):
+            return repr(self._target())
 
-    def __repr__(self):
-        return repr(self._target())
-
-
-ai2 = _LazyAi2Proxy()
+    ai2 = _LazyAi2Proxy()
 
 #     ____                      ____      __                            __
 #    / __ \____  ___  ____     /  _/___  / /____  _________  ________  / /____  _____
