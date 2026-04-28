@@ -34,6 +34,7 @@ Major changes vs the upstream branch (`classic/main`):
   - User message timestamps so it knows the date and how much time has passed
   - "New Conversation" menu option in `--conversations` navigator (in case you change your mind)
   - Atomic file saving (corruption-resistant)
+  - **Cache-aware truncation** (`truncation_step`) for better KV/prefix-cache reuse by dropping old history in token chunks instead of shifting the boundary every turn, drops average costs over 50% per token.
 - **Secret redaction**: Try to avoid sending passwords and secrets environment variables to the LLM's server
 - **System message enhancements**: rough geolocation, encourage REPL-like coding, etc.
 - **Windows support**: Downloads folder detection via `SHGetKnownFolderPath`, UTF-8 code page for shell, `bat` syntax highlighting

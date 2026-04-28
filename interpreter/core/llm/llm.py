@@ -26,6 +26,7 @@ from .run_text_llm import run_text_llm
 
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
+from .utils.cache_aware_trim import cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
 
@@ -97,6 +98,15 @@ class Llm:
 
         # Budget manager powered by LiteLLM
         self.max_budget = None
+
+        # Cache-aware truncation: when set, history is dropped in chunks of this
+        # many tokens instead of one turn at a time.  This keeps the prompt
+        # prefix stable across multiple consecutive turns so the provider's KV
+        # prefix cache stays warm, reducing per-token cost.  Set to e.g. 2000
+        # for a 40k context window.  None (default) falls back to tokentrim's
+        # sliding-window behaviour.
+        # See: https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
+        self.truncation_step = None
 
         # Reasoning settings: Use include_reasoning=True to request reasoning tokens
         # (delta.reasoning_content) from OpenRouter/LiteLLM. Use reasoning_effort
@@ -255,7 +265,21 @@ class Llm:
 
         # Trim messages
         try:
-            if self.context_window and self.max_tokens:
+            if self.truncation_step and self.context_window:
+                # Cache-aware truncation: drop history in fixed-size chunks so
+                # the prompt prefix stays stable across multiple turns.  This
+                # keeps the provider's KV prefix cache warm between requests,
+                # unlike a per-turn sliding window which invalidates the cache
+                # on every call once the context fills up.
+                token_limit = self.context_window - (self.max_tokens or 0) - 25
+                messages = cache_aware_trim(
+                    messages,
+                    system_message=system_message,
+                    token_limit=token_limit,
+                    truncation_step=self.truncation_step,
+                    model=model,
+                )
+            elif self.context_window and self.max_tokens:
                 trim_to_be_this_many_tokens = (
                     self.context_window - self.max_tokens - 25
                 )  # arbitrary buffer

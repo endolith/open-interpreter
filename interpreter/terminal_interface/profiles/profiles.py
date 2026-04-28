@@ -280,6 +280,7 @@ def migrate_profile(old_path, new_path):
         "function_calling_llm": "llm.supports_functions",
         "context_window": "llm.context_window",
         "max_tokens": "llm.max_tokens",
+        "truncation_step": "llm.truncation_step",
         "api_base": "llm.api_base",
         "api_key": "llm.api_key",
         "api_version": "llm.api_version",
