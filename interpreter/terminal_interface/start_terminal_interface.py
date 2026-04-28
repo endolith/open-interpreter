@@ -128,6 +128,13 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter.llm, "attr_name": "max_tokens"},
         },
         {
+            "name": "truncation_step",
+            "nickname": "ts",
+            "help_text": "enable cache-aware truncation: drop history in chunks of this many tokens instead of one turn at a time, keeping the prompt prefix stable so the provider's KV cache stays warm. e.g. --truncation_step 2000",
+            "type": int,
+            "attribute": {"object": interpreter.llm, "attr_name": "truncation_step"},
+        },
+        {
             "name": "max_budget",
             "nickname": "b",
             "help_text": "optionally set the max budget (in USD) for your llm calls",
