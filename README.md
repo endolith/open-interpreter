@@ -27,7 +27,7 @@ Major changes vs the upstream branch (`classic/main`):
 - **Profile validation**: warns about invalid configuration attributes
 - **Edit commands before running**: temp file editing with `$EDITOR` env var support
 - **`view_image` tool**: Allow vision-capable LLMs to request to view image files; includes image resize/shrink prompts for large files
-- **Incremental markdown rendering**: raw streaming / rendering of markdown blocks one at a time to avoid screen flickering
+- **Incremental markdown rendering**: raw streaming / rendering of markdown blocks one at a time to avoid screen flickering; large code outputs stream and render permanently
 - **Better terminal size detection:** You can resize window without breaking all subsequent text formatting
 - **Python REPL state output**: shows variables, modules, CWD for the LLM's context, alerts when REPL was restarted
 - **Conversation improvements**:
