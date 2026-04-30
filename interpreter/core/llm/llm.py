@@ -419,7 +419,15 @@ Continuing...
             # Avoid huge reasoning streams and hung streams with no wall clock (OpenRouter etc.).
             # Not a litellm re-import — this path still uses the same completions() generator.
             params["timeout"] = 120
-            params["max_tokens"] = min(int(params.get("max_tokens") or 512), 128)
+            # OpenRouter (and other providers) thinking/reasoning models consume max_tokens
+            # with internal reasoning tokens even when reasoning streaming is disabled.
+            # With max_tokens=128, finish_reason='length' was observed with zero visible output
+            # (all tokens consumed by internal thinking) for deepseek/deepseek-v4-flash.
+            # litellm.supports_reasoning() does not detect all reasoning models reliably, so
+            # we can't use it to branch here. A large cap is safe for all models: non-reasoning
+            # models stop at "stop" well within this budget; reasoning models need the headroom
+            # for thinking tokens before the title is produced.
+            params["max_tokens"] = min(int(params.get("max_tokens") or 2048), 2048)
             params["include_reasoning"] = False
             params.pop("reasoning_effort", None)
             if "stream_options" in params:
@@ -429,6 +437,11 @@ Continuing...
                 eb.pop("include_reasoning", None)
                 eb.pop("reasoning", None)
             params["skip_execution_instructions"] = True
+            # ``run_text_llm`` treats ```...``` as executable code blocks and can yield zero
+            # chunks when the model returns a one-line fenced title (no newline after the
+            # fence). Plain streaming maps ``delta.content`` directly to messages for
+            # ``%rename`` / auto-title only.
+            params["conversation_title_plain_stream"] = True
 
         # Set some params directly on LiteLLM
         if self.max_budget:
