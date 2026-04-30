@@ -1700,10 +1700,20 @@ class Web:
             "tavily": self._fetch_tavily
         }
 
+        # Validate backend name before touching the cache, so an invalid backend name
+        # always errors immediately rather than silently returning a stale cached result.
+        if backend and backend.lower() not in backend_methods:
+            raise WebToolboxError(
+                f"Supported backends for fetch: {', '.join(backend_methods.keys())}. "
+                "Try without specifying a backend to auto-select."
+            )
+
         # Multi-URL calls (tavily urls=[...]) bypass the cache — too varied to key simply.
+        # Explicit backend requests also bypass the cache: the caller is deliberately
+        # choosing a different source and should not silently get a prior result.
         is_multi_url = "urls" in kwargs
 
-        if not is_multi_url and url in self._fetch_cache:
+        if not is_multi_url and not backend and url in self._fetch_cache:
             cached = self._fetch_cache[url]
             cached._cached = True
             print("→ result.content|result['content']|result.find(term)|result.links()")
@@ -1711,12 +1721,6 @@ class Web:
 
         if backend:
             backend = backend.lower()
-
-            if backend not in backend_methods:
-                raise WebToolboxError(
-                    f"Supported backends for fetch: {', '.join(backend_methods.keys())}. "
-                    "Try without specifying a backend to auto-select."
-                )
 
             if is_multi_url:
                 result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
