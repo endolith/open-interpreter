@@ -329,8 +329,6 @@ class OpenInterpreter:
                     # "content"; without this skip the filename becomes the model's scratchpad.
                     if chunk.get("format") == "reasoning":
                         continue
-                    if chunk.get("type") == "code":
-                        continue
                     if "content" in chunk:
                         content += chunk.get("content") or ""
                 break  # success
