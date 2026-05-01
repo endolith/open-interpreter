@@ -630,7 +630,7 @@ def run_tool_calling_llm(llm, request_params):
             tool_call_id_for_error = None
 
         # Only "execute" is supported as a direct tool call
-        # Other functions (like toolbox.web.brave) must be called from within Python code
+        # Other functions (like toolbox.web.search) must be called from within Python code
         if function_name == "execute":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
@@ -779,7 +779,7 @@ def run_tool_calling_llm(llm, request_params):
                 f"Unsupported function call: '{function_name}'. "
                 f"Only 'execute' and 'view_image' (vision models only) are supported as direct tool calls. "
                 f"To use '{function_name}', call it from within Python code using the execute function. "
-                f"For example: `toolbox.web.brave(query='...')`"
+                f"For example: `toolbox.web.search('your query')`"
             )
 
             # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
