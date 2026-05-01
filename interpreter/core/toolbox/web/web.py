@@ -1772,7 +1772,10 @@ class Web:
             fetch_result = FetchResult(result)
             if not is_multi_url:
                 self._fetch_cache[url] = fetch_result
-            print("→ result.content | result.find(term) | result.links()")
+            if is_multi_url:
+                print("→ result.results[i]['content'] | result.find(term) | result.links()")
+            else:
+                print("→ result.content | result.find(term) | result.links()")
             return fetch_result
 
         backends_to_try = ["serper", "linkup", "tavily"]
@@ -1795,7 +1798,10 @@ class Web:
                 fetch_result = FetchResult(result)
                 if not is_multi_url:
                     self._fetch_cache[url] = fetch_result
-                print("→ result.content | result.find(term) | result.links()")
+                if is_multi_url:
+                    print("→ result.results[i]['content'] | result.find(term) | result.links()")
+                else:
+                    print("→ result.content | result.find(term) | result.links()")
                 return fetch_result
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
