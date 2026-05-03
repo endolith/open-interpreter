@@ -649,6 +649,14 @@ def fixed_litellm_completions(**params):
     # reasoning_content on EVERY prior assistant message in the request — even turns
     # where the model chose not to think (empty string is accepted). Without this
     # the API returns 400 "reasoning_content must be passed back to the API".
+    #
+    # Primary fix: convert_to_openai_messages propagates reasoning_content to ALL
+    # consecutive assistant messages in a turn (text preamble AND tool_calls message).
+    # SiliconFlow (used as an OpenRouter backend) strictly enforces this — passing ""
+    # on a tool_calls message triggers 400 when the model actually returned reasoning.
+    #
+    # This is a secondary/belt-and-suspenders pass that catches any remaining assistant
+    # messages that slipped through (e.g. synthetic messages injected by process_messages).
     # We skip this only when reasoning was explicitly disabled by the caller.
     _model = params.get("model", "")
     _extra_body = params.get("extra_body", {})
