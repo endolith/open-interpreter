@@ -363,14 +363,22 @@ def convert_to_openai_messages(
         else:
             raise Exception(f"Unable to convert this message type: {message}")
 
-        if (
-            pending_assistant_reasoning is not None
-            and new_message.get("role") == "assistant"
-        ):
-            # OpenRouter accepts "reasoning_content" as an alias of "reasoning".
-            # We use the alias to match DeepSeek error semantics and maximize compatibility.
-            new_message["reasoning_content"] = pending_assistant_reasoning
-            pending_assistant_reasoning = None
+        if pending_assistant_reasoning is not None:
+            if new_message.get("role") == "assistant":
+                # OpenRouter accepts "reasoning_content" as an alias of "reasoning".
+                # We use the alias to match DeepSeek error semantics and maximize compatibility.
+                #
+                # Propagate to ALL consecutive assistant messages in the same turn, not just
+                # the first. When the model returns text preamble + tool_calls together, OI
+                # stores them as separate messages (text, then code/tool_call). Both need the
+                # same reasoning_content. SiliconFlow (and possibly other providers) return 400
+                # if any assistant message in the history is missing reasoning_content.
+                new_message["reasoning_content"] = pending_assistant_reasoning
+                # Do NOT clear here — carry forward to the next assistant message (e.g. tool_calls).
+            else:
+                # Non-assistant message = turn boundary. Reasoning from the previous turn
+                # does not carry over to future turns; the next reasoning will set a new value.
+                pending_assistant_reasoning = None
 
         if isinstance(new_message["content"], str):
             new_message["content"] = new_message["content"].strip()
