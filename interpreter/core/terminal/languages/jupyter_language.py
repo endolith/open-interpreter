@@ -52,22 +52,15 @@ class JupyterLanguage(BaseLanguage):
         self.listener_thread = None
         self.finish_flag = False
 
-        # DISABLED because sometimes this bypasses sending it up to us for some reason!
-        # Give it our same matplotlib backend
-        # backend = matplotlib.get_backend()
-
-        # Use Agg, which bubbles everything up as an image.
-        # Not perfect (I want interactive!) but it works.
-        backend = "Agg"
-
-        code = f"""
-import matplotlib
-matplotlib.use('{backend}')
-        """.strip()
-
         # Use Inline by default for broad compatibility. Users can opt into a GUI backend
-        # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND.
+        # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND or MPLBACKEND.
+        # INTERPRETER_MPL_BACKEND takes precedence so Open Interpreter can control behavior.
         configured_backend = os.environ.get("INTERPRETER_MPL_BACKEND", "").strip()
+        backend_source = "INTERPRETER_MPL_BACKEND"
+        if not configured_backend:
+            configured_backend = os.environ.get("MPLBACKEND", "").strip()
+            backend_source = "MPLBACKEND"
+
         if configured_backend:
             code = f"""
 import matplotlib
@@ -78,7 +71,7 @@ _oi_mpl_original_show = plt.show
 def _oi_mpl_show_with_hint(*args, **kwargs):
     global _oi_mpl_backend_hint_shown
     if not _oi_mpl_backend_hint_shown:
-        print("Matplotlib backend set by INTERPRETER_MPL_BACKEND={configured_backend!r}.")
+        print("Matplotlib backend set by {backend_source}={configured_backend!r}.")
         _oi_mpl_backend_hint_shown = True
     return _oi_mpl_original_show(*args, **kwargs)
 plt.show = _oi_mpl_show_with_hint
@@ -92,7 +85,7 @@ _oi_mpl_original_show = plt.show
 def _oi_mpl_show_with_hint(*args, **kwargs):
     global _oi_mpl_backend_hint_shown
     if not _oi_mpl_backend_hint_shown:
-        print("Matplotlib backend not set; defaulting to inline. Set INTERPRETER_MPL_BACKEND=TkAgg for interactive GUI plots (pan/zoom).")
+        print("Matplotlib backend not set; defaulting to inline. Set INTERPRETER_MPL_BACKEND=TkAgg (or MPLBACKEND=TkAgg) for interactive GUI plots (pan/zoom).")
         _oi_mpl_backend_hint_shown = True
     return _oi_mpl_original_show(*args, **kwargs)
 plt.show = _oi_mpl_show_with_hint
