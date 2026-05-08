@@ -73,6 +73,9 @@ def _oi_mpl_show_with_hint(*args, **kwargs):
     if not _oi_mpl_backend_hint_shown:
         print("Matplotlib backend set by {backend_source}={configured_backend!r}.")
         _oi_mpl_backend_hint_shown = True
+    # GUI backends (e.g. TkAgg) can block the OI loop on show(); default to
+    # non-blocking so users can interact with the figure while code execution continues.
+    kwargs.setdefault("block", False)
     return _oi_mpl_original_show(*args, **kwargs)
 plt.show = _oi_mpl_show_with_hint
 """.strip()
@@ -453,7 +456,7 @@ print(__oi_res)
         message_queue = queue.Queue()
         self.finish_flag = False
         self._execute_code(state_code.strip(), message_queue)
-        
+
         for output in self._capture_output(message_queue):
             if output.get("type") == "console" and output.get("format") == "output":
                 yield output
