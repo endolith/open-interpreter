@@ -65,10 +65,37 @@ import matplotlib
 matplotlib.use('{backend}')
         """.strip()
 
-        # Use Inline actually, it's better I think
-        code = """
+        # Use Inline by default for broad compatibility. Users can opt into a GUI backend
+        # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND.
+        configured_backend = os.environ.get("INTERPRETER_MPL_BACKEND", "").strip()
+        if configured_backend:
+            code = f"""
+import matplotlib
+matplotlib.use({configured_backend!r})
+import matplotlib.pyplot as plt
+_oi_mpl_backend_hint_shown = False
+_oi_mpl_original_show = plt.show
+def _oi_mpl_show_with_hint(*args, **kwargs):
+    global _oi_mpl_backend_hint_shown
+    if not _oi_mpl_backend_hint_shown:
+        print("Matplotlib backend set by INTERPRETER_MPL_BACKEND={configured_backend!r}.")
+        _oi_mpl_backend_hint_shown = True
+    return _oi_mpl_original_show(*args, **kwargs)
+plt.show = _oi_mpl_show_with_hint
+""".strip()
+        else:
+            code = """
 %matplotlib inline
 import matplotlib.pyplot as plt
+_oi_mpl_backend_hint_shown = False
+_oi_mpl_original_show = plt.show
+def _oi_mpl_show_with_hint(*args, **kwargs):
+    global _oi_mpl_backend_hint_shown
+    if not _oi_mpl_backend_hint_shown:
+        print("Matplotlib backend not set; defaulting to inline. Set INTERPRETER_MPL_BACKEND=TkAgg for interactive GUI plots (pan/zoom).")
+        _oi_mpl_backend_hint_shown = True
+    return _oi_mpl_original_show(*args, **kwargs)
+plt.show = _oi_mpl_show_with_hint
 """.strip()
 
         for _ in self.run(code):
