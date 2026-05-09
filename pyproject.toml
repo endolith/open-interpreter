@@ -3,7 +3,7 @@ name = "open-interpreter"
 version = "0.4.3"
 description = "Let language models run code"
 readme = "README.md"
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.9,<4"
 authors = [
     { name = "Killian Lucas", email = "killian@openinterpreter.com" },
 ]
