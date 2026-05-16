@@ -363,6 +363,17 @@ Continuing...
 
         # OpenRouter provider preferences: Ensure consistent behavior across providers
         # For OpenRouter models, require providers to support all parameters to avoid inconsistency
+        if model.startswith("deepseek/"):
+            # LiteLLM maps include_reasoning / reasoning_effort to DeepSeek's thinking API.
+            if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(
+                model=model or self.model
+            ):
+                if self.include_reasoning is not False:
+                    params["include_reasoning"] = (
+                        True if self.include_reasoning is None else self.include_reasoning
+                    )
+                    stream_options["include_reasoning"] = params["include_reasoning"]
+
         if model.startswith("openrouter/"):
             params["provider"] = {
                 "require_parameters": True,  # Only use providers that support all request parameters
@@ -544,6 +555,15 @@ Continuing...
             # Route through OpenAI-compatible formatting for DashScope's compatible endpoint.
             self.model = f"openai/{model_name}"
 
+        # DeepSeek API (OpenAI-compatible). Keep deepseek/<model> for LiteLLM routing.
+        if model_lower.startswith("deepseek/"):
+            if self.api_base is None:
+                self.api_base = os.environ.get(
+                    "DEEPSEEK_API_BASE", "https://api.deepseek.com"
+                )
+            if self.api_key is None:
+                self.api_key = os.environ.get("DEEPSEEK_API_KEY")
+
         if self.model.startswith("ollama/") and not ":" in self.model:
             self.model = self.model + ":latest"
 
@@ -664,11 +684,10 @@ def fixed_litellm_completions(**params):
         _extra_body.get("include_reasoning") is False
         or params.get("include_reasoning") is False
     )
-    if (
-        _model.startswith("openrouter/")
-        and "deepseek" in _model.lower()
-        and not _reasoning_explicitly_disabled
-    ):
+    _uses_deepseek_reasoning_history = _model.startswith("deepseek/") or (
+        _model.startswith("openrouter/") and "deepseek" in _model.lower()
+    )
+    if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
         for msg in params.get("messages", []):
             if msg.get("role") == "assistant" and "reasoning_content" not in msg:
                 msg["reasoning_content"] = ""

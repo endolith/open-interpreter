@@ -575,6 +575,9 @@ Use """ to write multi-line messages.
             "/" not in interpreter.llm.model
             and not interpreter.llm.model.lower().startswith("openai/")
             and not interpreter.llm.model.lower().startswith("azure/")
+            and not interpreter.llm.model.lower().startswith("deepseek/")
+            and not interpreter.llm.model.lower().startswith("dashscope-us/")
+            and not interpreter.llm.model.lower().startswith("dashscope-intl/")
             and not interpreter.llm.model.lower().startswith("ollama")
             and not interpreter.llm.model.lower().startswith("jan")
             and not interpreter.llm.model.lower().startswith("local")
