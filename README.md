@@ -19,8 +19,9 @@ Major changes vs the upstream branch (`classic/main`):
   - They don't use this on their own, you have to tell them.
 - Better LLM API stuff:
   - **Reasoning models support**: `reasoning_content` streaming, cyan "Thinking" panels, `include_reasoning`/`reasoning_effort` params on `interpreter.llm`, OpenRouter extra_body reasoning, DeepSeek V4 thinking-mode compatibility
-  - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini ` with `OPENROUTER_API_KEY` env var set
-  - **DashScope integration**: Qwen models, vision enabled for newer models. `DASHSCOPE_API_KEY` env var. Use `dashscope-us/...` or `dashscope-intl/...` to pick the US vs Singapore OpenAI-compatible endpoint.
+  - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini` with `OPENROUTER_API_KEY` env var set
+  - **DeepSeek API**: `--model deepseek/deepseek-v4-flash` with `DEEPSEEK_API_KEY` (optional `DEEPSEEK_API_BASE`)
+  - **DashScope (Qwen)**: `--model dashscope-us/qwen3.5-plus` or `dashscope-intl/...` with `DASHSCOPE_API_KEY`; vision enabled for Qwen 3.5 models
   - **Mistral compatibility**: tool ID length, image role mapping
   - **API error handling**: Error presented in a panel with rendering of markdown/HTML, retry prompts, auto-retry on temporary provider errors, clean exits
   - **Usage tracking**: `%usage` command with token stats
