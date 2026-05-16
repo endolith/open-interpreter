@@ -42,6 +42,25 @@ def test_deepseek_load_uses_default_base_without_env(interpreter, monkeypatch):
     assert interpreter.llm.api_key is None
 
 
+def test_dashscope_intl_load_rewrites_to_openai_compatible(interpreter, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    interpreter.llm.model = "dashscope-intl/qwen3-max"
+    interpreter.llm.api_key = None
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.model == "openai/qwen3-max"
+    assert interpreter.llm.api_key == "sk-test-dashscope"
+    assert (
+        interpreter.llm.api_base
+        == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    )
+
+
 def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -49,6 +68,7 @@ def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatc
     interpreter.llm.model = "dashscope-us/qwen3.5-plus"
     interpreter.llm.api_key = None
     interpreter.llm.api_base = None
+    interpreter.llm.supports_vision = None
     interpreter.llm._is_loaded = False
 
     interpreter.llm.load()
@@ -59,3 +79,4 @@ def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatc
         interpreter.llm.api_base
         == "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
     )
+    assert interpreter.llm.supports_vision is True
