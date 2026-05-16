@@ -132,6 +132,13 @@ def respond(interpreter):
         if interpreter.custom_instructions:
             system_message += "\n\n## User's Custom Instructions\n\n" + interpreter.custom_instructions
 
+        # OpenAI-compatible server: client system prompt(s) from the HTTP request body
+        server_request_system = getattr(interpreter, "_server_request_system", None)
+        if server_request_system:
+            system_message += (
+                "\n\n## Client system prompt\n\n" + server_request_system
+            )
+
         # Add toolbox API system message
         if interpreter.toolbox.import_toolbox_api:
             if interpreter.toolbox.system_message not in system_message:
@@ -160,7 +167,9 @@ def respond(interpreter):
         }
 
         # Create the version of messages that we'll send to the LLM
-        messages_for_llm = interpreter.messages.copy()
+        messages_for_llm = [
+            m for m in interpreter.messages.copy() if m.get("role") != "system"
+        ]
         messages_for_llm = [rendered_system_message] + messages_for_llm
 
         if insert_loop_message:
