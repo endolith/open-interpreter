@@ -74,6 +74,7 @@
             "language-models/hosted-models/cloudflare",
             "language-models/hosted-models/cohere",
             "language-models/hosted-models/ai21",
+            "language-models/hosted-models/dashscope",
             "language-models/hosted-models/deepinfra",
             "language-models/hosted-models/deepseek",
             "language-models/hosted-models/huggingface",
