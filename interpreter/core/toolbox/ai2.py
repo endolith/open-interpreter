@@ -46,6 +46,7 @@ class Ai2:
     • OPENAI_API_KEY - for OpenAI models (required for structured outputs)
     • OPENROUTER_API_KEY - for OpenRouter models (get free key at https://openrouter.ai/)
     • DEEPSEEK_API_KEY - for DeepSeek models (https://platform.deepseek.com/api_keys)
+    • DASHSCOPE_API_KEY - for DashScope Qwen models (dashscope-us/..., dashscope-intl/...)
     • ANTHROPIC_API_KEY - for Anthropic models
     • GOOGLE_API_KEY - for Google models
     • COHERE_API_KEY - for Cohere models
@@ -128,6 +129,7 @@ class Ai2:
             "openai": os.getenv("OPENAI_API_KEY"),
             "openrouter": os.getenv("OPENROUTER_API_KEY"),
             "deepseek": os.getenv("DEEPSEEK_API_KEY"),
+            "dashscope": os.getenv("DASHSCOPE_API_KEY"),
             "anthropic": os.getenv("ANTHROPIC_API_KEY"),
             "google": os.getenv("GOOGLE_API_KEY"),
             "cohere": os.getenv("COHERE_API_KEY"),
@@ -181,6 +183,8 @@ class Ai2:
             return self.api_keys["openrouter"]
         elif model.startswith("deepseek/"):
             return self.api_keys["deepseek"]
+        elif model.lower().startswith(("dashscope-us/", "dashscope-intl/")):
+            return self.api_keys["dashscope"]
         elif model.startswith("claude-") or model.startswith("anthropic/"):
             return self.api_keys["anthropic"]
         elif model.startswith("gemini-") or model.startswith("google/"):

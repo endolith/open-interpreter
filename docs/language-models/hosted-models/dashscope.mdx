@@ -1,0 +1,69 @@
+---
+title: DashScope (Qwen)
+---
+
+To use Qwen and other models on [Alibaba Cloud DashScope](https://www.alibabacloud.com/help/en/model-studio/getting-started/models), set the `model` flag with a **region prefix**:
+
+| Prefix | Region | API base (set automatically) |
+| ------ | ------ | ------------------------------ |
+| `dashscope-us/` | US (Virginia) | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` |
+| `dashscope-intl/` | International (Singapore) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --model dashscope-us/qwen3.5-plus
+```
+
+```python Python
+from interpreter import interpreter
+
+interpreter.llm.model = "dashscope-us/qwen3.5-plus"
+interpreter.chat()
+```
+
+</CodeGroup>
+
+Open Interpreter routes these slugs to DashScope's OpenAI-compatible endpoint and rewrites the model id for LiteLLM (for example, `dashscope-us/qwen3.5-plus` → `openai/qwen3.5-plus` with the US base URL).
+
+# Supported Models
+
+Use any model id listed in the [DashScope model catalog](https://www.alibabacloud.com/help/en/model-studio/getting-started/models). Examples:
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --model dashscope-us/qwen3.5-plus
+interpreter --model dashscope-us/qwen3-max
+interpreter --model dashscope-intl/qwen3.5-plus
+interpreter --model dashscope-intl/qwen3-max
+```
+
+```python Python
+interpreter.llm.model = "dashscope-us/qwen3.5-plus"
+interpreter.llm.model = "dashscope-us/qwen3-max"
+interpreter.llm.model = "dashscope-intl/qwen3.5-plus"
+interpreter.llm.model = "dashscope-intl/qwen3-max"
+```
+
+</CodeGroup>
+
+Pick `dashscope-us/` or `dashscope-intl/` based on where your API key is provisioned and which region you want to call.
+
+# Required Environment Variables
+
+Set the following environment variables [(click here to learn how)](https://chat.openai.com/share/1062cdd8-62a1-4aa8-8ec9-eca45645971a) to use these models.
+
+| Environment Variable | Description | Where to Find |
+| -------------------- | ----------- | ------------- |
+| `DASHSCOPE_API_KEY` | API key for DashScope compatible-mode. | [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/get-api-key) |
+
+You can override the base URL manually if needed:
+
+```python
+interpreter.llm.api_base = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+```
+
+# Vision
+
+Qwen 3.5 models (`qwen3.5*`) support image input. When you use a `dashscope-us/` or `dashscope-intl/` slug with a Qwen 3.5 model id, Open Interpreter enables vision automatically.
