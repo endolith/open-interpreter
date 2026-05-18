@@ -1323,8 +1323,7 @@ class Web:
                 print(f"- {source['title']}: {source['url']}")
         """
         if "?" not in question:
-            print(f"⚠️  web.answer() expects a question ending in '?', not search terms.\n"
-                  f"   Try rephrasing: \"{question}?\"")
+            print(f"⚠️  web.answer() AI expects a question ending in '?', not search terms.\n")
 
         if backend:
             backend = backend.lower()
