@@ -44,7 +44,7 @@ class React(BaseLanguage):
     name = "React"
     file_extension = "html"
 
-    # system_message = "When you execute code with `react`, your react code will be run in a script tag after being inserted into the HTML template, following the installation of React, ReactDOM, and Babel for JSX parsing. **We will handle this! Don't make an HTML file to run React, just execute `react`.**"
+    system_message = "When you execute code with `react`, your react code will be run in a script tag after being inserted into the HTML template, following the installation of React, ReactDOM, and Babel for JSX parsing. **We will handle this! Don't make an HTML file to run React, just execute `react`.**"
 
     def __init__(self, interpreter=None):
         super().__init__()
