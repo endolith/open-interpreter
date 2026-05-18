@@ -378,7 +378,7 @@ def terminal_interface(interpreter, message):
                                 if editor:
                                     subprocess.call([editor, tmp_path])
                                 elif platform.system() == "Windows":
-                                    os.startfile(tmp_path)
+                                    os.startfile(tmp_path, "edit")
                                 else:
                                     # Try common Linux editors in order
                                     # Skip GUI editors if no display is available
