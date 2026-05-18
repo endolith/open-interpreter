@@ -388,7 +388,17 @@ def terminal_interface(interpreter, message):
                                         ".html",
                                         ".htm",
                                     ):
-                                        os.startfile(tmp_path, "edit")
+                                        try:
+                                            os.startfile(tmp_path, "edit")
+                                        except OSError:
+                                            notepad = os.path.join(
+                                                os.environ.get(
+                                                    "SystemRoot", r"C:\Windows"
+                                                ),
+                                                "System32",
+                                                "notepad.exe",
+                                            )
+                                            subprocess.call([notepad, tmp_path])
                                     else:
                                         os.startfile(tmp_path)
                                 else:
