@@ -46,6 +46,15 @@ class React(BaseLanguage):
 
     # system_message = "When you execute code with `react`, your react code will be run in a script tag after being inserted into the HTML template, following the installation of React, ReactDOM, and Babel for JSX parsing. **We will handle this! Don't make an HTML file to run React, just execute `react`.**"
 
+    def __init__(self, interpreter=None):
+        super().__init__()
+        self.interpreter = interpreter
+
+    def _assistant_sees_rendered_image(self):
+        if not self.interpreter:
+            return False
+        return getattr(self.interpreter.llm, "supports_vision", False) is True
+
     def run(self, code):
         if is_incompatible(code):
             yield {
@@ -68,11 +77,18 @@ class React(BaseLanguage):
         # User sees interactive HTML
         yield {"type": "code", "format": "html", "content": code, "recipient": "user"}
 
-        # Assistant sees image
-        base64 = html_to_png_base64(code)
-        yield {
-            "type": "image",
-            "format": "base64.png",
-            "content": base64,
-            "recipient": "assistant",
-        }
+        if self._assistant_sees_rendered_image():
+            base64 = html_to_png_base64(code)
+            yield {
+                "type": "image",
+                "format": "base64.png",
+                "content": base64,
+                "recipient": "assistant",
+            }
+        else:
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": f"React/HTML source shown to the user:\n\n```html\n{code}\n```",
+                "recipient": "assistant",
+            }

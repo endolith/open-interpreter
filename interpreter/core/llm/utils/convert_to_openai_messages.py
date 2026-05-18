@@ -19,6 +19,14 @@ def image_path_exceeds_shrink_threshold(path: str) -> bool:
     return data_url_exceeds_shrink_threshold(content)
 
 
+def _lmc_role_to_api_role(role):
+    # LMC history uses role "computer" for tool/output chunks; chat APIs only accept
+    # system, user, assistant, tool (and provider-specific extras like latest_reminder).
+    if role == "computer":
+        return "user"
+    return role
+
+
 def _user_ts(message, messages, *, _now=None):
     """Format sent_at for prepending to user message content. Concise: YYYY-MM-DD HH:MM."""
     sent_at = message.get("sent_at")
@@ -87,7 +95,7 @@ def convert_to_openai_messages(
 
         if message["type"] == "message":
             # Default to "assistant" for older saved messages that lack role (e.g. from tool-mode streams).
-            role = message.get("role", "assistant")
+            role = _lmc_role_to_api_role(message.get("role", "assistant"))
             new_message["role"] = role
 
             if role == "user" and (
@@ -169,12 +177,7 @@ def convert_to_openai_messages(
 
         elif message["type"] == "image":
             if message.get("format") == "description":
-                # Convert computer role to user for Mistral models (Mistral only accepts: system, user, assistant, tool)
-                role = message["role"]
-                if role == "computer" and interpreter and interpreter.llm:
-                    model = interpreter.llm.model
-                    if model and ("mistral" in model.lower() or "devstral" in model.lower()):
-                        role = "user"
+                role = _lmc_role_to_api_role(message["role"])
                 new_message["role"] = role
                 new_message["content"] = message["content"]
                 if role == "user":
