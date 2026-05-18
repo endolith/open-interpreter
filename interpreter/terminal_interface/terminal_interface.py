@@ -378,7 +378,12 @@ def terminal_interface(interpreter, message):
                                 if editor:
                                     subprocess.call([editor, tmp_path])
                                 elif platform.system() == "Windows":
-                                    os.startfile(tmp_path, "edit")
+                                    # "open" runs .bat/.cmd/.ps1; "edit" is required for those.
+                                    # Other types (e.g. .py) often have no "edit" verb registered.
+                                    if suffix.lower() in (".bat", ".cmd", ".ps1", ".vbs"):
+                                        os.startfile(tmp_path, "edit")
+                                    else:
+                                        os.startfile(tmp_path)
                                 else:
                                     # Try common Linux editors in order
                                     # Skip GUI editors if no display is available
