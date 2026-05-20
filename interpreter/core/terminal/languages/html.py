@@ -5,6 +5,7 @@ from ..base_language import BaseLanguage
 class HTML(BaseLanguage):
     file_extension = "html"
     name = "HTML"
+    execution_mode = "display"  # Renders to the user's UI; no code is executed and no state persists.
 
     def __init__(self, interpreter=None):
         super().__init__()
