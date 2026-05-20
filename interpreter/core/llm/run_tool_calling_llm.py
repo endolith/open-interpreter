@@ -234,6 +234,11 @@ def run_tool_calling_llm(llm, request_params):
             tools.append(view_image_tool_schema)
     request_params["tools"] = tools
 
+    # Append tool-calling-specific instructions to the system message (analogous to
+    # how run_text_llm appends execution_instructions in markdown/no-functions mode).
+    if llm.tool_calling_instructions:
+        request_params["messages"][0]["content"] += "\n" + llm.tool_calling_instructions
+
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
     # # This makes any role: tool have the ID of the last tool call
