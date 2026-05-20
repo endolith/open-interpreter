@@ -184,7 +184,10 @@ if missing_packages:
             else:
                 command = f"{pip_combo[0]} install open-interpreter[os]"
 
-            interpreter.toolbox.run("shell", command, display=True)
+            import platform
+
+            lang = "cmd" if platform.system() == "Windows" else "bash"
+            interpreter.toolbox.run(lang, command, display=True)
 
             got_em = True
             for package in missing_packages:
