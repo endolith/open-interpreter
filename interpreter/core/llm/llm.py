@@ -24,6 +24,24 @@ from rich.panel import Panel
 
 from .run_text_llm import run_text_llm
 
+# Built once at import time so the escaping is handled by json.dumps, not by hand.
+def _make_tool_calling_instructions():
+    code = "for i in range(3):\n    print(i)"
+    args_str = json.dumps({"language": "python", "code": code})
+    example = json.dumps(
+        {"id": "call_...", "type": "function", "function": {"name": "execute", "arguments": args_str}},
+        indent=2,
+    )
+    return f"""To run code, emit a tool call named **execute** with a JSON-encoded string for arguments. Example:
+
+```json
+{example}
+```
+
+(What appears in the conversation log as {{"role": "assistant", "type": "code", "format": "python", "content": "..."}} is our internal storage—we derive that from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
+
+_TOOL_CALLING_INSTRUCTIONS = _make_tool_calling_instructions()
+
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
@@ -85,20 +103,7 @@ class Llm:
         self.execution_instructions = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message
         # Appended to the system message only when supports_functions is True (tool-calling mode).
         # Mirrors execution_instructions: profiles/local models can set this to False to suppress it.
-        self.tool_calling_instructions = """To run code, emit a tool call named **execute** with a JSON-encoded string for arguments. Example:
-
-```json
-{
-  "id": "call_…",
-  "type": "function",
-  "function": {
-    "name": "execute",
-    "arguments": "{\\"language\\":\\"python\\",\\"code\\":\\"print(\\\\\\"Hello, World!\\\\\\")\\"}"
-  }
-}
-```
-
-(What appears in the conversation log as {"role": "assistant", "type": "code", "format": "python", "content": "..."} is our internal storage—we derive that from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
+        self.tool_calling_instructions = _TOOL_CALLING_INSTRUCTIONS
 
         # Optional settings
         self.context_window = None
@@ -407,7 +412,7 @@ Continuing...
                 params["extra_body"] = params.get("extra_body", {})
                 params["extra_body"]["include_reasoning"] = True
                 params["extra_body"]["reasoning"] = {"enabled": True}
-                
+
                 # Also set standard params for LiteLLM to handle unified mapping
                 params["include_reasoning"] = True
                 stream_options["include_reasoning"] = True
