@@ -16,8 +16,8 @@ from interpreter.core.async_core import (
 
 class TestOpenAICompatHelpers(TestCase):
     def test_console_output_wrapped_in_fence(self):
-        out = _format_openai_console_output("line1\nline2", language="shell")
-        self.assertIn("```shell", out)
+        out = _format_openai_console_output("line1\nline2", language="bash")
+        self.assertIn("```bash", out)
         self.assertIn("line1", out)
         self.assertIsNone(_format_openai_console_output("Note: Shell command output will be shown after completion."))
 

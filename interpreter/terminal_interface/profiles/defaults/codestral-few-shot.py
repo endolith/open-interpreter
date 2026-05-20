@@ -125,7 +125,7 @@ interpreter.messages = [
         "type": "message",
         "content": "Absolutely, fetching the directory listing now.",
     },
-    {"role": "assistant", "type": "code", "format": "shell", "content": "ls -la"},
+    {"role": "assistant", "type": "code", "format": "bash", "content": "ls -la"},
     {
         "role": "computer",
         "type": "console",
@@ -169,7 +169,7 @@ interpreter.messages = [
         "type": "message",
         "content": "Absolutely, I can help with that. To get the contents of their current working directory (CWD), we'll use the `ls` command in a shell script like this:",
     },
-    {"role": "assistant", "type": "code", "format": "shell", "content": "ls -la"},
+    {"role": "assistant", "type": "code", "format": "bash", "content": "ls -la"},
     {
         "role": "computer",
         "type": "console",
