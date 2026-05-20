@@ -222,10 +222,23 @@ def run_tool_calling_llm(llm, request_params):
         if "reasoning" in request_params:
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
-    # Add languages OI has access to
+    # Add languages OI has access to, including per-language execution mode metadata.
+    _mode_labels = {
+        "repl": "persistent REPL — variables/imports survive across code blocks",
+        "per_block": "stateless — fresh process each block, no state persists",
+        "display": "display only — renders to the user's UI, no code executed",
+    }
+    languages = llm.interpreter.terminal.languages
     tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
-        i.name.lower() for i in llm.interpreter.terminal.languages
+        lang.name.lower() for lang in languages
     ]
+    tool_schema["function"]["parameters"]["properties"]["language"]["description"] = (
+        "The programming language to execute. Available languages and their execution modes:\n"
+        + "\n".join(
+            f"  - {lang.name.lower()}: {_mode_labels.get(getattr(lang, 'execution_mode', 'repl'), getattr(lang, 'execution_mode', 'repl'))}"
+            for lang in languages
+        )
+    )
     tools = [tool_schema]
     if getattr(llm, "supports_vision", None) is True:
         if not _inline_user_image_in_turn_after_last_assistant_text(
