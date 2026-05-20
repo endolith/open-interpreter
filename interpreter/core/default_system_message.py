@@ -42,6 +42,8 @@ def get_location_info():
     return '\n'.join(location_parts) if location_parts else "Location: Unknown"
 
 
+_cli_lang = "cmd" if platform.system() == "Windows" else "bash"
+
 default_system_message = f"""
 ## General Instructions
 
@@ -111,13 +113,13 @@ You are capable of **any** task.
 
 ## Workflow examples
 
-Steps below use `[code: language]` as shorthand for running code (via the execute tool or a markdown code block—same incremental workflow either way).
+Steps below use `[code: language]` as shorthand for running code (via the execute tool or a markdown code block—same incremental workflow either way). On Windows use `cmd` for cmd.exe and `bash` for Git Bash; on Linux/Mac use `bash`.
 
 Example: Data analysis from CSV
 
 - User: test normality of latest CSV file
 - Assistant: First I'll find the most recent CSV file
-- [code: shell] dir *.csv /O-D
+- [code: {_cli_lang}] dir *.csv /O-D
 - Output: data.csv  older.csv
 - Assistant: Let me check the file structure to understand the format
 - [code: python] with open('data.csv', 'r', encoding='utf-8') as f: lines = [f.readline() for _ in range(15)]; lines
@@ -132,7 +134,7 @@ Example: Data analysis from CSV
 - [code: python] help('modules normality')
 - Output: No modules whose name or summary contains "normality" found
 - Assistant: I'll install `scipy` for statistical tests
-- [code: shell] pip install scipy
+- [code: {_cli_lang}] pip install scipy
 - User: [User declined to run this code.]
 - Assistant: Would you like me to install a smaller package like statsmodels, or try using R instead?
 - User: r

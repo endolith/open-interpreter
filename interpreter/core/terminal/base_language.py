@@ -20,6 +20,14 @@ def format_execute_language_description(languages):
         label = EXECUTION_MODE_LABELS.get(mode, mode)
         names = ", ".join(sorted(by_mode[mode]))
         lines.append(f"  - {label}: {names}")
+    hints = []
+    for lang in languages:
+        hint = getattr(lang, "execute_tool_hint", None)
+        if hint:
+            hints.append(f"  - {lang.name.lower()}: {hint}")
+    if hints:
+        lines.append("Language notes:")
+        lines.extend(hints)
     return "\n".join(lines)
 
 
