@@ -85,7 +85,7 @@ class Llm:
         self.execution_instructions = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message
         # Appended to the system message only when supports_functions is True (tool-calling mode).
         # Mirrors execution_instructions: profiles/local models can set this to False to suppress it.
-        self.tool_calling_instructions = """You have exactly one tool for running code. **The tokens you generate** are a tool call with name **execute** and arguments as a JSON string. Example of what you must output:
+        self.tool_calling_instructions = """To run code, emit a tool call named **execute** with a JSON-encoded string for arguments. Example:
 
 ```json
 {
