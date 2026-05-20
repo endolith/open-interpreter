@@ -410,7 +410,10 @@ def handle_magic_command(self, user_input):
     # Handle shell
     if user_input.startswith("%%"):
         code = user_input[2:].strip()
-        self.toolbox.run("shell", code, stream=False, display=True)
+        import platform
+
+        lang = "cmd" if platform.system() == "Windows" else "bash"
+        self.toolbox.run(lang, code, stream=False, display=True)
         print("")
         return
 

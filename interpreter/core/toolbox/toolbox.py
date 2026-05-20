@@ -331,10 +331,16 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
 
     def exec(self, code):
         """
-        Shortcut for interpreter.terminal.run("shell", code)
+        Shortcut for interpreter.terminal.run("bash", code)
         It has hallucinated this.
         """
-        return self.interpreter.terminal.run("shell", code)
+        return self.interpreter.terminal.run("bash", code)
+
+    def run_bash(self, code, **kwargs):
+        return self.interpreter.terminal.run("bash", code, **kwargs)
+
+    def run_cmd(self, code, **kwargs):
+        return self.interpreter.terminal.run("cmd", code, **kwargs)
 
     def stop(self):
         """
