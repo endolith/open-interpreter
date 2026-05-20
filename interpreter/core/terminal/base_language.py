@@ -1,3 +1,28 @@
+# Human-readable labels for execute-tool metadata (one line per mode, not per language).
+EXECUTION_MODE_LABELS = {
+    "repl": "persistent REPL — variables/imports survive across code blocks",
+    "per_block": "stateless — fresh process each block, no state persists",
+    "display": "display only — renders to the user's UI, no code executed",
+}
+
+
+def format_execute_language_description(languages):
+    """Build the execute tool's language parameter description from terminal language classes."""
+    by_mode = {}
+    for lang in languages:
+        mode = getattr(lang, "execution_mode", "repl")
+        by_mode.setdefault(mode, []).append(lang.name.lower())
+
+    lines = ["The programming language to execute (use an enum value). Execution modes:"]
+    for mode in ("repl", "per_block", "display"):
+        if mode not in by_mode:
+            continue
+        label = EXECUTION_MODE_LABELS.get(mode, mode)
+        names = ", ".join(sorted(by_mode[mode]))
+        lines.append(f"  - {label}: {names}")
+    return "\n".join(lines)
+
+
 class BaseLanguage:
     """
 

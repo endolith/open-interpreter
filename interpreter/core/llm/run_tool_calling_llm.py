@@ -2,6 +2,7 @@ import json
 import os
 import re
 
+from ..terminal.base_language import format_execute_language_description
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 from .utils.stream_usage import record_stream_chunk_usage
@@ -222,22 +223,13 @@ def run_tool_calling_llm(llm, request_params):
         if "reasoning" in request_params:
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
-    # Add languages OI has access to, including per-language execution mode metadata.
-    _mode_labels = {
-        "repl": "persistent REPL — variables/imports survive across code blocks",
-        "per_block": "stateless — fresh process each block, no state persists",
-        "display": "display only — renders to the user's UI, no code executed",
-    }
+    # Add languages OI has access to (enum + grouped execution-mode description).
     languages = llm.interpreter.terminal.languages
     tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
         lang.name.lower() for lang in languages
     ]
     tool_schema["function"]["parameters"]["properties"]["language"]["description"] = (
-        "The programming language to execute. Available languages and their execution modes:\n"
-        + "\n".join(
-            f"  - {lang.name.lower()}: {_mode_labels.get(getattr(lang, 'execution_mode', 'repl'), getattr(lang, 'execution_mode', 'repl'))}"
-            for lang in languages
-        )
+        format_execute_language_description(languages)
     )
     tools = [tool_schema]
     if getattr(llm, "supports_vision", None) is True:
