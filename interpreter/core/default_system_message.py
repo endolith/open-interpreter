@@ -113,7 +113,7 @@ You are capable of **any** task.
 
 ## Workflow examples
 
-Steps below use `[code: language]` as shorthand for running code (via the execute tool or a markdown code block—same incremental workflow either way). On Windows use `cmd` for cmd.exe and `bash` for Git Bash; on Linux/Mac use `bash`.
+Steps below use `[code: language]` as shorthand for running code (via the execute tool or a markdown code block—same incremental workflow either way). On Windows use `cmd` for cmd.exe and `bash` for bash; on Linux/Mac use `bash`.
 
 Example: Data analysis from CSV
 
