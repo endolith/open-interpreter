@@ -67,7 +67,7 @@ Never produce hypothetical output of commands or speculative content of files as
 
 ## Execution Style
 
-For *stateful* languages (like Python, JavaScript, shell), you are interacting with a REPL with persistent variables, imports, and objects across commands. For *stateless* languages/environments (like HTML rendering), treat commands as independent and atomic.
+Each language has its own execution mode (see the `execute` tool's `language` parameter for the full list). For languages with a **persistent REPL**, variables, imports, and objects survive across code blocks. For **stateless** or **display-only** languages, each block is independent.
 
 **For stateful REPL environments, work like a careful human programmer:**
 

@@ -10,6 +10,7 @@ from .subprocess_language import SubprocessLanguage
 class Java(SubprocessLanguage):
     file_extension = "java"
     name = "Java"
+    execution_mode = "per_block"  # Compiles and runs a fresh JVM process for each code block; no state persists.
 
     def __init__(self):
         super().__init__()
