@@ -376,7 +376,7 @@ def _cancel_pending_code(async_interpreter):
         )
 
 
-def _format_openai_console_output(content, language="shell"):
+def _format_openai_console_output(content, language="bash"):
     if not content or not str(content).strip():
         return None
     text = str(content)
@@ -386,8 +386,8 @@ def _format_openai_console_output(content, language="shell"):
     if not text:
         return None
     fence_lang = (language or "text").lower()
-    if fence_lang in ("shell", "bash", "cmd"):
-        fence_lang = "shell"
+    if fence_lang == "shell":
+        fence_lang = "bash"
     return f"\n\n```{fence_lang}\n{text}\n```\n\n"
 
 
@@ -559,7 +559,7 @@ def _lmc_chunk_to_openai_delta(chunk, auto_run, *, pending_code_language=None):
     ):
         return _format_openai_console_output(
             chunk["content"],
-            language=pending_code_language or "shell",
+            language=pending_code_language or "bash",
         )
     return None
 
@@ -567,8 +567,11 @@ def _lmc_chunk_to_openai_delta(chunk, auto_run, *, pending_code_language=None):
 def _pending_code_language(async_interpreter):
     for message in reversed(async_interpreter.messages):
         if message.get("type") == "code":
-            return message.get("format") or "shell"
-    return "shell"
+            fmt = message.get("format") or "bash"
+            if fmt == "shell":
+                return "bash"
+            return fmt
+    return "bash"
 
 
 def create_router(async_interpreter):

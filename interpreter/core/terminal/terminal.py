@@ -1,11 +1,14 @@
 import json
 import os
+import platform
 import time
 import subprocess
 import getpass
 
 from ..utils.recipient_utils import parse_for_recipient
 from .languages.applescript import AppleScript
+from .languages.bash import Bash
+from .languages.cmd import Cmd
 from .languages.html import HTML
 from .languages.java import Java
 from .languages.javascript import JavaScript
@@ -14,9 +17,9 @@ from .languages.python import Python
 from .languages.r import R
 from .languages.react import React
 from .languages.ruby import Ruby
-from .languages.shell import Shell
 
-# Should this be renamed to OS or System?
+# Languages whose console output is buffered until completion (reduces UI flicker).
+_BUFFERED_CONSOLE_LANGUAGES = frozenset({"cmd", "bash"})
 
 import_toolbox_api_code = """
 import os
@@ -30,21 +33,28 @@ toolbox = interpreter.toolbox
 """.strip()
 
 
+def _default_terminal_languages():
+    languages = [
+        Ruby,
+        Python,
+        Bash,
+        JavaScript,
+        HTML,
+        AppleScript,
+        R,
+        PowerShell,
+        React,
+        Java,
+    ]
+    if platform.system() == "Windows":
+        languages.insert(3, Cmd)
+    return languages
+
+
 class Terminal:
     def __init__(self, interpreter):
         self.interpreter = interpreter
-        self.languages = [
-            Ruby,
-            Python,
-            Shell,
-            JavaScript,
-            HTML,
-            AppleScript,
-            R,
-            PowerShell,
-            React,
-            Java,
-        ]
+        self.languages = _default_terminal_languages()
         self._active_languages = {}
 
     def sudo_install(self, package):
@@ -81,7 +91,7 @@ class Terminal:
 
     def run(self, language, code, stream=False, display=False):
         # Check if this is an apt install command
-        if language == "shell" and code.strip().startswith("apt install"):
+        if language == "bash" and code.strip().startswith("apt install"):
             package = code.split()[-1]
             if self.sudo_install(package):
                 return [{"type": "console", "format": "output", "content": f"Package {package} installed successfully."}]
@@ -157,18 +167,22 @@ class Terminal:
         start_time = time.time()
 
         if language not in self._active_languages:
-            # Get the language. Pass in self.interpreter *if it takes a single argument*
+            # Get the language. Pass in self.interpreter *if it takes a single argument>
             # but pass in nothing if not. This makes custom languages easier to add / understand.
             lang_class = self.get_language(language)
+            if lang_class is None:
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": f"Unknown language: {language!r}. Use cmd, bash, or powershell on Windows; bash on Linux/Mac.",
+                }
+                return
             if lang_class.__init__.__code__.co_argcount > 1:
                 self._active_languages[language] = lang_class(self.interpreter)
             else:
                 self._active_languages[language] = lang_class()
         try:
-            # Buffer for shell output - collect output and update periodically to prevent terminal
-            # unresponsiveness with large outputs. Note: This means shell commands won't show
-            # progress until completion due to OS-level output buffering.
-            shell_output = ""
+            buffered_output = ""
 
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
@@ -192,41 +206,35 @@ class Terminal:
                             + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
                         )
 
-                    # For shell commands, buffer the output instead of streaming
-                    # This prevents screen flicker with large outputs like 'type' or 'cat'
-                    if language == "shell":
-                        # First shell command output - inform user about buffering
-                        if not shell_output:
+                    if language in _BUFFERED_CONSOLE_LANGUAGES:
+                        if not buffered_output:
                             yield {
                                 "type": "console",
                                 "format": "output",
                                 "content": "Note: Shell command output will be shown after completion.\n\n"
                             }
-                        shell_output += chunk["content"]
+                        buffered_output += chunk["content"]
                         continue
 
-                    # For non-shell output or non-output chunks, yield normally
                     yield chunk
 
-                    # Print if display=True (but not for shell output which is handled separately)
                     if (
                         display
                         and chunk.get("format") != "active_line"
                         and chunk.get("content")
-                        and language != "shell"
+                        and language not in _BUFFERED_CONSOLE_LANGUAGES
                     ):
                         print(chunk["content"], end="")
 
                 else:
                     yield chunk
 
-            # After the loop, if there was shell output, yield it with timing
-            if shell_output:
+            if buffered_output:
                 elapsed = round(time.time() - start_time, 2)
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": f"{shell_output.strip()}\n\nTime elapsed: {elapsed}s"
+                    "content": f"{buffered_output.strip()}\n\nTime elapsed: {elapsed}s"
                 }
 
         except GeneratorExit:

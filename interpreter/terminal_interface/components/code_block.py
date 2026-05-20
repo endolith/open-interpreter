@@ -82,7 +82,7 @@ class CodeBlock(BaseBlock):
         if format_type == "code":
             # Create the syntax-highlighted panel
             syntax_language = self.language
-            if os.name == "nt" and syntax_language.lower() in ["shell", "bash"]:
+            if os.name == "nt" and syntax_language.lower() in ["cmd", "bash", "shell"]:
                 syntax_language = "bat"
 
             # We use a table to allow for potential line-specific styling if needed
@@ -181,7 +181,7 @@ class CodeBlock(BaseBlock):
                 code += "●"
 
             syntax_language = self.language
-            if os.name == "nt" and syntax_language.lower() in ["shell", "bash"]:
+            if os.name == "nt" and syntax_language.lower() in ["cmd", "bash", "shell"]:
                 syntax_language = "bat"
 
             # Add each line of code to the table
