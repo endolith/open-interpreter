@@ -83,6 +83,22 @@ class Llm:
 
         self.supports_functions = None  # Will try to auto-detect
         self.execution_instructions = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message
+        # Appended to the system message only when supports_functions is True (tool-calling mode).
+        # Mirrors execution_instructions: profiles/local models can set this to False to suppress it.
+        self.tool_calling_instructions = """You have exactly one tool for running code. **The tokens you generate** are a tool call with name **execute** and arguments as a JSON string. Example of what you must output:
+
+```json
+{
+  "id": "call_…",
+  "type": "function",
+  "function": {
+    "name": "execute",
+    "arguments": "{\\"language\\":\\"python\\",\\"code\\":\\"print(\\\\\\"Hello, World!\\\\\\")\\"}"
+  }
+}
+```
+
+(What appears in the conversation log as {"role": "assistant", "type": "code", "format": "python", "content": "..."} is our internal storage—we derive that from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
 
         # Optional settings
         self.context_window = None
