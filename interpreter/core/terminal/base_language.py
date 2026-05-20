@@ -6,6 +6,7 @@ class BaseLanguage:
     name = "baselanguage" # Name as it is seen by the LLM
     file_extension = "sh" # (OPTIONAL) File extension, used for safe_mode code scanning
     aliases = ["bash", "sh", "zsh"] # (OPTIONAL) Aliases that will also point to this language if the LLM runs them
+    execution_mode = "repl" # (OPTIONAL) One of: "repl" (persistent session), "per_block" (fresh run each time), "display" (renders to UI, no execution)
 
     Methods
 
@@ -13,6 +14,8 @@ class BaseLanguage:
     stop (Halts code execution, but does not terminate state)
     terminate (Terminates state)
     """
+
+    execution_mode = "repl"
 
     def run(self, code):
         """
