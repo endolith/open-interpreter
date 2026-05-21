@@ -732,8 +732,9 @@ def fixed_litellm_completions(**params):
             yield from litellm.completion(**params)
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
-            print("Exiting...")
-            sys.exit(0)
+            # Re-raise so terminal_interface.py's outer handler can cancel the
+            # current response and return to the prompt, rather than exiting.
+            raise
         except Exception as e:
             # Check if this is a function-calling-not-supported error.
             # Only check for this if we're actually trying to use function calling.
