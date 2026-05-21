@@ -35,6 +35,43 @@ tool_schema = {
 # Raster image formats supported by view_image (vision APIs and Pillow). PDF and other documents are not supported.
 VIEW_IMAGE_ALLOWED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "bmp"})
 
+EDIT_LANGUAGES_ENUM = ["sed", "ed", "gawk", "jq", "write"]
+
+edit_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "edit",
+        "description": (
+            "Edit or create a file on disk. target must be an absolute path. "
+            "write: create a new file (target must not exist); code is the full file body verbatim (UTF-8). "
+            "sed: stream-edit commands (one per line); in-place. "
+            "ed: line editor commands (end with wq to save). "
+            "gawk: awk program; GNU in-place. "
+            "jq: jq program to transform a JSON file; in-place. "
+            "Do not wrap these in shell — only pass language, code, and target."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {
+                    "type": "string",
+                    "enum": EDIT_LANGUAGES_ENUM,
+                    "description": "Edit language: sed, ed, gawk, jq, or write (new file only).",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Program/commands (sed/ed/gawk/jq) or verbatim file content (write).",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Absolute path to the file to edit or create.",
+                },
+            },
+            "required": ["language", "code", "target"],
+        },
+    },
+}
+
 view_image_tool_schema = {
     "type": "function",
     "function": {
@@ -231,7 +268,7 @@ def run_tool_calling_llm(llm, request_params):
     tool_schema["function"]["parameters"]["properties"]["language"]["description"] = (
         format_execute_language_description(languages)
     )
-    tools = [tool_schema]
+    tools = [tool_schema, edit_tool_schema]
     if getattr(llm, "supports_vision", None) is True:
         if not _inline_user_image_in_turn_after_last_assistant_text(
             request_params["messages"]
@@ -732,6 +769,50 @@ def run_tool_calling_llm(llm, request_params):
                     print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
+        elif function_name == "edit":
+            arguments = function_call.get("arguments")
+            if isinstance(arguments, str):
+                arguments = parse_partial_json(arguments)
+
+            def _edit_tool_error(msg):
+                if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id_for_error,
+                        "type": "message",
+                        "content": msg,
+                    }
+                else:
+                    yield {"role": "assistant", "type": "message", "content": f"**Error:** {msg}"}
+
+            if not isinstance(arguments, dict):
+                yield from _edit_tool_error(
+                    f"Invalid edit call: arguments must be a dict, got {type(arguments).__name__}"
+                )
+            else:
+                edit_language = arguments.get("language")
+                edit_code = arguments.get("code")
+                edit_target = arguments.get("target")
+                if (
+                    not edit_language
+                    or not isinstance(edit_code, str)
+                    or not edit_target
+                    or not isinstance(edit_target, str)
+                ):
+                    yield from _edit_tool_error(
+                        f"Invalid edit call: requires language, code, and target. Got keys: {list(arguments.keys())}"
+                    )
+                elif not edit_code.strip() and edit_language != "write":
+                    yield from _edit_tool_error("Invalid edit call: code is empty")
+                else:
+                    yield {
+                        "role": "assistant",
+                        "type": "edit",
+                        "format": edit_language.lower().strip(),
+                        "content": edit_code,
+                        "target": edit_target,
+                        "tool_call_id": tool_call_id_for_error,
+                    }
         elif function_name == "view_image":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
@@ -787,7 +868,7 @@ def run_tool_calling_llm(llm, request_params):
             # The API expects: assistant (with tool_call) → tool (response) → user
             error_msg = (
                 f"Unsupported function call: '{function_name}'. "
-                f"Only 'execute' and 'view_image' (vision models only) are supported as direct tool calls. "
+                f"Only 'execute', 'edit', and 'view_image' (vision models only) are supported as direct tool calls. "
                 f"To use '{function_name}', call it from within Python code using the execute function. "
                 f"For example: `toolbox.web.search('your query')`"
             )
