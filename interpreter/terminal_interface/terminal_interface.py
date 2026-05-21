@@ -121,15 +121,8 @@ def terminal_interface(interpreter, message):
                         if interpreter.multi_line
                         else input("> ").strip()
                     )
-                except KeyboardInterrupt:
-                    # Ctrl+C at the empty prompt cancels the current input line and
-                    # shows a fresh prompt (same as bash / python REPL).  We must NOT
-                    # exit here because on Windows the Ctrl+C signal can be re-delivered
-                    # to input() immediately after cancelling an in-progress AI response.
-                    print("^C")
-                    continue
-                except EOFError:
-                    # Ctrl+D (EOF) exits gracefully.
+                except (KeyboardInterrupt, EOFError):
+                    # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
                     interpreter.display_message("\n\n`Exiting...`")
                     raise KeyboardInterrupt
 
