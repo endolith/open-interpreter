@@ -514,17 +514,34 @@ def terminal_interface(interpreter, message):
 
                 # Plain text mode
                 if interpreter.plain_text_display:
-                    if chunk.get("replace"):
-                        continue  # Replace chunk only updates display/storage; raw content was already printed
-                    if "start" in chunk or "end" in chunk:
-                        print("")
-                    if chunk["type"] in ["code", "console"] and "format" in chunk:
+                    if chunk.get("format") == "reasoning":
+                        # Reasoning blocks get [Thinking]/[/Thinking] delimiters so the
+                        # user can distinguish thinking from the actual response.
+                        # Content tokens are streamed immediately (end="") so the output
+                        # is live.  The replace chunk (yielded by run_tool_calling_llm
+                        # after streaming completes) is skipped — it exists only to
+                        # update the rich-mode display and stored message with clean
+                        # blockquote formatting; the streamed tokens were already printed.
                         if "start" in chunk:
-                            print("```" + chunk["format"], flush=True)
-                        if "end" in chunk:
-                            print("```", flush=True)
-                    if chunk.get("format") != "active_line":
-                        print(chunk.get("content", ""), end="", flush=True)
+                            print("\n[Thinking]", flush=True)
+                        elif chunk.get("replace"):
+                            pass  # already printed via streaming above
+                        elif "content" in chunk:
+                            print(chunk["content"], end="", flush=True)
+                        elif "end" in chunk:
+                            print("\n[/Thinking]\n", flush=True)
+                    else:
+                        if chunk.get("replace"):
+                            continue  # Replace chunk only updates display/storage; raw content was already printed
+                        if "start" in chunk or "end" in chunk:
+                            print("")
+                        if chunk["type"] in ["code", "console"] and "format" in chunk:
+                            if "start" in chunk:
+                                print("```" + chunk["format"], flush=True)
+                            if "end" in chunk:
+                                print("```", flush=True)
+                        if chunk.get("format") != "active_line":
+                            print(chunk.get("content", ""), end="", flush=True)
                     continue
 
                 # Handle special chunk to stop Live display before error panel
