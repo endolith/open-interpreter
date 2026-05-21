@@ -15,7 +15,6 @@ from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
-from .tools.file_edit import run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
 
@@ -191,10 +190,9 @@ def respond(interpreter):
             len(interpreter.messages) > 0
         ), "User message was not passed in. You need to pass in at least one message."
 
-        if interpreter.messages[-1]["type"] not in (
-            "code",
-            "edit",
-        ):  # If it is, we should run the code/edit (we do below)
+        if (
+            interpreter.messages[-1]["type"] != "code"
+        ):  # If it is, we should run the code (we do below)
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
@@ -462,89 +460,6 @@ def respond(interpreter):
             if pending_shrink is not None:
                 img_msg["shrink"] = pending_shrink
             interpreter.messages.append(img_msg)
-
-        ### RUN FILE EDIT (if it's there) ###
-
-        if interpreter.messages[-1]["type"] == "edit":
-            edit_msg = interpreter.messages[-1]
-            language = edit_msg["format"].lower().strip()
-            code = edit_msg["content"]
-            target = edit_msg.get("target", "")
-            tool_call_id = edit_msg.get("tool_call_id")
-
-            try:
-                if code.strip() == "" and language != "write":
-                    output = "Edit block was empty. Provide sed/ed/gawk/jq commands or use write with file content."
-                    if tool_call_id:
-                        yield {
-                            "role": "tool",
-                            "tool_call_id": tool_call_id,
-                            "type": "message",
-                            "content": output,
-                        }
-                    else:
-                        yield {
-                            "role": "computer",
-                            "type": "console",
-                            "format": "output",
-                            "content": output,
-                        }
-                    continue
-
-                try:
-                    yield {
-                        "role": "computer",
-                        "type": "confirmation",
-                        "format": "execution",
-                        "content": {
-                            "type": "edit",
-                            "format": language,
-                            "content": code,
-                            "target": target,
-                        },
-                    }
-                except GeneratorExit:
-                    break
-
-                code = [m for m in interpreter.messages if m["type"] == "edit"][-1]["content"]
-                target = [m for m in interpreter.messages if m["type"] == "edit"][-1].get(
-                    "target", target
-                )
-
-                output = run_edit(language, code, target)
-                if tool_call_id:
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "type": "message",
-                        "content": output,
-                    }
-                else:
-                    yield {
-                        "role": "computer",
-                        "type": "console",
-                        "format": "output",
-                        "content": output,
-                    }
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                content = traceback.format_exc() if interpreter.debug else str(e)
-                if tool_call_id:
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "type": "message",
-                        "content": content,
-                    }
-                else:
-                    yield {
-                        "role": "computer",
-                        "type": "console",
-                        "format": "output",
-                        "content": content,
-                    }
-            continue
 
         ### RUN CODE (if it's there) ###
 
@@ -845,10 +760,7 @@ def respond(interpreter):
             if (
                 interpreter.messages
                 and interpreter.messages[-1].get("role") == "tool"
-                and (
-                    "Unsupported function call" in interpreter.messages[-1].get("content", "")
-                    or "declined" in interpreter.messages[-1].get("content", "").lower()
-                )
+                and "Unsupported function call" in interpreter.messages[-1].get("content", "")
             ):
                 continue
 
