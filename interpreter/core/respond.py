@@ -15,6 +15,7 @@ from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
+from .tools.file_edit import run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
 
@@ -190,9 +191,7 @@ def respond(interpreter):
             len(interpreter.messages) > 0
         ), "User message was not passed in. You need to pass in at least one message."
 
-        if (
-            interpreter.messages[-1]["type"] != "code"
-        ):  # If it is, we should run the code (we do below)
+        if interpreter.messages[-1]["type"] not in ("code", "edit"):  # If it is, we run below
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
@@ -460,6 +459,64 @@ def respond(interpreter):
             if pending_shrink is not None:
                 img_msg["shrink"] = pending_shrink
             interpreter.messages.append(img_msg)
+
+        ### RUN FILE EDIT (if it's there) ###
+
+        if interpreter.messages[-1]["type"] == "edit":
+            edit_msg = interpreter.messages[-1]
+            language = edit_msg["format"].lower().strip()
+            code = edit_msg["content"]
+            target = edit_msg.get("target", "")
+            tool_call_id = edit_msg.get("tool_call_id")
+
+            if interpreter.verbose:
+                print("Running edit:", edit_msg)
+
+            try:
+                # Yield confirmation so the terminal can prompt y/n (respects auto_run).
+                # format: "edit" distinguishes this from a code execution confirmation.
+                try:
+                    yield {
+                        "role": "computer",
+                        "type": "confirmation",
+                        "format": "edit",
+                        "content": {
+                            "format": language,
+                            "content": code,
+                            "target": target,
+                        },
+                    }
+                except GeneratorExit:
+                    break
+
+                # Re-read in case the user edited target/content (unlikely for edit, but consistent)
+                edit_msg = [m for m in interpreter.messages if m["type"] == "edit"][-1]
+                language = edit_msg["format"].lower().strip()
+                code = edit_msg["content"]
+                target = edit_msg.get("target", target)
+
+                output = run_edit(language, code, target)
+
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                output = traceback.format_exc() if interpreter.debug else str(e)
+
+            if tool_call_id and isinstance(tool_call_id, str) and tool_call_id.strip():
+                yield {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "type": "message",
+                    "content": output,
+                }
+            else:
+                yield {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "output",
+                    "content": output,
+                }
+            continue
 
         ### RUN CODE (if it's there) ###
 
@@ -742,6 +799,75 @@ def respond(interpreter):
                     "content": content,
                 }
 
+        elif interpreter.messages[-1]["type"] == "edit":
+            if interpreter.verbose:
+                print("Running edit:", interpreter.messages[-1])
+
+            try:
+                edit_msg = interpreter.messages[-1]
+                language = edit_msg["format"].lower().strip()
+                code = edit_msg["content"]
+                target = edit_msg["target"]
+
+                if code.strip() == "":
+                    yield {
+                        "role": "computer",
+                        "type": "console",
+                        "format": "output",
+                        "content": "Edit code was empty. Please try again.",
+                    }
+                    continue
+
+                # Yield confirmation so the user can approve or decline before
+                # the file is modified. core.py suppresses this when auto_run=True.
+                try:
+                    yield {
+                        "role": "computer",
+                        "type": "confirmation",
+                        "format": "edit",
+                        "content": {
+                            "type": "edit",
+                            "format": language,
+                            "content": code,
+                            "target": target,
+                        },
+                    }
+                except GeneratorExit:
+                    break
+
+                # Re-read in case a future UI allows editing before apply.
+                edit_msg = [m for m in interpreter.messages if m.get("type") == "edit"][-1]
+                code = edit_msg["content"]
+                target = edit_msg["target"]
+
+                from .tools.file_edit import dispatch as _file_edit_dispatch
+                result = _file_edit_dispatch(language, code, target)
+
+                yield {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "output",
+                    "content": result,
+                }
+
+                # Signal end-of-execution so core.py closes the output block.
+                yield {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "active_line",
+                    "content": None,
+                }
+
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                yield {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "output",
+                    "content": traceback.format_exc() if interpreter.verbose else str(e),
+                }
+
         else:
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
@@ -755,12 +881,12 @@ def respond(interpreter):
             ):
                 continue
 
-            # If the last message is a tool response (e.g. unsupported function call error), continue the loop
-            # so the LLM gets another turn with the error in context and can retry (e.g. with execute + Python code).
+            # If the last message is a tool response (edit result, unsupported function call error,
+            # etc.) continue the loop so the LLM gets another turn with the result in context.
             if (
                 interpreter.messages
                 and interpreter.messages[-1].get("role") == "tool"
-                and "Unsupported function call" in interpreter.messages[-1].get("content", "")
+                and interpreter.messages[-1].get("type") == "message"
             ):
                 continue
 
