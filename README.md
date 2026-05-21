@@ -40,6 +40,7 @@ Major changes vs the upstream branch (`classic/main`):
 - **Secret redaction**: Try to avoid sending passwords and secrets environment variables to the LLM's server
 - **System message enhancements**: rough geolocation, encourage REPL-like coding, etc.
 - **Windows support**: Downloads folder detection via `SHGetKnownFolderPath`, UTF-8 code page for shell, `bat` syntax highlighting
+  - Notepad fallback if editor fails; "edit" verb for `.html`/`.htm`/`.bat` files instead of launching them
 - **HTML output suppression**: prevents browser from opening unnecessarily
 - **TextFileReader**: convenience class with encoding auto-detect. (The LLMs never actually use this; I don't know if it works.)
 - **Python 3.13 support?** and a bunch of fixed tests in the process. Dubious.
