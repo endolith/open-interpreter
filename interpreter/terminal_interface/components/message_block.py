@@ -136,22 +136,26 @@ class MessageBlock(BaseBlock):
                 # If it's a Group with ellipsis, add cursor to the text part
                 formatted_buffer.renderables[-1] += "●"
 
-            # Wrap streaming content in a panel to match rendered content indentation
+            # Wrap streaming content in a panel to match rendered content indentation.
+            # refresh=True is required because create_live_display sets auto_refresh=False
+            # (to prevent the background refresh thread from erasing sudo prompts printed
+            # by child processes). Without auto_refresh, update() alone only stores the
+            # renderable without rendering it; refresh=True forces an immediate render.
             if self.reasoning_mode:
                 # Distinct style so thinking is visually separate from normal blockquotes
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking")
                 padded_buffer = Padding(streaming_panel, PADDING_PANEL)
-                self.live.update(padded_buffer)
+                self.live.update(padded_buffer, refresh=True)
             elif self.debug:
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="blue")
-                self.live.update(streaming_panel)
+                self.live.update(streaming_panel, refresh=True)
             else:
                 # Print streaming content directly with horizontal padding only (2 chars left/right)
                 padded_buffer = Padding(formatted_buffer, PADDING_MESSAGE)
-                self.live.update(padded_buffer)
+                self.live.update(padded_buffer, refresh=True)
         else:
             # Clear the live display if no buffer content
-            self.live.update("")
+            self.live.update("", refresh=True)
 
     def add_content(self, content):
         """Add new content to the buffer and process it."""
