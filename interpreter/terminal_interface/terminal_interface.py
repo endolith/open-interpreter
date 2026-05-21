@@ -301,16 +301,12 @@ def terminal_interface(interpreter, message):
                             active_block = None
 
                         code_to_run = chunk["content"]
-                        block_kind = code_to_run.get("type", "code")
                         language = code_to_run["format"]
                         code = code_to_run["content"]
-                        edit_target = code_to_run.get("target", "")
 
                         should_scan_code = False
 
-                        if block_kind == "edit":
-                            should_scan_code = False
-                        elif not interpreter.safe_mode == "off":
+                        if not interpreter.safe_mode == "off":
                             if interpreter.safe_mode == "auto":
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
@@ -328,20 +324,12 @@ def terminal_interface(interpreter, message):
                         # Blank line before approval: leading \n inside input() is often lost after
                         # Rich/console output on Windows (cursor sits on last panel row).
                         print("", flush=True)
-                        if block_kind == "edit":
-                            run_prompt = (
-                                f"Would you like to apply this edit to\n  {edit_target}\n? (y/n)\n\n"
-                                if interpreter.plain_text_display
-                                else f"  Would you like to apply this edit to\n    {edit_target}\n  ? (y/n)\n\n  "
-                            )
-                            response = prompt_choice(run_prompt, ("y", "n"))
-                        else:
-                            run_prompt = (
-                                "Would you like to run this code? (y/n/e = edit)\n\n"
-                                if interpreter.plain_text_display
-                                else "  Would you like to run this code? (y/n/e = edit)\n\n  "
-                            )
-                            response = prompt_choice(run_prompt, ("y", "n", "e"))
+                        run_prompt = (
+                            "Would you like to run this code? (y/n/e = edit)\n\n"
+                            if interpreter.plain_text_display
+                            else "  Would you like to run this code? (y/n/e = edit)\n\n  "
+                        )
+                        response = prompt_choice(run_prompt, ("y", "n", "e"))
 
                         if response == "y":
                             # Create a new, identical block where the code will actually be run
@@ -351,15 +339,12 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
 
                             should_highlight = interpreter.highlight_active_line if hasattr(interpreter, 'highlight_active_line') and interpreter.highlight_active_line is not None else True
-                            if block_kind == "edit":
-                                active_block.target_path = edit_target
-                                active_block.code = code
-                            elif should_highlight:
+                            if should_highlight:
                                 active_block.code = code
                             # If should_highlight is False and the code hasn't been edited,
                             # we leave active_block.code empty to avoid printing a duplicate
                             # static code block below the y/n prompt.
-                        elif response == "e" and block_kind != "edit":
+                        elif response == "e":
                             # Edit - use mkstemp with the correct extension so the editor
                             # can apply syntax highlighting. mkstemp is used instead of
                             # NamedTemporaryFile because on Windows NamedTemporaryFile holds
@@ -481,34 +466,15 @@ def terminal_interface(interpreter, message):
                             # User declined to run code. source="terminal"
                             # marks this as UI-injected so %undo skips it
                             # when finding the last real user message.
-                            declined = (
-                                "[User declined to apply this edit.]"
-                                if block_kind == "edit"
-                                else "[User declined to run this code.]"
-                            )
                             interpreter.messages.append(
                                 {
                                     "role": "user",
                                     "type": "message",
-                                    "content": declined,
+                                    "content": "[User declined to run this code.]",
                                     "sent_at": time.time(),
                                     "source": "terminal",
                                 }
                             )
-                            tool_call_id = None
-                            for m in reversed(interpreter.messages):
-                                if m.get("type") == "edit":
-                                    tool_call_id = m.get("tool_call_id")
-                                    break
-                            if block_kind == "edit" and tool_call_id:
-                                interpreter.messages.append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call_id,
-                                        "type": "message",
-                                        "content": declined,
-                                    }
-                                )
                             break
 
                 # Plain text mode
@@ -517,9 +483,7 @@ def terminal_interface(interpreter, message):
                         continue  # Replace chunk only updates display/storage; raw content was already printed
                     if "start" in chunk or "end" in chunk:
                         print("")
-                    if chunk["type"] == "edit" and "start" in chunk and chunk.get("target"):
-                        print(chunk["target"], flush=True)
-                    if chunk["type"] in ["code", "edit", "console"] and "format" in chunk:
+                    if chunk["type"] in ["code", "console"] and "format" in chunk:
                         if "start" in chunk:
                             print("```" + chunk["format"], flush=True)
                         if "end" in chunk:
@@ -614,20 +578,6 @@ def terminal_interface(interpreter, message):
                         render_cursor = True
 
                     if "content" in chunk:
-                        active_block.code += chunk["content"]
-
-                elif chunk["role"] == "assistant" and chunk["type"] == "edit":
-                    if "start" in chunk:
-                        active_block = CodeBlock(interpreter)
-                        active_block.language = chunk["format"]
-                        active_block.target_path = chunk.get("target", "")
-                        render_cursor = True
-
-                    if "content" in chunk:
-                        if active_block is None:
-                            active_block = CodeBlock(interpreter)
-                            active_block.language = chunk["format"]
-                            active_block.target_path = chunk.get("target", "")
                         active_block.code += chunk["content"]
 
                 # Toolbox can display visual types to user,
