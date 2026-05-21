@@ -388,7 +388,6 @@ def run_tool_calling_llm(llm, request_params):
     buffer = ""
     content_yielded_during_streaming = False  # Track if content was already yielded
     has_reasoning_content = False  # Track if we have reasoning_content (to delay content output)
-    reasoning_buffer = ""  # Incomplete line when streaming reasoning_content
     reasoning_streamed = False  # True if we yielded reasoning during the stream (so post-stream only yields remainder)
     reasoning_replace_yielded = False  # True after we yield the replace chunk (must happen before first content chunk)
 
@@ -418,16 +417,14 @@ def run_tool_calling_llm(llm, request_params):
         if "reasoning_content" in accumulated_deltas and accumulated_deltas.get("reasoning_content"):
             has_reasoning_content = True
 
-        # Stream reasoning_content as it arrives (raw, no blockquote). When the block is complete we
-        # yield a replace chunk so the display and stored message get blockquote formatting.
+        # Stream reasoning_content token-by-token as it arrives. After the stream
+        # completes a replace chunk is yielded so the rich display and stored message
+        # get clean blockquote formatting. Plain-text mode skips the replace chunk and
+        # uses the streamed tokens directly.
         if "reasoning_content" in delta and delta["reasoning_content"]:
             new_chunk = delta["reasoning_content"]
             if isinstance(new_chunk, str):
-                reasoning_buffer += new_chunk
-                lines = reasoning_buffer.split("\n")
-                reasoning_buffer = lines[-1]
-                for line in lines[:-1]:
-                    yield {"role": "assistant", "type": "message", "format": "reasoning", "content": line + "\n"}
+                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": new_chunk}
                 reasoning_streamed = True
 
         if "content" in delta and delta["content"]:
