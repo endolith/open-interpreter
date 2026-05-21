@@ -10,7 +10,7 @@ class Bash(SubprocessLanguage):
 
     def __init__(self):
         super().__init__()
-        self.start_cmd = [resolve_bash_executable(), "-i"]
+        self.start_cmd = [resolve_bash_executable()]
 
     def preprocess_code(self, code):
         return preprocess_shell(code)
