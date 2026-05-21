@@ -140,6 +140,33 @@ def convert_to_openai_messages(
                     "content"
                 ] = f"""```{message["format"]}\n{message["content"]}\n```"""
 
+        elif message["type"] == "edit":
+            new_message["role"] = "assistant"
+            if function_calling:
+                tool_call_id = message.get("tool_call_id") or "edit_0"
+                new_message["content"] = ""
+                new_message["tool_calls"] = [
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": "edit",
+                            "arguments": json.dumps(
+                                {
+                                    "language": message["format"],
+                                    "code": message["content"],
+                                    "target": message["target"],
+                                }
+                            ),
+                        },
+                    }
+                ]
+            else:
+                new_message["content"] = (
+                    f"```{message['format']}\n# {message['target']}\n"
+                    f"{message['content']}\n```"
+                )
+
         elif message["type"] == "console" and message["format"] == "output":
             if function_calling:
                 new_message["role"] = "function"
