@@ -39,6 +39,7 @@ class CodeBlock(BaseBlock):
 
         # Define these for IDE auto-completion
         self.language = ""
+        self.target_path = ""  # edit tool: shown outside the code panel, not in self.code
         self.output = ""
         self.code = ""
         self.active_line = None
@@ -111,6 +112,9 @@ class CodeBlock(BaseBlock):
         if self.margin_top:
             group_items.append("")
             self.margin_top = False
+
+        if format_type == "code" and self.target_path:
+            group_items.append(Text(self.target_path, style="dim"))
 
         group_items.append(panel)
         
@@ -207,7 +211,10 @@ class CodeBlock(BaseBlock):
             # Create a panel for the code
             code_panel = Panel(code_table, box=MINIMAL, style="on #272722")
 
-            group_items = [code_panel]
+            group_items = []
+            if self.target_path:
+                group_items.append(Text(self.target_path, style="dim"))
+            group_items.append(code_panel)
 
             # Create a panel for the output (if there is any).
             # We format remaining output as sliding window
@@ -275,6 +282,9 @@ class CodeBlock(BaseBlock):
         if self.margin_top:
             group_items.append("")
             self.margin_top = False
+
+        if self.target_path:
+            group_items.append(Text(self.target_path, style="dim"))
             
         group_items.append(streaming_panel)
         # Update the live display
