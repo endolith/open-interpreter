@@ -7,6 +7,7 @@ Major changes vs the upstream branch (`classic/main`):
 - **computer → toolbox**: Renamed in the hope that the LLMs understand how to use it better. Breaking change, renamed entire API.
   - First line of docstring and Returns are always shown to LLM in system message to hint at how to use tools
   - As well as encouragement to use `help()` to RTFM (which they rarely do)
+- **Shell split into `bash`/`cmd`**: The old ambiguous `shell` language was replaced with distinct `bash` and `cmd` languages, so the AI knows what environment it's on and commands are more likely to work correctly on Windows (and it can use bash on Windows if available).
 - **Web search tools** for the AI to find info online:
   - Multiple backends with fallbacks: LinkUp, Tavily, SerpApi, Brave, Serper
   - `search`: list of search results
