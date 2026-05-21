@@ -82,10 +82,7 @@ class Terminal:
 
     def get_language(self, language):
         for lang in self.languages:
-            if language.lower() == lang.name.lower() or (
-                hasattr(lang, "aliases")
-                and language.lower() in (alias.lower() for alias in lang.aliases)
-            ):
+            if language.lower() == lang.name.lower():
                 return lang
         return None
 

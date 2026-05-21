@@ -35,8 +35,7 @@ if "ipykernel_launcher" in sys.argv:
 
 class JupyterLanguage(BaseLanguage):
     file_extension = "py"
-    name = "Python"
-    aliases = ["py"]
+    name = "python"
 
     def __init__(self, interpreter):
         self.interpreter = interpreter
