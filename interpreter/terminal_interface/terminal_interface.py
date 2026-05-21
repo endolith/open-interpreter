@@ -352,7 +352,8 @@ def terminal_interface(interpreter, message):
 
                             should_highlight = interpreter.highlight_active_line if hasattr(interpreter, 'highlight_active_line') and interpreter.highlight_active_line is not None else True
                             if block_kind == "edit":
-                                active_block.code = f"# {edit_target}\n{code}"
+                                active_block.target_path = edit_target
+                                active_block.code = code
                             elif should_highlight:
                                 active_block.code = code
                             # If should_highlight is False and the code hasn't been edited,
@@ -516,7 +517,9 @@ def terminal_interface(interpreter, message):
                         continue  # Replace chunk only updates display/storage; raw content was already printed
                     if "start" in chunk or "end" in chunk:
                         print("")
-                    if chunk["type"] in ["code", "console"] and "format" in chunk:
+                    if chunk["type"] == "edit" and "start" in chunk and chunk.get("target"):
+                        print(chunk["target"], flush=True)
+                    if chunk["type"] in ["code", "edit", "console"] and "format" in chunk:
                         if "start" in chunk:
                             print("```" + chunk["format"], flush=True)
                         if "end" in chunk:
@@ -617,14 +620,14 @@ def terminal_interface(interpreter, message):
                     if "start" in chunk:
                         active_block = CodeBlock(interpreter)
                         active_block.language = chunk["format"]
-                        active_block.code = f"# {chunk.get('target', '')}\n"
+                        active_block.target_path = chunk.get("target", "")
                         render_cursor = True
 
                     if "content" in chunk:
                         if active_block is None:
                             active_block = CodeBlock(interpreter)
                             active_block.language = chunk["format"]
-                            active_block.code = f"# {chunk.get('target', '')}\n"
+                            active_block.target_path = chunk.get("target", "")
                         active_block.code += chunk["content"]
 
                 # Toolbox can display visual types to user,
