@@ -294,9 +294,17 @@ def terminal_interface(interpreter, message):
                     if not interpreter.auto_run:
                         # OI is about to execute code or apply an edit. The user wants to approve this
 
-                        # End the active code block so you can run input() below it
+                        # End the active block so you can run input() below it.
+                        # finalize() must be called first (if the block has it) to
+                        # properly clear and stop the Rich Live display and flush any
+                        # buffered content to the permanent console.  Without it,
+                        # live.stop() fires while the Live viewport still has rendered
+                        # content, leaving the terminal cursor inside/below the panel
+                        # rather than at a clean line boundary — causing the subsequent
+                        # input("> ") prompt to appear on the wrong line.
                         if active_block and not interpreter.plain_text_display:
-                            active_block.refresh(cursor=False)
+                            if hasattr(active_block, 'finalize'):
+                                active_block.finalize()
                             active_block.end()
                             active_block = None
 
