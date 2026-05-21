@@ -32,38 +32,13 @@ def _make_tool_calling_instructions():
         {"id": "call_...", "type": "function", "function": {"name": "execute", "arguments": args_str}},
         indent=2,
     )
-    edit_example = json.dumps(
-        {
-            "id": "call_...",
-            "type": "function",
-            "function": {
-                "name": "edit",
-                "arguments": json.dumps(
-                    {
-                        "language": "write",
-                        "code": "key=value\n",
-                        "target": "C:/Users/example/new.txt",
-                    }
-                ),
-            },
-        },
-        indent=2,
-    )
     return f"""To run code, emit a tool call named **execute** with a JSON-encoded string for arguments. Example:
 
 ```json
 {example}
 ```
 
-To edit or create files, emit **edit** with `language` (sed, ed, gawk, jq, or write), `code`, and absolute `target`. Example:
-
-```json
-{edit_example}
-```
-
-`write` creates a new file (target must not exist). Other languages edit an existing file in place. Do not use execute/bash to run sed/jq/etc. on files.
-
-(What appears in the conversation log as {{"role": "assistant", "type": "code", ...}} or `type: edit` is internal storage—we derive that from your tool call; you do not output that structure.) Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside execute's code string."""
+(What appears in the conversation log as {{"role": "assistant", "type": "code", "format": "python", "content": "..."}} is our internal storage—we derive that from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
 
 _TOOL_CALLING_INSTRUCTIONS = _make_tool_calling_instructions()
 
