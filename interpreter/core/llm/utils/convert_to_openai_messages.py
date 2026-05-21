@@ -163,8 +163,8 @@ def convert_to_openai_messages(
                 ]
             else:
                 new_message["content"] = (
-                    f"```{message['format']}\n# {message['target']}\n"
-                    f"{message['content']}\n```"
+                    f"Edit `{message['target']}`:\n"
+                    f"```{message['format']}\n{message['content']}\n```"
                 )
 
         elif message["type"] == "console" and message["format"] == "output":
