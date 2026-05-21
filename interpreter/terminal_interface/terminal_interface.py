@@ -529,7 +529,11 @@ def terminal_interface(interpreter, message):
                         elif "content" in chunk:
                             print(chunk["content"], end="", flush=True)
                         elif "end" in chunk:
-                            print("\n[/Thinking]\n", flush=True)
+                            # Leading \n ensures we're on a new line even if the last
+                            # streamed token had no trailing newline.  print()'s default
+                            # end="\n" plus the message-start print("") that follows gives
+                            # exactly one blank line between the footer and the response.
+                            print("\n[/Thinking]", flush=True)
                     else:
                         if chunk.get("replace"):
                             continue  # Replace chunk only updates display/storage; raw content was already printed
