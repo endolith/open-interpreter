@@ -60,6 +60,9 @@ def convert_to_openai_messages(
     """
     new_messages = []
     pending_assistant_reasoning = None
+    # Track which tool produced the most recent code/edit block so that the
+    # following console-output message is attributed to the right function name.
+    last_tool_name = "execute"
 
     # if function_calling == False:
     #     prev_message = None
@@ -122,6 +125,7 @@ def convert_to_openai_messages(
                 new_message["tool_call_id"] = message["tool_call_id"]
 
         elif message["type"] == "code":
+            last_tool_name = "execute"
             new_message["role"] = "assistant"
             if message.get("reasoning_content"):
                 new_message["reasoning_content"] = message["reasoning_content"]
@@ -146,6 +150,47 @@ def convert_to_openai_messages(
                     "content"
                 ] = f"""```{message["format"]}\n{message["content"]}\n```"""
 
+        elif message["type"] == "edit":
+            last_tool_name = "edit"
+            new_message["role"] = "assistant"
+            if function_calling:
+                new_message["function_call"] = {
+                    "name": "edit",
+                    "arguments": json.dumps({
+                        "language": message["format"],
+                        "code": message["content"],
+                        "target": message["target"],
+                    }),
+                }
+                new_message["content"] = ""
+            else:
+                new_message["content"] = (
+                    f"edit({message['format']}, {message['target']!r}):\n"
+                    f"```{message['format']}\n{message['content']}\n```"
+                )
+
+        elif message["type"] == "edit":
+            # Reconstruct the assistant's edit tool call so process_messages finds a proper
+            # assistant+tool_calls entry before the role:tool response, preventing a synthetic
+            # execute from being inserted on the next turn.
+            tool_call_id = message.get("tool_call_id") or "edit_0"
+            new_message["role"] = "assistant"
+            new_message["content"] = ""
+            new_message["tool_calls"] = [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "edit",
+                        "arguments": json.dumps({
+                            "language": message["format"],
+                            "code": message["content"],
+                            "target": message.get("target", ""),
+                        }),
+                    },
+                }
+            ]
+
         elif message["type"] == "console" and message["format"] == "output":
             # Some console outputs arrive without a content key; default it to an
             # empty string so both the function-calling and plain paths treat it
@@ -153,7 +198,9 @@ def convert_to_openai_messages(
             message["content"] = message.get("content", "")
             if function_calling:
                 new_message["role"] = "function"
-                new_message["name"] = "execute"
+                new_message["name"] = last_tool_name
+                if "content" not in message:
+                    print("What is this??", content)
                 if type(message["content"]) != str:
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
