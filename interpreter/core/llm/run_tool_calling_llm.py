@@ -32,6 +32,44 @@ tool_schema = {
     },
 }
 
+EDIT_LANGUAGES_ENUM = ["sed", "ed", "gawk", "jq", "write"]
+
+edit_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "edit",
+        "description": (
+            "Edit or create a file on disk. target must be an absolute path. "
+            "Languages: "
+            "write — create a new file; code is the full verbatim body (UTF-8); errors if target already exists. "
+            "sed — one sed command per line, applied in-place. "
+            "ed — standard ed script; must end with wq to save. "
+            "gawk — GNU awk program, applied in-place. "
+            "jq — jq filter to transform a JSON file in-place. "
+            "The system handles -i flags, temp files, and binary paths; never wrap these in bash."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {
+                    "type": "string",
+                    "enum": EDIT_LANGUAGES_ENUM,
+                    "description": "sed | ed | gawk | jq | write",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Commands/program (sed/ed/gawk/jq) or verbatim file body (write).",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Absolute path to the file to edit or create.",
+                },
+            },
+            "required": ["language", "code", "target"],
+        },
+    },
+}
+
 # Raster image formats supported by view_image (vision APIs and Pillow). PDF and other documents are not supported.
 VIEW_IMAGE_ALLOWED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "bmp"})
 
@@ -49,6 +87,43 @@ view_image_tool_schema = {
                 },
             },
             "required": ["path"],
+        },
+    },
+}
+
+
+edit_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "edit",
+        "description": (
+            "Edit or create a file at an absolute path.\n"
+            "Languages:\n"
+            "  write — create a NEW file; code is the full file body written verbatim. Errors if target already exists.\n"
+            "  sed   — stream editing; code is one or more sed commands (newline-separated). Target must exist.\n"
+            "  ed    — line-based editing; code is an ed script that must end with wq. Target must exist.\n"
+            "  gawk  — field/column transform; code is a gawk program. Target must exist.\n"
+            "  jq    — JSON transform; code is a jq filter. Target must be an existing JSON file.\n"
+            "Rules: target must be an absolute path. System handles all file I/O, temp files, and in-place replacement."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {
+                    "type": "string",
+                    "enum": ["write", "sed", "ed", "gawk", "jq"],
+                    "description": "write = new file; sed/ed/gawk/jq = edit existing file",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "File body (write) or edit commands/program (sed/ed/gawk/jq)",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Absolute path to the file",
+                },
+            },
+            "required": ["language", "code", "target"],
         },
     },
 }
@@ -231,7 +306,7 @@ def run_tool_calling_llm(llm, request_params):
     tool_schema["function"]["parameters"]["properties"]["language"]["description"] = (
         format_execute_language_description(languages)
     )
-    tools = [tool_schema]
+    tools = [tool_schema, edit_tool_schema]
     if getattr(llm, "supports_vision", None) is True:
         if not _inline_user_image_in_turn_after_last_assistant_text(
             request_params["messages"]
@@ -782,12 +857,74 @@ def run_tool_calling_llm(llm, request_params):
                 }
             else:
                 yield {"role": "assistant", "type": "message", "content": content}
+        elif function_name == "edit":
+            arguments = function_call.get("arguments")
+            if isinstance(arguments, str):
+                arguments = parse_partial_json(arguments)
+
+            if isinstance(arguments, dict):
+                edit_language = arguments.get("language")
+                edit_code = arguments.get("code")
+                edit_target = arguments.get("target")
+
+                valid_edit_languages = {"write", "sed", "ed", "gawk", "jq"}
+                if not edit_language or edit_language not in valid_edit_languages:
+                    error_msg = (
+                        f"edit: invalid language {edit_language!r}. "
+                        f"Must be one of: {', '.join(sorted(valid_edit_languages))}"
+                    )
+                elif edit_code is None:
+                    error_msg = "edit: 'code' is required."
+                elif not isinstance(edit_code, str):
+                    error_msg = f"edit: 'code' must be a string, got {type(edit_code).__name__}"
+                elif not edit_code.strip() and edit_language != "write":
+                    error_msg = f"edit: 'code' cannot be empty for language {edit_language!r}."
+                elif not edit_target:
+                    error_msg = "edit: 'target' is required."
+                elif not os.path.isabs(edit_target):
+                    error_msg = (
+                        f"edit: 'target' must be an absolute path, got: {edit_target!r}"
+                    )
+                else:
+                    error_msg = None
+
+                if error_msg:
+                    if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                        yield {
+                            "role": "tool",
+                            "tool_call_id": tool_call_id_for_error,
+                            "type": "message",
+                            "content": error_msg,
+                        }
+                    else:
+                        yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+                else:
+                    yield {
+                        "role": "assistant",
+                        "type": "edit",
+                        "format": edit_language,
+                        "content": edit_code,
+                        "target": edit_target,
+                        "tool_call_id": tool_call_id_for_error,
+                    }
+            else:
+                error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"
+                if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id_for_error,
+                        "type": "message",
+                        "content": error_msg,
+                    }
+                else:
+                    yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+
         elif function_name:
             # Unsupported function call - yield error as tool response to maintain proper message ordering
             # The API expects: assistant (with tool_call) → tool (response) → user
             error_msg = (
                 f"Unsupported function call: '{function_name}'. "
-                f"Only 'execute' and 'view_image' (vision models only) are supported as direct tool calls. "
+                f"Only 'execute', 'edit', and 'view_image' (vision models only) are supported as direct tool calls. "
                 f"To use '{function_name}', call it from within Python code using the execute function. "
                 f"For example: `toolbox.web.search('your query')`"
             )

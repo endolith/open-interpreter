@@ -292,13 +292,48 @@ def terminal_interface(interpreter, message):
                 # Execution notice
                 if chunk["type"] == "confirmation":
                     if not interpreter.auto_run:
-                        # OI is about to execute code. The user wants to approve this
+                        # OI is about to execute code or apply an edit. The user wants to approve this
 
                         # End the active code block so you can run input() below it
                         if active_block and not interpreter.plain_text_display:
                             active_block.refresh(cursor=False)
                             active_block.end()
                             active_block = None
+
+                        if chunk.get("format") == "edit":
+                            # Edit tool confirmation — show target path and edit script,
+                            # ask y/n (no "edit" option since the content is structured JSON).
+                            edit_info = chunk["content"]
+                            language = edit_info["format"]
+                            code = edit_info["content"]
+                            target = edit_info["target"]
+
+                            print("", flush=True)
+                            edit_prompt = (
+                                f"Edit {target}\n  Would you like to apply this edit? (y/n)\n\n"
+                                if interpreter.plain_text_display
+                                else f"  Edit {target}\n  Would you like to apply this edit? (y/n)\n\n  "
+                            )
+                            response = prompt_choice(edit_prompt, ("y", "n"))
+
+                            if response == "y":
+                                active_block = CodeBlock(interpreter)
+                                active_block.margin_top = False
+                                active_block.language = language
+                                active_block.target_path = target
+                                active_block.code = code
+                            else:
+                                interpreter.messages.append(
+                                    {
+                                        "role": "user",
+                                        "type": "message",
+                                        "content": "[User declined to apply this edit.]",
+                                        "sent_at": time.time(),
+                                        "source": "terminal",
+                                    }
+                                )
+                                break
+                            continue
 
                         code_to_run = chunk["content"]
                         language = code_to_run["format"]
@@ -575,6 +610,17 @@ def terminal_interface(interpreter, message):
                     if "start" in chunk:
                         active_block = CodeBlock(interpreter)
                         active_block.language = chunk["format"]
+                        render_cursor = True
+
+                    if "content" in chunk:
+                        active_block.code += chunk["content"]
+
+                # Assistant edit blocks (edit tool: sed/ed/gawk/jq/write)
+                elif chunk["role"] == "assistant" and chunk["type"] == "edit":
+                    if "start" in chunk:
+                        active_block = CodeBlock(interpreter)
+                        active_block.language = chunk["format"]
+                        active_block.target_path = chunk.get("target", "")
                         render_cursor = True
 
                     if "content" in chunk:

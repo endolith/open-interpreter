@@ -27,18 +27,29 @@ from .run_text_llm import run_text_llm
 # Built once at import time so the escaping is handled by json.dumps, not by hand.
 def _make_tool_calling_instructions():
     code = "for i in range(3):\n    print(i)"
-    args_str = json.dumps({"language": "python", "code": code})
-    example = json.dumps(
-        {"id": "call_...", "type": "function", "function": {"name": "execute", "arguments": args_str}},
+    exec_args = json.dumps({"language": "python", "code": code})
+    exec_example = json.dumps(
+        {"id": "call_...", "type": "function", "function": {"name": "execute", "arguments": exec_args}},
         indent=2,
     )
-    return f"""To run code, emit a tool call named **execute** with a JSON-encoded string for arguments. Example:
+    edit_args = json.dumps({"language": "write", "code": "hello world\n", "target": "/tmp/hello.txt"})
+    edit_example = json.dumps(
+        {"id": "call_...", "type": "function", "function": {"name": "edit", "arguments": edit_args}},
+        indent=2,
+    )
+    return f"""Two tools are available:
 
+**execute** — run code. Example:
 ```json
-{example}
+{exec_example}
 ```
 
-(What appears in the conversation log as {{"role": "assistant", "type": "code", "format": "python", "content": "..."}} is our internal storage—we derive that from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
+**edit** — edit or create a file. `target` must be absolute. Languages: `write` (create new file — errors if it already exists), `sed` (sed commands, one per line), `ed` (ed script, must end with `wq`), `gawk` (GNU awk program), `jq` (jq filter for JSON). The system handles `-i` flags, temp files, and binary paths — never wrap these in bash. Example:
+```json
+{edit_example}
+```
+
+(What appears in the conversation log as {{"role": "assistant", "type": "code", ...}} or {{"type": "edit", ...}} is our internal storage derived from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
 
 _TOOL_CALLING_INSTRUCTIONS = _make_tool_calling_instructions()
 
