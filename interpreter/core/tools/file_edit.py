@@ -148,6 +148,34 @@ def run_sed(target, code):
     return "sed: OK"
 
 
+def _ed_output_is_error(stderr, stdout):
+    """ed signals failure with ? on stderr or stdout (Linux and Windows)."""
+    combined = f"{stderr or ''}\n{stdout or ''}".strip()
+    if not combined:
+        return False
+    lines = [ln.strip() for ln in combined.splitlines() if ln.strip()]
+    return bool(lines) and all(ln == "?" for ln in lines)
+
+
+def _format_ed_failure(stderr, stdout, returncode, script):
+    """Turn ed's terse ? errors into something actionable for the model and user."""
+    err = (stderr or "").strip()
+    out = (stdout or "").strip()
+    lines = [ln.strip() for ln in (err + "\n" + out).splitlines() if ln.strip()]
+    _ed_hint = (
+        "ed command failed (ed prints ? when a command is invalid). "
+        "Use one command per line and end with wq. "
+        "Prefer explicit line ranges (e.g. 1,3s/old/new/) if 1,$ fails."
+    )
+    if not lines or all(ln == "?" for ln in lines):
+        detail = _ed_hint
+    else:
+        useful = [ln for ln in lines if ln != "?"]
+        detail = "\n".join(useful) if useful else _ed_hint
+    preview = "\n".join(script.replace("\r", "").strip().splitlines()[:20])
+    return f"ed: {detail}\n\nScript:\n{preview}\n(exit {returncode})"
+
+
 def run_ed(target, code):
     """Feed an ed script to the file. Script must end with wq (or w then q) to save."""
     _validate_target(target, must_exist=True)
@@ -155,19 +183,30 @@ def run_ed(target, code):
         raise ValueError("ed: no commands in code")
 
     ed = _resolve_ed()
-    script = code if code.endswith("\n") else code + "\n"
+    # Normalize to LF only. subprocess text=True on Windows writes CRLF to stdin;
+    # GnuWin32 ed treats trailing \\r as part of each command and fails with ?.
+    script = code.replace("\r\n", "\n").replace("\r", "\n")
+    if not script.endswith("\n"):
+        script += "\n"
+
+    ed_target = Path(target).as_posix()
     result = subprocess.run(
-        [ed, "-s", target],
-        input=script,
+        [ed, "-s", ed_target],
+        input=script.encode("utf-8"),
         capture_output=True,
-        text=True,
     )
-    if result.returncode != 0:
+    stderr = (result.stderr or b"").decode("utf-8", errors="replace")
+    stdout = (result.stdout or b"").decode("utf-8", errors="replace")
+    if result.returncode != 0 or _ed_output_is_error(stderr, stdout):
         raise RuntimeError(
-            (result.stderr or result.stdout or "").strip()
-            or f"ed exited with code {result.returncode}"
+            _format_ed_failure(
+                stderr,
+                stdout,
+                result.returncode if result.returncode != 0 else 1,
+                script,
+            )
         )
-    out = (result.stdout or "").strip()
+    out = stdout.strip()
     return out if out else "ed: OK"
 
 
