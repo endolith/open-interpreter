@@ -329,7 +329,8 @@ def terminal_interface(interpreter, message):
                                 active_block.margin_top = False
                                 active_block.language = language
                                 active_block.target_path = target
-                                active_block.code = code
+                                # Don't repeat the code — it was already shown in the
+                                # streaming preview block above the confirmation prompt.
                             else:
                                 interpreter.messages.append(
                                     {
