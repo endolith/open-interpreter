@@ -902,7 +902,6 @@ def run_tool_calling_llm(llm, request_params):
                         "format": edit_language,
                         "content": edit_code,
                         "target": edit_target,
-                        "tool_call_id": tool_call_id_for_error,
                     }
             else:
                 error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"

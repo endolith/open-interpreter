@@ -163,28 +163,6 @@ def convert_to_openai_messages(
                     f"```{message['format']}\n{message['content']}\n```"
                 )
 
-        elif message["type"] == "edit":
-            # Reconstruct the assistant's edit tool call so process_messages finds a proper
-            # assistant+tool_calls entry before the role:tool response, preventing a synthetic
-            # execute from being inserted on the next turn.
-            tool_call_id = message.get("tool_call_id") or "edit_0"
-            new_message["role"] = "assistant"
-            new_message["content"] = ""
-            new_message["tool_calls"] = [
-                {
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": "edit",
-                        "arguments": json.dumps({
-                            "language": message["format"],
-                            "code": message["content"],
-                            "target": message.get("target", ""),
-                        }),
-                    },
-                }
-            ]
-
         elif message["type"] == "console" and message["format"] == "output":
             if function_calling:
                 new_message["role"] = "function"

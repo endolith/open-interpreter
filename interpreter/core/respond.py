@@ -467,7 +467,6 @@ def respond(interpreter):
             language = edit_msg["format"].lower().strip()
             code = edit_msg["content"]
             target = edit_msg.get("target", "")
-            tool_call_id = edit_msg.get("tool_call_id")
 
             if interpreter.verbose:
                 print("Running edit:", edit_msg)
@@ -502,20 +501,25 @@ def respond(interpreter):
             except Exception as e:
                 output = traceback.format_exc() if interpreter.debug else str(e)
 
-            if tool_call_id and isinstance(tool_call_id, str) and tool_call_id.strip():
-                yield {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "type": "message",
-                    "content": output,
-                }
-            else:
-                yield {
-                    "role": "computer",
-                    "type": "console",
-                    "format": "output",
-                    "content": output,
-                }
+            # Yield as role:computer type:console so the result is:
+            # (a) shown to the user in the terminal output panel, and
+            # (b) converted to role:function name:edit by convert_to_openai_messages
+            #     (which tracks last_tool_name="edit") so the AI sees it exactly
+            #     once as the tool response — same pattern as execute.
+            # There is no separate role:tool message; process_messages handles pairing.
+            yield {
+                "role": "computer",
+                "type": "console",
+                "format": "output",
+                "content": output,
+            }
+            # Signal end-of-execution so core.py closes the output block.
+            yield {
+                "role": "computer",
+                "type": "console",
+                "format": "active_line",
+                "content": None,
+            }
             continue
 
         ### RUN CODE (if it's there) ###
@@ -799,75 +803,6 @@ def respond(interpreter):
                     "content": content,
                 }
 
-        elif interpreter.messages[-1]["type"] == "edit":
-            if interpreter.verbose:
-                print("Running edit:", interpreter.messages[-1])
-
-            try:
-                edit_msg = interpreter.messages[-1]
-                language = edit_msg["format"].lower().strip()
-                code = edit_msg["content"]
-                target = edit_msg["target"]
-
-                if code.strip() == "":
-                    yield {
-                        "role": "computer",
-                        "type": "console",
-                        "format": "output",
-                        "content": "Edit code was empty. Please try again.",
-                    }
-                    continue
-
-                # Yield confirmation so the user can approve or decline before
-                # the file is modified. core.py suppresses this when auto_run=True.
-                try:
-                    yield {
-                        "role": "computer",
-                        "type": "confirmation",
-                        "format": "edit",
-                        "content": {
-                            "type": "edit",
-                            "format": language,
-                            "content": code,
-                            "target": target,
-                        },
-                    }
-                except GeneratorExit:
-                    break
-
-                # Re-read in case a future UI allows editing before apply.
-                edit_msg = [m for m in interpreter.messages if m.get("type") == "edit"][-1]
-                code = edit_msg["content"]
-                target = edit_msg["target"]
-
-                from .tools.file_edit import dispatch as _file_edit_dispatch
-                result = _file_edit_dispatch(language, code, target)
-
-                yield {
-                    "role": "computer",
-                    "type": "console",
-                    "format": "output",
-                    "content": result,
-                }
-
-                # Signal end-of-execution so core.py closes the output block.
-                yield {
-                    "role": "computer",
-                    "type": "console",
-                    "format": "active_line",
-                    "content": None,
-                }
-
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                yield {
-                    "role": "computer",
-                    "type": "console",
-                    "format": "output",
-                    "content": traceback.format_exc() if interpreter.verbose else str(e),
-                }
-
         else:
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
@@ -881,8 +816,8 @@ def respond(interpreter):
             ):
                 continue
 
-            # If the last message is a tool response (edit result, unsupported function call error,
-            # etc.) continue the loop so the LLM gets another turn with the result in context.
+            # If the last message is a tool response (unsupported function call error, etc.)
+            # continue the loop so the LLM gets another turn with the result in context.
             if (
                 interpreter.messages
                 and interpreter.messages[-1].get("role") == "tool"
