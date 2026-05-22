@@ -521,6 +521,12 @@ def terminal_interface(interpreter, message):
                             )
                             break
 
+                    # The confirmation chunk has been fully handled above (y/n/e all
+                    # either break, continue, or fall into the active_block setup).
+                    # Skip the rest of the loop body so the chunk isn't re-processed
+                    # by the plain-text or rich-display paths below.
+                    continue
+
                 # Plain text mode
                 if interpreter.plain_text_display:
                     if chunk.get("format") == "reasoning":

@@ -27,10 +27,12 @@ class CodeBlock(BaseBlock):
     def __init__(self, interpreter=None):
         super().__init__()
 
-        # Override the base Live display with our specialized streaming configuration
+        # Override the base Live display with our specialized streaming configuration.
+        # Do NOT start the live display here — start it lazily in refresh() so that
+        # creating a CodeBlock in plain_text_display mode (where refresh() is never
+        # called) doesn't launch a background Rich display that intercepts print()
+        # calls and scatters streaming tokens to separate lines.
         self.live = create_live_display(self.live.console)
-        # We start it in refresh or let BaseBlock handle it? BaseBlock.init starts it.
-        self.live.start()
 
         self.type = "code"
         self.highlight_active_line = (
@@ -133,6 +135,12 @@ class CodeBlock(BaseBlock):
 
     def refresh(self, cursor=True):
         """Process content, pop completed blocks, and update the Live sliding window."""
+        # Lazy start: the live display is not started in __init__ so that creating a
+        # CodeBlock in plain_text_display mode is side-effect-free.  Rich's start()
+        # is idempotent (safe to call again after stop), so this is always safe here.
+        if not self.live.is_started:
+            self.live.start()
+
         # Ensure we have fresh terminal dimensions
         self.live.console._width = None
         self.live.console._height = None
@@ -145,7 +153,8 @@ class CodeBlock(BaseBlock):
         current_width = current_size.columns
         if current_width != self._last_width:
             # Re-start live display on resize (critical for Windows terminal reflow)
-            self.live.stop()
+            if self.live.is_started:
+                self.live.stop()
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()
