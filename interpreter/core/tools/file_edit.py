@@ -21,7 +21,7 @@ from ..terminal.languages.resolve_bash import resolve_bash_executable
 
 EDIT_LANGUAGES = frozenset({
     "sed", "ed", "gawk", "jq", "write",
-    "perl", "yq", "mlr", "poke",
+    "perl", "yq", "poke",
     "comby", "patch",
 })
 
@@ -85,10 +85,6 @@ def _resolve_perl():
 
 def _resolve_yq():
     return _resolve_binary("INTERPRETER_YQ", ["yq"])
-
-
-def _resolve_mlr():
-    return _resolve_binary("INTERPRETER_MLR", ["mlr"])
 
 
 def _resolve_poke():
@@ -352,33 +348,6 @@ def run_yq(target, code):
     _run_failed("yq", result)
 
 
-def run_mlr(target, code):
-    """Apply a Miller one-liner in-place (-I verb statement)."""
-    _validate_target(target, must_exist=True)
-    stripped = code.strip()
-    if not stripped:
-        raise ValueError("mlr: no command in code")
-
-    parts = stripped.split(None, 1)
-    if len(parts) < 2:
-        raise ValueError(
-            "mlr: code must start with a Miller verb then the statement "
-            '(e.g. put $field = "value")'
-        )
-    verb, statement = parts[0], parts[1]
-
-    mlr = _resolve_mlr()
-    result = subprocess.run(
-        [mlr, "-I", verb, statement, target],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        _run_failed("mlr", result)
-    out = (result.stdout or "").strip()
-    return out if out else "mlr: OK"
-
-
 def run_poke(target, code):
     """Run GNU poke dot-commands / statements against a binary file."""
     _validate_target(target, must_exist=True)
@@ -507,8 +476,6 @@ def run_edit(language, code, target):
         return run_perl(target, code)
     if language == "yq":
         return run_yq(target, code)
-    if language == "mlr":
-        return run_mlr(target, code)
     if language == "poke":
         return run_poke(target, code)
     if language == "comby":
