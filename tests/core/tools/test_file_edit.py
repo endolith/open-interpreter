@@ -18,6 +18,7 @@ from interpreter.core.tools.file_edit import (
     run_jq,
     run_patch,
     run_poke,
+    run_comby,
     run_sed,
     run_write,
 )
@@ -56,6 +57,11 @@ class TestCombyJson(unittest.TestCase):
     def test_rewritten_source_from_json_object(self):
         payload = json.dumps({"rewritten_source": "value = 2\n"})
         out = _comby_rewritten_source(payload.encode())
+        self.assertEqual(out, b"value = 2\n")
+
+    def test_rewritten_source_from_json_lines(self):
+        payload = json.dumps({"rewritten_source": "value = 2\n"})
+        out = _comby_rewritten_source((payload + "\n").encode())
         self.assertEqual(out, b"value = 2\n")
 
 
@@ -163,16 +169,16 @@ class TestRunComby(unittest.TestCase):
 
 
 class TestPokeScript(unittest.TestCase):
-    def test_prepare_script_ios_and_quit(self):
-        script = _poke_prepare_script("uint8 @ 0#B = 0x58")
-        self.assertIn(".ios 0\n", script)
+    def test_prepare_script_file_and_quit(self):
+        script = _poke_prepare_script("uint8 @ 0#B = 0x58", "/tmp/demo.bin")
+        self.assertIn(".file /tmp/demo.bin\n", script)
         self.assertIn("uint8 @ 0#B = 0x58", script)
         self.assertTrue(script.rstrip().endswith(".quit"))
-        self.assertNotIn(".file", script)
 
-    def test_prepare_script_skips_ios_if_present(self):
-        script = _poke_prepare_script(".ios 0\nbyte @ 0#B")
-        self.assertEqual(script.count(".ios 0"), 1)
+    def test_prepare_script_skips_file_if_present(self):
+        script = _poke_prepare_script(".file other.bin\nbyte @ 0#B", "/tmp/demo.bin")
+        self.assertEqual(script.count(".file"), 1)
+        self.assertIn("other.bin", script)
 
 
 @unittest.skipUnless(shutil.which("poke"), "poke not installed")
