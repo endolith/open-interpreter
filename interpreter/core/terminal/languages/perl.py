@@ -8,8 +8,9 @@ class Perl(SubprocessLanguage):
     file_extension = "pl"
     name = "perl"
     execute_tool_hint = (
-        "full Perl scripts — open/read/write files, use %state across blocks; "
-        "not for edit-tool one-liners (those use edit language perl)"
+        "full Perl per block (separate eval). Bare $x = 1 persists (package vars); "
+        "my $x is block-local only; our $x persists but re-declare our $x; each block. "
+        "Subs and file I/O persist. Not for edit -pe one-liners (use edit language perl)"
     )
 
     def __init__(self):

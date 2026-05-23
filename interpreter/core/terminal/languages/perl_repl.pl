@@ -1,5 +1,7 @@
 #!/usr/bin/env perl
-use strict;
+# No strict 'vars': each block is a separate eval; bare $x = 1 should persist like
+# perl -e one-liners. refs/subs stay strict for safety.
+use strict qw(refs subs);
 use warnings;
 $| = 1;
 

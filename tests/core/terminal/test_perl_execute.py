@@ -47,7 +47,7 @@ class TestPerlReplScript(unittest.TestCase):
         self.assertIn("ok", out)
         self.assertIn("##end_of_execution##", out)
 
-    def test_two_blocks_on_one_stdin_stream(self):
+    def test_bare_variable_persists_across_blocks(self):
         proc = subprocess.Popen(
             ["perl", str(REPL_PATH)],
             stdin=subprocess.PIPE,
@@ -55,13 +55,31 @@ class TestPerlReplScript(unittest.TestCase):
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        proc.stdin.write(b'$::x = "persist";\n__OI_END__\n')
-        proc.stdin.write(b'print "$::x\n";\n__OI_END__\n')
+        proc.stdin.write(b'$counter = 41;\n__OI_END__\n')
+        proc.stdin.write(b'$counter++;\nprint "$counter\n";\n__OI_END__\n')
+        proc.stdin.flush()
+        out, err = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(err, b"")
+        text = out.decode("utf-8", errors="replace")
+        self.assertIn("42", text)
+        self.assertEqual(text.count("##end_of_execution##"), 2)
+        proc.stdin.close()
+
+    def test_my_variable_does_not_persist(self):
+        proc = subprocess.Popen(
+            ["perl", str(REPL_PATH)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+        proc.stdin.write(b'my $hidden = "secret";\n__OI_END__\n')
+        proc.stdin.write(b'print "$hidden\n";\n__OI_END__\n')
         proc.stdin.flush()
         out, _ = proc.communicate(timeout=10)
         text = out.decode("utf-8", errors="replace")
-        self.assertEqual(text.count("##end_of_execution##"), 2)
-        self.assertIn("persist", text)
+        self.assertNotIn("secret", text)
         proc.stdin.close()
 
 
