@@ -326,6 +326,19 @@ def run_yq(target, code):
     _run_failed("yq", result)
 
 
+def _poke_dot_file_arg(path):
+    """Path argument for the .file dot-command (not a Poke string literal)."""
+    if " " in path or path[:1].isspace() or path[-1:].isspace():
+        escaped = path.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return path
+
+
+def _poke_quoted_path(path):
+    """Path inside a Poke double-quoted string (e.g. save :file)."""
+    return path.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def run_poke(target, code):
     """Run GNU poke dot-commands / statements against a binary file."""
     _validate_target(target, must_exist=True)
@@ -333,11 +346,14 @@ def run_poke(target, code):
         raise ValueError("poke: no commands in code")
 
     poke = _resolve_poke()
-    path = Path(target).as_posix()
+    path = str(Path(target).resolve())
     body = code.replace("\r\n", "\n").replace("\r", "\n").strip()
-    script_lines = [f'.file "{path}"', body]
+    script_lines = [f".file {_poke_dot_file_arg(path)}", body]
     if "save" not in body.lower():
-        script_lines.append(f'save :file "{path}"')
+        qpath = _poke_quoted_path(path)
+        script_lines.append(
+            f'save :from 0#B :size iosize () :file "{qpath}"'
+        )
     # poke -s loads a command file then drops into the interactive REPL; without
     # .quit subprocess.run blocks forever waiting for stdin.
     lower = body.lower()
