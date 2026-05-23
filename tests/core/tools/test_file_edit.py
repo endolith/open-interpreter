@@ -9,6 +9,7 @@ from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _ed_output_is_error,
     _format_ed_failure,
+    _poke_dot_file_arg,
     _split_comby_templates,
     _validate_target,
     run_edit,
@@ -151,6 +152,20 @@ class TestRunComby(unittest.TestCase):
             run_write(target, "value = 1\n")
             run_comby(target, "value = 1\n---\nvalue = 2\n")
             self.assertEqual(open(target, encoding="utf-8").read(), "value = 2\n")
+
+
+class TestPokePathQuoting(unittest.TestCase):
+    def test_dot_file_unquoted_without_spaces(self):
+        self.assertEqual(
+            _poke_dot_file_arg("/tmp/demo.bin"),
+            "/tmp/demo.bin",
+        )
+
+    def test_dot_file_quoted_when_path_has_spaces(self):
+        self.assertEqual(
+            _poke_dot_file_arg("/tmp/my dir/demo.bin"),
+            '"/tmp/my dir/demo.bin"',
+        )
 
 
 @unittest.skipUnless(shutil.which("poke"), "poke not installed")
