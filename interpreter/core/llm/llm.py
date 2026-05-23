@@ -44,10 +44,12 @@ def _make_tool_calling_instructions():
 {exec_example}
 ```
 
-**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `ed`, `gawk`, `jq`, `perl` (expression only, e.g. `s/old/new/g`), `yq`, `mlr` (`put ...`), `poke` (binary). System handles flags and I/O — never wrap in bash. Example:
+**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `ed`, `gawk`, `jq`, `perl` (expression only, not full scripts), `yq`, `mlr`, `poke`, `comby`, `patch`. System handles flags and I/O — never wrap in bash. Example:
 ```json
 {edit_example}
 ```
+
+Execute languages also include `perl` (full scripts, persistent REPL) and `augeas` (augtool commands; session persists).
 
 (What appears in the conversation log as {{"role": "assistant", "type": "code", ...}} or {{"type": "edit", ...}} is our internal storage derived from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
 
