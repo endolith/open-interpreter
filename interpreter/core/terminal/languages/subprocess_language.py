@@ -41,6 +41,11 @@ class SubprocessLanguage(BaseLanguage):
         """
         return code
 
+    def write_block_to_stdin(self, code):
+        """Send a processed code block to the language subprocess."""
+        self.process.stdin.write(code + "\n")
+        self.process.stdin.flush()
+
     def terminate(self):
         if self.process:
             self.process.terminate()
@@ -109,8 +114,7 @@ class SubprocessLanguage(BaseLanguage):
             self.done.clear()
 
             try:
-                self.process.stdin.write(code + "\n")
-                self.process.stdin.flush()
+                self.write_block_to_stdin(code)
                 break
             except:
                 if retry_count != 0:
