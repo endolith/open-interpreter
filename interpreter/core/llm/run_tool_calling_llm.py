@@ -72,7 +72,6 @@ edit_tool_schema = {
             "  jq    — jq filter for JSON (in-place). Wrap if-expressions in parentheses in object literals.\n"
             "  perl  — Perl -pe expression only (e.g. s/foo/bar/g). No open/print/-i — system handles I/O.\n"
             "  yq    — yq (mikefarah) expression (YAML/JSON/TOML/XML/CSV), e.g. .field = \"value\".\n"
-            "  mlr   — Miller in-place: verb then statement (e.g. put $field = \"value\").\n"
             "  poke  — GNU poke statements for binary files; .file/save handled if omitted.\n"
             "  comby — structural match/replace: match template, then --- line, then rewrite "
             "(or match on line 1, rewrite on following lines).\n"
@@ -85,7 +84,7 @@ edit_tool_schema = {
                 "language": {
                     "type": "string",
                     "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | ed | gawk | jq | perl | yq | mlr | poke | comby | patch",
+                    "description": "write | sed | ed | gawk | jq | perl | yq | poke | comby | patch",
                 },
                 "code": {
                     "type": "string",
