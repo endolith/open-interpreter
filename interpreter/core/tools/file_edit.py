@@ -326,6 +326,9 @@ def run_yq(target, code):
     _run_failed("yq", result)
 
 
+_POKE_TIMEOUT_SEC = 120
+
+
 def run_poke(target, code):
     """Run GNU poke dot-commands / statements against a binary file."""
     _validate_target(target, must_exist=True)
@@ -335,20 +338,40 @@ def run_poke(target, code):
     poke = _resolve_poke()
     path = Path(target).as_posix()
     body = code.replace("\r\n", "\n").replace("\r", "\n").strip()
-    script_lines = [f'.file {path}', body]
+    script_lines = [f'.file "{path}"', body]
     if "save" not in body.lower():
         script_lines.append(f'save :file "{path}"')
+    # poke -s loads a command file then drops into the interactive REPL; without
+    # .quit subprocess.run blocks forever waiting for stdin.
+    lower = body.lower()
+    if ".quit" not in lower and ".exit" not in lower:
+        script_lines.append(".quit")
     script = "\n".join(script_lines) + "\n"
 
     fd, cmd_path = tempfile.mkstemp(suffix=".poke", prefix="oi-edit-", text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as cmd_file:
             cmd_file.write(script)
-        result = subprocess.run(
-            [poke, "-s", cmd_path],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    poke,
+                    "-q",
+                    "--no-init-file",
+                    "--no-hserver",
+                    "-s",
+                    cmd_path,
+                ],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=_POKE_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"poke: timed out after {_POKE_TIMEOUT_SEC}s "
+                "(interactive REPL may still be waiting for input)"
+            ) from None
     finally:
         if os.path.isfile(cmd_path):
             os.remove(cmd_path)
