@@ -21,7 +21,7 @@ from ..terminal.languages.resolve_bash import resolve_bash_executable
 
 EDIT_LANGUAGES = frozenset({
     "sed", "ed", "gawk", "jq", "write",
-    "perl", "yq", "poke",
+    "yq", "poke",
     "comby", "patch",
 })
 
@@ -77,10 +77,6 @@ def _resolve_ed():
 
 def _resolve_jq():
     return _resolve_binary("INTERPRETER_JQ", ["jq"])
-
-
-def _resolve_perl():
-    return _resolve_binary("INTERPRETER_PERL", ["perl"])
 
 
 def _resolve_yq():
@@ -312,24 +308,6 @@ def run_jq(target, code):
     return "jq: OK"
 
 
-def run_perl(target, code):
-    """Apply a Perl one-liner per line (-pe). Code is only the expression, not open/print."""
-    _validate_target(target, must_exist=True)
-    if not code.strip():
-        raise ValueError("perl: no expression in code")
-
-    perl = _resolve_perl()
-    result = subprocess.run(
-        [perl, "-pe", code, target],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        _run_failed("perl", result)
-    _atomic_replace_from_stdout(target, result.stdout.encode("utf-8"))
-    return "perl: OK"
-
-
 def run_yq(target, code):
     """Apply a yq (mikefarah) expression in-place (YAML/JSON/TOML/XML/CSV)."""
     _validate_target(target, must_exist=True)
@@ -472,8 +450,6 @@ def run_edit(language, code, target):
         return run_gawk(target, code)
     if language == "jq":
         return run_jq(target, code)
-    if language == "perl":
-        return run_perl(target, code)
     if language == "yq":
         return run_yq(target, code)
     if language == "poke":
