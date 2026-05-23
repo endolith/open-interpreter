@@ -15,7 +15,6 @@ from interpreter.core.tools.file_edit import (
     run_ed,
     run_jq,
     run_patch,
-    run_perl,
     run_sed,
     run_write,
 )
@@ -25,7 +24,7 @@ class TestEditLanguagesRegistry(unittest.TestCase):
     def test_expected_languages_registered(self):
         self.assertIn("comby", EDIT_LANGUAGES)
         self.assertIn("patch", EDIT_LANGUAGES)
-        self.assertIn("perl", EDIT_LANGUAGES)
+        self.assertNotIn("perl", EDIT_LANGUAGES)
 
 
 class TestValidateTarget(unittest.TestCase):
@@ -151,16 +150,6 @@ class TestRunComby(unittest.TestCase):
             run_write(target, "value = 1\n")
             run_comby(target, "value = 1\n---\nvalue = 2\n")
             self.assertEqual(open(target, encoding="utf-8").read(), "value = 2\n")
-
-
-@unittest.skipUnless(shutil.which("perl"), "perl not installed")
-class TestRunPerlEdit(unittest.TestCase):
-    def test_run_perl_substitute(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "demo.txt")
-            run_write(target, "hello world\n")
-            run_perl(target, r"s/hello/hi/")
-            self.assertIn("hi world", open(target, encoding="utf-8").read())
 
 
 class TestRunEditDispatch(unittest.TestCase):
