@@ -651,7 +651,7 @@ def terminal_interface(interpreter, message):
                     if "content" in chunk:
                         active_block.code += chunk["content"]
 
-                # Assistant edit blocks (edit tool: sed/ed/gawk/jq/write)
+                # Assistant edit blocks (edit tool: sed/gawk/jq/write/…)
                 elif chunk["role"] == "assistant" and chunk["type"] == "edit":
                     if "start" in chunk:
                         active_block = CodeBlock(interpreter)

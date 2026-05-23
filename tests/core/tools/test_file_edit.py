@@ -8,14 +8,10 @@ from pathlib import Path
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _comby_rewritten_source,
-    _ed_output_is_error,
-    _ed_success_message,
-    _format_ed_failure,
     _poke_prepare_script,
     _split_comby_templates,
     _validate_target,
     run_edit,
-    run_ed,
     run_gawk,
     run_jq,
     run_yq,
@@ -32,6 +28,7 @@ class TestEditLanguagesRegistry(unittest.TestCase):
         self.assertIn("comby", EDIT_LANGUAGES)
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
+        self.assertNotIn("ed", EDIT_LANGUAGES)
 
 
 class TestValidateTarget(unittest.TestCase):
@@ -84,29 +81,6 @@ class TestCombyHelpers(unittest.TestCase):
             _split_comby_templates("only_one_line")
 
 
-class TestEdHelpers(unittest.TestCase):
-    def test_ed_success_message_explains_runner_newline(self):
-        msg = _ed_success_message(False, "")
-        self.assertIn("ed: OK", msg)
-        self.assertIn("script", msg.lower())
-        self.assertNotIn("Newline appended", msg)
-
-    def test_ed_success_message_omits_note_when_script_already_ended_with_newline(self):
-        msg = _ed_success_message(True, "")
-        self.assertEqual(msg, "ed: OK")
-
-    def test_ed_output_is_error_question_marks_only(self):
-        self.assertTrue(_ed_output_is_error("?\n?", ""))
-        self.assertTrue(_ed_output_is_error("", "?\n"))
-        self.assertFalse(_ed_output_is_error("", "15\n16\n"))
-
-    def test_format_ed_failure_not_bare_question_mark(self):
-        msg = _format_ed_failure("?\n?", "", 1, "2\ns/foo/bar/\nwq\n")
-        self.assertNotEqual(msg.strip(), "?")
-        self.assertIn("Script:", msg)
-        self.assertIn("ed command failed", msg)
-
-
 class TestRunWrite(unittest.TestCase):
     def test_write_then_refuse_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,21 +88,6 @@ class TestRunWrite(unittest.TestCase):
             self.assertTrue(run_write(target, "alpha\n").startswith("Wrote"))
             with self.assertRaises(FileExistsError):
                 run_write(target, "beta\n")
-
-
-class TestRunEd(unittest.TestCase):
-    def test_run_ed_success_and_failure_messages(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "demo.txt")
-            run_write(target, "line one\nline two\n")
-            run_ed(target, "2\ns/two/TOO/\nwq\n")
-            self.assertIn("TOO", open(target, encoding="utf-8").read())
-
-            with self.assertRaises(RuntimeError) as ctx:
-                run_ed(target, "9\ns/nope/nope/\nwq\n")
-            msg = str(ctx.exception)
-            self.assertNotEqual(msg.strip(), "?")
-            self.assertIn("Script:", msg)
 
 
 @unittest.skipUnless(shutil.which("sed"), "sed not installed")
