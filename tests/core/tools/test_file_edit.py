@@ -6,10 +6,23 @@ import unittest
 from interpreter.core.tools.file_edit import (
     _ed_output_is_error,
     _format_ed_failure,
+    _split_comby_templates,
     run_ed,
     run_perl,
     run_write,
 )
+
+
+class TestCombyHelpers(unittest.TestCase):
+    def test_split_comby_multiline_separator(self):
+        match, rewrite = _split_comby_templates(":[x] = 1\n---\n:[x] = 2")
+        self.assertEqual(match, ":[x] = 1")
+        self.assertEqual(rewrite, ":[x] = 2")
+
+    def test_split_comby_two_lines(self):
+        match, rewrite = _split_comby_templates("foo\nbar")
+        self.assertEqual(match, "foo")
+        self.assertEqual(rewrite, "bar")
 
 
 class TestEdHelpers(unittest.TestCase):
