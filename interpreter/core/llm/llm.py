@@ -44,7 +44,7 @@ def _make_tool_calling_instructions():
 {exec_example}
 ```
 
-**edit** — edit or create a file. `target` must be absolute. Languages: `write` (create new file — errors if it already exists), `sed` (sed commands, one per line), `ed` (ed script, must end with `wq`), `gawk` (GNU awk program), `jq` (jq filter for JSON). The system handles `-i` flags, temp files, and binary paths — never wrap these in bash. Example:
+**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `ed`, `gawk`, `jq`, `perl` (expression only, e.g. `s/old/new/g`), `yq`, `mlr` (`put ...`), `poke` (binary). System handles flags and I/O — never wrap in bash. Example:
 ```json
 {edit_example}
 ```
