@@ -9,13 +9,16 @@ from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _comby_rewritten_source,
     _ed_output_is_error,
+    _ed_success_message,
     _format_ed_failure,
     _poke_prepare_script,
     _split_comby_templates,
     _validate_target,
     run_edit,
     run_ed,
+    run_gawk,
     run_jq,
+    run_yq,
     run_patch,
     run_poke,
     run_comby,
@@ -82,6 +85,16 @@ class TestCombyHelpers(unittest.TestCase):
 
 
 class TestEdHelpers(unittest.TestCase):
+    def test_ed_success_message_explains_runner_newline(self):
+        msg = _ed_success_message(False, "")
+        self.assertIn("ed: OK", msg)
+        self.assertIn("script", msg.lower())
+        self.assertNotIn("Newline appended", msg)
+
+    def test_ed_success_message_omits_note_when_script_already_ended_with_newline(self):
+        msg = _ed_success_message(True, "")
+        self.assertEqual(msg, "ed: OK")
+
     def test_ed_output_is_error_question_marks_only(self):
         self.assertTrue(_ed_output_is_error("?\n?", ""))
         self.assertTrue(_ed_output_is_error("", "?\n"))
@@ -127,6 +140,13 @@ class TestRunSed(unittest.TestCase):
             run_sed(target, "s/foo/baz/")
             self.assertEqual(open(target, encoding="utf-8").read(), "baz bar\n")
 
+    def test_run_sed_multiline_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "aaa\nbbb\n")
+            run_sed(target, "s/aaa/AAA/\ns/bbb/BBB/\n")
+            self.assertEqual(open(target, encoding="utf-8").read(), "AAA\nBBB\n")
+
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
 class TestRunJq(unittest.TestCase):
@@ -138,6 +158,45 @@ class TestRunJq(unittest.TestCase):
             data = json.loads(open(target, encoding="utf-8").read())
             self.assertEqual(data["a"], 1)
             self.assertEqual(data["b"], 3)
+
+    def test_run_jq_multiline_filter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "data.json")
+            run_write(target, '{"name":"x","n":1}\n')
+            run_jq(
+                target,
+                "{\n  name: .name,\n  n: (.n + 1)\n}\n",
+            )
+            data = json.loads(open(target, encoding="utf-8").read())
+            self.assertEqual(data["name"], "x")
+            self.assertEqual(data["n"], 2)
+
+
+@unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
+class TestRunGawk(unittest.TestCase):
+    def test_run_gawk_multiline_program(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "hello world\n")
+            run_gawk(
+                target,
+                "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
+            )
+            self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
+
+
+@unittest.skipUnless(shutil.which("yq"), "yq not installed")
+class TestRunYq(unittest.TestCase):
+    def test_run_yq_multiline_expression(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "data.json")
+            run_write(target, '{"value": 1}\n')
+            run_yq(
+                target,
+                ".value = (\n  .value + 1\n)\n",
+            )
+            data = json.loads(open(target, encoding="utf-8").read())
+            self.assertEqual(data["value"], 2)
 
 
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
