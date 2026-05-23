@@ -32,43 +32,9 @@ tool_schema = {
     },
 }
 
-EDIT_LANGUAGES_ENUM = ["sed", "ed", "gawk", "jq", "write"]
+from ..tools.file_edit import EDIT_LANGUAGES
 
-edit_tool_schema = {
-    "type": "function",
-    "function": {
-        "name": "edit",
-        "description": (
-            "Edit or create a file on disk. target must be an absolute path. "
-            "Languages: "
-            "write — create a new file; code is the full verbatim body (UTF-8); errors if target already exists. "
-            "sed — one sed command per line, applied in-place. "
-            "ed — standard ed script; must end with wq to save. "
-            "gawk — GNU awk program, applied in-place. "
-            "jq — jq filter to transform a JSON file in-place. "
-            "The system handles -i flags, temp files, and binary paths; never wrap these in bash."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "language": {
-                    "type": "string",
-                    "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "sed | ed | gawk | jq | write",
-                },
-                "code": {
-                    "type": "string",
-                    "description": "Commands/program (sed/ed/gawk/jq) or verbatim file body (write).",
-                },
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the file to edit or create.",
-                },
-            },
-            "required": ["language", "code", "target"],
-        },
-    },
-}
+EDIT_LANGUAGES_ENUM = sorted(EDIT_LANGUAGES)
 
 # Raster image formats supported by view_image (vision APIs and Pillow). PDF and other documents are not supported.
 VIEW_IMAGE_ALLOWED_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "bmp"})
@@ -99,24 +65,28 @@ edit_tool_schema = {
         "description": (
             "Edit or create a file at an absolute path.\n"
             "Languages:\n"
-            "  write — create a NEW file; code is the full file body written verbatim. Errors if target already exists.\n"
-            "  sed   — stream editing; code is one or more sed commands (newline-separated). Target must exist.\n"
-            "  ed    — line-based editing; code is an ed script that must end with wq. Target must exist.\n"
-            "  gawk  — field/column transform; code is a gawk program. Target must exist.\n"
-            "  jq    — JSON transform; code is a jq filter. Target must be an existing JSON file.\n"
-            "Rules: target must be an absolute path. System handles all file I/O, temp files, and in-place replacement."
+            "  write — create a NEW file; code is the full file body (UTF-8). Errors if target exists.\n"
+            "  sed   — one sed command per line (in-place).\n"
+            "  ed    — ed script; must end with wq.\n"
+            "  gawk  — GNU awk program (in-place).\n"
+            "  jq    — jq filter for JSON (in-place). Wrap if-expressions in parentheses in object literals.\n"
+            "  perl  — Perl -pe expression only (e.g. s/foo/bar/g). No open/print/-i — system handles I/O.\n"
+            "  yq    — yq (mikefarah) expression (YAML/JSON/TOML/XML/CSV), e.g. .field = \"value\".\n"
+            "  mlr   — Miller in-place: verb then statement (e.g. put $field = \"value\").\n"
+            "  poke  — GNU poke statements for binary files; .file/save handled if omitted.\n"
+            "Rules: target must be absolute. Never wrap these in bash."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "language": {
                     "type": "string",
-                    "enum": ["write", "sed", "ed", "gawk", "jq"],
-                    "description": "write = new file; sed/ed/gawk/jq = edit existing file",
+                    "enum": EDIT_LANGUAGES_ENUM,
+                    "description": "write | sed | ed | gawk | jq | perl | yq | mlr | poke",
                 },
                 "code": {
                     "type": "string",
-                    "description": "File body (write) or edit commands/program (sed/ed/gawk/jq)",
+                    "description": "File body (write) or language-specific edit code",
                 },
                 "target": {
                     "type": "string",
@@ -864,7 +834,7 @@ def run_tool_calling_llm(llm, request_params):
                 edit_code = arguments.get("code")
                 edit_target = arguments.get("target")
 
-                valid_edit_languages = {"write", "sed", "ed", "gawk", "jq"}
+                valid_edit_languages = EDIT_LANGUAGES
                 if not edit_language or edit_language not in valid_edit_languages:
                     error_msg = (
                         f"edit: invalid language {edit_language!r}. "
