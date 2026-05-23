@@ -44,7 +44,7 @@ def _make_tool_calling_instructions():
 {exec_example}
 ```
 
-**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `ed`, `gawk`, `jq`, `perl` (expression only, not full scripts), `yq`, `mlr`, `poke`, `comby`, `patch`. System handles flags and I/O — never wrap in bash. Example:
+**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `ed`, `gawk`, `jq`, `perl` (expression only, not full scripts), `yq`, `poke`, `comby`, `patch`. For CSV/TSV transforms use execute/bash with mlr. System handles flags and I/O — never wrap in bash. Example:
 ```json
 {edit_example}
 ```
