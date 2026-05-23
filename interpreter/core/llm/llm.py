@@ -49,7 +49,7 @@ def _make_tool_calling_instructions():
 {edit_example}
 ```
 
-Execute languages also include `perl` (full scripts, persistent REPL) and `augeas` (augtool commands; session persists).
+Execute languages also include `perl` (persistent REPL; use `our $var` for cross-block state, not `my`) and `augeas` (augtool; session persists — if output is missing, use bash: `echo "get /path" | augtool`).
 
 (What appears in the conversation log as {{"role": "assistant", "type": "code", ...}} or {{"type": "edit", ...}} is our internal storage derived from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
 
