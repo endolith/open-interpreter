@@ -8,7 +8,7 @@ class Augeas(SubprocessLanguage):
     name = "augeas"
     execute_tool_hint = (
         "augtool commands (set/get/load/save/print); session persists — "
-        "call save to write changes back to disk"
+        "call save to write changes. If output is missing, use bash: echo 'get /path' | augtool"
     )
 
     def __init__(self):
