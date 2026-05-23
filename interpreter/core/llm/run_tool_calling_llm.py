@@ -71,7 +71,7 @@ edit_tool_schema = {
             "  gawk  — GNU awk program (in-place).\n"
             "  jq    — jq filter for JSON (in-place). Wrap if-expressions in parentheses in object literals.\n"
             "  yq    — yq (mikefarah); chain multiple updates with | on one line (separate lines fail).\n"
-            "  poke  — GNU poke for binary files; target is pre-opened — use .ios 0, never .file.\n"
+            "  poke  — GNU poke statements for binary files; do not use .file (auto-opened).\n"
             "  comby — structural match/replace: match template, then --- line, then rewrite "
             "(or match on line 1, rewrite on following lines).\n"
             "  patch — unified diff body to apply to the existing target file.\n"
