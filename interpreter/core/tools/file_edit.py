@@ -326,9 +326,6 @@ def run_yq(target, code):
     _run_failed("yq", result)
 
 
-_POKE_TIMEOUT_SEC = 120
-
-
 def run_poke(target, code):
     """Run GNU poke dot-commands / statements against a binary file."""
     _validate_target(target, must_exist=True)
@@ -352,26 +349,19 @@ def run_poke(target, code):
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as cmd_file:
             cmd_file.write(script)
-        try:
-            result = subprocess.run(
-                [
-                    poke,
-                    "-q",
-                    "--no-init-file",
-                    "--no-hserver",
-                    "-s",
-                    cmd_path,
-                ],
-                capture_output=True,
-                text=True,
-                stdin=subprocess.DEVNULL,
-                timeout=_POKE_TIMEOUT_SEC,
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                f"poke: timed out after {_POKE_TIMEOUT_SEC}s "
-                "(interactive REPL may still be waiting for input)"
-            ) from None
+        result = subprocess.run(
+            [
+                poke,
+                "-q",
+                "--no-init-file",
+                "--no-hserver",
+                "-s",
+                cmd_path,
+            ],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+        )
     finally:
         if os.path.isfile(cmd_path):
             os.remove(cmd_path)
