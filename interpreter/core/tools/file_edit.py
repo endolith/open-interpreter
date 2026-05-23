@@ -10,8 +10,10 @@ Binary resolution mirrors resolve_bash.py: env-var override → PATH → Git usr
 The model never constructs shell command strings; flags and temp-file hygiene live here.
 """
 
+import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -326,17 +328,15 @@ def run_yq(target, code):
     _run_failed("yq", result)
 
 
-def _poke_dot_file_arg(path):
-    """Path argument for the .file dot-command (not a Poke string literal)."""
-    if " " in path or path[:1].isspace() or path[-1:].isspace():
-        escaped = path.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
-    return path
-
-
-def _poke_quoted_path(path):
-    """Path inside a Poke double-quoted string (e.g. save :file)."""
-    return path.replace("\\", "\\\\").replace('"', '\\"')
+def _poke_prepare_script(body):
+    """Build a command file for poke -s; target file is opened via CLI, not .file."""
+    lines = []
+    if not re.search(r"^\s*\.(?:ios|file)\b", body, re.MULTILINE):
+        lines.append(".ios 0")
+    lines.append(body)
+    if ".quit" not in body.lower() and ".exit" not in body.lower():
+        lines.append(".quit")
+    return "\n".join(lines) + "\n"
 
 
 def run_poke(target, code):
@@ -348,29 +348,21 @@ def run_poke(target, code):
     poke = _resolve_poke()
     path = str(Path(target).resolve())
     body = code.replace("\r\n", "\n").replace("\r", "\n").strip()
-    script_lines = [f".file {_poke_dot_file_arg(path)}", body]
-    if "save" not in body.lower():
-        qpath = _poke_quoted_path(path)
-        script_lines.append(
-            f'save :from 0#B :size iosize () :file "{qpath}"'
-        )
-    # poke -s loads a command file then drops into the interactive REPL; without
-    # .quit subprocess.run blocks forever waiting for stdin.
-    lower = body.lower()
-    if ".quit" not in lower and ".exit" not in lower:
-        script_lines.append(".quit")
-    script = "\n".join(script_lines) + "\n"
+    script = _poke_prepare_script(body)
 
     fd, cmd_path = tempfile.mkstemp(suffix=".poke", prefix="oi-edit-", text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as cmd_file:
             cmd_file.write(script)
+        # Open target on the CLI (IOS 0). Do not use .file in the script — duplicate open fails.
+        # poke -s then enters the REPL; .quit in the script exits non-interactively.
         result = subprocess.run(
             [
                 poke,
                 "-q",
                 "--no-init-file",
                 "--no-hserver",
+                path,
                 "-s",
                 cmd_path,
             ],
@@ -403,8 +395,27 @@ def _split_comby_templates(code):
     return lines[0].strip(), "\n".join(lines[1:]).strip()
 
 
+def _comby_rewritten_source(stdout_bytes):
+    """comby -stdin prints a colored diff by default; -json gives rewritten_source."""
+    raw = (stdout_bytes or b"").decode("utf-8", errors="replace").strip()
+    if not raw:
+        raise RuntimeError("comby: empty output")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"comby: expected JSON from -json, got: {raw[:200]!r}") from e
+    if isinstance(data, list):
+        if not data:
+            raise RuntimeError("comby: no matches")
+        data = data[0]
+    rewritten = data.get("rewritten_source")
+    if rewritten is None:
+        raise RuntimeError("comby: no rewritten_source in JSON output")
+    return rewritten.encode("utf-8")
+
+
 def run_comby(target, code):
-    """Structural search/replace via comby -stdin (single file, atomic write)."""
+    """Structural search/replace via comby -stdin -json (single file, atomic write)."""
     _validate_target(target, must_exist=True)
     match, rewrite = _split_comby_templates(code)
     if not match or not rewrite:
@@ -413,7 +424,7 @@ def run_comby(target, code):
     comby = _resolve_comby()
     source = Path(target).read_bytes()
     result = subprocess.run(
-        [comby, "-stdin", match, rewrite],
+        [comby, "-stdin", "-json", match, rewrite],
         input=source,
         capture_output=True,
     )
@@ -423,7 +434,7 @@ def run_comby(target, code):
         raise RuntimeError(
             (stderr or stdout).strip() or f"comby exited with code {result.returncode}"
         )
-    _atomic_replace_from_stdout(target, result.stdout)
+    _atomic_replace_from_stdout(target, _comby_rewritten_source(result.stdout))
     return "comby: OK"
 
 
