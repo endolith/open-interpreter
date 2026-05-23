@@ -8,9 +8,9 @@ class Perl(SubprocessLanguage):
     file_extension = "pl"
     name = "perl"
     execute_tool_hint = (
-        "full Perl per block (separate eval). Bare $x = 1 persists (package vars); "
-        "my $x is block-local only; our $x persists but re-declare our $x; each block. "
-        "Subs and file I/O persist. For in-place line edits on a file use bash perl -pi -e"
+        "full Perl per block (separate eval). Use our $var for cross-block state (not my). "
+        "Bare $x = 1 also persists. Subs and file I/O persist. "
+        "For in-place line edits on a file use bash perl -pi -e"
     )
 
     def __init__(self):
