@@ -13,6 +13,8 @@ class TestTerminalLanguages(unittest.TestCase):
         names = {lang.name.lower() for lang in _default_terminal_languages()}
         self.assertNotIn("shell", names)
         self.assertIn("bash", names)
+        self.assertIn("perl", names)
+        self.assertIn("augeas", names)
         if platform.system() == "Windows":
             self.assertIn("cmd", names)
         else:
