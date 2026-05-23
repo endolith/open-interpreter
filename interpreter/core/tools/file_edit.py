@@ -22,7 +22,7 @@ from pathlib import Path
 from ..terminal.languages.resolve_bash import resolve_bash_executable
 
 EDIT_LANGUAGES = frozenset({
-    "sed", "ed", "gawk", "jq", "write",
+    "sed", "gawk", "jq", "write",
     "yq", "poke",
     "comby", "patch",
 })
@@ -71,10 +71,6 @@ def _resolve_sed():
 
 def _resolve_gawk():
     return _resolve_binary("INTERPRETER_GAWK", ["gawk", "awk"])
-
-
-def _resolve_ed():
-    return _resolve_binary("INTERPRETER_ED", ["ed"])
 
 
 def _resolve_jq():
@@ -214,83 +210,6 @@ def run_sed(target, code):
             or f"sed exited with code {result.returncode}"
         )
     return "sed: OK"
-
-
-def _ed_output_is_error(stderr, stdout):
-    """ed signals failure with ? on stderr or stdout (Linux and Windows)."""
-    combined = f"{stderr or ''}\n{stdout or ''}".strip()
-    if not combined:
-        return False
-    lines = [ln.strip() for ln in combined.splitlines() if ln.strip()]
-    return bool(lines) and all(ln == "?" for ln in lines)
-
-
-def _format_ed_failure(stderr, stdout, returncode, script):
-    """Turn ed's terse ? errors into something actionable for the model and user."""
-    err = (stderr or "").strip()
-    out = (stdout or "").strip()
-    lines = [ln.strip() for ln in (err + "\n" + out).splitlines() if ln.strip()]
-    _ed_hint = (
-        "ed command failed (ed prints ? when a command is invalid). "
-        "Use one command per line and end with wq. "
-        "Prefer explicit line ranges (e.g. 1,3s/old/new/) if 1,$ fails."
-    )
-    if not lines or all(ln == "?" for ln in lines):
-        detail = _ed_hint
-    else:
-        useful = [ln for ln in lines if ln != "?"]
-        detail = "\n".join(useful) if useful else _ed_hint
-    preview = "\n".join(script.replace("\r", "").strip().splitlines()[:20])
-    return f"ed: {detail}\n\nScript:\n{preview}\n(exit {returncode})"
-
-
-def _ed_success_message(script_had_trailing_newline, stdout):
-    """Human- and model-readable ed result (not raw ed chatter)."""
-    lines = ["ed: OK"]
-    if not script_had_trailing_newline:
-        lines.append(
-            "Runner appended a newline to the ed script text so ed reads the final "
-            "line (usually wq). That does not change the target file — only script "
-            "delivery to ed."
-        )
-    out = (stdout or "").strip()
-    if out and not _ed_output_is_error("", out):
-        lines.append(out)
-    return "\n".join(lines)
-
-
-def run_ed(target, code):
-    """Feed an ed script to the file. Script must end with wq (or w then q) to save."""
-    _validate_target(target, must_exist=True)
-    if not code.strip():
-        raise ValueError("ed: no commands in code")
-
-    ed = _resolve_ed()
-    # Normalize to LF only. subprocess text=True on Windows writes CRLF to stdin;
-    # GnuWin32 ed treats trailing \\r as part of each command and fails with ?.
-    script = code.replace("\r\n", "\n").replace("\r", "\n")
-    script_had_trailing_newline = script.endswith("\n")
-    if not script_had_trailing_newline:
-        script += "\n"
-
-    ed_target = Path(target).as_posix()
-    result = subprocess.run(
-        [ed, "-s", ed_target],
-        input=script.encode("utf-8"),
-        capture_output=True,
-    )
-    stderr = (result.stderr or b"").decode("utf-8", errors="replace")
-    stdout = (result.stdout or b"").decode("utf-8", errors="replace")
-    if result.returncode != 0 or _ed_output_is_error(stderr, stdout):
-        raise RuntimeError(
-            _format_ed_failure(
-                stderr,
-                stdout,
-                result.returncode if result.returncode != 0 else 1,
-                script,
-            )
-        )
-    return _ed_success_message(script_had_trailing_newline, stdout)
 
 
 def run_gawk(target, code):
@@ -558,8 +477,6 @@ def run_edit(language, code, target):
         return run_write(target, code)
     if language == "sed":
         return run_sed(target, code)
-    if language == "ed":
-        return run_ed(target, code)
     if language == "gawk":
         return run_gawk(target, code)
     if language == "jq":

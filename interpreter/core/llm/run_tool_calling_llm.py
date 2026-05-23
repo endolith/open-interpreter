@@ -66,9 +66,7 @@ edit_tool_schema = {
             "Edit or create a file at an absolute path.\n"
             "Languages:\n"
             "  write — create a NEW file; code is the full file body (UTF-8). Errors if target exists.\n"
-            "  sed   — sed script (in-place); one command per line or multi-line scripts.\n"
-            "  ed    — ed script; must end with wq. A runner newline note (if shown) is only "
-            "script formatting for ed, not a file edit.\n"
+            "  sed   — sed script (in-place); line-oriented text edits, multi-line OK.\n"
             "  gawk  — GNU awk program (in-place).\n"
             "  jq    — jq filter for JSON (in-place). Wrap if-expressions in parentheses in object literals.\n"
             "  yq    — yq (mikefarah) expression (multi-line OK). Multiple updates: chain with |.\n"
@@ -84,7 +82,7 @@ edit_tool_schema = {
                 "language": {
                     "type": "string",
                     "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | ed | gawk | jq | yq | poke | comby | patch",
+                    "description": "write | sed | gawk | jq | yq | poke | comby | patch",
                 },
                 "code": {
                     "type": "string",
