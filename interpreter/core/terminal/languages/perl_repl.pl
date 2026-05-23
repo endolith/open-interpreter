@@ -9,10 +9,11 @@ $| = 1;
 while (1) {
     my @lines;
     while (my $line = <STDIN>) {
-        if ($line eq "__OI_END__\n") {
+        chomp $line;
+        if ($line eq "__OI_END__") {
             last;
         }
-        push @lines, $line;
+        push @lines, $line . "\n";
     }
     last unless @lines;
 
