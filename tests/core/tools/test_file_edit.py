@@ -15,6 +15,7 @@ from interpreter.core.tools.file_edit import (
     run_ed,
     run_jq,
     run_patch,
+    run_poke,
     run_sed,
     run_write,
 )
@@ -150,6 +151,16 @@ class TestRunComby(unittest.TestCase):
             run_write(target, "value = 1\n")
             run_comby(target, "value = 1\n---\nvalue = 2\n")
             self.assertEqual(open(target, encoding="utf-8").read(), "value = 2\n")
+
+
+@unittest.skipUnless(shutil.which("poke"), "poke not installed")
+class TestRunPokeEdit(unittest.TestCase):
+    def test_run_poke_script_includes_quit_and_completes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.bin")
+            Path(target).write_bytes(b"AAAA")
+            run_poke(target, "uint8 @ 0#B = 0x58")
+            self.assertEqual(Path(target).read_bytes()[0], ord("X"))
 
 
 class TestRunEditDispatch(unittest.TestCase):
