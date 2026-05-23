@@ -10,6 +10,10 @@ from ..base_language import BaseLanguage
 
 
 class SubprocessLanguage(BaseLanguage):
+    # Perl REPL uses a custom __OI_END__ block marker; text=True on Windows turns
+    # \n into \r\n and the REPL waits forever. Subclasses set True for byte pipes.
+    binary_stdio = False
+
     def __init__(self):
         self.start_cmd = []
         self.process = None
@@ -37,7 +41,11 @@ class SubprocessLanguage(BaseLanguage):
 
     def write_block_to_stdin(self, code):
         """Send a processed code block to the language subprocess."""
-        self.process.stdin.write(code + "\n")
+        payload = code if code.endswith("\n") else code + "\n"
+        if self.binary_stdio:
+            self.process.stdin.write(payload.encode("utf-8"))
+        else:
+            self.process.stdin.write(payload)
         self.process.stdin.flush()
 
     def terminate(self):
@@ -52,18 +60,24 @@ class SubprocessLanguage(BaseLanguage):
 
         my_env = os.environ.copy()
         my_env["PYTHONIOENCODING"] = "utf-8"
-        self.process = subprocess.Popen(
-            self.start_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0,
-            universal_newlines=True,
-            env=my_env,
-            encoding="utf-8",
-            errors="replace",
-        )
+        popen_kwargs = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "bufsize": 0,
+            "env": my_env,
+        }
+        if self.binary_stdio:
+            self.process = subprocess.Popen(self.start_cmd, **popen_kwargs)
+        else:
+            self.process = subprocess.Popen(
+                self.start_cmd,
+                text=True,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                **popen_kwargs,
+            )
         threading.Thread(
             target=self.handle_stream_output,
             args=(self.process.stdout, False),
@@ -143,9 +157,15 @@ class SubprocessLanguage(BaseLanguage):
 
     def handle_stream_output(self, stream, is_error_stream):
         try:
-            for line in iter(stream.readline, ""):
+            eof = b"" if self.binary_stdio else ""
+            for raw_line in iter(stream.readline, eof):
                 if self.verbose:
-                    print(f"Received output line:\n{line}\n---")
+                    print(f"Received output line:\n{raw_line}\n---")
+
+                if self.binary_stdio:
+                    line = raw_line.decode("utf-8", errors="replace")
+                else:
+                    line = raw_line
 
                 line = self.line_postprocessor(line)
 
