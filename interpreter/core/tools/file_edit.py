@@ -176,27 +176,38 @@ def run_write(target, code):
     return f"Wrote {byte_count} bytes to {target}"
 
 
+def _write_temp_script(code, suffix, prefix="oi-edit-"):
+    """Write edit code to a temp script file; preserves multi-line content verbatim."""
+    script = code.replace("\r\n", "\n").replace("\r", "\n")
+    if not script.strip():
+        raise ValueError("empty script")
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix=prefix, text=True)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as script_file:
+        script_file.write(script)
+        if not script.endswith("\n"):
+            script_file.write("\n")
+    return path
+
+
 def run_sed(target, code):
-    """Apply sed commands (one per line) in-place."""
+    """Apply a sed script in-place (-f file). One command per line or multi-line sed scripts."""
     _validate_target(target, must_exist=True)
-    commands = [line for line in code.splitlines() if line.strip()]
-    if not commands:
+    if not code.strip():
         raise ValueError("sed: no commands in code")
 
     sed = _resolve_sed()
-    args = [sed]
-    if _is_gnu_sed(sed):
-        # GNU sed: -i with no suffix argument
-        args.append("-i")
-        for cmd in commands:
-            args.extend(["-e", cmd])
-    else:
-        # BSD sed (macOS): -i requires a suffix argument (empty string = no backup)
-        for cmd in commands:
-            args.extend(["-i", "", "-e", cmd])
-    args.append(target)
+    script_path = _write_temp_script(code, ".sed")
+    try:
+        args = [sed]
+        if _is_gnu_sed(sed):
+            args.extend(["-i", "-f", script_path, target])
+        else:
+            args.extend(["-i", "", "-f", script_path, target])
+        result = subprocess.run(args, capture_output=True, text=True)
+    finally:
+        if os.path.isfile(script_path):
+            os.remove(script_path)
 
-    result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
             (result.stderr or result.stdout or "").strip()
@@ -233,6 +244,21 @@ def _format_ed_failure(stderr, stdout, returncode, script):
     return f"ed: {detail}\n\nScript:\n{preview}\n(exit {returncode})"
 
 
+def _ed_success_message(script_had_trailing_newline, stdout):
+    """Human- and model-readable ed result (not raw ed chatter)."""
+    lines = ["ed: OK"]
+    if not script_had_trailing_newline:
+        lines.append(
+            "Runner appended a newline to the ed script text so ed reads the final "
+            "line (usually wq). That does not change the target file — only script "
+            "delivery to ed."
+        )
+    out = (stdout or "").strip()
+    if out and not _ed_output_is_error("", out):
+        lines.append(out)
+    return "\n".join(lines)
+
+
 def run_ed(target, code):
     """Feed an ed script to the file. Script must end with wq (or w then q) to save."""
     _validate_target(target, must_exist=True)
@@ -243,7 +269,8 @@ def run_ed(target, code):
     # Normalize to LF only. subprocess text=True on Windows writes CRLF to stdin;
     # GnuWin32 ed treats trailing \\r as part of each command and fails with ?.
     script = code.replace("\r\n", "\n").replace("\r", "\n")
-    if not script.endswith("\n"):
+    script_had_trailing_newline = script.endswith("\n")
+    if not script_had_trailing_newline:
         script += "\n"
 
     ed_target = Path(target).as_posix()
@@ -263,8 +290,7 @@ def run_ed(target, code):
                 script,
             )
         )
-    out = stdout.strip()
-    return out if out else "ed: OK"
+    return _ed_success_message(script_had_trailing_newline, stdout)
 
 
 def run_gawk(target, code):
@@ -274,11 +300,17 @@ def run_gawk(target, code):
         raise ValueError("gawk: no program in code")
 
     gawk = _resolve_gawk()
-    result = subprocess.run(
-        [gawk, "-i", "inplace", code, target],
-        capture_output=True,
-        text=True,
-    )
+    prog_path = _write_temp_script(code, ".awk")
+    try:
+        result = subprocess.run(
+            [gawk, "-i", "inplace", "-f", prog_path, target],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        if os.path.isfile(prog_path):
+            os.remove(prog_path)
+
     if result.returncode != 0:
         raise RuntimeError(
             (result.stderr or result.stdout or "").strip()
@@ -298,13 +330,14 @@ def run_jq(target, code):
     path = Path(target)
 
     # Write to a sibling temp file so os.replace() is atomic on the same filesystem
+    filter_path = _write_temp_script(code, ".jq")
     fd, tmp = tempfile.mkstemp(
         suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
     )
     os.close(fd)
     try:
         result = subprocess.run(
-            [jq, code, target],
+            [jq, "-f", filter_path, target],
             capture_output=True,
             text=True,
         )
@@ -317,6 +350,8 @@ def run_jq(target, code):
         os.replace(tmp, target)
         tmp = None  # consumed; don't delete in finally
     finally:
+        if os.path.isfile(filter_path):
+            os.remove(filter_path)
         if tmp and os.path.isfile(tmp):
             os.remove(tmp)
 
@@ -331,14 +366,20 @@ def run_yq(target, code):
 
     yq = _resolve_yq()
     path = Path(target).as_posix()
-    for args in (
-        [yq, "eval", "-i", code, path],
-        [yq, "-i", code, path],
-    ):
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode == 0:
-            return "yq: OK"
-    _run_failed("yq", result)
+    expr_path = _write_temp_script(code, ".yq")
+    try:
+        for args in (
+            [yq, "eval", "-i", "-f", expr_path, path],
+            [yq, "eval", "-i", "--from-file", expr_path, path],
+            [yq, "-i", "-f", expr_path, path],
+        ):
+            result = subprocess.run(args, capture_output=True, text=True)
+            if result.returncode == 0:
+                return "yq: OK"
+        _run_failed("yq", result)
+    finally:
+        if os.path.isfile(expr_path):
+            os.remove(expr_path)
 
 
 def _poke_dot_file_arg(path):
@@ -368,7 +409,7 @@ def run_poke(target, code):
 
     poke = _resolve_poke()
     path = str(Path(target).resolve())
-    body = code.replace("\r\n", "\n").replace("\r", "\n").strip()
+    body = code.replace("\r\n", "\n").replace("\r", "\n")
     script = _poke_prepare_script(body, path)
 
     fd, cmd_path = tempfile.mkstemp(suffix=".poke", prefix="oi-edit-", text=True)
