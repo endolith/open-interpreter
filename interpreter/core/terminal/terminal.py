@@ -17,6 +17,8 @@ from .languages.python import Python
 from .languages.r import R
 from .languages.react import React
 from .languages.ruby import Ruby
+from .languages.perl import Perl
+from .languages.augeas import Augeas
 
 # Languages whose console output is buffered until completion (reduces UI flicker).
 _BUFFERED_CONSOLE_LANGUAGES = frozenset({"cmd", "bash"})
@@ -45,6 +47,8 @@ def _default_terminal_languages():
         PowerShell,
         React,
         Java,
+        Perl,
+        Augeas,
     ]
     if platform.system() == "Windows":
         languages.insert(3, Cmd)

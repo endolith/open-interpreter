@@ -22,6 +22,7 @@ from ..terminal.languages.resolve_bash import resolve_bash_executable
 EDIT_LANGUAGES = frozenset({
     "sed", "ed", "gawk", "jq", "write",
     "perl", "yq", "mlr", "poke",
+    "comby", "patch",
 })
 
 
@@ -92,6 +93,14 @@ def _resolve_mlr():
 
 def _resolve_poke():
     return _resolve_binary("INTERPRETER_POKE", ["poke"])
+
+
+def _resolve_comby():
+    return _resolve_binary("INTERPRETER_COMBY", ["comby"])
+
+
+def _resolve_patch():
+    return _resolve_binary("INTERPRETER_PATCH", ["patch"])
 
 
 def _is_gnu_sed(sed_path):
@@ -403,6 +412,73 @@ def run_poke(target, code):
     return out if out else "poke: OK"
 
 
+def _split_comby_templates(code):
+    """Match and rewrite templates separated by a line containing only ---."""
+    stripped = code.strip()
+    if "\n---\n" in stripped:
+        match, rewrite = stripped.split("\n---\n", 1)
+        return match.strip(), rewrite.strip()
+    lines = stripped.splitlines()
+    if len(lines) < 2:
+        raise ValueError(
+            "comby: code must be match template and rewrite template "
+            "(two lines, or multiline blocks separated by a --- line)"
+        )
+    return lines[0].strip(), "\n".join(lines[1:]).strip()
+
+
+def run_comby(target, code):
+    """Structural search/replace via comby -stdin (single file, atomic write)."""
+    _validate_target(target, must_exist=True)
+    match, rewrite = _split_comby_templates(code)
+    if not match or not rewrite:
+        raise ValueError("comby: both match and rewrite templates are required")
+
+    comby = _resolve_comby()
+    source = Path(target).read_bytes()
+    result = subprocess.run(
+        [comby, "-stdin", match, rewrite],
+        input=source,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace")
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace")
+        raise RuntimeError(
+            (stderr or stdout).strip() or f"comby exited with code {result.returncode}"
+        )
+    _atomic_replace_from_stdout(target, result.stdout)
+    return "comby: OK"
+
+
+def run_patch(target, code):
+    """Apply a unified diff (patch format) to an existing file."""
+    _validate_target(target, must_exist=True)
+    if not code.strip():
+        raise ValueError("patch: diff body is empty")
+
+    patch_bin = _resolve_patch()
+    path = Path(target)
+    diff = code.replace("\r\n", "\n").replace("\r", "\n")
+    if not diff.endswith("\n"):
+        diff += "\n"
+
+    result = subprocess.run(
+        [patch_bin, "-p0", "--forward", path.name],
+        input=diff.encode("utf-8"),
+        capture_output=True,
+        cwd=str(path.parent),
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace")
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace")
+        raise RuntimeError(
+            (stderr or stdout).strip() or f"patch exited with code {result.returncode}"
+        )
+    out = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", errors="replace").strip()
+    return out if out else "patch: OK"
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -435,5 +511,9 @@ def run_edit(language, code, target):
         return run_mlr(target, code)
     if language == "poke":
         return run_poke(target, code)
+    if language == "comby":
+        return run_comby(target, code)
+    if language == "patch":
+        return run_patch(target, code)
     # unreachable given the set-membership check above
     raise ValueError(f"unsupported edit language: {language!r}")

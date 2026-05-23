@@ -74,6 +74,9 @@ edit_tool_schema = {
             "  yq    — yq (mikefarah) expression (YAML/JSON/TOML/XML/CSV), e.g. .field = \"value\".\n"
             "  mlr   — Miller in-place: verb then statement (e.g. put $field = \"value\").\n"
             "  poke  — GNU poke statements for binary files; .file/save handled if omitted.\n"
+            "  comby — structural match/replace: match template, then --- line, then rewrite "
+            "(or match on line 1, rewrite on following lines).\n"
+            "  patch — unified diff body to apply to the existing target file.\n"
             "Rules: target must be absolute. Never wrap these in bash."
         ),
         "parameters": {
@@ -82,7 +85,7 @@ edit_tool_schema = {
                 "language": {
                     "type": "string",
                     "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | ed | gawk | jq | perl | yq | mlr | poke",
+                    "description": "write | sed | ed | gawk | jq | perl | yq | mlr | poke | comby | patch",
                 },
                 "code": {
                     "type": "string",
