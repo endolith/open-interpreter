@@ -93,6 +93,19 @@ def _resolve_comby():
     return _resolve_binary("INTERPRETER_COMBY", ["comby"])
 
 
+def _comby_json_flag(comby):
+    """comby 1.7+ uses -json-lines; older builds accept -json."""
+    help_result = subprocess.run(
+        [comby, "-help"],
+        capture_output=True,
+        text=True,
+    )
+    help_text = (help_result.stdout or "") + (help_result.stderr or "")
+    if "-json-lines" in help_text:
+        return "-json-lines"
+    return "-json"
+
+
 def _resolve_patch():
     return _resolve_binary("INTERPRETER_PATCH", ["patch"])
 
@@ -328,11 +341,19 @@ def run_yq(target, code):
     _run_failed("yq", result)
 
 
-def _poke_prepare_script(body):
-    """Build a command file for poke -s; target file is opened via CLI, not .file."""
+def _poke_dot_file_arg(path):
+    """Path token for .file (quote only when the path contains whitespace)."""
+    if " " in path or path[:1].isspace() or path[-1:].isspace():
+        escaped = path.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return path
+
+
+def _poke_prepare_script(body, path):
+    """Build a command file for poke -s; prepends .file unless user already opens/switches IOS."""
     lines = []
     if not re.search(r"^\s*\.(?:ios|file)\b", body, re.MULTILINE):
-        lines.append(".ios 0")
+        lines.append(f".file {_poke_dot_file_arg(path)}")
     lines.append(body)
     if ".quit" not in body.lower() and ".exit" not in body.lower():
         lines.append(".quit")
@@ -348,21 +369,19 @@ def run_poke(target, code):
     poke = _resolve_poke()
     path = str(Path(target).resolve())
     body = code.replace("\r\n", "\n").replace("\r", "\n").strip()
-    script = _poke_prepare_script(body)
+    script = _poke_prepare_script(body, path)
 
     fd, cmd_path = tempfile.mkstemp(suffix=".poke", prefix="oi-edit-", text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as cmd_file:
             cmd_file.write(script)
-        # Open target on the CLI (IOS 0). Do not use .file in the script — duplicate open fails.
-        # poke -s then enters the REPL; .quit in the script exits non-interactively.
+        # poke -s loads the script then enters the REPL; .quit exits non-interactively.
         result = subprocess.run(
             [
                 poke,
                 "-q",
                 "--no-init-file",
                 "--no-hserver",
-                path,
                 "-s",
                 cmd_path,
             ],
@@ -396,35 +415,49 @@ def _split_comby_templates(code):
 
 
 def _comby_rewritten_source(stdout_bytes):
-    """comby -stdin prints a colored diff by default; -json gives rewritten_source."""
+    """Parse comby -json / -json-lines stdout for rewritten_source."""
     raw = (stdout_bytes or b"").decode("utf-8", errors="replace").strip()
     if not raw:
         raise RuntimeError("comby: empty output")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"comby: expected JSON from -json, got: {raw[:200]!r}") from e
-    if isinstance(data, list):
-        if not data:
-            raise RuntimeError("comby: no matches")
-        data = data[0]
-    rewritten = data.get("rewritten_source")
-    if rewritten is None:
-        raise RuntimeError("comby: no rewritten_source in JSON output")
-    return rewritten.encode("utf-8")
+
+    payloads = []
+    if raw.startswith("{"):
+        try:
+            payloads = [json.loads(raw)]
+        except json.JSONDecodeError:
+            payloads = []
+    if not payloads:
+        for line in raw.splitlines():
+            line = line.strip()
+            if line:
+                payloads.append(json.loads(line))
+
+    for data in payloads:
+        if isinstance(data, list):
+            if not data:
+                continue
+            data = data[0]
+        rewritten = data.get("rewritten_source")
+        if rewritten is not None:
+            return rewritten.encode("utf-8")
+
+    raise RuntimeError(
+        f"comby: no rewritten_source in JSON output: {raw[:200]!r}"
+    )
 
 
 def run_comby(target, code):
-    """Structural search/replace via comby -stdin -json (single file, atomic write)."""
+    """Structural search/replace via comby -stdin -json-lines (single file, atomic write)."""
     _validate_target(target, must_exist=True)
     match, rewrite = _split_comby_templates(code)
     if not match or not rewrite:
         raise ValueError("comby: both match and rewrite templates are required")
 
     comby = _resolve_comby()
+    json_flag = _comby_json_flag(comby)
     source = Path(target).read_bytes()
     result = subprocess.run(
-        [comby, "-stdin", "-json", match, rewrite],
+        [comby, "-stdin", json_flag, match, rewrite],
         input=source,
         capture_output=True,
     )
