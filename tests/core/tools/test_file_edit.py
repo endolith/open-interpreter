@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -6,6 +7,7 @@ from interpreter.core.tools.file_edit import (
     _ed_output_is_error,
     _format_ed_failure,
     run_ed,
+    run_perl,
     run_write,
 )
 
@@ -36,6 +38,16 @@ class TestRunEd(unittest.TestCase):
             msg = str(ctx.exception)
             self.assertNotEqual(msg.strip(), "?")
             self.assertIn("Script:", msg)
+
+
+@unittest.skipUnless(shutil.which("perl"), "perl not installed")
+class TestRunPerl(unittest.TestCase):
+    def test_run_perl_substitute(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "hello world\n")
+            run_perl(target, r"s/hello/hi/")
+            self.assertIn("hi world", open(target, encoding="utf-8").read())
 
 
 if __name__ == "__main__":

@@ -19,7 +19,10 @@ from pathlib import Path
 
 from ..terminal.languages.resolve_bash import resolve_bash_executable
 
-EDIT_LANGUAGES = frozenset({"sed", "ed", "gawk", "jq", "write"})
+EDIT_LANGUAGES = frozenset({
+    "sed", "ed", "gawk", "jq", "write",
+    "perl", "yq", "mlr", "poke",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +78,22 @@ def _resolve_jq():
     return _resolve_binary("INTERPRETER_JQ", ["jq"])
 
 
+def _resolve_perl():
+    return _resolve_binary("INTERPRETER_PERL", ["perl"])
+
+
+def _resolve_yq():
+    return _resolve_binary("INTERPRETER_YQ", ["yq"])
+
+
+def _resolve_mlr():
+    return _resolve_binary("INTERPRETER_MLR", ["mlr"])
+
+
+def _resolve_poke():
+    return _resolve_binary("INTERPRETER_POKE", ["poke"])
+
+
 def _is_gnu_sed(sed_path):
     result = subprocess.run(
         [sed_path, "--version"], capture_output=True, text=True
@@ -101,8 +120,30 @@ def _validate_target(target, *, must_exist):
     else:
         if path.exists():
             raise FileExistsError(
-                f"file already exists — use sed/ed/gawk/jq to edit it: {target}"
+                f"file already exists — use another edit language (not write): {target}"
             )
+
+
+def _run_failed(lang, result):
+    raise RuntimeError(
+        (result.stderr or result.stdout or "").strip()
+        or f"{lang} exited with code {result.returncode}"
+    )
+
+
+def _atomic_replace_from_stdout(target, stdout_bytes):
+    path = Path(target)
+    fd, tmp = tempfile.mkstemp(
+        suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
+    )
+    os.close(fd)
+    try:
+        Path(tmp).write_bytes(stdout_bytes)
+        os.replace(tmp, target)
+        tmp = None
+    finally:
+        if tmp and os.path.isfile(tmp):
+            os.remove(tmp)
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +307,102 @@ def run_jq(target, code):
     return "jq: OK"
 
 
+def run_perl(target, code):
+    """Apply a Perl one-liner per line (-pe). Code is only the expression, not open/print."""
+    _validate_target(target, must_exist=True)
+    if not code.strip():
+        raise ValueError("perl: no expression in code")
+
+    perl = _resolve_perl()
+    result = subprocess.run(
+        [perl, "-pe", code, target],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        _run_failed("perl", result)
+    _atomic_replace_from_stdout(target, result.stdout.encode("utf-8"))
+    return "perl: OK"
+
+
+def run_yq(target, code):
+    """Apply a yq (mikefarah) expression in-place (YAML/JSON/TOML/XML/CSV)."""
+    _validate_target(target, must_exist=True)
+    if not code.strip():
+        raise ValueError("yq: no expression in code")
+
+    yq = _resolve_yq()
+    path = Path(target).as_posix()
+    for args in (
+        [yq, "eval", "-i", code, path],
+        [yq, "-i", code, path],
+    ):
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode == 0:
+            return "yq: OK"
+    _run_failed("yq", result)
+
+
+def run_mlr(target, code):
+    """Apply a Miller one-liner in-place (-I verb statement)."""
+    _validate_target(target, must_exist=True)
+    stripped = code.strip()
+    if not stripped:
+        raise ValueError("mlr: no command in code")
+
+    parts = stripped.split(None, 1)
+    if len(parts) < 2:
+        raise ValueError(
+            "mlr: code must start with a Miller verb then the statement "
+            '(e.g. put $field = "value")'
+        )
+    verb, statement = parts[0], parts[1]
+
+    mlr = _resolve_mlr()
+    result = subprocess.run(
+        [mlr, "-I", verb, statement, target],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        _run_failed("mlr", result)
+    out = (result.stdout or "").strip()
+    return out if out else "mlr: OK"
+
+
+def run_poke(target, code):
+    """Run GNU poke dot-commands / statements against a binary file."""
+    _validate_target(target, must_exist=True)
+    if not code.strip():
+        raise ValueError("poke: no commands in code")
+
+    poke = _resolve_poke()
+    path = Path(target).as_posix()
+    body = code.replace("\r\n", "\n").replace("\r", "\n").strip()
+    script_lines = [f'.file {path}', body]
+    if "save" not in body.lower():
+        script_lines.append(f'save :file "{path}"')
+    script = "\n".join(script_lines) + "\n"
+
+    fd, cmd_path = tempfile.mkstemp(suffix=".poke", prefix="oi-edit-", text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as cmd_file:
+            cmd_file.write(script)
+        result = subprocess.run(
+            [poke, "-s", cmd_path],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        if os.path.isfile(cmd_path):
+            os.remove(cmd_path)
+
+    if result.returncode != 0:
+        _run_failed("poke", result)
+    out = (result.stdout or "").strip()
+    return out if out else "poke: OK"
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -290,5 +427,13 @@ def run_edit(language, code, target):
         return run_gawk(target, code)
     if language == "jq":
         return run_jq(target, code)
+    if language == "perl":
+        return run_perl(target, code)
+    if language == "yq":
+        return run_yq(target, code)
+    if language == "mlr":
+        return run_mlr(target, code)
+    if language == "poke":
+        return run_poke(target, code)
     # unreachable given the set-membership check above
     raise ValueError(f"unsupported edit language: {language!r}")
