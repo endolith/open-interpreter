@@ -7,9 +7,10 @@ from pathlib import Path
 
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
+    _comby_rewritten_source,
     _ed_output_is_error,
     _format_ed_failure,
-    _poke_dot_file_arg,
+    _poke_prepare_script,
     _split_comby_templates,
     _validate_target,
     run_edit,
@@ -49,6 +50,13 @@ class TestValidateTarget(unittest.TestCase):
             target = os.path.join(tmp, "missing.txt")
             with self.assertRaises(FileNotFoundError):
                 _validate_target(target, must_exist=True)
+
+
+class TestCombyJson(unittest.TestCase):
+    def test_rewritten_source_from_json_object(self):
+        payload = json.dumps({"rewritten_source": "value = 2\n"})
+        out = _comby_rewritten_source(payload.encode())
+        self.assertEqual(out, b"value = 2\n")
 
 
 class TestCombyHelpers(unittest.TestCase):
@@ -154,18 +162,17 @@ class TestRunComby(unittest.TestCase):
             self.assertEqual(open(target, encoding="utf-8").read(), "value = 2\n")
 
 
-class TestPokePathQuoting(unittest.TestCase):
-    def test_dot_file_unquoted_without_spaces(self):
-        self.assertEqual(
-            _poke_dot_file_arg("/tmp/demo.bin"),
-            "/tmp/demo.bin",
-        )
+class TestPokeScript(unittest.TestCase):
+    def test_prepare_script_ios_and_quit(self):
+        script = _poke_prepare_script("uint8 @ 0#B = 0x58")
+        self.assertIn(".ios 0\n", script)
+        self.assertIn("uint8 @ 0#B = 0x58", script)
+        self.assertTrue(script.rstrip().endswith(".quit"))
+        self.assertNotIn(".file", script)
 
-    def test_dot_file_quoted_when_path_has_spaces(self):
-        self.assertEqual(
-            _poke_dot_file_arg("/tmp/my dir/demo.bin"),
-            '"/tmp/my dir/demo.bin"',
-        )
+    def test_prepare_script_skips_ios_if_present(self):
+        script = _poke_prepare_script(".ios 0\nbyte @ 0#B")
+        self.assertEqual(script.count(".ios 0"), 1)
 
 
 @unittest.skipUnless(shutil.which("poke"), "poke not installed")
