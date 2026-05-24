@@ -57,12 +57,11 @@ except:
     pass
 
 
-def _display_edit_dry_run(output, *, interpreter, language):
+def _display_edit_dry_run(output, *, interpreter):
     if not output:
         return
-    fence_lang = {"patch": "diff", "jq": "json"}.get(language, language)
     fence = "````" if "```" in output else "```"
-    block = f"{fence}{fence_lang}\n{output}\n{fence}"
+    block = f"{fence}text\n{output}\n{fence}"
     if interpreter.plain_text_display:
         print("  Dry run:", flush=True)
         print(block, flush=True)
@@ -334,7 +333,6 @@ def terminal_interface(interpreter, message):
                             _display_edit_dry_run(
                                 edit_info.get("dry_run_output"),
                                 interpreter=interpreter,
-                                language=language,
                             )
 
                             print("", flush=True)
