@@ -56,6 +56,14 @@ except:
     pass
 
 
+def _display_edit_dry_run(output, *, plain_text_display):
+    if not output:
+        return
+    print("  Dry run:", flush=True)
+    print(output, flush=True)
+    print("", flush=True)
+
+
 def terminal_interface(interpreter, message):
     # TEMP: Disable active-line instrumentation/highlighting globally while
     # investigating streaming markdown rendering issues.
@@ -315,6 +323,11 @@ def terminal_interface(interpreter, message):
                             language = edit_info["format"]
                             code = edit_info["content"]
                             target = edit_info["target"]
+
+                            _display_edit_dry_run(
+                                edit_info.get("dry_run_output"),
+                                plain_text_display=interpreter.plain_text_display,
+                            )
 
                             print("", flush=True)
                             edit_prompt = (

@@ -15,7 +15,7 @@ from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
-from .tools.file_edit import run_edit
+from .tools.file_edit import dry_run_edit, run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
 
@@ -472,18 +472,28 @@ def respond(interpreter):
                 print("Running edit:", edit_msg)
 
             try:
+                dry_run_output = None
+                if not interpreter.auto_run:
+                    try:
+                        dry_run_output = dry_run_edit(language, code, target)
+                    except Exception as e:
+                        dry_run_output = str(e)
+
                 # Yield confirmation so the terminal can prompt y/n (respects auto_run).
                 # format: "edit" distinguishes this from a code execution confirmation.
                 try:
+                    confirmation_content = {
+                        "format": language,
+                        "content": code,
+                        "target": target,
+                    }
+                    if dry_run_output is not None:
+                        confirmation_content["dry_run_output"] = dry_run_output
                     yield {
                         "role": "computer",
                         "type": "confirmation",
                         "format": "edit",
-                        "content": {
-                            "format": language,
-                            "content": code,
-                            "target": target,
-                        },
+                        "content": confirmation_content,
                     }
                 except GeneratorExit:
                     break

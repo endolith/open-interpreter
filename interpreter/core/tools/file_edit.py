@@ -143,6 +143,13 @@ def _run_failed(lang, result):
     )
 
 
+def _subprocess_text(result):
+    if isinstance(result.stdout, bytes) or isinstance(result.stderr, bytes):
+        out = (result.stdout or b"") + (result.stderr or b"")
+        return out.decode("utf-8", errors="replace").strip()
+    return ((result.stdout or "") + (result.stderr or "")).strip()
+
+
 def _atomic_replace_from_stdout(target, stdout_bytes):
     path = Path(target)
     fd, tmp = tempfile.mkstemp(
@@ -455,8 +462,126 @@ def run_patch(target, code):
         raise RuntimeError(
             (stderr or stdout).strip() or f"patch exited with code {result.returncode}"
         )
-    out = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", errors="replace").strip()
+    out = _subprocess_text(result)
     return out if out else "patch: OK"
+
+
+def dry_run_edit(language, code, target):
+    """Run the edit without modifying the file; return stdout/stderr for preview."""
+    language = language.lower().strip()
+    if language == "poke":
+        return None
+
+    if language == "write":
+        _validate_target(target, must_exist=False)
+        return code
+
+    if language == "patch":
+        _validate_target(target, must_exist=True)
+        if not code.strip():
+            raise ValueError("patch: diff body is empty")
+        patch_bin = _resolve_patch()
+        path = Path(target)
+        diff = code.replace("\r\n", "\n").replace("\r", "\n")
+        if not diff.endswith("\n"):
+            diff += "\n"
+        result = subprocess.run(
+            [patch_bin, "-p0", "--forward", "--dry-run", path.name],
+            input=diff.encode("utf-8"),
+            capture_output=True,
+            cwd=str(path.parent),
+        )
+        return _subprocess_text(result) or f"patch exited with code {result.returncode}"
+
+    if language == "sed":
+        _validate_target(target, must_exist=True)
+        if not code.strip():
+            raise ValueError("sed: no commands in code")
+        sed = _resolve_sed()
+        script_path = _write_temp_script(code, ".sed")
+        try:
+            result = subprocess.run(
+                [sed, "-f", script_path, target],
+                capture_output=True,
+            )
+        finally:
+            if os.path.isfile(script_path):
+                os.remove(script_path)
+        return _subprocess_text(result) or f"sed exited with code {result.returncode}"
+
+    if language == "gawk":
+        _validate_target(target, must_exist=True)
+        if not code.strip():
+            raise ValueError("gawk: no program in code")
+        gawk = _resolve_gawk()
+        prog_path = _write_temp_script(code, ".awk")
+        try:
+            result = subprocess.run(
+                [gawk, "-f", prog_path, target],
+                capture_output=True,
+            )
+        finally:
+            if os.path.isfile(prog_path):
+                os.remove(prog_path)
+        return _subprocess_text(result) or f"gawk exited with code {result.returncode}"
+
+    if language == "jq":
+        _validate_target(target, must_exist=True)
+        if not code.strip():
+            raise ValueError("jq: no filter in code")
+        jq = _resolve_jq()
+        filter_path = _write_temp_script(code, ".jq")
+        try:
+            result = subprocess.run(
+                [jq, "-f", filter_path, target],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            if os.path.isfile(filter_path):
+                os.remove(filter_path)
+        return _subprocess_text(result) or f"jq exited with code {result.returncode}"
+
+    if language == "yq":
+        _validate_target(target, must_exist=True)
+        if not code.strip():
+            raise ValueError("yq: no expression in code")
+        yq = _resolve_yq()
+        path = Path(target).as_posix()
+        expr_path = _write_temp_script(code, ".yq")
+        try:
+            result = None
+            for args in (
+                [yq, "eval", "-f", expr_path, path],
+                [yq, "eval", "--from-file", expr_path, path],
+                [yq, "-f", expr_path, path],
+            ):
+                result = subprocess.run(args, capture_output=True, text=True)
+                if result.returncode == 0:
+                    break
+            return _subprocess_text(result) or f"yq exited with code {result.returncode}"
+        finally:
+            if os.path.isfile(expr_path):
+                os.remove(expr_path)
+
+    if language == "comby":
+        _validate_target(target, must_exist=True)
+        match, rewrite = _split_comby_templates(code)
+        if not match or not rewrite:
+            raise ValueError("comby: both match and rewrite templates are required")
+        comby = _resolve_comby()
+        json_flag = _comby_json_flag(comby)
+        source = Path(target).read_bytes()
+        result = subprocess.run(
+            [comby, "-stdin", json_flag, match, rewrite],
+            input=source,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            return _subprocess_text(result) or f"comby exited with code {result.returncode}"
+        return _comby_rewritten_source(result.stdout).decode("utf-8", errors="replace")
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -491,3 +616,4 @@ def run_edit(language, code, target):
         return run_patch(target, code)
     # unreachable given the set-membership check above
     raise ValueError(f"unsupported edit language: {language!r}")
+
