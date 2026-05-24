@@ -67,7 +67,7 @@ edit_tool_schema = {
             "Languages:\n"
             "  write — create a NEW file; code is the full file body (UTF-8). Errors if target exists.\n"
             "  sed   — sed script (in-place); line-oriented text edits, multi-line OK.\n"
-            "  gawk  — GNU awk program; must print records (implicit print is not used).\n"
+            "  gawk  — GNU awk program (in-place).\n"
             "  jq    — jq filter for JSON (in-place). Wrap if-expressions in parentheses in object literals.\n"
             "  yq    — yq (mikefarah) expression (multi-line OK). Multiple updates: chain with |.\n"
             "  poke  — GNU poke statements for binary files; do not use .file (auto-opened).\n"
