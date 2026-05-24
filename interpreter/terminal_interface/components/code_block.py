@@ -54,6 +54,9 @@ class CodeBlock(BaseBlock):
         except:
             self._last_width = shutil.get_terminal_size().columns
 
+    def _code_panel_title(self):
+        return f" {self.language} " if self.language else " Code "
+
     def end(self):
         self.active_line = None
         self.finalize()
@@ -105,7 +108,12 @@ class CodeBlock(BaseBlock):
                 )
                 code_table.add_row(syntax)
 
-            panel = Panel(code_table, box=MINIMAL, style="on #272722")
+            panel = Panel(
+                code_table,
+                box=MINIMAL,
+                style="on #272722",
+                title=self._code_panel_title(),
+            )
         else:
             # Output panel
             panel = Panel(escape(content.strip()), box=MINIMAL, style="#FFFFFF on #3b3b37")
@@ -218,7 +226,12 @@ class CodeBlock(BaseBlock):
                     code_table.add_row(syntax)
 
             # Create a panel for the code
-            code_panel = Panel(code_table, box=MINIMAL, style="on #272722")
+            code_panel = Panel(
+                code_table,
+                box=MINIMAL,
+                style="on #272722",
+                title=self._code_panel_title(),
+            )
 
             group_items = []
             if self.target_path:
@@ -284,8 +297,12 @@ class CodeBlock(BaseBlock):
                 formatted_buffer.append("●")
 
         # Wrap in a panel to match visual style
-        title = f" {self.language} " if self.language else " Code "
-        streaming_panel = Panel(formatted_buffer, box=MINIMAL, style="on #272722", title=title)
+        streaming_panel = Panel(
+            formatted_buffer,
+            box=MINIMAL,
+            style="on #272722",
+            title=self._code_panel_title(),
+        )
         
         group_items = []
         if self.margin_top:
