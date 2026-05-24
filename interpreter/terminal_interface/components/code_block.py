@@ -11,6 +11,7 @@ import os
 
 from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
+from ..utils.target_file_lexer import syntax_lang_for_target_path
 from ..utils.streaming_markdown import (
     calculate_window_size,
     create_sliding_window_display,
@@ -54,6 +55,14 @@ class CodeBlock(BaseBlock):
         except:
             self._last_width = shutil.get_terminal_size().columns
 
+    def _syntax_language(self):
+        if self.language == "write" and self.target_path:
+            return syntax_lang_for_target_path(self.target_path)
+        lang = self.language
+        if os.name == "nt" and lang.lower() in ["cmd", "bash", "shell"]:
+            return "bat"
+        return lang
+
     def _code_panel_title(self):
         return f" {self.language} " if self.language else " Code "
 
@@ -86,10 +95,7 @@ class CodeBlock(BaseBlock):
             return
 
         if format_type == "code":
-            # Create the syntax-highlighted panel
-            syntax_language = self.language
-            if os.name == "nt" and syntax_language.lower() in ["cmd", "bash", "shell"]:
-                syntax_language = "bat"
+            syntax_language = self._syntax_language()
 
             # We use a table to allow for potential line-specific styling if needed
             code_table = Table(
@@ -186,8 +192,13 @@ class CodeBlock(BaseBlock):
             self.live.update("")
             return
 
-        # If highlighting is enabled AND execution has started (active_line is not None)
-        if should_highlight and self.active_line is not None and self.code.strip():
+        # If highlighting is enabled AND execution has started (active_line is not None),
+        # or this is a write edit preview (content is the target file body).
+        write_preview = self.language == "write" and self.target_path
+        use_syntax_panel = self.code.strip() and (
+            write_preview or (should_highlight and self.active_line is not None)
+        )
+        if use_syntax_panel:
             # Get code
             code = self.code
 
@@ -201,9 +212,7 @@ class CodeBlock(BaseBlock):
             if cursor:
                 code += "●"
 
-            syntax_language = self.language
-            if os.name == "nt" and syntax_language.lower() in ["cmd", "bash", "shell"]:
-                syntax_language = "bat"
+            syntax_language = self._syntax_language()
 
             # Add each line of code to the table
             code_lines = code.strip().split("\n")
