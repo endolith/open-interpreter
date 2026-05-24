@@ -481,6 +481,7 @@ def respond(interpreter):
                             dry_run_output = preview["output"]
                             dry_run_ok = preview["ok"]
                     except Exception as e:
+                        # Validation errors (missing file, bad path, etc.)
                         dry_run_output = str(e)
                         dry_run_ok = False
 
