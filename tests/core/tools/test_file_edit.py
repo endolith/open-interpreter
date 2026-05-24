@@ -11,6 +11,7 @@ from interpreter.core.tools.file_edit import (
     _poke_prepare_script,
     _split_comby_templates,
     _validate_target,
+    dry_run_edit,
     run_edit,
     run_gawk,
     run_jq,
@@ -154,6 +155,37 @@ class TestRunYq(unittest.TestCase):
             )
             data = json.loads(open(target, encoding="utf-8").read())
             self.assertEqual(data["value"], 2)
+
+    def test_run_yq_yaml_in_place_not_stdout_only(self):
+        # Regression: eval -i -f exited 0 but left the file unchanged (2026-05-24).
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "config.yaml")
+            run_write(
+                target,
+                "server:\n  port: 8080\n  host: localhost\n",
+            )
+            self.assertEqual(run_yq(target, ".server.port = 9090"), "yq: OK")
+            text = open(target, encoding="utf-8").read()
+            self.assertIn("9090", text)
+            self.assertNotIn("8080", text)
+
+    def test_run_yq_chained_updates_on_one_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "app.yaml")
+            run_write(target, "version: '1.0'\ndebug: false\n")
+            run_yq(target, '.version = "2.0" | .debug = true')
+            text = open(target, encoding="utf-8").read()
+            self.assertIn("2.0", text)
+            self.assertIn("true", text)
+
+    def test_dry_run_yq_does_not_modify_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "config.yaml")
+            original = "server:\n  port: 8080\n"
+            run_write(target, original)
+            preview = dry_run_edit("yq", ".server.port = 9090", target)
+            self.assertIn("9090", preview)
+            self.assertEqual(open(target, encoding="utf-8").read(), original)
 
 
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
