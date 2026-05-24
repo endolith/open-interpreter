@@ -29,8 +29,6 @@ class TestEditLanguagesRegistry(unittest.TestCase):
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
         self.assertNotIn("ed", EDIT_LANGUAGES)
-
-
 class TestValidateTarget(unittest.TestCase):
     def test_requires_absolute_path(self):
         with tempfile.TemporaryDirectory() as tmp:
