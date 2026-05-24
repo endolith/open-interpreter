@@ -158,29 +158,6 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
             os.remove(tmp)
 
 
-def _reject_empty_replace_output(lang, output_bytes, original_size):
-    """Reject whole-file replacements that would wipe a non-empty target."""
-    if original_size > 0 and not output_bytes:
-        raise RuntimeError(
-            f"{lang}: edit would produce a 0-byte file "
-            f"(original was {original_size} bytes). "
-            "This usually means the program produced no output — "
-            "e.g. gawk needs an explicit print, jq must emit a value."
-        )
-
-
-def _reject_zero_byte_target_after_edit(target, lang, size_before):
-    """Safety net for in-place tools that may have already mutated the file."""
-    if not size_before:
-        return
-    size_after = Path(target).stat().st_size
-    if size_after == 0:
-        raise RuntimeError(
-            f"{lang}: edit left a 0-byte file (original was {size_before} bytes). "
-            "This usually means the program produced no output."
-        )
-
-
 # ---------------------------------------------------------------------------
 # Runners
 # ---------------------------------------------------------------------------
@@ -236,34 +213,30 @@ def run_sed(target, code):
 
 
 def run_gawk(target, code):
-    """Apply a gawk program, replacing the target atomically from stdout."""
+    """Apply a gawk program in-place. Requires GNU awk (-i inplace)."""
     _validate_target(target, must_exist=True)
     if not code.strip():
         raise ValueError("gawk: no program in code")
 
-    path = Path(target)
-    size_before = path.stat().st_size
     gawk = _resolve_gawk()
     prog_path = _write_temp_script(code, ".awk")
     try:
         result = subprocess.run(
-            [gawk, "-f", prog_path, target],
+            [gawk, "-i", "inplace", "-f", prog_path, target],
             capture_output=True,
+            text=True,
         )
     finally:
         if os.path.isfile(prog_path):
             os.remove(prog_path)
 
     if result.returncode != 0:
-        stderr = (result.stderr or b"").decode("utf-8", errors="replace")
-        stdout = (result.stdout or b"").decode("utf-8", errors="replace")
         raise RuntimeError(
-            (stderr or stdout).strip() or f"gawk exited with code {result.returncode}"
+            (result.stderr or result.stdout or "").strip()
+            or f"gawk exited with code {result.returncode}"
         )
-    out_bytes = result.stdout or b""
-    _reject_empty_replace_output("gawk", out_bytes, size_before)
-    _atomic_replace_from_stdout(target, out_bytes)
-    return "gawk: OK"
+    out = (result.stdout or "").strip()
+    return out if out else "gawk: OK"
 
 
 def run_jq(target, code):
@@ -274,7 +247,6 @@ def run_jq(target, code):
 
     jq = _resolve_jq()
     path = Path(target)
-    size_before = path.stat().st_size
 
     # Write to a sibling temp file so os.replace() is atomic on the same filesystem
     filter_path = _write_temp_script(code, ".jq")
@@ -293,9 +265,7 @@ def run_jq(target, code):
                 (result.stderr or result.stdout or "").strip()
                 or f"jq exited with code {result.returncode}"
             )
-        out_bytes = (result.stdout or "").encode("utf-8")
-        _reject_empty_replace_output("jq", out_bytes, size_before)
-        Path(tmp).write_bytes(out_bytes)
+        Path(tmp).write_text(result.stdout, encoding="utf-8", newline="")
         os.replace(tmp, target)
         tmp = None  # consumed; don't delete in finally
     finally:
@@ -445,9 +415,7 @@ def run_comby(target, code):
 
     comby = _resolve_comby()
     json_flag = _comby_json_flag(comby)
-    path = Path(target)
-    size_before = path.stat().st_size
-    source = path.read_bytes()
+    source = Path(target).read_bytes()
     result = subprocess.run(
         [comby, "-stdin", json_flag, match, rewrite],
         input=source,
@@ -459,9 +427,7 @@ def run_comby(target, code):
         raise RuntimeError(
             (stderr or stdout).strip() or f"comby exited with code {result.returncode}"
         )
-    rewritten = _comby_rewritten_source(result.stdout)
-    _reject_empty_replace_output("comby", rewritten, size_before)
-    _atomic_replace_from_stdout(target, rewritten)
+    _atomic_replace_from_stdout(target, _comby_rewritten_source(result.stdout))
     return "comby: OK"
 
 
@@ -507,29 +473,21 @@ def run_edit(language, code, target):
     if not isinstance(code, str):
         raise ValueError("code must be a string")
 
-    size_before = None
-    if language != "write":
-        size_before = Path(target).stat().st_size
-
     if language == "write":
         return run_write(target, code)
     if language == "sed":
-        result = run_sed(target, code)
-    elif language == "gawk":
-        result = run_gawk(target, code)
-    elif language == "jq":
-        result = run_jq(target, code)
-    elif language == "yq":
-        result = run_yq(target, code)
-    elif language == "poke":
-        result = run_poke(target, code)
-    elif language == "comby":
-        result = run_comby(target, code)
-    elif language == "patch":
-        result = run_patch(target, code)
-    else:
-        raise ValueError(f"unsupported edit language: {language!r}")
-
-    if language in ("sed", "yq", "patch", "poke"):
-        _reject_zero_byte_target_after_edit(target, language, size_before)
-    return result
+        return run_sed(target, code)
+    if language == "gawk":
+        return run_gawk(target, code)
+    if language == "jq":
+        return run_jq(target, code)
+    if language == "yq":
+        return run_yq(target, code)
+    if language == "poke":
+        return run_poke(target, code)
+    if language == "comby":
+        return run_comby(target, code)
+    if language == "patch":
+        return run_patch(target, code)
+    # unreachable given the set-membership check above
+    raise ValueError(f"unsupported edit language: {language!r}")
