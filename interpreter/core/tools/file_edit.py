@@ -506,12 +506,8 @@ def run_patch(target, code):
 def dry_run_edit(language, code, target):
     """Run the edit without modifying the file; return stdout/stderr for preview."""
     language = language.lower().strip()
-    if language == "poke":
+    if language == "poke" or language == "write":
         return None
-
-    if language == "write":
-        _validate_target(target, must_exist=False)
-        return code
 
     if language == "patch":
         _validate_target(target, must_exist=True)
@@ -528,7 +524,11 @@ def dry_run_edit(language, code, target):
             capture_output=True,
             cwd=str(path.parent),
         )
-        return _subprocess_text(result) or f"patch exited with code {result.returncode}"
+        out = _subprocess_text(result) or f"patch exited with code {result.returncode}"
+        # GNU patch --dry-run on success often only prints "checking file …"; include the diff.
+        if "@@" not in out:
+            out = f"{out}\n\n{diff.strip()}" if out else diff.strip()
+        return out
 
     if language == "sed":
         _validate_target(target, must_exist=True)
@@ -645,4 +645,3 @@ def run_edit(language, code, target):
         return run_patch(target, code)
     # unreachable given the set-membership check above
     raise ValueError(f"unsupported edit language: {language!r}")
-
