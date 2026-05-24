@@ -56,6 +56,7 @@ class CodeBlock(BaseBlock):
             self._last_width = shutil.get_terminal_size().columns
 
     def _syntax_language(self):
+        # write previews are the target file body — highlight by extension, not "write".
         if self.language == "write" and self.target_path:
             return syntax_lang_for_target_path(self.target_path)
         lang = self.language
@@ -195,6 +196,7 @@ class CodeBlock(BaseBlock):
         # If highlighting is enabled AND execution has started (active_line is not None),
         # or this is a write edit preview (content is the target file body).
         write_preview = self.language == "write" and self.target_path
+        # write previews need syntax even when active_line highlighting is off.
         use_syntax_panel = self.code.strip() and (
             write_preview or (should_highlight and self.active_line is not None)
         )
