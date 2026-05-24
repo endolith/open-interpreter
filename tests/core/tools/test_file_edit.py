@@ -12,6 +12,7 @@ from interpreter.core.tools.file_edit import (
     _poke_prepare_script,
     _split_comby_templates,
     _validate_target,
+    _write_temp_script,
     _yq_eval_argv_candidates,
     dry_run_edit,
     run_edit,
@@ -130,6 +131,21 @@ class TestRunJq(unittest.TestCase):
             data = json.loads(open(target, encoding="utf-8").read())
             self.assertEqual(data["name"], "x")
             self.assertEqual(data["n"], 2)
+
+    def test_write_temp_script_utf8_non_ascii(self):
+        path = _write_temp_script('.label = "✅"', ".jq")
+        try:
+            self.assertEqual(open(path, "rb").read(), b'.label = "\xe2\x9c\x85"\n')
+        finally:
+            os.remove(path)
+
+    def test_run_jq_unicode_in_filter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "data.json")
+            run_write(target, '{"label":"old"}\n')
+            run_jq(target, '.label = "✅"')
+            data = json.loads(open(target, encoding="utf-8").read())
+            self.assertEqual(data["label"], "✅")
 
 
 @unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
