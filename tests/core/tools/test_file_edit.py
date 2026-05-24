@@ -7,10 +7,12 @@ from pathlib import Path
 
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
+    _assert_mikefarah_yq,
     _comby_rewritten_source,
     _poke_prepare_script,
     _split_comby_templates,
     _validate_target,
+    _yq_eval_argv_candidates,
     dry_run_edit,
     run_edit,
     run_gawk,
@@ -145,6 +147,24 @@ class TestRunGawk(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
 class TestRunYq(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        yq = shutil.which("yq")
+        if not yq:
+            raise unittest.SkipTest("yq not installed")
+        try:
+            _assert_mikefarah_yq(yq)
+        except RuntimeError as exc:
+            raise unittest.SkipTest(str(exc)) from exc
+
+    def test_yq_argv_uses_inline_expression_not_from_file(self):
+        # Regression: -f / --from-file exited 0 but did not apply the expression.
+        yq = shutil.which("yq")
+        for args in _yq_eval_argv_candidates(yq, ".server.port = 9090", "/tmp/a.yaml"):
+            self.assertNotIn("-f", args)
+            self.assertNotIn("--from-file", args)
+            self.assertIn(".server.port = 9090", args)
+
     def test_run_yq_multiline_expression(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "data.json")
