@@ -204,7 +204,8 @@ class TestRunYq(unittest.TestCase):
             original = "server:\n  port: 8080\n"
             run_write(target, original)
             preview = dry_run_edit("yq", ".server.port = 9090", target)
-            self.assertIn("9090", preview)
+            self.assertTrue(preview["ok"])
+            self.assertIn("9090", preview["output"])
             self.assertEqual(open(target, encoding="utf-8").read(), original)
 
 

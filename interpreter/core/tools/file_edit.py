@@ -530,10 +530,23 @@ def run_patch(target, code):
 
 
 def dry_run_edit(language, code, target):
-    """Run the edit without modifying the file; return stdout/stderr for preview."""
+    """Run the edit without modifying the file.
+
+    Returns None if this language has no dry-run preview, else
+    {"output": str, "ok": bool} where ok is False for tool/validation failures.
+    """
     language = language.lower().strip()
     if language == "poke" or language == "write":
         return None
+
+    def _preview(result, *, append_diff=None):
+        out = _subprocess_text(result)
+        if not out:
+            out = f"{language} exited with code {result.returncode}"
+        ok = result.returncode == 0
+        if ok and append_diff is not None and "@@" not in out:
+            out = f"{out}\n\n{append_diff.strip()}" if out else append_diff.strip()
+        return {"output": out, "ok": ok}
 
     if language == "patch":
         _validate_target(target, must_exist=True)
@@ -550,11 +563,7 @@ def dry_run_edit(language, code, target):
             capture_output=True,
             cwd=str(path.parent),
         )
-        out = _subprocess_text(result) or f"patch exited with code {result.returncode}"
-        # GNU patch --dry-run on success often only prints "checking file …"; include the diff.
-        if "@@" not in out:
-            out = f"{out}\n\n{diff.strip()}" if out else diff.strip()
-        return out
+        return _preview(result, append_diff=diff)
 
     if language == "sed":
         _validate_target(target, must_exist=True)
@@ -570,7 +579,7 @@ def dry_run_edit(language, code, target):
         finally:
             if os.path.isfile(script_path):
                 os.remove(script_path)
-        return _subprocess_text(result) or f"sed exited with code {result.returncode}"
+        return _preview(result)
 
     if language == "gawk":
         _validate_target(target, must_exist=True)
@@ -586,7 +595,7 @@ def dry_run_edit(language, code, target):
         finally:
             if os.path.isfile(prog_path):
                 os.remove(prog_path)
-        return _subprocess_text(result) or f"gawk exited with code {result.returncode}"
+        return _preview(result)
 
     if language == "jq":
         _validate_target(target, must_exist=True)
@@ -603,7 +612,7 @@ def dry_run_edit(language, code, target):
         finally:
             if os.path.isfile(filter_path):
                 os.remove(filter_path)
-        return _subprocess_text(result) or f"jq exited with code {result.returncode}"
+        return _preview(result)
 
     if language == "yq":
         _validate_target(target, must_exist=True)
@@ -613,7 +622,7 @@ def dry_run_edit(language, code, target):
         yq = _resolve_yq()
         # Same stdout eval as run_yq; dry-run only shows output, never writes the file.
         result = _run_yq_eval(yq, expr, target)
-        return _subprocess_text(result) or f"yq exited with code {result.returncode}"
+        return _preview(result)
 
     if language == "comby":
         _validate_target(target, must_exist=True)
@@ -629,8 +638,12 @@ def dry_run_edit(language, code, target):
             capture_output=True,
         )
         if result.returncode != 0:
-            return _subprocess_text(result) or f"comby exited with code {result.returncode}"
-        return _comby_rewritten_source(result.stdout).decode("utf-8", errors="replace")
+            return _preview(result)
+        try:
+            output = _comby_rewritten_source(result.stdout).decode("utf-8", errors="replace")
+        except RuntimeError as exc:
+            return {"output": str(exc), "ok": False}
+        return {"output": output, "ok": True}
 
     return None
 
