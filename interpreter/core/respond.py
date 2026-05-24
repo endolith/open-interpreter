@@ -473,11 +473,16 @@ def respond(interpreter):
 
             try:
                 dry_run_output = None
+                dry_run_ok = True
                 if not interpreter.auto_run:
                     try:
-                        dry_run_output = dry_run_edit(language, code, target)
+                        preview = dry_run_edit(language, code, target)
+                        if preview is not None:
+                            dry_run_output = preview["output"]
+                            dry_run_ok = preview["ok"]
                     except Exception as e:
                         dry_run_output = str(e)
+                        dry_run_ok = False
 
                 # Yield confirmation so the terminal can prompt y/n (respects auto_run).
                 # format: "edit" distinguishes this from a code execution confirmation.
@@ -489,6 +494,7 @@ def respond(interpreter):
                     }
                     if dry_run_output is not None:
                         confirmation_content["dry_run_output"] = dry_run_output
+                        confirmation_content["dry_run_ok"] = dry_run_ok
                     yield {
                         "role": "computer",
                         "type": "confirmation",

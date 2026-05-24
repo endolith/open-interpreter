@@ -58,10 +58,14 @@ except:
     pass
 
 
-def _display_edit_dry_run(output, *, interpreter, target, edit_language):
+def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True):
     if not output:
         return
-    fence_lang = syntax_lang_for_dry_run(target, edit_language)
+    fence_lang = (
+        syntax_lang_for_dry_run(target, edit_language)
+        if ok
+        else "text"
+    )
     fence = "````" if "```" in output else "```"
     block = f"{fence}{fence_lang}\n{output}\n{fence}"
     if interpreter.plain_text_display:
@@ -325,8 +329,6 @@ def terminal_interface(interpreter, message):
                             active_block = None
 
                         if chunk.get("format") == "edit":
-                            # Edit tool confirmation — show target path and edit script,
-                            # ask y/n (no "edit" option since the content is structured JSON).
                             edit_info = chunk["content"]
                             language = edit_info["format"]
                             code = edit_info["content"]
@@ -337,13 +339,15 @@ def terminal_interface(interpreter, message):
                                 interpreter=interpreter,
                                 target=target,
                                 edit_language=language,
+                                ok=edit_info.get("dry_run_ok", True),
                             )
 
+                            # Target path is already shown above the code block.
                             print("", flush=True)
                             edit_prompt = (
-                                f"Edit {target}\n  Would you like to apply this edit? (y/n)\n\n"
+                                "Would you like to apply this edit? (y/n)\n\n"
                                 if interpreter.plain_text_display
-                                else f"  Edit {target}\n  Would you like to apply this edit? (y/n)\n\n  "
+                                else "  Would you like to apply this edit? (y/n)\n\n  "
                             )
                             response = prompt_choice(edit_prompt, ("y", "n"))
 
