@@ -529,6 +529,10 @@ def run_patch(target, code):
     return out if out else "patch: OK"
 
 
+# ---------------------------------------------------------------------------
+# Dry-run previews (no file modifications)
+# ---------------------------------------------------------------------------
+
 def dry_run_edit(language, code, target):
     """Run the edit without modifying the file.
 
@@ -544,6 +548,7 @@ def dry_run_edit(language, code, target):
         if not out:
             out = f"{language} exited with code {result.returncode}"
         ok = result.returncode == 0
+        # GNU patch --dry-run on success often only prints "checking file …"; include the diff.
         if ok and append_diff is not None and "@@" not in out:
             out = f"{out}\n\n{append_diff.strip()}" if out else append_diff.strip()
         return {"output": out, "ok": ok}
