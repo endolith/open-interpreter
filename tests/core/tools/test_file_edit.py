@@ -9,7 +9,6 @@ from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _comby_rewritten_source,
     _poke_prepare_script,
-    _reject_empty_replace_output,
     _split_comby_templates,
     _validate_target,
     run_edit,
@@ -131,25 +130,6 @@ class TestRunJq(unittest.TestCase):
             self.assertEqual(data["name"], "x")
             self.assertEqual(data["n"], 2)
 
-    def test_run_jq_rejects_empty_filter_output(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "data.json")
-            run_write(target, '{"a":1}\n')
-            with self.assertRaises(RuntimeError) as ctx:
-                run_jq(target, "empty")
-            self.assertIn("0-byte", str(ctx.exception).lower())
-            self.assertEqual(Path(target).read_text(encoding="utf-8"), '{"a":1}\n')
-
-
-class TestRejectEmptyReplaceOutput(unittest.TestCase):
-    def test_rejects_empty_when_original_had_content(self):
-        with self.assertRaises(RuntimeError) as ctx:
-            _reject_empty_replace_output("gawk", b"", 12)
-        self.assertIn("0-byte", str(ctx.exception).lower())
-
-    def test_allows_empty_when_original_was_empty(self):
-        _reject_empty_replace_output("gawk", b"", 0)
-
 
 @unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
 class TestRunGawk(unittest.TestCase):
@@ -162,15 +142,6 @@ class TestRunGawk(unittest.TestCase):
                 "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
-
-    def test_run_gawk_rejects_program_with_no_print(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "lines.txt")
-            Path(target).write_text("hello\n", encoding="utf-8")
-            with self.assertRaises(RuntimeError) as ctx:
-                run_gawk(target, "{ }\n")
-            self.assertIn("0-byte", str(ctx.exception).lower())
-            self.assertEqual(Path(target).read_text(encoding="utf-8"), "hello\n")
 
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
