@@ -16,6 +16,7 @@ import re
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 from rich.box import ROUNDED
 from rich.console import Console as RichConsole
@@ -57,11 +58,53 @@ except:
     pass
 
 
-def _display_edit_dry_run(output, *, interpreter):
+# Pygments lexer names for dry-run preview (target file format, not edit language).
+_DRY_RUN_EXT_LEXER = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".jsx": "javascript",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".xml": "xml",
+    ".html": "html",
+    ".htm": "html",
+    ".md": "markdown",
+    ".sh": "bash",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".sql": "sql",
+    ".toml": "toml",
+    ".r": "r",
+    ".php": "php",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".lua": "lua",
+}
+
+
+def _dry_run_fence_lang(target, edit_language):
+    """Lexer for dry-run output: patch diagnostics use diff; else the target file type."""
+    if edit_language == "patch":
+        return "diff"
+    return _DRY_RUN_EXT_LEXER.get(Path(target).suffix.lower(), "text")
+
+
+def _display_edit_dry_run(output, *, interpreter, target, edit_language):
     if not output:
         return
+    fence_lang = _dry_run_fence_lang(target, edit_language)
     fence = "````" if "```" in output else "```"
-    block = f"{fence}text\n{output}\n{fence}"
+    block = f"{fence}{fence_lang}\n{output}\n{fence}"
     if interpreter.plain_text_display:
         print("  Dry run:", flush=True)
         print(block, flush=True)
@@ -333,6 +376,8 @@ def terminal_interface(interpreter, message):
                             _display_edit_dry_run(
                                 edit_info.get("dry_run_output"),
                                 interpreter=interpreter,
+                                target=target,
+                                edit_language=language,
                             )
 
                             print("", flush=True)
