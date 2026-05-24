@@ -61,6 +61,7 @@ except:
 def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True):
     if not output:
         return
+    # File-format highlighting only for successful previews; errors are plain text.
     fence_lang = (
         syntax_lang_for_dry_run(target, edit_language)
         if ok
@@ -329,6 +330,9 @@ def terminal_interface(interpreter, message):
                             active_block = None
 
                         if chunk.get("format") == "edit":
+                            # Edit tool confirmation — ask y/n (no "edit" option since the
+                            # content is structured JSON). Target path is already shown
+                            # above the code block; dry-run output (if any) is below.
                             edit_info = chunk["content"]
                             language = edit_info["format"]
                             code = edit_info["content"]
@@ -687,6 +691,7 @@ def terminal_interface(interpreter, message):
                         render_cursor = True
 
                     if "content" in chunk:
+                        # start chunk has no target; it arrives on the content chunk.
                         if chunk.get("target"):
                             active_block.target_path = chunk["target"]
                         active_block.code += chunk["content"]
