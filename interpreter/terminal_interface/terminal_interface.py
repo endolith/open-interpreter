@@ -36,6 +36,7 @@ from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
 from .utils.display_constants import PADDING_PANEL
+from .utils.display_markdown_message import display_markdown_message
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 
@@ -56,12 +57,18 @@ except:
     pass
 
 
-def _display_edit_dry_run(output, *, plain_text_display):
+def _display_edit_dry_run(output, *, interpreter, language):
     if not output:
         return
-    print("  Dry run:", flush=True)
-    print(output, flush=True)
-    print("", flush=True)
+    fence_lang = {"patch": "diff", "jq": "json"}.get(language, language)
+    fence = "````" if "```" in output else "```"
+    block = f"{fence}{fence_lang}\n{output}\n{fence}"
+    if interpreter.plain_text_display:
+        print("  Dry run:", flush=True)
+        print(block, flush=True)
+        print("", flush=True)
+    else:
+        display_markdown_message(f"**Dry run:**\n\n{block}\n")
 
 
 def terminal_interface(interpreter, message):
@@ -326,7 +333,8 @@ def terminal_interface(interpreter, message):
 
                             _display_edit_dry_run(
                                 edit_info.get("dry_run_output"),
-                                plain_text_display=interpreter.plain_text_display,
+                                interpreter=interpreter,
+                                language=language,
                             )
 
                             print("", flush=True)
