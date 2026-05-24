@@ -158,12 +158,13 @@ def _validate_target(target, *, must_exist):
 
 def _run_failed(lang, result):
     raise RuntimeError(
-        (result.stderr or result.stdout or "").strip()
+        _subprocess_text(result)
         or f"{lang} exited with code {result.returncode}"
     )
 
 
 def _subprocess_text(result):
+    """Decode captured subprocess output as UTF-8 (tools emit UTF-8; avoid text=True on Windows)."""
     if isinstance(result.stdout, bytes) or isinstance(result.stderr, bytes):
         out = (result.stdout or b"") + (result.stderr or b"")
         return out.decode("utf-8", errors="replace").strip()
@@ -204,11 +205,13 @@ def _write_temp_script(code, suffix, prefix="oi-edit-"):
     script = code.replace("\r\n", "\n").replace("\r", "\n")
     if not script.strip():
         raise ValueError("empty script")
-    fd, path = tempfile.mkstemp(suffix=suffix, prefix=prefix, text=True)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as script_file:
-        script_file.write(script)
-        if not script.endswith("\n"):
-            script_file.write("\n")
+    if not script.endswith("\n"):
+        script += "\n"
+    # Binary UTF-8 write: mkstemp(text=True) uses the locale encoding on Windows (e.g.
+    # cp1252), which mojibakes non-ASCII jq/sed/gawk filters when tools read the file.
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix=prefix)
+    with os.fdopen(fd, "wb") as script_file:
+        script_file.write(script.encode("utf-8"))
     return path
 
 
@@ -285,14 +288,13 @@ def run_jq(target, code):
         result = subprocess.run(
             [jq, "-f", filter_path, target],
             capture_output=True,
-            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(
-                (result.stderr or result.stdout or "").strip()
+                _subprocess_text(result)
                 or f"jq exited with code {result.returncode}"
             )
-        Path(tmp).write_text(result.stdout, encoding="utf-8", newline="")
+        Path(tmp).write_bytes(result.stdout or b"")
         os.replace(tmp, target)
         tmp = None  # consumed; don't delete in finally
     finally:
@@ -328,9 +330,9 @@ def _run_yq_eval(yq, expr, target):
     result = None
     before = Path(target).read_text(encoding="utf-8")
     for args in _yq_eval_argv_candidates(yq, expr, target):
-        result = subprocess.run(args, capture_output=True, text=True)
+        result = subprocess.run(args, capture_output=True)
         if result.returncode == 0:
-            out = result.stdout or ""
+            out = (result.stdout or b"").decode("utf-8")
             # Catch silent no-ops (exit 0, stdout equals input) on obvious assignments.
             if out == before and "=" in expr and before.strip():
                 continue
@@ -355,13 +357,13 @@ def run_yq(target, code):
     os.close(fd)
     try:
         result = _run_yq_eval(yq, expr, target)
-        out = result.stdout
-        if had_content and not (out or "").strip():
+        out = result.stdout or b""
+        if had_content and not out.strip():
             raise RuntimeError(
                 "yq produced no output for a non-empty file "
                 "(file was not modified; check the expression)"
             )
-        Path(tmp).write_text(out, encoding="utf-8", newline="")
+        Path(tmp).write_bytes(out)
         os.replace(tmp, target)
         tmp = None
     finally:
@@ -401,10 +403,8 @@ def run_poke(target, code):
     body = code.replace("\r\n", "\n").replace("\r", "\n")
     script = _poke_prepare_script(body, path)
 
-    fd, cmd_path = tempfile.mkstemp(suffix=".poke", prefix="oi-edit-", text=True)
+    cmd_path = _write_temp_script(script, ".poke")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as cmd_file:
-            cmd_file.write(script)
         # poke -s loads the script then enters the REPL; .quit exits non-interactively.
         result = subprocess.run(
             [
@@ -612,7 +612,6 @@ def dry_run_edit(language, code, target):
             result = subprocess.run(
                 [jq, "-f", filter_path, target],
                 capture_output=True,
-                text=True,
             )
         finally:
             if os.path.isfile(filter_path):
