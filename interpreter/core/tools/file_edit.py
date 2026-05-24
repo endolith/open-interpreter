@@ -284,28 +284,65 @@ def run_jq(target, code):
     return "jq: OK"
 
 
+def _yq_eval_argv_candidates(yq, expr_path, data_path):
+    """Argv lists for mikefarah yq eval (stdout mode — no -i).
+
+    Regression (2026-05-24): run_yq used ``eval -i -f <expr> <file>``. That often
+    exited 0 while leaving the target unchanged (in-place + from-file interaction).
+    The pre-5/23 path passed the expression inline: ``eval -i '<expr>' <file>``.
+    We always apply edits like jq: eval to stdout, then os.replace() the target.
+  """
+    path = Path(data_path).as_posix()
+    return (
+        [yq, "eval", "-f", expr_path, path],
+        [yq, "eval", "--from-file", expr_path, path],
+        [yq, "-f", expr_path, path],
+    )
+
+
+def _run_yq_eval(yq, expr_path, target):
+    """Run yq eval; return the first subprocess result with returncode 0."""
+    result = None
+    for args in _yq_eval_argv_candidates(yq, expr_path, target):
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result
+    _run_failed("yq", result)
+
+
 def run_yq(target, code):
-    """Apply a yq (mikefarah) expression in-place (YAML/JSON/TOML/XML/CSV)."""
+    """Apply a yq (mikefarah) expression, replacing the file atomically."""
     _validate_target(target, must_exist=True)
     if not code.strip():
         raise ValueError("yq: no expression in code")
 
     yq = _resolve_yq()
-    path = Path(target).as_posix()
+    path = Path(target)
+    had_content = path.stat().st_size > 0
+
     expr_path = _write_temp_script(code, ".yq")
+    fd, tmp = tempfile.mkstemp(
+        suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
+    )
+    os.close(fd)
     try:
-        for args in (
-            [yq, "eval", "-i", "-f", expr_path, path],
-            [yq, "eval", "-i", "--from-file", expr_path, path],
-            [yq, "-i", "-f", expr_path, path],
-        ):
-            result = subprocess.run(args, capture_output=True, text=True)
-            if result.returncode == 0:
-                return "yq: OK"
-        _run_failed("yq", result)
+        result = _run_yq_eval(yq, expr_path, target)
+        out = result.stdout
+        if had_content and not (out or "").strip():
+            raise RuntimeError(
+                "yq produced no output for a non-empty file "
+                "(file was not modified; check the expression)"
+            )
+        Path(tmp).write_text(out, encoding="utf-8", newline="")
+        os.replace(tmp, target)
+        tmp = None
     finally:
         if os.path.isfile(expr_path):
             os.remove(expr_path)
+        if tmp and os.path.isfile(tmp):
+            os.remove(tmp)
+
+    return "yq: OK"
 
 
 def _poke_dot_file_arg(path):
@@ -547,18 +584,10 @@ def dry_run_edit(language, code, target):
         if not code.strip():
             raise ValueError("yq: no expression in code")
         yq = _resolve_yq()
-        path = Path(target).as_posix()
         expr_path = _write_temp_script(code, ".yq")
         try:
-            result = None
-            for args in (
-                [yq, "eval", "-f", expr_path, path],
-                [yq, "eval", "--from-file", expr_path, path],
-                [yq, "-f", expr_path, path],
-            ):
-                result = subprocess.run(args, capture_output=True, text=True)
-                if result.returncode == 0:
-                    break
+            # Same stdout eval as run_yq; dry-run only shows output, never writes the file.
+            result = _run_yq_eval(yq, expr_path, target)
             return _subprocess_text(result) or f"yq exited with code {result.returncode}"
         finally:
             if os.path.isfile(expr_path):
