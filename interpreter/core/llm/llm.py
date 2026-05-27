@@ -44,7 +44,7 @@ def _make_tool_calling_instructions():
 {exec_example}
 ```
 
-**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `gawk`, `jq`, `yq`, `poke`, `comby`, `patch`. For Perl file edits use execute/bash (`perl -pi -e`) or execute `perl`. System handles flags and I/O — never wrap in bash. Example:
+**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `gawk`, `jq`, `yq`, `poke`, `comby`, `patch`. System handles flags and I/O — never wrap in bash. Example:
 ```json
 {edit_example}
 ```
