@@ -1,10 +1,14 @@
+import os
 import platform
 import unittest
 from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
 from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
-from interpreter.core.terminal.languages.resolve_powershell import resolve_powershell_executable
+from interpreter.core.terminal.languages.resolve_powershell import (
+    powershell_startup_args,
+    resolve_powershell_executable,
+)
 from interpreter.core.terminal.terminal import _default_terminal_languages
 
 
@@ -19,6 +23,20 @@ class TestTerminalLanguages(unittest.TestCase):
             self.assertIn("cmd", names)
         else:
             self.assertNotIn("cmd", names)
+
+    def test_powershell_startup_args_loads_profile_with_process_bypass(self):
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("INTERPRETER_POWERSHELL_NO_PROFILE", None)
+            args = powershell_startup_args()
+        self.assertIn("-NoLogo", args)
+        self.assertIn("-ExecutionPolicy", args)
+        self.assertEqual(args[args.index("-ExecutionPolicy") + 1], "Bypass")
+        self.assertNotIn("-NoProfile", args)
+
+    def test_powershell_startup_args_no_profile_env(self):
+        with patch.dict("os.environ", {"INTERPRETER_POWERSHELL_NO_PROFILE": "1"}):
+            args = powershell_startup_args()
+        self.assertIn("-NoProfile", args)
 
     def test_resolve_bash_executable(self):
         path = resolve_bash_executable()
