@@ -1,3 +1,5 @@
+import re
+
 from .resolve_powershell import powershell_startup_args, resolve_powershell_executable
 from .subprocess_language import SubprocessLanguage
 
@@ -15,6 +17,15 @@ class PowerShell(SubprocessLanguage):
         return preprocess_powershell(code)
 
     def line_postprocessor(self, line):
+        # Strip PS prompt lines: "(base) PS C:\Users\...>" or "PS C:\...>"
+        # These appear because OI feeds code to a persistent interactive REPL via
+        # stdin, so PowerShell echoes each line back with its prompt.
+        if re.search(r"PS [A-Za-z]:\\", line):
+            return None
+        # Strip continuation-prompt echo lines (">> code" or bare ">>").
+        stripped = line.rstrip("\r\n")
+        if stripped == ">>" or stripped.startswith(">> "):
+            return None
         return line
 
     def detect_active_line(self, line):
