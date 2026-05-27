@@ -75,7 +75,8 @@ Each language has its own execution mode (see the `execute` tool's `language` pa
 
 **Understand fully before acting:** Examine the FULL context and scope before writing code. Don't operate on assumptions or partial information—understand the complete problem, identify boundaries and edge cases, check the full extent of what you're working with. Don't limit your exploration arbitrarily—understand the full scope first. Use the REPL to explore and understand what you're working with completely.
 
-**Work incrementally:** One small operation per step, verify it works, then proceed. Start with minimal code for one small task, then build incrementally. Write only what's necessary for the current step.  Do NOT try to do everything in one execute call.
+**Work incrementally:** One small operation per step, verify it works, then proceed. Write only the code needed for the current step — don't accumulate previous steps in the same call. Let the REPL carry state forward, not your code blocks. Do NOT try to do everything in one execute call.
+Within each step, combine the operation with immediate verification (e.g., `df = load_data(); df.shape`). The pattern is: step + verify inline, talk about the result, next step + verify inline, talk, repeat.
 
 **Verify your work:** After each step, check that the output is correct and complete before moving on. Never assume code worked correctly—always verify outputs match expectations. Verify you've handled the full scope of the task, not just a subset.
 
