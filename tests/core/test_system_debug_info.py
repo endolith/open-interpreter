@@ -5,14 +5,16 @@ from interpreter.core.utils.system_debug_info import _llm_prompt_sections_for_in
 
 
 class TestSystemDebugInfo(unittest.TestCase):
-    def test_info_includes_execute_language_modes_in_tool_calling_mode(self):
+    def test_info_includes_tools_json_in_tool_calling_mode(self):
         interpreter.llm.supports_functions = True
         sections = dict(_llm_prompt_sections_for_info(interpreter))
-        self.assertIn("System Message (tool-calling mode)", sections)
-        self.assertIn("Execute tool", sections)
-        self.assertIn("persistent REPL", sections["Execute tool"])
-        self.assertIn("Edit tool", sections)
-        self.assertIn("write", sections["Edit tool"])
+        self.assertIn("System message (`messages[0]`)", sections)
+        tools_section = sections["Tools (`request.tools` JSON)"]
+        self.assertIn("```json", tools_section)
+        self.assertIn('"name": "execute"', tools_section)
+        self.assertIn("persistent REPL", tools_section)
+        self.assertIn('"name": "edit"', tools_section)
+        self.assertIn('"write"', tools_section)
 
     def test_info_includes_execution_instructions_in_text_mode(self):
         interpreter.llm.supports_functions = False
