@@ -1,3 +1,4 @@
+import json
 import platform
 import subprocess
 from importlib.metadata import PackageNotFoundError, distributions, version
@@ -7,8 +8,6 @@ import toml
 from rich import print as rich_print
 from rich.markdown import Markdown
 
-from ..terminal.base_language import format_execute_language_description
-from ..tools.file_edit import EDIT_LANGUAGES
 from .assemble_system_message import assemble_system_message
 
 
@@ -92,8 +91,8 @@ def _format_info_sections(sections):
 
 
 def _llm_prompt_sections_for_info(interpreter):
-    """Full system prompt and tool metadata as sent (or would be sent) to the model."""
-    from ..llm.run_tool_calling_llm import edit_tool_schema, view_image_tool_schema
+    """Full system prompt and tools payload as sent (or would be sent) to the model."""
+    from ..llm.run_tool_calling_llm import build_request_tools
 
     base = assemble_system_message(interpreter)
     sections = []
@@ -103,31 +102,17 @@ def _llm_prompt_sections_for_info(interpreter):
         if interpreter.llm.tool_calling_instructions:
             system_content += "\n" + interpreter.llm.tool_calling_instructions
         sections.append(
-            ("System Message (tool-calling mode)", system_content or "(empty)")
+            ("System message (`messages[0]`)", system_content or "(empty)")
         )
 
-        languages = interpreter.terminal.languages
-        execute_desc = format_execute_language_description(languages)
-        lang_enum = ", ".join(sorted(lang.name.lower() for lang in languages))
+        tools = build_request_tools(interpreter, messages=interpreter.messages)
+        tools_json = json.dumps(tools, indent=2)
         sections.append(
             (
-                "Execute tool",
-                f"**Languages (enum):** {lang_enum}\n\n{execute_desc}",
+                "Tools (`request.tools` JSON)",
+                f"```json\n{tools_json}\n```",
             )
         )
-
-        edit_fn = edit_tool_schema["function"]
-        edit_enum = ", ".join(sorted(EDIT_LANGUAGES))
-        sections.append(
-            (
-                "Edit tool",
-                f"**Languages (enum):** {edit_enum}\n\n{edit_fn['description']}",
-            )
-        )
-
-        if interpreter.llm.supports_vision is True:
-            view_fn = view_image_tool_schema["function"]
-            sections.append(("View image tool", view_fn["description"]))
     else:
         system_content = base
         if interpreter.llm.execution_instructions:

@@ -257,6 +257,27 @@ def process_messages(messages, model=None):
     return processed_messages
 
 
+def build_request_tools(interpreter, messages=None):
+    """Build the ``tools`` array sent on the chat completions API request (deep copy)."""
+    import copy
+
+    languages = interpreter.terminal.languages
+    execute_tool = copy.deepcopy(tool_schema)
+    execute_tool["function"]["parameters"]["properties"]["language"]["enum"] = [
+        lang.name.lower() for lang in languages
+    ]
+    execute_tool["function"]["parameters"]["properties"]["language"]["description"] = (
+        format_execute_language_description(languages)
+    )
+    tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
+    if getattr(interpreter.llm, "supports_vision", None) is True:
+        if messages is None or not _inline_user_image_in_turn_after_last_assistant_text(
+            messages
+        ):
+            tools.append(copy.deepcopy(view_image_tool_schema))
+    return tools
+
+
 def run_tool_calling_llm(llm, request_params):
     ## Setup
 
@@ -268,21 +289,9 @@ def run_tool_calling_llm(llm, request_params):
         if "reasoning" in request_params:
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
-    # Add languages OI has access to (enum + grouped execution-mode description).
-    languages = llm.interpreter.terminal.languages
-    tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
-        lang.name.lower() for lang in languages
-    ]
-    tool_schema["function"]["parameters"]["properties"]["language"]["description"] = (
-        format_execute_language_description(languages)
+    request_params["tools"] = build_request_tools(
+        llm.interpreter, messages=request_params["messages"]
     )
-    tools = [tool_schema, edit_tool_schema]
-    if getattr(llm, "supports_vision", None) is True:
-        if not _inline_user_image_in_turn_after_last_assistant_text(
-            request_params["messages"]
-        ):
-            tools.append(view_image_tool_schema)
-    request_params["tools"] = tools
 
     # Append tool-calling-specific instructions to the system message (analogous to
     # how run_text_llm appends execution_instructions in markdown/no-functions mode).
