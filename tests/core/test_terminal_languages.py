@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
 from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
+from interpreter.core.terminal.languages.powershell import PowerShell
 from interpreter.core.terminal.languages.resolve_powershell import (
     powershell_startup_args,
     resolve_powershell_executable,
@@ -37,6 +38,22 @@ class TestTerminalLanguages(unittest.TestCase):
         with patch.dict("os.environ", {"INTERPRETER_POWERSHELL_NO_PROFILE": "1"}):
             args = powershell_startup_args()
         self.assertIn("-NoProfile", args)
+
+    def test_powershell_line_postprocessor_filters_prompt_and_continuation(self):
+        ps = PowerShell()
+        # PS prompt lines are suppressed (with and without conda prefix)
+        self.assertIsNone(ps.line_postprocessor("PS C:\\Users\\Jonathan> "))
+        self.assertIsNone(ps.line_postprocessor("(base) PS C:\\Users\\Jonathan> try {"))
+        # Continuation-prompt echo lines are suppressed
+        self.assertIsNone(ps.line_postprocessor(">>"))
+        self.assertIsNone(ps.line_postprocessor(">>     $ErrorActionPreference = 'Stop'"))
+        self.assertIsNone(ps.line_postprocessor(">> Write-Host hello"))
+        # Real output is kept
+        self.assertEqual(
+            ps.line_postprocessor("Hello from PowerShell!"), "Hello from PowerShell!"
+        )
+        self.assertEqual(ps.line_postprocessor("True"), "True")
+        self.assertEqual(ps.line_postprocessor("42"), "42")
 
     def test_resolve_bash_executable(self):
         path = resolve_bash_executable()
