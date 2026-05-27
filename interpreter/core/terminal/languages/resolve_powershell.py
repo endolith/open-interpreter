@@ -33,3 +33,23 @@ def resolve_powershell_executable():
     raise FileNotFoundError(
         "PowerShell (pwsh) not found. Install PowerShell Core or set INTERPRETER_POWERSHELL."
     )
+
+
+def powershell_startup_args():
+    """
+    CLI flags for OI's long-lived PowerShell subprocess.
+
+    Loads the user's profile by default (aliases, functions, etc.). Uses
+    -ExecutionPolicy Bypass for this process only so profile.ps1 can run when
+    machine policy is Restricted — does not change system-wide policy.
+
+    Set INTERPRETER_POWERSHELL_NO_PROFILE=1 for a clean session without profile.ps1.
+    """
+    args = ["-NoLogo", "-ExecutionPolicy", "Bypass"]
+    if os.environ.get("INTERPRETER_POWERSHELL_NO_PROFILE", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        args.append("-NoProfile")
+    return args
