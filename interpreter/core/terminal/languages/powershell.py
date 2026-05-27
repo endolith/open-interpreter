@@ -1,4 +1,4 @@
-from .resolve_powershell import resolve_powershell_executable
+from .resolve_powershell import powershell_startup_args, resolve_powershell_executable
 from .subprocess_language import SubprocessLanguage
 
 
@@ -9,7 +9,7 @@ class PowerShell(SubprocessLanguage):
 
     def __init__(self):
         super().__init__()
-        self.start_cmd = [resolve_powershell_executable()]
+        self.start_cmd = [resolve_powershell_executable(), *powershell_startup_args()]
 
     def preprocess_code(self, code):
         return preprocess_powershell(code)
