@@ -44,6 +44,7 @@ class TestTerminalLanguages(unittest.TestCase):
         # PS prompt lines are suppressed (with and without conda prefix)
         self.assertIsNone(ps.line_postprocessor("PS C:\\Users\\Jonathan> "))
         self.assertIsNone(ps.line_postprocessor("(base) PS C:\\Users\\Jonathan> try {"))
+        self.assertIsNone(ps.line_postprocessor("PS D:\\work> "))
         # Continuation-prompt echo lines are suppressed
         self.assertIsNone(ps.line_postprocessor(">>"))
         self.assertIsNone(ps.line_postprocessor(">>     $ErrorActionPreference = 'Stop'"))
@@ -54,6 +55,11 @@ class TestTerminalLanguages(unittest.TestCase):
         )
         self.assertEqual(ps.line_postprocessor("True"), "True")
         self.assertEqual(ps.line_postprocessor("42"), "42")
+        # "PS C:\" embedded mid-line (not a prompt) is NOT filtered
+        self.assertEqual(
+            ps.line_postprocessor("Path is PS C:\\Users\\foo"),
+            "Path is PS C:\\Users\\foo",
+        )
 
     def test_resolve_bash_executable(self):
         path = resolve_bash_executable()
