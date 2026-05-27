@@ -17,7 +17,7 @@ def get_location_info():
         local_tz = datetime.now().astimezone().tzinfo
         tz_name = str(local_tz)
         utc_offset = time.strftime('%z')
-        location_parts.append(f"Timezone: {tz_name} (UTC{utc_offset})")
+        location_parts.append(f"- Timezone: {tz_name} (UTC{utc_offset})\n")
     except Exception:
         pass
 
@@ -34,7 +34,7 @@ def get_location_info():
             country = data.get('country', '')
             if country:
                 location_parts.insert(
-                    0, f"Country: {country} (estimated from IP address)")
+                    0, f"- Country: {country} (estimated from IP address)")
     except Exception:
         # Silently fail if no internet or API is down
         pass
@@ -157,8 +157,8 @@ Example: Discover screen dimensions
 
 ## System Information
 
-User's Name: {getpass.getuser()}
-User's OS: {platform.system()}
+- User's Name: {getpass.getuser()}
+- User's OS: {platform.system()}
 {get_location_info()}
 
 ## Available Python Packages
