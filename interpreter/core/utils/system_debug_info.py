@@ -7,6 +7,10 @@ import toml
 from rich import print as rich_print
 from rich.markdown import Markdown
 
+from ..terminal.base_language import format_execute_language_description
+from ..tools.file_edit import EDIT_LANGUAGES
+from .assemble_system_message import assemble_system_message
+
 
 def get_python_version():
     return platform.python_version()
@@ -80,6 +84,61 @@ def get_package_mismatches(file_path="pyproject.toml"):
     return "\n" + "\n".join(mismatches)
 
 
+def _format_info_sections(sections):
+    parts = []
+    for title, body in sections:
+        parts.append(f"### {title}\n\n----\n\n{body}\n\n----")
+    return "\n\n".join(parts)
+
+
+def _llm_prompt_sections_for_info(interpreter):
+    """Full system prompt and tool metadata as sent (or would be sent) to the model."""
+    from ..llm.run_tool_calling_llm import edit_tool_schema, view_image_tool_schema
+
+    base = assemble_system_message(interpreter)
+    sections = []
+
+    if interpreter.llm.supports_functions:
+        system_content = base
+        if interpreter.llm.tool_calling_instructions:
+            system_content += "\n" + interpreter.llm.tool_calling_instructions
+        sections.append(
+            ("System Message (tool-calling mode)", system_content or "(empty)")
+        )
+
+        languages = interpreter.terminal.languages
+        execute_desc = format_execute_language_description(languages)
+        lang_enum = ", ".join(sorted(lang.name.lower() for lang in languages))
+        sections.append(
+            (
+                "Execute tool",
+                f"**Languages (enum):** {lang_enum}\n\n{execute_desc}",
+            )
+        )
+
+        edit_fn = edit_tool_schema["function"]
+        edit_enum = ", ".join(sorted(EDIT_LANGUAGES))
+        sections.append(
+            (
+                "Edit tool",
+                f"**Languages (enum):** {edit_enum}\n\n{edit_fn['description']}",
+            )
+        )
+
+        if interpreter.llm.supports_vision is True:
+            view_fn = view_image_tool_schema["function"]
+            sections.append(("View image tool", view_fn["description"]))
+    else:
+        system_content = base
+        if interpreter.llm.execution_instructions:
+            system_content += "\n" + interpreter.llm.execution_instructions
+        sections.append(
+            ("System Message (text / markdown mode)", system_content or "(empty)")
+        )
+
+    return sections
+
+
 def interpreter_info(interpreter):
     try:
         if interpreter.offline and interpreter.llm.api_base:
@@ -101,8 +160,7 @@ def interpreter_info(interpreter):
                 print(str(e), "for message:", message)
             messages_to_display.append(message)
 
-        # Use the actual rendered system message that was sent to the LLM
-        system_message_to_show = interpreter._last_rendered_system_message
+        prompt_sections = _format_info_sections(_llm_prompt_sections_for_info(interpreter))
 
         return f"""
 ## Interpreter Info
@@ -120,17 +178,11 @@ def interpreter_info(interpreter):
 
 - Curl output: {curl}
 
-## Messages
+## LLM prompt (system + tools)
 
-### System Message
+{prompt_sections}
 
-----
-
-{system_message_to_show}
-
-----
-
-### Conversation Messages
+## Conversation Messages
 
 """ + "\n\n".join(
             [str(m) for m in messages_to_display]

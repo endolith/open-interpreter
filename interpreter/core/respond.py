@@ -14,7 +14,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
-from .render_message import render_message
+from .utils.assemble_system_message import assemble_system_message
 from .tools.file_edit import dry_run_edit, run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
@@ -122,40 +122,8 @@ def respond(interpreter):
     while True:
         ## RENDER SYSTEM MESSAGE ##
 
-        system_message = interpreter.system_message
-
-        # Add language-specific system messages
-        for language in interpreter.terminal.languages:
-            if hasattr(language, "system_message"):
-                system_message += "\n\n" + language.system_message
-
-        # Add custom instructions
-        if interpreter.custom_instructions:
-            system_message += "\n\n## User's Custom Instructions\n\n" + interpreter.custom_instructions
-
-        # OpenAI-compatible server: client system prompt(s) from the HTTP request body
-        server_request_system = getattr(interpreter, "_server_request_system", None)
-        if server_request_system:
-            system_message += (
-                "\n\n## Client system prompt\n\n" + server_request_system
-            )
-
-        # Add toolbox API system message
-        if interpreter.toolbox.import_toolbox_api:
-            if interpreter.toolbox.system_message not in system_message:
-                system_message = (
-                    system_message + "\n\n" + interpreter.toolbox.system_message
-                )
-
-        # Storing the messages so they're accessible in the interpreter's toolbox
-        # no... this is a huge time sink.....
-        # if interpreter.sync_computer:
-        #     output = interpreter.toolbox.run(
-        #         "python", f"messages={interpreter.messages}"
-        #     )
-
         ## Rendering ↓
-        rendered_system_message = render_message(interpreter, system_message)
+        rendered_system_message = assemble_system_message(interpreter)
         ## Rendering ↑
 
         # Store the actual rendered system message for %info command (before converting to dict)
