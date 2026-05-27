@@ -24,36 +24,18 @@ from rich.panel import Panel
 
 from .run_text_llm import run_text_llm
 
-# Built once at import time so the escaping is handled by json.dumps, not by hand.
-def _make_tool_calling_instructions():
-    code = "for i in range(3):\n    print(i)"
-    exec_args = json.dumps({"language": "python", "code": code})
-    exec_example = json.dumps(
-        {"id": "call_...", "type": "function", "function": {"name": "execute", "arguments": exec_args}},
-        indent=2,
-    )
-    edit_args = json.dumps({"language": "write", "code": "hello world\n", "target": "/tmp/hello.txt"})
-    edit_example = json.dumps(
-        {"id": "call_...", "type": "function", "function": {"name": "edit", "arguments": edit_args}},
-        indent=2,
-    )
-    return f"""Two tools are available:
-
-**execute** — run code. Example:
-```json
-{exec_example}
-```
-
-**edit** — edit or create a file. `target` must be absolute. Languages: `write`, `sed`, `gawk`, `jq`, `yq`, `poke`, `comby`, `patch`. System handles flags and I/O — never wrap in bash. Example:
-```json
-{edit_example}
-```
-
-Execute languages also include `perl` (persistent REPL; use `our $var` for cross-block state, not `my`) and `augeas` (augtool; session persists — if output is missing, use bash: `echo "get /path" | augtool`).
-
-(What appears in the conversation log as {{"role": "assistant", "type": "code", ...}} or {{"type": "edit", ...}} is our internal storage derived from your tool call; you do not output that structure.) Code in message content is only shown and is not run. Do not call any other name as a tool (e.g. toolbox.web.answer). Those are Python APIs: use them inside the "code" string you pass to execute."""
-
-_TOOL_CALLING_INSTRUCTIONS = _make_tool_calling_instructions()
+# Appended to the system message in tool-calling mode. Tool names, parameters, languages,
+# and execution modes live only in request.tools JSON — not duplicated here.
+_TOOL_CALLING_INSTRUCTIONS = (
+    "Use only the tools in this request (`execute`, `edit`, and `view_image` when present). "
+    "Read each tool's JSON schema for parameters and languages.\n\n"
+    "(What appears in the conversation log as {\"role\": \"assistant\", \"type\": \"code\", ...} "
+    "or {\"type\": \"edit\", ...} is our internal storage derived from your tool call; "
+    "you do not output that structure.) "
+    "Code in message content is only shown and is not run. "
+    "Do not call any other name as a tool (e.g. toolbox.web.answer). "
+    "Those are Python APIs: use them inside the \"code\" string you pass to execute."
+)
 
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
