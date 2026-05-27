@@ -289,6 +289,10 @@ def run_tool_calling_llm(llm, request_params):
     if llm.tool_calling_instructions:
         request_params["messages"][0]["content"] += "\n" + llm.tool_calling_instructions
 
+    llm.interpreter._last_rendered_system_message = request_params["messages"][0][
+        "content"
+    ]
+
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
     # # This makes any role: tool have the ID of the last tool call
