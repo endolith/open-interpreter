@@ -20,7 +20,9 @@ class PowerShell(SubprocessLanguage):
         # Strip PS prompt lines: "(base) PS C:\Users\...>" or "PS C:\...>"
         # These appear because OI feeds code to a persistent interactive REPL via
         # stdin, so PowerShell echoes each line back with its prompt.
-        if re.search(r"PS [A-Za-z]:\\", line):
+        # Use re.match (anchored to start of line) so that legitimate output
+        # containing "PS C:\" mid-line (e.g. "Path: PS C:\foo") is not dropped.
+        if re.match(r"(\(.*?\) )?PS [A-Za-z]:\\", line):
             return None
         # Strip continuation-prompt echo lines (">> code" or bare ">>").
         stripped = line.rstrip("\r\n")
@@ -64,4 +66,7 @@ def wrap_in_try_catch(code):
 try {
     $ErrorActionPreference = "Stop"
 """
-    return try_catch_code + code + "\n} catch {\n    Write-Error $_\n}\n"
+    # Write-Host to stdout keeps error output on one clean line.
+    # Write-Error would include the full script-block context (the entire try{} wrapper)
+    # which exposes OI's scaffolding and is not useful to the user or the LLM.
+    return try_catch_code + code + '\n} catch {\n    Write-Host "Error: $($_.Exception.Message)"\n}\n'
