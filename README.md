@@ -7,7 +7,7 @@ Major changes vs the upstream branch (`classic/main`):
 - **computer → toolbox**: Renamed in the hope that the LLMs understand how to use it better. Breaking change, renamed entire API.
   - First line of docstring and Returns are always shown to LLM in system message to hint at how to use tools
   - As well as encouragement to use `help()` to RTFM (which they rarely do)
-- **Shell split into `bash`/`cmd`**: The old ambiguous `shell` language was replaced with distinct `bash` and `cmd` languages, so the AI knows what environment it's on and commands are more likely to work correctly on Windows (and it can use bash on Windows if available).
+- **Shell split into `bash`/`cmd`**: The old ambiguous `shell` language was replaced with distinct `bash` and `cmd` languages, so the AI knows what environment it's on and commands are more likely to work correctly on Windows (and it can use [bash on Windows if available](https://gitforwindows.org/)).
 - **Web search tools** for the AI to find info online:
   - Multiple backends with fallbacks: LinkUp, Tavily, SerpApi, Brave, Serper
   - `search`: list of search results
@@ -16,8 +16,6 @@ Major changes vs the upstream branch (`classic/main`):
   - `fetch`: web page as markdown
   - Result classes with compact repr to avoid flooding the context window
   - Automatic locale detection for country/language-specific results
-- **ai2 module**: for OI to delegate tasks in loops: `boolean_query`, `choice_query`, `single_response`
-  - They don't use this on their own, you have to tell them.
 - Better LLM API stuff:
   - **Reasoning models support**: `reasoning_content` streaming, cyan "Thinking" panels, `include_reasoning`/`reasoning_effort` params on `interpreter.llm`, OpenRouter extra_body reasoning, DeepSeek V4 thinking-mode compatibility
   - **OpenRouter support**: `--model openrouter/openai/gpt-4.1-mini` with `OPENROUTER_API_KEY` env var set
@@ -26,8 +24,6 @@ Major changes vs the upstream branch (`classic/main`):
   - **Mistral compatibility**: tool ID length, image role mapping
   - **API error handling**: Error presented in a panel with rendering of markdown/HTML, retry prompts, auto-retry on temporary provider errors, clean exits
   - **Usage tracking**: `%usage` command with token stats
-- **Profile validation**: warns about invalid configuration attributes
-- **Edit commands before running**: temp file editing with `$EDITOR` env var support
 - **`view_image` tool**: Allow vision-capable LLMs to request to view image files; includes image resize/shrink prompts for large files
 - **Incremental markdown rendering**: raw streaming / rendering of markdown blocks one at a time to avoid screen flickering; large code outputs stream and render permanently
 - **Better terminal size detection:** You can resize window without breaking all subsequent text formatting
@@ -36,14 +32,18 @@ Major changes vs the upstream branch (`classic/main`):
   - User message timestamps so it knows the date and how much time has passed
   - "New Conversation" menu option in `--conversations` navigator (in case you change your mind)
   - Atomic file saving (corruption-resistant)
-  - **Cache-aware truncation** (`truncation_step`) for better KV/prefix-cache reuse by dropping old history in token chunks instead of shifting the boundary every turn, drops average costs over 50% per token.
+  - **Cache-aware truncation** (`truncation_step`) for better KV/prefix-cache reuse by dropping multiple messages of old history at once, instead of shifting the boundary every turn, drops average costs over 50% per token.
   - **Auto-title conversation files**: More meaningful LLM-generated conversation filename after a few messages; `%rename` command to manually trigger
 - **Secret redaction**: Try to avoid sending passwords and secrets environment variables to the LLM's server
 - **System message enhancements**: rough geolocation, encourage REPL-like coding, etc.
 - **Windows support**: Downloads folder detection via `SHGetKnownFolderPath`, UTF-8 code page for shell, `bat` syntax highlighting
   - Notepad fallback if editor fails; "edit" verb for `.html`/`.htm`/`.bat` files instead of launching them
 - **HTML output suppression**: prevents browser from opening unnecessarily
+- **Edit commands before running**: temp file editing with `$EDITOR` env var support
+- **ai2 module**: for OI to delegate tasks in loops: `boolean_query`, `choice_query`, `single_response`
+  - They don't use this on their own, you have to tell them.
 - **TextFileReader**: convenience class with encoding auto-detect. (The LLMs never actually use this; I don't know if it works.)
+- **Profile validation**: warns about invalid configuration attributes
 - **Python 3.13 support?** and a bunch of fixed tests in the process. Dubious.
 
 ## Models I've been using:
