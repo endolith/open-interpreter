@@ -36,12 +36,15 @@ class AppleScript(SubprocessLanguage):
         """
         Adds log commands to indicate the active line of execution in the AppleScript.
         """
+        active_line_enabled = (
+            os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
+        )
+
         modified_lines = []
         lines = code.split("\n")
 
         for idx, line in enumerate(lines):
-            # Add log command to indicate the line number
-            if line.strip():  # Only add if line is not empty
+            if active_line_enabled and line.strip():  # Only add if line is not empty
                 modified_lines.append(f'log "##active_line{idx + 1}##"')
             modified_lines.append(line)
 

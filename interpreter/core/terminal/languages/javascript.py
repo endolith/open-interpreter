@@ -1,3 +1,4 @@
+import os
 import re
 
 from .subprocess_language import SubprocessLanguage
@@ -42,10 +43,14 @@ def preprocess_javascript(code):
     Add end of execution marker
     """
 
+    active_line_enabled = (
+        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
+    )
+
     # Detect if nothing in the code is multiline. (This is waaaay to false-positive-y but it works)
     nothing_multiline = not any(char in code for char in ["{", "}", "[", "]"])
 
-    if nothing_multiline:
+    if nothing_multiline and active_line_enabled:
         # Split code into lines
         lines = code.split("\n")
         processed_lines = []

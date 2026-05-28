@@ -1,3 +1,4 @@
+import os
 import re
 
 from .subprocess_language import SubprocessLanguage
@@ -18,12 +19,18 @@ class R(SubprocessLanguage):
         Add end of execution marker
         """
 
+        active_line_enabled = (
+            os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
+        )
+
         lines = code.split("\n")
         processed_lines = []
 
         for i, line in enumerate(lines, 1):
-            # Add active line print
-            processed_lines.append(f'cat("##active_line{i}##\\n");{line}')
+            if active_line_enabled:
+                processed_lines.append(f'cat("##active_line{i}##\\n");{line}')
+            else:
+                processed_lines.append(line)
 
         # Join lines to form the processed code
         processed_code = "\n".join(processed_lines)

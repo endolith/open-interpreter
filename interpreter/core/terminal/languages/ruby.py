@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 from .subprocess_language import SubprocessLanguage
@@ -18,12 +19,16 @@ class Ruby(SubprocessLanguage):
         Add end of execution marker
         """
 
+        active_line_enabled = (
+            os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
+        )
+
         lines = code.split("\n")
         processed_lines = []
 
         for i, line in enumerate(lines, 1):
-            # Add active line print
-            processed_lines.append(f'puts "##active_line{i}##"')
+            if active_line_enabled:
+                processed_lines.append(f'puts "##active_line{i}##"')
             processed_lines.append(line)
         # Join lines to form the processed code
         processed_code = "\n".join(processed_lines)
