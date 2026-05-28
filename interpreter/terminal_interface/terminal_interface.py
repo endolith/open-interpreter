@@ -78,10 +78,6 @@ def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True
 
 
 def terminal_interface(interpreter, message):
-    # TEMP: Disable active-line instrumentation/highlighting globally while
-    # investigating streaming markdown rendering issues.
-    os.environ["INTERPRETER_ACTIVE_LINE_DETECTION"] = "false"
-
     # Avoid stale environment variables locking terminal width on Windows.
     # shutil (and some of Rich) prioritize these, which prevents auto-detection
     # after a window resize.

@@ -10,7 +10,10 @@ from interpreter.core.terminal.languages.resolve_powershell import (
     powershell_startup_args,
     resolve_powershell_executable,
 )
-from interpreter.core.terminal.terminal import _default_terminal_languages
+from interpreter.core.terminal.terminal import (
+    _default_terminal_languages,
+    _sync_active_line_detection_env,
+)
 
 
 class TestTerminalLanguages(unittest.TestCase):
@@ -38,6 +41,17 @@ class TestTerminalLanguages(unittest.TestCase):
         with patch.dict("os.environ", {"INTERPRETER_POWERSHELL_NO_PROFILE": "1"}):
             args = powershell_startup_args()
         self.assertIn("-NoProfile", args)
+
+    def test_sync_active_line_detection_env_follows_highlight_active_line(self):
+        class FakeInterpreter:
+            highlight_active_line = False
+
+        _sync_active_line_detection_env(FakeInterpreter())
+        self.assertEqual(os.environ["INTERPRETER_ACTIVE_LINE_DETECTION"], "false")
+
+        FakeInterpreter.highlight_active_line = True
+        _sync_active_line_detection_env(FakeInterpreter())
+        self.assertEqual(os.environ["INTERPRETER_ACTIVE_LINE_DETECTION"], "true")
 
     def test_has_multiline_constructs_detects_hash_and_blocks(self):
         # Hash literal — the construct that caused the original parse error
