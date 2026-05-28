@@ -35,6 +35,20 @@ toolbox = interpreter.toolbox
 """.strip()
 
 
+def _sync_active_line_detection_env(interpreter):
+    """
+    Keep INTERPRETER_ACTIVE_LINE_DETECTION in sync with interpreter.highlight_active_line.
+
+    highlight_active_line in default.yaml controls both:
+      - UI highlighting in code blocks (CodeBlock)
+      - Whether preprocessors inject ##active_line## markers into executed code
+    """
+    enabled = True
+    if hasattr(interpreter, "highlight_active_line") and interpreter.highlight_active_line is not None:
+        enabled = bool(interpreter.highlight_active_line)
+    os.environ["INTERPRETER_ACTIVE_LINE_DETECTION"] = "true" if enabled else "false"
+
+
 def _default_terminal_languages():
     languages = [
         Ruby,
@@ -166,6 +180,7 @@ class Terminal:
 
     def _streaming_run(self, language, code, display=False):
         start_time = time.time()
+        _sync_active_line_detection_env(self.interpreter)
 
         if language not in self._active_languages:
             # Get the language. Pass in self.interpreter *if it takes a single argument>
