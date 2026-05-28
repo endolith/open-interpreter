@@ -1,3 +1,4 @@
+import os
 import re
 
 from .resolve_powershell import powershell_startup_args, resolve_powershell_executable
@@ -41,17 +42,44 @@ class PowerShell(SubprocessLanguage):
 
 def preprocess_powershell(code):
     """
-    Add active line markers
-    Wrap in try-catch block
-    Add end of execution marker
+    Add active line markers (when safe), wrap in try-catch, add end-of-execution marker.
     """
-    code = add_active_line_prints(code)
+    # Inserting Write-Output between lines of a hash literal @{}, script block {},
+    # pipeline continuation |, etc. causes parse errors.  Mirror bash's approach:
+    # skip active-line markers whenever the code contains multiline constructs.
+    if (
+        not has_multiline_constructs(code)
+        and os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
+    ):
+        code = add_active_line_prints(code)
 
     code = wrap_in_try_catch(code)
 
     code += '\nWrite-Output "##end_of_execution##"'
 
     return code
+
+
+def has_multiline_constructs(code):
+    """
+    Return True if the code contains constructs that span multiple lines and
+    would cause parse errors if Write-Output statements were inserted between lines.
+
+    Covers: hash literals @{}, script blocks {}, pipeline continuations |,
+    backtick line continuations `, here-strings @" / @'.
+    Mirrors has_multiline_commands() in shell_preprocess.py.
+    """
+    patterns = [
+        r"\{\s*$",      # line ending with { — script block, hash literal, if/for/try body
+        r"\(\s*$",      # opening parenthesis at end of line
+        r"\|\s*$",      # pipeline continuation
+        r"`\s*$",       # backtick line continuation
+        r"^@[\"']",     # here-string start (@" or @')
+    ]
+    for line in code.splitlines():
+        if any(re.search(p, line.rstrip()) for p in patterns):
+            return True
+    return False
 
 
 def add_active_line_prints(code):
