@@ -5,7 +5,12 @@ from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
 from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
+from interpreter.core.terminal.languages.applescript import AppleScript
+from interpreter.core.terminal.languages.java import preprocess_java
+from interpreter.core.terminal.languages.javascript import preprocess_javascript
 from interpreter.core.terminal.languages.powershell import PowerShell, has_multiline_constructs
+from interpreter.core.terminal.languages.r import R
+from interpreter.core.terminal.languages.ruby import Ruby
 from interpreter.core.terminal.languages.resolve_powershell import (
     powershell_startup_args,
     resolve_powershell_executable,
@@ -90,6 +95,68 @@ class TestTerminalLanguages(unittest.TestCase):
             ps.line_postprocessor("Path is PS C:\\Users\\foo"),
             "Path is PS C:\\Users\\foo",
         )
+
+    def test_active_line_injection_disabled_when_env_false(self):
+        """All language preprocessors respect INTERPRETER_ACTIVE_LINE_DETECTION=false."""
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}):
+            # JavaScript
+            js = preprocess_javascript("let x = 1;")
+            self.assertNotIn("##active_line", js)
+
+            # Ruby
+            ruby = Ruby()
+            rb = ruby.preprocess_code("x = 1")
+            self.assertNotIn("##active_line", rb)
+
+            # R
+            r = R()
+            rcode = r.preprocess_code("x <- 1")
+            self.assertNotIn("##active_line", rcode)
+
+            # Java (markers go inside the class body — just check raw preprocessor)
+            java = preprocess_java("System.out.println(1);")
+            self.assertNotIn("##active_line", java)
+
+            # AppleScript
+            aps = AppleScript()
+            result = aps.add_active_line_indicators("do shell script \"echo hi\"")
+            self.assertNotIn("##active_line", result)
+
+            # PowerShell
+            ps = PowerShell()
+            pw = ps.preprocess_code("Write-Host 1")
+            self.assertNotIn("##active_line", pw)
+
+    def test_active_line_injection_present_when_env_true(self):
+        """All language preprocessors inject markers when INTERPRETER_ACTIVE_LINE_DETECTION=true."""
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):
+            # JavaScript (only injected for single-line / non-multiline)
+            js = preprocess_javascript("let x = 1;")
+            self.assertIn("##active_line", js)
+
+            # Ruby
+            ruby = Ruby()
+            rb = ruby.preprocess_code("x = 1")
+            self.assertIn("##active_line", rb)
+
+            # R
+            r = R()
+            rcode = r.preprocess_code("x <- 1")
+            self.assertIn("##active_line", rcode)
+
+            # Java
+            java = preprocess_java("System.out.println(1);")
+            self.assertIn("##active_line", java)
+
+            # AppleScript
+            aps = AppleScript()
+            result = aps.add_active_line_indicators("do shell script \"echo hi\"")
+            self.assertIn("##active_line", result)
+
+            # PowerShell (single-line, no multiline constructs)
+            ps = PowerShell()
+            pw = ps.preprocess_code("Write-Host 1")
+            self.assertIn("##active_line", pw)
 
     def test_resolve_bash_executable(self):
         path = resolve_bash_executable()
