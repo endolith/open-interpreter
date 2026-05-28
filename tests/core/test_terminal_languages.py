@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
 from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
-from interpreter.core.terminal.languages.powershell import PowerShell
+from interpreter.core.terminal.languages.powershell import PowerShell, has_multiline_constructs
 from interpreter.core.terminal.languages.resolve_powershell import (
     powershell_startup_args,
     resolve_powershell_executable,
@@ -38,6 +38,22 @@ class TestTerminalLanguages(unittest.TestCase):
         with patch.dict("os.environ", {"INTERPRETER_POWERSHELL_NO_PROFILE": "1"}):
             args = powershell_startup_args()
         self.assertIn("-NoProfile", args)
+
+    def test_has_multiline_constructs_detects_hash_and_blocks(self):
+        # Hash literal — the construct that caused the original parse error
+        self.assertTrue(has_multiline_constructs("$h = @{\n    key = 'value'\n}"))
+        # Script block / if / try bodies
+        self.assertTrue(has_multiline_constructs("if ($x) {\n    Write-Host $x\n}"))
+        self.assertTrue(has_multiline_constructs("try {\n    $x\n} catch {}"))
+        # Pipeline continuation
+        self.assertTrue(has_multiline_constructs("Get-Process |\n    Sort-Object CPU"))
+        # Backtick continuation
+        self.assertTrue(has_multiline_constructs("Get-Process `\n    -Name notepad"))
+        # Here-string
+        self.assertTrue(has_multiline_constructs('@"\nhello\n"@'))
+        # Single-line code is not multiline
+        self.assertFalse(has_multiline_constructs('$x = "hello"; Write-Host $x'))
+        self.assertFalse(has_multiline_constructs("Get-Process"))
 
     def test_powershell_line_postprocessor_filters_prompt_and_continuation(self):
         ps = PowerShell()
