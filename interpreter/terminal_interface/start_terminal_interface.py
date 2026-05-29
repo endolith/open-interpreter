@@ -196,7 +196,8 @@ def start_terminal_interface(interpreter):
             "nickname": "dt",
             "help_text": "disables sending of basic anonymous usage stats",
             "type": bool,
-            "default": False,
+            # default must be None (not False) so set_attributes does not overwrite
+            # disable_telemetry: true from the user's profile when the flag is omitted.
             "attribute": {"object": interpreter, "attr_name": "disable_telemetry"},
         },
         {
@@ -521,8 +522,9 @@ Use """ to write multi-line messages.
 
     set_attributes(args, arguments)
     interpreter.disable_telemetry = (
-        os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
-        or args.disable_telemetry
+        interpreter.disable_telemetry
+        or os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
+        or bool(args.disable_telemetry)
     )
 
     # Full auto-run and safe_mode scanning are incompatible; allowlist mode is fine.
