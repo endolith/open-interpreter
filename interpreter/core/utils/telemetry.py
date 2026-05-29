@@ -2,9 +2,10 @@
 Sends anonymous telemetry to posthog. This helps us know how people are using OI / what needs our focus.
 
 Disable anonymous telemetry by execute one of below:
-1. Running `interpreter --disable_telemetry` in command line.
-2. Executing `interpreter.disable_telemetry = True` in Python.
-3. Setting the `DISABLE_TELEMETRY` os var to `true`.
+1. Setting `disable_telemetry: true` in your profile (e.g. profiles/default.yaml).
+2. Running `interpreter --disable_telemetry` in command line.
+3. Executing `interpreter.disable_telemetry = True` in Python.
+4. Setting the `DISABLE_TELEMETRY` os var to `true`.
 
 based on ChromaDB's telemetry: https://github.com/chroma-core/chroma/tree/main/chromadb/telemetry/product
 """
