@@ -15,6 +15,10 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 
 from .core import OpenInterpreter
+from .utils.execution_allowlist import (
+    should_require_execution_confirmation,
+    should_require_execution_confirmation_for_code,
+)
 
 last_start_time = 0
 
@@ -347,12 +351,16 @@ def _openai_server_has_pending_code(async_interpreter):
     return bool(
         async_interpreter.messages
         and async_interpreter.messages[-1].get("type") == "code"
-        and not async_interpreter.auto_run
+        and should_require_execution_confirmation_for_code(
+            async_interpreter,
+            async_interpreter.messages[-1].get("format", ""),
+            async_interpreter.messages[-1].get("content", ""),
+        )
     )
 
 
 def _openai_server_awaiting_approval(async_interpreter):
-    if async_interpreter.auto_run:
+    if async_interpreter.auto_run_mode == "all":
         return False
     if getattr(async_interpreter, "_server_awaiting_code_approval", False):
         return True
@@ -538,10 +546,12 @@ def _openai_sse_chunk(
     )
 
 
-def _lmc_chunk_to_openai_delta(chunk, auto_run, *, pending_code_language=None):
+def _lmc_chunk_to_openai_delta(chunk, interpreter, *, pending_code_language=None):
     if chunk.get("format") == "reasoning":
         return None
-    if chunk.get("type") == "confirmation" and auto_run is False:
+    if chunk.get("type") == "confirmation" and should_require_execution_confirmation(
+        interpreter, chunk
+    ):
         return OPENAI_CODE_APPROVAL_PROMPT
     if chunk.get("type") == "message" and "content" in chunk:
         return chunk["content"]
@@ -1088,7 +1098,7 @@ def create_router(async_interpreter):
                     made_chunk = True
                     output_content = _lmc_chunk_to_openai_delta(
                         chunk,
-                        async_interpreter.auto_run,
+                        async_interpreter,
                         pending_code_language=pending_lang,
                     )
                     if output_content:
@@ -1118,19 +1128,19 @@ def create_router(async_interpreter):
                     continue
                 output_content = _lmc_chunk_to_openai_delta(
                     chunk,
-                    async_interpreter.auto_run,
+                    async_interpreter,
                     pending_code_language=pending_lang,
                 )
                 if output_content:
                     yield await emit_delta(output_content)
-                if not async_interpreter.auto_run:
+                if should_require_execution_confirmation(async_interpreter, chunk):
                     async_interpreter._server_awaiting_code_approval = True
                     break
                 continue
 
             output_content = _lmc_chunk_to_openai_delta(
                 chunk,
-                async_interpreter.auto_run,
+                async_interpreter,
                 pending_code_language=pending_lang,
             )
             if output_content:
@@ -1298,7 +1308,7 @@ def create_router(async_interpreter):
                     continue
                 delta = _lmc_chunk_to_openai_delta(
                     chunk,
-                    async_interpreter.auto_run,
+                    async_interpreter,
                     pending_code_language=pending_lang,
                 )
                 if delta:
@@ -1306,7 +1316,7 @@ def create_router(async_interpreter):
                 if (
                     chunk.get("type") == "confirmation"
                     and not run_code
-                    and not async_interpreter.auto_run
+                    and should_require_execution_confirmation(async_interpreter, chunk)
                 ):
                     break
             completion_id = _new_openai_completion_id()

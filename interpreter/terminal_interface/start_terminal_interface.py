@@ -56,9 +56,17 @@ def start_terminal_interface(interpreter):
         {
             "name": "auto_run",
             "nickname": "y",
-            "help_text": "automatically run generated code",
+            "help_text": "automatically run generated code (same as --auto_run_mode all)",
             "type": bool,
             "attribute": {"object": interpreter, "attr_name": "auto_run"},
+        },
+        {
+            "name": "auto_run_mode",
+            "help_text": "when to run code without asking: prompt, all, or allowlist",
+            "type": str,
+            "choices": ["prompt", "all", "allowlist"],
+            "default": None,
+            "attribute": {"object": interpreter, "attr_name": "auto_run_mode"},
         },
         {
             "name": "no_highlight_active_line",
@@ -459,12 +467,6 @@ Use """ to write multi-line messages.
     if args.no_highlight_active_line:
         interpreter.highlight_active_line = False
 
-    # if safe_mode and auto_run are enabled, safe_mode disables auto_run
-    if interpreter.auto_run and (
-        interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto"
-    ):
-        setattr(interpreter, "auto_run", False)
-
     ### Set attributes on interpreter, so that a profile script can read the arguments passed in via the CLI
 
     set_attributes(args, arguments)
@@ -522,6 +524,10 @@ Use """ to write multi-line messages.
         os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
         or args.disable_telemetry
     )
+
+    # Full auto-run and safe_mode scanning are incompatible; allowlist mode is fine.
+    if interpreter.auto_run_mode == "all" and interpreter.safe_mode in ("ask", "auto"):
+        interpreter.auto_run_mode = "prompt"
 
     ### Set some helpful settings we know are likely to be true
 

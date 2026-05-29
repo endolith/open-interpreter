@@ -19,6 +19,11 @@ from .terminal.terminal import Terminal
 from .default_system_message import default_system_message
 from .llm.llm import Llm
 from .respond import respond, _is_temporary_provider_error, _render_temporary_retry_status
+from .utils.execution_allowlist import (
+    DEFAULT_ALLOWLIST_FILE,
+    normalize_auto_run_mode,
+    should_require_execution_confirmation,
+)
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
@@ -151,7 +156,11 @@ class OpenInterpreter:
 
         # Settings
         self.offline = offline
-        self.auto_run = auto_run
+        self._auto_run_mode = normalize_auto_run_mode(auto_run)
+        self.auto_run_allowlist_file = DEFAULT_ALLOWLIST_FILE
+        self.auto_run_allowlist_rules = None
+        self.auto_run_allowlist_replace_builtin = False
+        self._session_allowlist_rules = []
         self.verbose = verbose
         self.debug = debug
         self.max_output = max_output
@@ -220,6 +229,25 @@ class OpenInterpreter:
             time.sleep(0.2)
         # Return new messages
         return self.messages[self.last_messages_count :]
+
+    @property
+    def auto_run_mode(self):
+        return self._auto_run_mode
+
+    @auto_run_mode.setter
+    def auto_run_mode(self, value):
+        self._auto_run_mode = normalize_auto_run_mode(value)
+
+    @property
+    def auto_run(self):
+        return self._auto_run_mode == "all"
+
+    @auto_run.setter
+    def auto_run(self, value):
+        if isinstance(value, str) and value not in ("true", "false"):
+            self._auto_run_mode = normalize_auto_run_mode(value)
+        else:
+            self._auto_run_mode = normalize_auto_run_mode(value)
 
     @property
     def anonymous_telemetry(self) -> bool:
@@ -659,7 +687,7 @@ class OpenInterpreter:
                         yield {**last_flag_base, "end": True}
                         last_flag_base = None
 
-                    if self.auto_run == False:
+                    if should_require_execution_confirmation(self, chunk):
                         yield chunk
 
                     # We want to append this now, so even if content is never filled, we know that the execution didn't produce output.

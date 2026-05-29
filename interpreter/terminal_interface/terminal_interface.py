@@ -26,6 +26,10 @@ from rich.text import Text as RichText
 from ..core.llm.utils.convert_to_openai_messages import (
     image_path_exceeds_shrink_threshold,
 )
+from ..core.utils.execution_allowlist import (
+    persist_allowlist_rule,
+    should_require_execution_confirmation,
+)
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
@@ -88,7 +92,7 @@ def terminal_interface(interpreter, message):
     # Probably worth abstracting this to something like "debug_cli" at some point.
     # If (len(interpreter.messages) == 1), they probably used the advanced "i {command}" entry, so no message should be displayed.
     if (
-        not interpreter.auto_run
+        interpreter.auto_run_mode != "all"
         and not interpreter.offline
         and not (len(interpreter.messages) == 1)
     ):
@@ -96,12 +100,17 @@ def terminal_interface(interpreter, message):
             "**Open Interpreter** will require approval before running code."
         ]
 
+        if interpreter.auto_run_mode == "allowlist":
+            interpreter_intro_message.append(
+                "**Allowlist mode**: only exact allowlisted commands run without approval."
+            )
+
         if interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto":
             if not check_for_package("semgrep"):
                 interpreter_intro_message.append(
                     f"**Safe Mode**: {interpreter.safe_mode}\n\n>Note: **Safe Mode** requires `semgrep` (`pip install semgrep`)"
                 )
-        else:
+        elif interpreter.auto_run_mode == "prompt":
             interpreter_intro_message.append("Use `interpreter -y` to bypass this.")
 
         if (
@@ -308,7 +317,7 @@ def terminal_interface(interpreter, message):
 
                 # Execution notice
                 if chunk["type"] == "confirmation":
-                    if not interpreter.auto_run:
+                    if should_require_execution_confirmation(interpreter, chunk):
                         # OI is about to execute code or apply an edit. The user wants to approve this
 
                         # End the active block so you can run input() below it.
@@ -396,13 +405,34 @@ def terminal_interface(interpreter, message):
                         # Rich/console output on Windows (cursor sits on last panel row).
                         print("", flush=True)
                         run_prompt = (
-                            "Would you like to run this code? (y/n/e = edit)\n\n"
+                            "Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n"
                             if interpreter.plain_text_display
-                            else "  Would you like to run this code? (y/n/e = edit)\n\n  "
+                            else "  Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n  "
                         )
-                        response = prompt_choice(run_prompt, ("y", "n", "e"))
+                        response = prompt_choice(run_prompt, ("y", "n", "e", "a"))
 
-                        if response == "y":
+                        if response == "a":
+                            rule, added = persist_allowlist_rule(
+                                interpreter, language, code
+                            )
+                            if added:
+                                print(
+                                    f'  Added to allowlist: {rule["language"]} exact "{rule["pattern"]}"',
+                                    flush=True,
+                                )
+                                print("", flush=True)
+                            active_block = CodeBlock(interpreter)
+                            active_block.margin_top = False
+                            active_block.language = language
+                            should_highlight = (
+                                interpreter.highlight_active_line
+                                if hasattr(interpreter, "highlight_active_line")
+                                and interpreter.highlight_active_line is not None
+                                else True
+                            )
+                            if should_highlight:
+                                active_block.code = code
+                        elif response == "y":
                             # Create a new, identical block where the code will actually be run
                             # Conveniently, the chunk includes everything we need to do this:
                             active_block = CodeBlock(interpreter)
