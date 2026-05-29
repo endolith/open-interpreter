@@ -196,8 +196,8 @@ def start_terminal_interface(interpreter):
             "nickname": "dt",
             "help_text": "disables sending of basic anonymous usage stats",
             "type": bool,
-            # No default: an attribute-bound argument must stay None when it
-            # isn't passed, or set_attributes would apply it over the profile.
+            # default must be None (not False) so set_attributes does not overwrite
+            # disable_telemetry: true from the user's profile when the flag is omitted.
             "attribute": {"object": interpreter, "attr_name": "disable_telemetry"},
         },
         {
@@ -514,18 +514,11 @@ Use """ to write multi-line messages.
     ### Set attributes on interpreter, because the arguments passed in via the CLI should override profile
 
     set_attributes(args, arguments)
-
-    # The environment variable can only turn telemetry off, never back on
-    if os.getenv("DISABLE_TELEMETRY", "false").lower() == "true":
-        interpreter.disable_telemetry = True
-
-    # if safe_mode and auto_run are enabled, safe_mode disables auto_run.
-    # This has to run last, once the profile and the CLI flags have both been
-    # applied, or it would only ever see the constructor's defaults.
-    if interpreter.auto_run and (
-        interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto"
-    ):
-        interpreter.auto_run = False
+    interpreter.disable_telemetry = (
+        interpreter.disable_telemetry
+        or os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
+        or bool(args.disable_telemetry)
+    )
 
     # Full auto-run and safe_mode scanning are incompatible; allowlist mode is fine.
     if interpreter.auto_run_mode == "all" and interpreter.safe_mode in ("ask", "auto"):
