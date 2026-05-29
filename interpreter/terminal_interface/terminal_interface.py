@@ -404,12 +404,21 @@ def terminal_interface(interpreter, message):
                         # Blank line before approval: leading \n inside input() is often lost after
                         # Rich/console output on Windows (cursor sits on last panel row).
                         print("", flush=True)
-                        run_prompt = (
-                            "Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n"
-                            if interpreter.plain_text_display
-                            else "  Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n  "
-                        )
-                        response = prompt_choice(run_prompt, ("y", "n", "e", "a"))
+                        if interpreter.auto_run_mode == "allowlist":
+                            run_prompt = (
+                                "Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n"
+                                if interpreter.plain_text_display
+                                else "  Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n  "
+                            )
+                            run_choices = ("y", "n", "e", "a")
+                        else:
+                            run_prompt = (
+                                "Would you like to run this code? (y/n/e = edit)\n\n"
+                                if interpreter.plain_text_display
+                                else "  Would you like to run this code? (y/n/e = edit)\n\n  "
+                            )
+                            run_choices = ("y", "n", "e")
+                        response = prompt_choice(run_prompt, run_choices)
 
                         if response == "a":
                             rule, added = persist_allowlist_rule(
