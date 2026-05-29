@@ -176,12 +176,15 @@ def handle_debug(self, arguments=None):
 
 
 def handle_auto_run(self, arguments=None):
-    if arguments == "" or arguments == "true":
-        self.display_message("> Entered auto_run mode")
-        self.auto_run = True
-    elif arguments == "false":
-        self.display_message("> Exited auto_run mode")
-        self.auto_run = False
+    if arguments == "" or arguments == "true" or arguments == "all":
+        self.display_message("> Entered auto_run mode (all)")
+        self.auto_run_mode = "all"
+    elif arguments == "false" or arguments == "prompt":
+        self.display_message("> Exited auto_run mode (prompt)")
+        self.auto_run_mode = "prompt"
+    elif arguments == "allowlist":
+        self.display_message("> Entered auto_run mode (allowlist)")
+        self.auto_run_mode = "allowlist"
     else:
         self.display_message("> Unknown argument to auto_run command.")
 
