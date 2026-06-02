@@ -371,11 +371,14 @@ class OpenInterpreter:
             return ""
         return self._sanitize_conversation_title_slug(content)
 
-    def rename_conversation_file_from_llm_title(self, use_full_transcript=False):
-        """Rename the on-disk JSON from an LLM topic title (``%rename``)."""
-        if self.offline:
-            self.display_message("> Cannot rename: offline mode.")
-            return False
+    def rename_conversation_file_from_llm_title(
+        self, use_full_transcript=False, manual_title=None
+    ):
+        """Rename the on-disk JSON (``%rename``).
+
+        With no title text, asks the model using the chat transcript. With
+        ``manual_title``, uses that string directly after filename sanitization.
+        """
         if not self.conversation_history:
             self.display_message("> Cannot rename: conversation history is disabled.")
             return False
@@ -386,20 +389,33 @@ class OpenInterpreter:
                 "> No conversation file is set yet; keep chatting so a save exists."
             )
             return False
-        cap = (
-            _CONVERSATION_TITLE_TRANSCRIPT_MANUAL_TOTAL_CHARS
-            if use_full_transcript
-            else None
-        )
-        transcript = self._conversation_auto_title_transcript(total_char_cap=cap)
-        if not transcript.strip():
-            self.display_message("> Nothing in this chat to title yet.")
-            return False
 
-        slug = self._run_llm_for_conversation_title_slug(transcript)
-        if not slug:
-            self.display_message("> Could not produce a title from the model.")
-            return False
+        manual = (manual_title or "").strip()
+        if manual:
+            slug = self._sanitize_conversation_title_slug(manual)
+            if not slug:
+                self.display_message(
+                    "> Could not derive a valid filename from that title."
+                )
+                return False
+        else:
+            if self.offline:
+                self.display_message("> Cannot rename: offline mode.")
+                return False
+            cap = (
+                _CONVERSATION_TITLE_TRANSCRIPT_MANUAL_TOTAL_CHARS
+                if use_full_transcript
+                else None
+            )
+            transcript = self._conversation_auto_title_transcript(total_char_cap=cap)
+            if not transcript.strip():
+                self.display_message("> Nothing in this chat to title yet.")
+                return False
+
+            slug = self._run_llm_for_conversation_title_slug(transcript)
+            if not slug:
+                self.display_message("> Could not produce a title from the model.")
+                return False
 
         base = self.conversation_filename[:-5]
         _, sep, date_segment = base.partition("__")
