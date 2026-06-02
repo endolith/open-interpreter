@@ -168,8 +168,7 @@ class CodeBlock(BaseBlock):
         current_width = current_size.columns
         if current_width != self._last_width:
             # Re-start live display on resize (critical for Windows terminal reflow)
-            if self.live.is_started:
-                self.live.stop()
+            stop_live_display(self.live)
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()

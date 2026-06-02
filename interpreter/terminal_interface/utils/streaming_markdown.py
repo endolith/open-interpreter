@@ -143,6 +143,20 @@ def create_live_display(console):
                 vertical_overflow="ellipsis")
 
 
+def stop_live_display(live):
+    """Stop a Rich Live display without an extra pre-stop refresh cycle.
+
+    Rich Live's stop() already calls refresh() once. Calling refresh() before stop()
+    can double-erase using LiveRender._shape. When _shape is taller than the region
+    Live actually occupies (terminal reflow/resize), that erase reaches into
+    permanent console output above the Live anchor and corrupts committed blocks.
+    """
+    if not live.is_started:
+        return
+    live.update("", refresh=False)
+    live.stop()
+
+
 def textify_markdown_code_blocks(text):
     """
     To distinguish CodeBlocks from markdown code, we simply turn all markdown code

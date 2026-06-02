@@ -76,15 +76,15 @@ class MessageBlock(BaseBlock):
             # De-stylize any code blocks in markdown to differentiate from Code Blocks
             content = textify_markdown_code_blocks(block_text)
 
-            # Render the complete block directly to console (above the Live viewport)
+            # Render the complete block directly to console (above the Live viewport).
+            # Keep Live running: Rich's render hook erases the viewport, prints the
+            # committed block, then redraws Live below it. Stopping/restarting Live
+            # between commits can over-erase scrollback when LiveRender._shape is stale.
             markdown = Markdown(content.strip())
-            
-            was_started = self.live.is_started
-            if was_started:
-                self.live.update("")
-                self.live.refresh()
-                self.live.stop()
-                
+
+            if not self.live.is_started:
+                self.live.start()
+
             if self.debug:
                 # In debug mode, still use panel for visual distinction
                 panel = Panel(markdown, box=ROUNDED, border_style="green")
@@ -93,10 +93,6 @@ class MessageBlock(BaseBlock):
                 # Print markdown directly with horizontal padding only (2 chars left/right)
                 padded_markdown = Padding(markdown, PADDING_MESSAGE)
                 self.live.console.print(padded_markdown)
-                
-            if was_started:
-                self.live = create_live_display(self.live.console)
-                self.live.start()
 
             # Store the completed block
             self.completed_blocks.append(content)

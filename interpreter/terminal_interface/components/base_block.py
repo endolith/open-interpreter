@@ -20,8 +20,10 @@ class BaseBlock:
         raise NotImplementedError("Subclasses must implement this method")
 
     def end(self):
+        if not self.live.is_started:
+            return
         self.refresh(cursor=False)
-        self.live.stop()
+        stop_live_display(self.live)
 
     def refresh(self, cursor=True):
         raise NotImplementedError("Subclasses must implement this method")
