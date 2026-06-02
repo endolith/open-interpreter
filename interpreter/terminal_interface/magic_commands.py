@@ -109,7 +109,7 @@ def handle_help(self, arguments):
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
         "%markdown [path]": "Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.",
-        "%rename": "Rename the saved conversation JSON on disk using the model and the full chat so far (same idea as the automatic title, but you choose when).",
+        "%rename [title]": "Rename the saved conversation JSON on disk. With no title, the model generates one from the full chat (like the automatic title). With text, that string becomes the filename prefix directly.",
         "%width": "Show current terminal width/height and re-detect if needed.",
     }
 
@@ -390,7 +390,11 @@ def jupyter(self, arguments):
 
 
 def handle_rename_conversation(self, arguments):
-    self.rename_conversation_file_from_llm_title(use_full_transcript=True)
+    title = arguments.strip()
+    if title:
+        self.rename_conversation_file_from_llm_title(manual_title=title)
+    else:
+        self.rename_conversation_file_from_llm_title(use_full_transcript=True)
     print("")
 
 
