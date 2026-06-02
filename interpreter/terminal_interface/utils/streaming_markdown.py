@@ -147,18 +147,26 @@ def textify_markdown_code_blocks(text):
     """
     To distinguish CodeBlocks from markdown code, we simply turn all markdown code
     (like '```python...') into text code blocks ('```text') which makes the code black and white.
+
+    Leading whitespace on the opening fence must be preserved. Stripping it promotes a
+    list-item code block to a top-level fence, which breaks the surrounding list into
+    multiple ordered_list blocks when detect_complete_block commits incrementally.
     """
     replacement = "```text"
     lines = text.split("\n")
     inside_code_block = False
 
     for i in range(len(lines)):
+        stripped = lines[i].strip()
         # If the line matches ``` followed by optional language specifier
-        if re.match(r"^```(\w*)$", lines[i].strip()):
+        if re.match(r"^```(\w*)$", stripped):
             inside_code_block = not inside_code_block
 
-            # If we just entered a code block, replace the marker
+            # If we just entered a code block, replace the language tag while
+            # keeping any leading whitespace so indented fences (e.g. inside list
+            # items) stay at their original indentation level.
             if inside_code_block:
-                lines[i] = replacement
+                leading_ws = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                lines[i] = leading_ws + replacement
 
     return "\n".join(lines)
