@@ -16,7 +16,6 @@ from ..utils.streaming_markdown import (
     calculate_window_size,
     create_sliding_window_display,
     create_live_display,
-    stop_live_display,
 )
 
 
@@ -68,9 +67,6 @@ class CodeBlock(BaseBlock):
     def _code_panel_title(self):
         return f" {self.language} " if self.language else " Code "
 
-    def _max_live_erase_rows(self, viewport_lines):
-        return max(1, viewport_lines + 5)
-
     def end(self):
         self.active_line = None
         self.finalize()
@@ -78,8 +74,10 @@ class CodeBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content permanently and clear the Live area."""
-        viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
-        viewport_lines = max(viewport_lines, 1)
+        if self.live.is_started:
+            self.live.update("")
+            self.live.refresh()
+            self.live.stop()
 
         if self.code.strip():
             self._print_permanent_block(self.code, "code")
@@ -91,8 +89,6 @@ class CodeBlock(BaseBlock):
             self._print_permanent_block(self.output, "output")
             # We don't need to track output lines popped as active_line doesn't apply to them
             self.output = ""
-
-        stop_live_display(self.live, max_erase_rows=self._max_live_erase_rows(viewport_lines))
 
     def _print_permanent_block(self, content, format_type):
         """Helper to render a completed segment and print it directly to console."""
@@ -138,16 +134,15 @@ class CodeBlock(BaseBlock):
             group_items.append(Text(self.target_path, style="dim"))
 
         group_items.append(panel)
-
+        
         was_started = self.live.is_started
         if was_started:
-            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
-            stop_live_display(
-                self.live, max_erase_rows=self._max_live_erase_rows(max(viewport_lines, 1)))
+            stop_live_display(self.live)
 
         self.live.console.print(Padding(Group(*group_items), PADDING_PANEL))
-
+        
         if was_started:
+            from ..utils.streaming_markdown import create_live_display
             self.live = create_live_display(self.live.console)
             self.live.start()
 
@@ -171,9 +166,8 @@ class CodeBlock(BaseBlock):
         current_width = current_size.columns
         if current_width != self._last_width:
             # Re-start live display on resize (critical for Windows terminal reflow)
-            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
-            stop_live_display(
-                self.live, max_erase_rows=self._max_live_erase_rows(max(viewport_lines, 1)))
+            if self.live.is_started:
+                self.live.stop()
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()
