@@ -1,6 +1,8 @@
 from rich.console import Console
 from rich.live import Live
 
+from ..utils.streaming_markdown import stop_live_display
+
 
 class BaseBlock:
     """
@@ -20,10 +22,8 @@ class BaseBlock:
         raise NotImplementedError("Subclasses must implement this method")
 
     def end(self):
-        if not self.live.is_started:
-            return
         self.refresh(cursor=False)
-        stop_live_display(self.live)
+        self.live.stop()
 
     def refresh(self, cursor=True):
         raise NotImplementedError("Subclasses must implement this method")

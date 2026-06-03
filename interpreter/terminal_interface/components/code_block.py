@@ -16,6 +16,9 @@ from ..utils.streaming_markdown import (
     calculate_window_size,
     create_sliding_window_display,
     create_live_display,
+    commit_above_live,
+    stop_live_display,
+    update_live_viewport,
 )
 
 
@@ -74,11 +77,6 @@ class CodeBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content permanently and clear the Live area."""
-        if self.live.is_started:
-            self.live.update("")
-            self.live.refresh()
-            self.live.stop()
-
         if self.code.strip():
             self._print_permanent_block(self.code, "code")
             # Update code_lines_popped to maintain relative line numbering
@@ -89,6 +87,8 @@ class CodeBlock(BaseBlock):
             self._print_permanent_block(self.output, "output")
             # We don't need to track output lines popped as active_line doesn't apply to them
             self.output = ""
+
+        stop_live_display(self.live)
 
     def _print_permanent_block(self, content, format_type):
         """Helper to render a completed segment and print it directly to console."""
@@ -134,19 +134,9 @@ class CodeBlock(BaseBlock):
             group_items.append(Text(self.target_path, style="dim"))
 
         group_items.append(panel)
-        
-        was_started = self.live.is_started
-        if was_started:
-            self.live.update("")
-            self.live.refresh()
-            self.live.stop()
-            
-        self.live.console.print(Padding(Group(*group_items), PADDING_PANEL))
-        
-        if was_started:
-            from ..utils.streaming_markdown import create_live_display
-            self.live = create_live_display(self.live.console)
-            self.live.start()
+
+        commit_above_live(
+            self.live, Padding(Group(*group_items), PADDING_PANEL))
 
     def refresh(self, cursor=True):
         """Process content, pop completed blocks, and update the Live sliding window."""
@@ -189,7 +179,9 @@ class CodeBlock(BaseBlock):
 
         # Render the remaining content
         if not self.code.strip() and not self.output.strip():
-            self.live.update("")
+            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+            viewport_lines = max(viewport_lines, 1)
+            update_live_viewport(self.live, "", viewport_lines, frame_overhead=0)
             return
 
         # If highlighting is enabled AND execution has started (active_line is not None),
@@ -272,8 +264,9 @@ class CodeBlock(BaseBlock):
             padded = Padding(group, PADDING_PANEL)
 
             # Update the live display
-            self.live.update(padded)
-            self.live.refresh()
+            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+            viewport_lines = max(viewport_lines, 3)
+            update_live_viewport(self.live, padded, viewport_lines, frame_overhead=4)
             return
 
         # Otherwise, stream as raw non-highlighted text in a Live sliding window
@@ -324,6 +317,10 @@ class CodeBlock(BaseBlock):
             
         group_items.append(streaming_panel)
         # Update the live display
-        self.live.update(Padding(Group(*group_items), PADDING_PANEL))
-        self.live.refresh()
+        update_live_viewport(
+            self.live,
+            Padding(Group(*group_items), PADDING_PANEL),
+            viewport_lines,
+            frame_overhead=4,
+        )
 

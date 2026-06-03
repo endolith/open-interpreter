@@ -258,3 +258,36 @@ def test_stop_live_display_does_not_double_refresh():
     output = console.file.getvalue()
     cursor_ups = output.count("\x1b[A")
     assert cursor_ups <= 6
+
+def test_reasoning_panel_not_duplicated_during_stream():
+    """Thinking panel borders must not accumulate during live streaming."""
+    content = (
+        "The user is saying that in the original seal, the quill emoji was the "
+        "problem, not the bee. Let me look at that seal again and compare."
+    )
+    console = make_console(100, 30)
+    block = MessageBlock()
+    bind_block_console(block, console)
+    block.reasoning_mode = True
+    for chunk in stream_chunks(content, chunk_size=2):
+        block.add_content(chunk)
+    block.finalize()
+    block.end()
+    output = console.file.getvalue()
+    assert output.count("Thinking") <= 2
+    assert "quill emoji" in output
+
+
+def test_code_panel_intact_through_finalize():
+    """Code panel title and borders survive finalize (confirmation path)."""
+    console = make_console(80, 24)
+    code_block = CodeBlock(interpreter=None)
+    bind_block_console(code_block, console)
+    code_block.language = "python"
+    code_block.code = 'print("Hello, world!")'
+    code_block.active_line = 1
+    code_block.refresh(cursor=False)
+    code_block.finalize()
+    output = console.file.getvalue()
+    assert 'print("Hello, world!")' in output
+    assert "python" in output.lower()

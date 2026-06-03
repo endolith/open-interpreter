@@ -16,6 +16,9 @@ from ..utils.streaming_markdown import (
     calculate_window_size,
     create_sliding_window_display,
     create_live_display,
+    commit_above_live,
+    stop_live_display,
+    update_live_viewport,
     textify_markdown_code_blocks,
 )
 
@@ -59,7 +62,7 @@ class MessageBlock(BaseBlock):
             # automatic reflow will have shifted our cursor position, leading to
             # "garbled" text as Live tries to clear an area that doesn't exist anymore.
             # We restart the live display to anchor it to a fresh position.
-            self.live.stop()
+            stop_live_display(self.live)
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()
@@ -77,9 +80,8 @@ class MessageBlock(BaseBlock):
             content = textify_markdown_code_blocks(block_text)
 
             # Render the complete block directly to console (above the Live viewport).
-            # Keep Live running: Rich's render hook erases the viewport, prints the
-            # committed block, then redraws Live below it. Stopping/restarting Live
-            # between commits can over-erase scrollback when LiveRender._shape is stale.
+            # Clear the live viewport first so Rich's render hook does not redraw stale
+            # streaming content (e.g. a Thinking panel) after the commit.
             markdown = Markdown(content.strip())
 
             if not self.live.is_started:
@@ -88,11 +90,11 @@ class MessageBlock(BaseBlock):
             if self.debug:
                 # In debug mode, still use panel for visual distinction
                 panel = Panel(markdown, box=ROUNDED, border_style="green")
-                self.live.console.print(panel)
+                commit_above_live(self.live, panel)
             else:
                 # Print markdown directly with horizontal padding only (2 chars left/right)
                 padded_markdown = Padding(markdown, PADDING_MESSAGE)
-                self.live.console.print(padded_markdown)
+                commit_above_live(self.live, padded_markdown)
 
             # Store the completed block
             self.completed_blocks.append(content)
@@ -142,17 +144,22 @@ class MessageBlock(BaseBlock):
                 # Distinct style so thinking is visually separate from normal blockquotes
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking")
                 padded_buffer = Padding(streaming_panel, PADDING_PANEL)
-                self.live.update(padded_buffer, refresh=True)
+                update_live_viewport(
+                    self.live, padded_buffer, viewport_lines, frame_overhead=4)
             elif self.debug:
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="blue")
-                self.live.update(streaming_panel, refresh=True)
+                update_live_viewport(
+                    self.live, streaming_panel, viewport_lines, frame_overhead=2)
             else:
                 # Print streaming content directly with horizontal padding only (2 chars left/right)
                 padded_buffer = Padding(formatted_buffer, PADDING_MESSAGE)
-                self.live.update(padded_buffer, refresh=True)
+                update_live_viewport(
+                    self.live, padded_buffer, viewport_lines, frame_overhead=1)
         else:
             # Clear the live display if no buffer content
-            self.live.update("", refresh=True)
+            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+            viewport_lines = max(viewport_lines, 1)
+            update_live_viewport(self.live, "", viewport_lines, frame_overhead=0)
 
     def add_content(self, content):
         """Add new content to the buffer and process it."""
@@ -166,11 +173,7 @@ class MessageBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content when the message is complete."""
-        # Clear the live display to remove the streaming raw text
-        if self.live.is_started:
-            self.live.update("")
-            self.live.refresh()
-            self.live.stop()
+        stop_live_display(self.live)
 
         # Render any remaining buffer content as markdown
         if self.buffer.strip():
