@@ -16,9 +16,7 @@ from ..utils.streaming_markdown import (
     calculate_window_size,
     create_sliding_window_display,
     create_live_display,
-    commit_above_live,
     stop_live_display,
-    update_live_viewport,
     textify_markdown_code_blocks,
 )
 
@@ -45,6 +43,11 @@ class MessageBlock(BaseBlock):
         except:
             self._last_width = shutil.get_terminal_size().columns
 
+    def _max_live_erase_rows(self, viewport_lines):
+        """Upper bound on Live rows we may erase; clamping prevents eating scrollback above."""
+        overhead = 4 if (self.reasoning_mode or self.debug) else 1
+        return max(1, viewport_lines + overhead + 1)
+
     def refresh(self, cursor=True):
         """Process new content and render complete blocks incrementally."""
         # Force re-detection of terminal size to handle window narrowing during streamed output
@@ -62,7 +65,9 @@ class MessageBlock(BaseBlock):
             # automatic reflow will have shifted our cursor position, leading to
             # "garbled" text as Live tries to clear an area that doesn't exist anymore.
             # We restart the live display to anchor it to a fresh position.
-            stop_live_display(self.live)
+            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+            stop_live_display(
+                self.live, max_erase_rows=self._max_live_erase_rows(max(viewport_lines, 1)))
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()
@@ -80,86 +85,62 @@ class MessageBlock(BaseBlock):
             content = textify_markdown_code_blocks(block_text)
 
             # Render the complete block directly to console (above the Live viewport).
-            # Clear the live viewport first so Rich's render hook does not redraw stale
-            # streaming content (e.g. a Thinking panel) after the commit.
             markdown = Markdown(content.strip())
 
-            if not self.live.is_started:
-                self.live.start()
+            was_started = self.live.is_started
+            if was_started:
+                viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+                stop_live_display(
+                    self.live,
+                    max_erase_rows=self._max_live_erase_rows(max(viewport_lines, 1)),
+                )
 
             if self.debug:
-                # In debug mode, still use panel for visual distinction
                 panel = Panel(markdown, box=ROUNDED, border_style="green")
-                commit_above_live(self.live, panel)
+                self.live.console.print(panel)
             else:
-                # Print markdown directly with horizontal padding only (2 chars left/right)
                 padded_markdown = Padding(markdown, PADDING_MESSAGE)
-                commit_above_live(self.live, padded_markdown)
+                self.live.console.print(padded_markdown)
 
-            # Store the completed block
+            if was_started:
+                self.live = create_live_display(self.live.console)
+                self.live.start()
+
             self.completed_blocks.append(content)
 
-            # Remove the rendered block from buffer using line numbers
             lines = self.buffer.split('\n')
             remaining_lines = lines[next_line_begin:]
             self.buffer = '\n'.join(remaining_lines)
 
-            # If we removed content, refresh the viewport with remaining content
-            if remaining_lines:
-                # Continue to the streaming section below
-                pass
-
-        # Stream the remaining buffer content in the Live viewport
         if self.buffer.strip():
-            # Calculate viewport size
             viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
 
-            # Ensure we have a reasonable viewport size
             if viewport_lines < 1:
-                viewport_lines = 3  # Minimum viewport size
+                viewport_lines = 3
 
-            # Calculate width offset for wrapping (padding/borders)
-            # Default 4 (PADDING_MESSAGE is 2 left, 2 right)
-            # reasoning_mode/debug use a Panel (+2 for borders) and PADDING_PANEL (4)
             width_offset = 6 if (self.reasoning_mode or self.debug) else 4
 
-            # Create sliding window display for the buffer
             formatted_buffer = create_sliding_window_display(
                 self.live.console, self.buffer.split('\n'), viewport_lines, self.debug,
                 base_style="cyan" if self.reasoning_mode else None, width_offset=width_offset)
 
-            # Add cursor if requested
             if cursor and isinstance(formatted_buffer, Text):
                 formatted_buffer += "●"
             elif cursor and isinstance(formatted_buffer, Group):
-                # If it's a Group with ellipsis, add cursor to the text part
                 formatted_buffer.renderables[-1] += "●"
 
-            # Wrap streaming content in a panel to match rendered content indentation.
-            # refresh=True is required because create_live_display sets auto_refresh=False
-            # (to prevent the background refresh thread from erasing sudo prompts printed
-            # by child processes). Without auto_refresh, update() alone only stores the
-            # renderable without rendering it; refresh=True forces an immediate render.
             if self.reasoning_mode:
-                # Distinct style so thinking is visually separate from normal blockquotes
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking")
                 padded_buffer = Padding(streaming_panel, PADDING_PANEL)
-                update_live_viewport(
-                    self.live, padded_buffer, viewport_lines, frame_overhead=4)
+                self.live.update(padded_buffer, refresh=True)
             elif self.debug:
                 streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="blue")
-                update_live_viewport(
-                    self.live, streaming_panel, viewport_lines, frame_overhead=2)
+                self.live.update(streaming_panel, refresh=True)
             else:
-                # Print streaming content directly with horizontal padding only (2 chars left/right)
                 padded_buffer = Padding(formatted_buffer, PADDING_MESSAGE)
-                update_live_viewport(
-                    self.live, padded_buffer, viewport_lines, frame_overhead=1)
+                self.live.update(padded_buffer, refresh=True)
         else:
-            # Clear the live display if no buffer content
-            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
-            viewport_lines = max(viewport_lines, 1)
-            update_live_viewport(self.live, "", viewport_lines, frame_overhead=0)
+            self.live.update("", refresh=True)
 
     def add_content(self, content):
         """Add new content to the buffer and process it."""
@@ -173,15 +154,14 @@ class MessageBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content when the message is complete."""
-        stop_live_display(self.live)
+        viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+        stop_live_display(
+            self.live, max_erase_rows=self._max_live_erase_rows(max(viewport_lines, 1)))
 
-        # Render any remaining buffer content as markdown
         if self.buffer.strip():
             try:
-                # De-stylize any code blocks in markdown
                 content = textify_markdown_code_blocks(self.buffer)
                 if self.reasoning_mode:
-                    # Text same color as box (cyan), markdown formatting preserved
                     markdown = Markdown(content.strip(), style="cyan")
                     panel = Panel(markdown, box=ROUNDED, border_style="cyan", title="Thinking")
                     padded_markdown = Padding(panel, PADDING_PANEL)
@@ -195,8 +175,6 @@ class MessageBlock(BaseBlock):
                         padded_markdown = Padding(markdown, PADDING_MESSAGE)
                         self.live.console.print(padded_markdown)
             except (IndexError, ValueError, TypeError):
-                # Fallback to plain text if markdown parsing fails
                 self.live.console.print(self.buffer)
 
-        # Ensure no further streaming occurs during end()'s refresh
         self.buffer = ""

@@ -259,24 +259,52 @@ def test_stop_live_display_does_not_double_refresh():
     cursor_ups = output.count("\x1b[A")
     assert cursor_ups <= 6
 
-def test_reasoning_panel_not_duplicated_during_stream():
-    """Thinking panel borders must not accumulate during live streaming."""
-    content = (
+
+
+def test_thinking_stream_preserves_content_above():
+    """Live refreshes during Thinking streaming must not erase committed output above."""
+    marker = "PERMANENT_MARKER_ABOVE_THINKING"
+    thinking = (
         "The user is saying that in the original seal, the quill emoji was the "
         "problem, not the bee. Let me look at that seal again and compare."
     )
     console = make_console(100, 30)
+    console.print(marker)
     block = MessageBlock()
     bind_block_console(block, console)
     block.reasoning_mode = True
-    for chunk in stream_chunks(content, chunk_size=2):
+    for chunk in stream_chunks(thinking, chunk_size=1):
         block.add_content(chunk)
+    assert marker in console.file.getvalue()
     block.finalize()
     block.end()
     output = console.file.getvalue()
-    assert output.count("Thinking") <= 2
+    assert marker in output
     assert "quill emoji" in output
 
+
+def test_thinking_stream_does_not_over_erase_lines():
+    """Many Thinking refreshes must not inflate erase height and wipe scrollback."""
+    marker = "LINE_ABOVE_12345"
+    console = make_console(80, 24)
+    console.print(marker)
+    block = MessageBlock()
+    bind_block_console(block, console)
+    block.reasoning_mode = True
+    payload = "Word " * 80
+    for chunk in stream_chunks(payload, chunk_size=1):
+        block.add_content(chunk)
+    output_mid = console.file.getvalue()
+    assert marker in output_mid
+    block.finalize()
+    block.end()
+    output = console.file.getvalue()
+    assert marker in output
+    # Over-erasing often leaves long blank runs where marker content was eaten
+    marker_idx = output.find(marker)
+    assert marker_idx != -1
+    after_marker = output[marker_idx + len(marker) : marker_idx + len(marker) + 200]
+    assert after_marker.count("\n") < 30 or "Word" in after_marker
 
 def test_code_panel_intact_through_finalize():
     """Code panel title and borders survive finalize (confirmation path)."""
@@ -291,3 +319,17 @@ def test_code_panel_intact_through_finalize():
     output = console.file.getvalue()
     assert 'print("Hello, world!")' in output
     assert "python" in output.lower()
+
+def test_stop_live_display_clamps_tall_shape():
+    """stop_live_display must clamp _shape down, never inflate it (which eats scrollback)."""
+    console = make_console(80, 24)
+    console.print("KEEP_ME")
+    live = create_live_display(console)
+    live.start()
+    live.update("streaming\n" * 3, refresh=True)
+    live._live_render._shape = (80, 40)
+    stop_live_display(live, max_erase_rows=8)
+    output = console.file.getvalue()
+    assert "KEEP_ME" in output
+    cursor_ups = output.count("\x1b[A")
+    assert cursor_ups <= 12

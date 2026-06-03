@@ -143,49 +143,28 @@ def create_live_display(console):
                 vertical_overflow="ellipsis")
 
 
-def stop_live_display(live):
+def stop_live_display(live, *, max_erase_rows=None):
     """Stop a Rich Live display without an extra pre-stop refresh cycle.
 
     Rich Live's stop() already calls refresh() once. Calling refresh() before stop()
     can double-erase using LiveRender._shape. When _shape is taller than the region
     Live actually occupies (terminal reflow/resize), that erase reaches into
     permanent console output above the Live anchor and corrupts committed blocks.
+
+    When max_erase_rows is set, clamp _shape down before stopping. Never inflate
+    _shape: that over-erases lines above the Live anchor (e.g. repeated Thinking
+    panels eating scrollback).
     """
     if not live.is_started:
         return
+    if max_erase_rows is not None:
+        shape = live._live_render._shape
+        if shape is not None and shape[1] > max_erase_rows:
+            live._live_render._shape = (shape[0], max_erase_rows)
     live.update("", refresh=False)
     live.stop()
 
 
-
-def commit_above_live(live, renderable):
-    """Print permanent output above the Live viewport without stopping Live.
-
-    Clears the live renderable first so Rich's render hook does not redraw stale
-    streaming content (e.g. a Thinking panel) after the commit.
-    """
-    if not live.is_started:
-        live.console.print(renderable)
-        return
-    live.update("", refresh=True)
-    live.console.print(renderable)
-
-
-def update_live_viewport(live, renderable, viewport_lines, *, frame_overhead):
-    """Refresh Live, expanding erase height when _shape under-counts panel frames.
-
-    LiveRender._shape can be shorter than the rows actually drawn when panels,
-    ellipsis overflow, and wide characters interact. Under-erasing leaves
-    fragments that accumulate as duplicated panel borders on the same line.
-    """
-    if live.is_started:
-        shape = live._live_render._shape
-        min_erase_rows = max(1, viewport_lines + frame_overhead)
-        if shape is not None:
-            _, height = shape
-            if height < min_erase_rows:
-                live._live_render._shape = (shape[0], min_erase_rows)
-    live.update(renderable, refresh=True)
 
 
 def textify_markdown_code_blocks(text):
