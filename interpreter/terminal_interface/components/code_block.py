@@ -16,6 +16,7 @@ from ..utils.streaming_markdown import (
     calculate_window_size,
     create_sliding_window_display,
     create_live_display,
+    stop_live_display,
 )
 
 
@@ -74,10 +75,7 @@ class CodeBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content permanently and clear the Live area."""
-        if self.live.is_started:
-            self.live.update("")
-            self.live.refresh()
-            self.live.stop()
+        stop_live_display(self.live)
 
         if self.code.strip():
             self._print_permanent_block(self.code, "code")
@@ -138,7 +136,7 @@ class CodeBlock(BaseBlock):
         was_started = self.live.is_started
         if was_started:
             stop_live_display(self.live)
-
+            
         self.live.console.print(Padding(Group(*group_items), PADDING_PANEL))
         
         if was_started:
@@ -166,8 +164,7 @@ class CodeBlock(BaseBlock):
         current_width = current_size.columns
         if current_width != self._last_width:
             # Re-start live display on resize (critical for Windows terminal reflow)
-            if self.live.is_started:
-                self.live.stop()
+            stop_live_display(self.live)
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()

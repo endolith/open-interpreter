@@ -323,6 +323,77 @@ def test_char_by_char_nested_list():
         assert f"Level {level}" in output
     assert_no_excessive_blank_runs(output)
 
+def count_live_stops(content: str, *, width: int = 100, height: int = 30, chunk_size: int = 2) -> int:
+    stops = 0
+    original_stop = Live.stop
+
+    def counting_stop(self):
+        nonlocal stops
+        if self.is_started:
+            stops += 1
+        return original_stop(self)
+
+    console = make_console(width, height)
+    block = MessageBlock()
+    bind_block_console(block, console)
+
+    import unittest.mock as mock
+
+    with mock.patch.object(Live, "stop", counting_stop):
+        for chunk in stream_chunks(content, chunk_size):
+            block.add_content(chunk)
+        block.finalize()
+        block.end()
+    return stops
+
+
+def test_incremental_commit_avoids_live_stop_restart():
+    """Committing blocks during streaming must not stop/restart Live each time."""
+    stops = count_live_stops(MULTI_BLOCK_MESSAGE, chunk_size=2)
+    assert stops <= 1, f"Expected at most finalize stop, got {stops}"
+
+
+def test_no_standalone_hr_during_incremental_commit():
+    """Markdown --- separators must not render as a lone full-width rule mid-stream."""
+    output = capture_message_stream(MULTI_BLOCK_MESSAGE, chunk_size=2)
+    # Rich HR rules are long runs of box-drawing characters.
+    hr_runs = [len(m.group()) for m in re.finditer(r"[─━—]{20,}", output)]
+    assert not hr_runs or max(hr_runs) < 80, (
+        f"Standalone HR rendered during streaming: longest run {max(hr_runs)} chars"
+    )
+
+
+def test_user_flow_heading_list_after_thinking():
+    """Reproduce heading + nested list after a Thinking panel (reported corruption)."""
+    console = make_console(120, 40)
+    console.print("USER_PROMPT")
+
+    thinking_block = MessageBlock()
+    bind_block_console(thinking_block, console)
+    thinking_block.reasoning_mode = True
+    thinking = (
+        "I'll write a pure nested list with careful indentation and no code fence."
+    )
+    for chunk in stream_chunks(thinking, chunk_size=2):
+        thinking_block.add_content(chunk)
+    thinking_block.finalize()
+    thinking_block.end()
+
+    msg_block = MessageBlock()
+    bind_block_console(msg_block, console)
+    for chunk in stream_chunks(NESTED_LIST_WITH_HEADING, chunk_size=2):
+        msg_block.add_content(chunk)
+    msg_block.finalize()
+    msg_block.end()
+
+    output = console.file.getvalue()
+    assert "USER_PROMPT" in output
+    assert "Nested Lists Until You Die" in output
+    for token in ["Fruits", "Tropical", "Mango", "Ratnagiri"]:
+        assert token in output
+    assert_no_excessive_blank_runs(output, max_consecutive_newlines=6)
+
+
 def test_stop_live_display_no_double_refresh():
     console = make_console(80, 24)
     live = create_live_display(console)

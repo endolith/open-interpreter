@@ -40,8 +40,19 @@ def detect_complete_block(markdown_text):
         if len(top_level_tokens) >= 2:
             first_token = top_level_tokens[0]
             second_token = top_level_tokens[1]
-            line_begin, line_end = first_token.map
-            next_line_begin = second_token.map[0]
+
+            # Defer a trailing horizontal rule until the block after it is complete.
+            # Committing "---" alone renders a full-width rule and forces a Live
+            # stop/restart cycle that corrupts scrollback on Windows ConPTY.
+            if first_token.type == "hr":
+                if len(top_level_tokens) < 3:
+                    return None
+                line_begin = top_level_tokens[0].map[0]
+                line_end = top_level_tokens[1].map[1]
+                next_line_begin = top_level_tokens[2].map[0]
+            else:
+                line_begin, line_end = first_token.map
+                next_line_begin = second_token.map[0]
             # Extract just the block content WITHOUT trailing blank lines
             # Rich's Markdown renderer will add its own spacing
             block_lines = lines[line_begin:line_end]

@@ -77,12 +77,10 @@ class MessageBlock(BaseBlock):
             # De-stylize any code blocks in markdown to differentiate from Code Blocks
             content = textify_markdown_code_blocks(block_text)
 
-            # Render the complete block directly to console (above the Live viewport)
+            # Render the complete block directly to console (above the Live viewport).
+            # Do not stop/restart Live here — that erase cycle corrupts scrollback
+            # above the Live anchor when blocks commit during streaming.
             markdown = Markdown(content.strip())
-
-            was_started = self.live.is_started
-            if was_started:
-                stop_live_display(self.live)
 
             if self.debug:
                 # In debug mode, still use panel for visual distinction
@@ -92,10 +90,6 @@ class MessageBlock(BaseBlock):
                 # Print markdown directly with horizontal padding only (2 chars left/right)
                 padded_markdown = Padding(markdown, PADDING_MESSAGE)
                 self.live.console.print(padded_markdown)
-
-            if was_started:
-                self.live = create_live_display(self.live.console)
-                self.live.start()
 
             # Store the completed block
             self.completed_blocks.append(content)
