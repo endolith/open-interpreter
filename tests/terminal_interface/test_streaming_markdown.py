@@ -75,3 +75,44 @@ def test_detect_complete_block_commits_hr_with_following_block():
     remaining2 = "\n".join(remaining.split("\n")[next_line2:])
     third = detect_complete_block(remaining2)
     assert third is None
+
+
+def test_refresh_live_display_updates_in_place():
+    import os
+    os.environ["TERM"] = "xterm-256color"
+    from tests.terminal_interface.virtual_terminal import make_tty_console
+    from interpreter.terminal_interface.utils.streaming_markdown import (
+        create_live_display,
+        refresh_live_display,
+    )
+    from rich.text import Text
+
+    console, vt, _ = make_tty_console(80, 12)
+    live = create_live_display(console)
+    live.start()
+    refresh_live_display(live, Text("first\nsecond"))
+    assert live._live_render._shape is not None
+    refresh_live_display(live, Text("third"))
+    assert live._live_render._shape is not None
+    live.stop()
+
+
+def test_clear_live_shape_before_print():
+    import os
+    os.environ["TERM"] = "xterm-256color"
+    from tests.terminal_interface.virtual_terminal import make_tty_console
+    from interpreter.terminal_interface.utils.streaming_markdown import (
+        clear_live_shape,
+        create_live_display,
+        refresh_live_display,
+    )
+    from rich.text import Text
+
+    console, vt, _ = make_tty_console(80, 12)
+    live = create_live_display(console)
+    live.start()
+    refresh_live_display(live, Text("tall\nline\ntwo\nthree"))
+    assert live._live_render._shape is not None
+    clear_live_shape(live)
+    assert live._live_render._shape is None
+    live.stop()

@@ -150,20 +150,49 @@ def create_live_display(console):
     # into terminal history — it simply disappears on the next timer tick.
     # With auto_refresh=False the display only redraws when OI explicitly pushes a
     # new chunk, which doesn't happen while the shell is blocked waiting for input.
-    return Live(console=console, auto_refresh=False,
-                vertical_overflow="ellipsis")
+    return Live(
+        console=console,
+        auto_refresh=False,
+        vertical_overflow="ellipsis",
+        redirect_stdout=False,
+        redirect_stderr=False,
+    )
 
 
-def stop_live_display(live):
-    """Stop Live without an extra refresh() before stop().
+def clear_live_shape(live) -> None:
+    """Clear LiveRender._shape so the next console.print skips cursor-up erase.
 
-    Rich Live.stop() already calls refresh() once. An additional refresh() before
-    stop() double-erases using LiveRender._shape and can corrupt scrollback above
-    the Live anchor when _shape is stale after terminal reflow.
+    While Live is active, Rich prepends ``position_cursor()`` to every
+    ``console.print``.  A tall stale _shape from nested-list streaming can make
+    that erase reach committed markdown above the Live anchor.
+    """
+    live._live_render._shape = None
+
+
+def refresh_live_display(live, renderable) -> None:
+    """Refresh the Live viewport in place.
+
+    Uses Rich's normal cursor-up erase so streaming updates replace the prior
+    preview instead of appending duplicate lines below it (which floods
+    scrollback with blank gaps and ghost panels).
+    """
+    live.update(renderable, refresh=True)
+
+
+def stop_live_display(live, *, clear=True) -> None:
+    """Stop Live, optionally clearing the renderable first.
+
+    When ``clear=True`` (default), push an empty renderable before stop so the
+    Live viewport is erased.  Use ``clear=False`` after ``refresh_live_display``
+    has already replaced the preview with permanent content in place.
+
+    Never call ``refresh()`` before ``stop()`` — Rich stop() already refreshes
+    once; an extra refresh double-erases using stale LiveRender._shape.
     """
     if not live.is_started:
         return
-    live.update("", refresh=False)
+    if clear:
+        live.update("", refresh=False)
     live.stop()
 
 
