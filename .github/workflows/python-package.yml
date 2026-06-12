@@ -29,6 +29,8 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Sync lock file and install dev dependencies
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: |
           poetry lock
           poetry install --only dev --no-interaction
@@ -98,6 +100,8 @@ jobs:
           sudo apt-get install -y powershell
 
       - name: Install dependencies
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: |
           poetry lock
           poetry install -E server --no-interaction
@@ -138,6 +142,8 @@ jobs:
           sudo apt-get install -y powershell
 
       - name: Install dependencies
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: |
           poetry lock
           poetry install -E server --no-interaction
