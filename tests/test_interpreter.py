@@ -23,11 +23,19 @@ TEST_MODEL_MINI = os.environ.get("TEST_MODEL_MINI", "gpt-4o-mini")  # Default ch
 TEST_MODEL_MAIN = os.environ.get("TEST_MODEL_MAIN", "gpt-4o")  # Default smarter model
 TEST_API_KEY_ENV = os.environ.get("TEST_API_KEY_ENV", "OPENAI_API_KEY")  # Which env var to check (for both models)
 
-# Skip tests that require LLM API access when no API key is available
-requires_api_key = pytest.mark.skipif(
-    not os.environ.get(TEST_API_KEY_ENV),
-    reason=f"No {TEST_API_KEY_ENV} available - requires LLM access (models: {TEST_MODEL_MINI}/{TEST_MODEL_MAIN})"
-)
+# Skip tests that require LLM API access when no API key is available.
+# Also tagged integration so CI can run: pytest -m "not integration" (unit) / -m integration.
+def requires_api_key(func):
+    func = pytest.mark.integration(func)
+    return pytest.mark.skipif(
+        not os.environ.get(TEST_API_KEY_ENV),
+        reason=(
+            f"No {TEST_API_KEY_ENV} available - requires LLM access "
+            f"(models: {TEST_MODEL_MINI}/{TEST_MODEL_MAIN})"
+        ),
+    )(func)
+
+
 #####
 
 import multiprocessing

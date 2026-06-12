@@ -1,35 +1,149 @@
-name: Build and Test
+name: CI
 
 on:
   push:
-    branches: ["main", "development"]
+    branches: [main, classic/develop]
   pull_request:
-    branches: ["main", "development"]
+    branches: [main, classic/develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Sync lock file and install dev dependencies
+        run: |
+          poetry lock
+          poetry install --only dev --no-interaction
+
+      - name: Lint changed Python files (interpreter/, tests/, scripts/)
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Full-repo black/isort would fail on hundreds of files; lint only scoped
+          # paths, and on PRs/pushes only files touched in that change set.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git fetch origin "${GITHUB_BASE_REF}" --depth=1
+            DIFF_RANGE="origin/${GITHUB_BASE_REF}...HEAD"
+          elif [ "${GITHUB_EVENT_BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+            DIFF_RANGE="${GITHUB_EVENT_BEFORE}..${GITHUB_SHA}"
+          else
+            echo "No prior commit; skipping lint (nothing to compare)."
+            exit 0
+          fi
+
+          mapfile -t FILES < <(
+            git diff --name-only --diff-filter=ACMRT "${DIFF_RANGE}" -- \
+              'interpreter/**/*.py' 'tests/**/*.py' 'scripts/**/*.py' || true
+          )
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No scoped Python files changed; lint passed."
+            exit 0
+          fi
+
+          echo "Linting ${#FILES[@]} file(s):"
+          printf '  %s\n' "${FILES[@]}"
+          poetry run black --check "${FILES[@]}"
+          poetry run isort --check-only "${FILES[@]}"
+
+  test-unit:
+    name: test-unit (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install poetry
+
+      - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install PowerShell
+        run: |
+          wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb" \
+            -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo apt-get install -y powershell
+
       - name: Install dependencies
         run: |
-          # Ensure dependencies are installed without relying on a lock file.
-          poetry update
-          poetry install -E server
-      - name: Test with pytest
+          poetry lock
+          poetry install -E server --no-interaction
+          poetry run pip install linkup-sdk
+
+      - name: Run unit tests
+        run: poetry run pytest tests/ -m "not integration"
+        env:
+          OPENAI_API_KEY: ""
+
+  test-integration:
+    name: test-integration
+    runs-on: ubuntu-latest
+    if: ${{ secrets.OPENAI_API_KEY != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
         run: |
-          poetry run pytest -s -x -k test_
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install PowerShell
+        run: |
+          wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb" \
+            -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo apt-get install -y powershell
+
+      - name: Install dependencies
+        run: |
+          poetry lock
+          poetry install -E server --no-interaction
+          poetry run pip install linkup-sdk
+
+      - name: Run integration tests
+        run: poetry run pytest tests/ -m integration
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
