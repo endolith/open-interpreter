@@ -193,3 +193,9 @@ target-version = ['py311']
 profile = "black"
 multi_line_output = 3
 include_trailing_comma = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests requiring API keys or external services",
+]
+testpaths = ["tests"]
