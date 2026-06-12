@@ -112,6 +112,8 @@ jobs:
             grep -v '^tokenizers==' /tmp/requirements.txt > /tmp/requirements-no-tokenizers.txt
             poetry run pip install -r /tmp/requirements-no-tokenizers.txt
             poetry run pip install 'tokenizers>=0.20.2'
+            poetry export --only dev --without-hashes --without-urls -o /tmp/dev-requirements.txt
+            poetry run pip install -r /tmp/dev-requirements.txt
             poetry install -E server --only-root --no-interaction
           else
             poetry install -E server --no-interaction
