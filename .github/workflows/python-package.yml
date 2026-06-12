@@ -105,6 +105,10 @@ jobs:
         run: |
           poetry lock
           poetry install -E server --no-interaction
+          # tokenizers 0.19.x (from litellm) has no cp313 wheels; upgrade on 3.13 only.
+          if [ "${{ matrix.python-version }}" = "3.13" ]; then
+            poetry run pip install 'tokenizers>=0.20.2'
+          fi
           poetry run pip install linkup-sdk
 
       - name: Run unit tests
