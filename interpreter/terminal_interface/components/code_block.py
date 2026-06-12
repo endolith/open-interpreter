@@ -1,22 +1,24 @@
+import os
+import shutil
+
 from rich.box import MINIMAL
 from rich.console import Group
 from rich.markup import escape
-from rich.panel import Panel
 from rich.padding import Padding
+from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
-import shutil
-import os
 
-from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
-from ..utils.target_file_lexer import syntax_lang_for_target_path
 from ..utils.streaming_markdown import (
     calculate_window_size,
-    create_sliding_window_display,
     create_live_display,
+    create_sliding_window_display,
+    stop_live_display,
 )
+from ..utils.target_file_lexer import syntax_lang_for_target_path
+from .base_block import BaseBlock
 
 
 class CodeBlock(BaseBlock):
@@ -42,7 +44,9 @@ class CodeBlock(BaseBlock):
 
         # Define these for IDE auto-completion
         self.language = ""
-        self.target_path = ""  # edit tool: shown outside the code panel, not in self.code
+        self.target_path = (
+            ""  # edit tool: shown outside the code panel, not in self.code
+        )
         self.output = ""
         self.code = ""
         self.active_line = None
@@ -74,15 +78,12 @@ class CodeBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content permanently and clear the Live area."""
-        if self.live.is_started:
-            self.live.update("")
-            self.live.refresh()
-            self.live.stop()
+        stop_live_display(self.live)
 
         if self.code.strip():
             self._print_permanent_block(self.code, "code")
             # Update code_lines_popped to maintain relative line numbering
-            self.code_lines_popped += len(self.code.split('\n'))
+            self.code_lines_popped += len(self.code.split("\n"))
             self.code = ""
 
         if self.output.strip():
@@ -123,7 +124,9 @@ class CodeBlock(BaseBlock):
             )
         else:
             # Output panel
-            panel = Panel(escape(content.strip()), box=MINIMAL, style="#FFFFFF on #3b3b37")
+            panel = Panel(
+                escape(content.strip()), box=MINIMAL, style="#FFFFFF on #3b3b37"
+            )
 
         group_items = []
         if self.margin_top:
@@ -134,17 +137,16 @@ class CodeBlock(BaseBlock):
             group_items.append(Text(self.target_path, style="dim"))
 
         group_items.append(panel)
-        
+
         was_started = self.live.is_started
         if was_started:
-            self.live.update("")
-            self.live.refresh()
-            self.live.stop()
-            
+            stop_live_display(self.live)
+
         self.live.console.print(Padding(Group(*group_items), PADDING_PANEL))
-        
+
         if was_started:
             from ..utils.streaming_markdown import create_live_display
+
             self.live = create_live_display(self.live.console)
             self.live.start()
 
@@ -168,20 +170,27 @@ class CodeBlock(BaseBlock):
         current_width = current_size.columns
         if current_width != self._last_width:
             # Re-start live display on resize (critical for Windows terminal reflow)
-            if self.live.is_started:
-                self.live.stop()
+            stop_live_display(self.live)
             self._last_width = current_width
             self.live = create_live_display(self.live.console)
             self.live.start()
 
-        should_highlight = self.highlight_active_line if self.highlight_active_line is not None else True
+        should_highlight = (
+            self.highlight_active_line
+            if self.highlight_active_line is not None
+            else True
+        )
 
         # If active line highlighting is disabled, we permanently render the code block when it finishes
         # streaming to avoid repeated refreshes corrupting terminal history.
         # We know it's finished streaming if self.active_line is not None OR self.output has content.
-        if not should_highlight and self.code.strip() and (self.active_line is not None or self.output.strip()):
+        if (
+            not should_highlight
+            and self.code.strip()
+            and (self.active_line is not None or self.output.strip())
+        ):
             self._print_permanent_block(self.code, "code")
-            self.code_lines_popped += len(self.code.split('\n'))
+            self.code_lines_popped += len(self.code.split("\n"))
             self.code = ""
 
         # Execution stdout/stderr is plain text, not markdown. detect_complete_block()
@@ -222,7 +231,11 @@ class CodeBlock(BaseBlock):
                 if i == self.active_line:
                     # This is the active line, print it with a white background
                     syntax = Syntax(
-                        line, syntax_language, theme="bw", line_numbers=False, word_wrap=True
+                        line,
+                        syntax_language,
+                        theme="bw",
+                        line_numbers=False,
+                        word_wrap=True,
                     )
                     code_table.add_row(syntax, style="black on white")
                 else:
@@ -252,22 +265,27 @@ class CodeBlock(BaseBlock):
             # Create a panel for the output (if there is any).
             # We format remaining output as sliding window
             if self.output.strip():
-                viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+                viewport_lines = calculate_window_size(
+                    self.live.console, self.viewport_fraction
+                )
                 viewport_lines = max(viewport_lines, 3)
-                output_lines = self.output.strip().split('\n')
-                
+                output_lines = self.output.strip().split("\n")
+
                 formatted_output = create_sliding_window_display(
-                    self.live.console, output_lines, viewport_lines, width_offset=6)
-                
+                    self.live.console, output_lines, viewport_lines, width_offset=6
+                )
+
                 # Escape so Rich does not interpret [brackets] as markup
-                output_panel = Panel(formatted_output, box=MINIMAL, style="#FFFFFF on #3b3b37")
+                output_panel = Panel(
+                    formatted_output, box=MINIMAL, style="#FFFFFF on #3b3b37"
+                )
                 group_items.append(output_panel)
-                
+
             if self.margin_top:
                 # This adds some space at the top. Just looks good!
                 group_items = [""] + group_items
                 self.margin_top = False
-                
+
             # Create a group with the code table and output panel
             group = Group(*group_items)
             padded = Padding(group, PADDING_PANEL)
@@ -281,19 +299,22 @@ class CodeBlock(BaseBlock):
         # Prepare streaming buffer lines
         buffer_lines = []
         if self.code.strip():
-            buffer_lines.extend(self.code.strip().split('\n'))
+            buffer_lines.extend(self.code.strip().split("\n"))
         if self.output.strip():
             if buffer_lines:
-                buffer_lines.append("") # Spacer
-            buffer_lines.extend(self.output.strip().split('\n'))
+                buffer_lines.append("")  # Spacer
+            buffer_lines.extend(self.output.strip().split("\n"))
 
         # Calculate viewport size
-        viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+        viewport_lines = calculate_window_size(
+            self.live.console, self.viewport_fraction
+        )
         viewport_lines = max(viewport_lines, 3)
 
         # Create sliding window display
         formatted_buffer = create_sliding_window_display(
-            self.live.console, buffer_lines, viewport_lines, width_offset=6)
+            self.live.console, buffer_lines, viewport_lines, width_offset=6
+        )
 
         # Add cursor if requested
         if cursor:
@@ -314,7 +335,7 @@ class CodeBlock(BaseBlock):
             style="on #272722",
             title=self._code_panel_title(),
         )
-        
+
         group_items = []
         if self.margin_top:
             group_items.append("")
@@ -322,9 +343,8 @@ class CodeBlock(BaseBlock):
 
         if self.target_path:
             group_items.append(Text(self.target_path, style="dim"))
-            
+
         group_items.append(streaming_panel)
         # Update the live display
         self.live.update(Padding(Group(*group_items), PADDING_PANEL))
         self.live.refresh()
-

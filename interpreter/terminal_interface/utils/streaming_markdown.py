@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import textwrap
+
 from markdown_it import MarkdownIt
 from rich.align import Align
 from rich.console import Console, Group
@@ -14,9 +15,12 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+
 # Initialize MarkdownIt once at module level for efficiency
 # This enables the same features as Rich's markdown parser
 _MD_PARSER = MarkdownIt().enable("strikethrough").enable("table")
+
+
 def detect_complete_block(markdown_text):
     """
     Detect complete blocks by finding when a new top-level block starts.
@@ -25,7 +29,7 @@ def detect_complete_block(markdown_text):
     try:
         # Use the pre-configured MarkdownIt instance
         md_tokens = _MD_PARSER.parse(markdown_text)
-        lines = markdown_text.split('\n')
+        lines = markdown_text.split("\n")
         # Find all top-level block tokens (level 0)
         top_level_tokens = []
         for md_token in md_tokens:
@@ -40,17 +44,30 @@ def detect_complete_block(markdown_text):
         if len(top_level_tokens) >= 2:
             first_token = top_level_tokens[0]
             second_token = top_level_tokens[1]
-            line_begin, line_end = first_token.map
-            next_line_begin = second_token.map[0]
+
+            # Defer a trailing horizontal rule until the block after it is complete.
+            # Committing "---" alone renders a full-width rule and forces a Live
+            # stop/restart cycle that corrupts scrollback on Windows ConPTY.
+            if first_token.type == "hr":
+                if len(top_level_tokens) < 3:
+                    return None
+                line_begin = top_level_tokens[0].map[0]
+                line_end = top_level_tokens[1].map[1]
+                next_line_begin = top_level_tokens[2].map[0]
+            else:
+                line_begin, line_end = first_token.map
+                next_line_begin = second_token.map[0]
             # Extract just the block content WITHOUT trailing blank lines
             # Rich's Markdown renderer will add its own spacing
             block_lines = lines[line_begin:line_end]
-            block_text = '\n'.join(block_lines)
+            block_text = "\n".join(block_lines)
             return block_text, next_line_begin
         return None
     except (IndexError, ValueError, TypeError, AttributeError):
         # If parsing fails, the markdown is incomplete - no complete block yet
         return None
+
+
 def calculate_window_size(console, viewport_fraction):
     """Calculate viewport size based on terminal height and fraction.
 
@@ -68,7 +85,9 @@ def calculate_window_size(console, viewport_fraction):
     return max(1, int(terminal_height * viewport_fraction))
 
 
-def create_sliding_window_display(console, current_lines, viewport_lines, debug=False, base_style=None, width_offset=4):
+def create_sliding_window_display(
+    console, current_lines, viewport_lines, debug=False, base_style=None, width_offset=4
+):
     """Create display text with sliding viewport and upper ellipsis when needed.
 
     Args:
@@ -102,7 +121,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
 
     # Get last N lines (or all lines if fewer than N)
     display_lines = logical_lines[-viewport_lines:]
-    text = Text('\n'.join(display_lines))
+    text = Text("\n".join(display_lines))
     if base_style:
         text.stylize(base_style, 0, len(text))
 
@@ -110,10 +129,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
     # the bottom red ellipsis in a rich Live display in `ellipsis` mode.
     # https://rich.readthedocs.io/en/latest/live.html#vertical-overflow
     if len(logical_lines) > viewport_lines:
-        text = Group(
-            Align.center(Text("...", style="red"), width=size.columns),
-            text
-        )
+        text = Group(Align.center(Text("...", style="red"), width=size.columns), text)
 
     # Wrap in a panel with border only in debug mode
     if debug:
@@ -139,8 +155,50 @@ def create_live_display(console):
     # into terminal history — it simply disappears on the next timer tick.
     # With auto_refresh=False the display only redraws when OI explicitly pushes a
     # new chunk, which doesn't happen while the shell is blocked waiting for input.
-    return Live(console=console, auto_refresh=False,
-                vertical_overflow="ellipsis")
+    return Live(
+        console=console,
+        auto_refresh=False,
+        vertical_overflow="ellipsis",
+        redirect_stdout=False,
+        redirect_stderr=False,
+    )
+
+
+def clear_live_shape(live) -> None:
+    """Clear LiveRender._shape so the next console.print skips cursor-up erase.
+
+    While Live is active, Rich prepends ``position_cursor()`` to every
+    ``console.print``.  A tall stale _shape from nested-list streaming can make
+    that erase reach committed markdown above the Live anchor.
+    """
+    live._live_render._shape = None
+
+
+def refresh_live_display(live, renderable) -> None:
+    """Refresh the Live viewport in place.
+
+    Uses Rich's normal cursor-up erase so streaming updates replace the prior
+    preview instead of appending duplicate lines below it (which floods
+    scrollback with blank gaps and ghost panels).
+    """
+    live.update(renderable, refresh=True)
+
+
+def stop_live_display(live, *, clear=True) -> None:
+    """Stop Live, optionally clearing the renderable first.
+
+    When ``clear=True`` (default), push an empty renderable before stop so the
+    Live viewport is erased.  Use ``clear=False`` after ``refresh_live_display``
+    has already replaced the preview with permanent content in place.
+
+    Never call ``refresh()`` before ``stop()`` — Rich stop() already refreshes
+    once; an extra refresh double-erases using stale LiveRender._shape.
+    """
+    if not live.is_started:
+        return
+    if clear:
+        live.update("", refresh=False)
+    live.stop()
 
 
 def textify_markdown_code_blocks(text):
