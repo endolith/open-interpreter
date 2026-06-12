@@ -1,6 +1,8 @@
 <h1 align="center">● Open Interpreter</h1>
 
 <p align="center">
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml?query=branch%3Amain">
+        <img alt="CI" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg?branch=main"/></a>
     <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
     <a href="docs/README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
