@@ -7,13 +7,7 @@ import subprocess
 from pathlib import Path
 
 from ....terminal_interface.utils.oi_dir import oi_dir
-from ...utils.lazy_import import lazy_import
 from ..utils.recipient_utils import format_to_recipient
-
-# Lazy import, imported when needed to speed up start time
-aifs = lazy_import("aifs")
-pyautogui = lazy_import("pyautogui")
-pynput = lazy_import("pynput")
 
 element = None
 element_box = None
