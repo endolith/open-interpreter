@@ -79,7 +79,6 @@ class VirtualTerminal:
     def count_panel_titles(self, title: str = "Thinking") -> int:
         return sum(1 for row in self.all_rows() if title in row)
 
-
     def count_panel_titles_on_display(self, title: str = "Thinking") -> int:
         return sum(1 for row in self.screen.display if title in self._row_str(row))
 
@@ -212,7 +211,9 @@ def max_blank_run_in_raw(raw: str) -> int:
     return max_run
 
 
-def assert_blank_run_lte(vt: VirtualTerminal, max_run: int, *, raw: str | None = None) -> None:
+def assert_blank_run_lte(
+    vt: VirtualTerminal, max_run: int, *, raw: str | None = None
+) -> None:
     """Fail on large blank gaps in captured terminal output.
 
     pyte history counts erase cycles as blank rows; raw ANSI output reflects
@@ -220,17 +221,19 @@ def assert_blank_run_lte(vt: VirtualTerminal, max_run: int, *, raw: str | None =
     """
     if raw is None and getattr(vt, "_raw_sink", None) is not None:
         raw = vt._raw_sink.raw
-    actual = max_blank_run_in_raw(raw) if raw is not None else vt.max_blank_run_in_history()
-    assert actual <= max_run, (
-        f"Terminal output contains {actual} consecutive blank lines (max {max_run})"
+    actual = (
+        max_blank_run_in_raw(raw) if raw is not None else vt.max_blank_run_in_history()
     )
+    assert (
+        actual <= max_run
+    ), f"Terminal output contains {actual} consecutive blank lines (max {max_run})"
 
 
 def assert_history_blank_run_lte(vt: VirtualTerminal, max_run: int) -> None:
     actual = vt.max_blank_run_in_history()
-    assert actual <= max_run, (
-        f"Scrollback contains {actual} consecutive blank lines (max {max_run})"
-    )
+    assert (
+        actual <= max_run
+    ), f"Scrollback contains {actual} consecutive blank lines (max {max_run})"
 
 
 def assert_panel_position_stable(
@@ -261,9 +264,9 @@ def assert_single_panel(vt: VirtualTerminal, title: str = "Thinking") -> None:
         inner = inner.rstrip("●").strip()
         if len(inner) > 5:
             bodies.add(inner)
-    assert len(bodies) <= 1, (
-        f"Expected one {title!r} panel body on screen, found {len(bodies)}"
-    )
+    assert (
+        len(bodies) <= 1
+    ), f"Expected one {title!r} panel body on screen, found {len(bodies)}"
 
 
 def assert_anchor_preserved(vt: VirtualTerminal, anchor: str) -> None:

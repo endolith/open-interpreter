@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import textwrap
+
 from markdown_it import MarkdownIt
 from rich.align import Align
 from rich.console import Console, Group
@@ -14,9 +15,12 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+
 # Initialize MarkdownIt once at module level for efficiency
 # This enables the same features as Rich's markdown parser
 _MD_PARSER = MarkdownIt().enable("strikethrough").enable("table")
+
+
 def detect_complete_block(markdown_text):
     """
     Detect complete blocks by finding when a new top-level block starts.
@@ -25,7 +29,7 @@ def detect_complete_block(markdown_text):
     try:
         # Use the pre-configured MarkdownIt instance
         md_tokens = _MD_PARSER.parse(markdown_text)
-        lines = markdown_text.split('\n')
+        lines = markdown_text.split("\n")
         # Find all top-level block tokens (level 0)
         top_level_tokens = []
         for md_token in md_tokens:
@@ -56,12 +60,14 @@ def detect_complete_block(markdown_text):
             # Extract just the block content WITHOUT trailing blank lines
             # Rich's Markdown renderer will add its own spacing
             block_lines = lines[line_begin:line_end]
-            block_text = '\n'.join(block_lines)
+            block_text = "\n".join(block_lines)
             return block_text, next_line_begin
         return None
     except (IndexError, ValueError, TypeError, AttributeError):
         # If parsing fails, the markdown is incomplete - no complete block yet
         return None
+
+
 def calculate_window_size(console, viewport_fraction):
     """Calculate viewport size based on terminal height and fraction.
 
@@ -79,7 +85,9 @@ def calculate_window_size(console, viewport_fraction):
     return max(1, int(terminal_height * viewport_fraction))
 
 
-def create_sliding_window_display(console, current_lines, viewport_lines, debug=False, base_style=None, width_offset=4):
+def create_sliding_window_display(
+    console, current_lines, viewport_lines, debug=False, base_style=None, width_offset=4
+):
     """Create display text with sliding viewport and upper ellipsis when needed.
 
     Args:
@@ -113,7 +121,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
 
     # Get last N lines (or all lines if fewer than N)
     display_lines = logical_lines[-viewport_lines:]
-    text = Text('\n'.join(display_lines))
+    text = Text("\n".join(display_lines))
     if base_style:
         text.stylize(base_style, 0, len(text))
 
@@ -121,10 +129,7 @@ def create_sliding_window_display(console, current_lines, viewport_lines, debug=
     # the bottom red ellipsis in a rich Live display in `ellipsis` mode.
     # https://rich.readthedocs.io/en/latest/live.html#vertical-overflow
     if len(logical_lines) > viewport_lines:
-        text = Group(
-            Align.center(Text("...", style="red"), width=size.columns),
-            text
-        )
+        text = Group(Align.center(Text("...", style="red"), width=size.columns), text)
 
     # Wrap in a panel with border only in debug mode
     if debug:

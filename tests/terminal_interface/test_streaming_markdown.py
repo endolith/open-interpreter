@@ -3,7 +3,6 @@ from interpreter.terminal_interface.utils.streaming_markdown import (
     textify_markdown_code_blocks,
 )
 
-
 LIST_WITH_INDENTED_FENCE = """1. **First**
 
 2. **Second**
@@ -79,13 +78,15 @@ def test_detect_complete_block_commits_hr_with_following_block():
 
 def test_refresh_live_display_updates_in_place():
     import os
+
     os.environ["TERM"] = "xterm-256color"
-    from tests.terminal_interface.virtual_terminal import make_tty_console
+    from rich.text import Text
+
     from interpreter.terminal_interface.utils.streaming_markdown import (
         create_live_display,
         refresh_live_display,
     )
-    from rich.text import Text
+    from tests.terminal_interface.virtual_terminal import make_tty_console
 
     console, vt, _ = make_tty_console(80, 12)
     live = create_live_display(console)
@@ -99,14 +100,16 @@ def test_refresh_live_display_updates_in_place():
 
 def test_clear_live_shape_before_print():
     import os
+
     os.environ["TERM"] = "xterm-256color"
-    from tests.terminal_interface.virtual_terminal import make_tty_console
+    from rich.text import Text
+
     from interpreter.terminal_interface.utils.streaming_markdown import (
         clear_live_shape,
         create_live_display,
         refresh_live_display,
     )
-    from rich.text import Text
+    from tests.terminal_interface.virtual_terminal import make_tty_console
 
     console, vt, _ = make_tty_console(80, 12)
     live = create_live_display(console)
@@ -116,3 +119,69 @@ def test_clear_live_shape_before_print():
     clear_live_shape(live)
     assert live._live_render._shape is None
     live.stop()
+
+
+def test_stop_live_display_clear_false_skips_empty_update():
+    import os
+
+    os.environ["TERM"] = "xterm-256color"
+    from rich.text import Text
+
+    from interpreter.terminal_interface.utils.streaming_markdown import (
+        create_live_display,
+        refresh_live_display,
+        stop_live_display,
+    )
+    from tests.terminal_interface.virtual_terminal import make_tty_console
+
+    console, _, buf = make_tty_console(80, 12)
+    live = create_live_display(console)
+    live.start()
+    refresh_live_display(live, Text("preview line"))
+    stop_live_display(live, clear=False)
+    assert not live.is_started
+    assert "preview line" in buf.raw
+
+
+def test_stop_live_display_noop_when_not_started():
+    from interpreter.terminal_interface.utils.streaming_markdown import (
+        create_live_display,
+        stop_live_display,
+    )
+    from tests.terminal_interface.virtual_terminal import make_tty_console
+
+    console, _, _ = make_tty_console(80, 12)
+    live = create_live_display(console)
+    stop_live_display(live)
+
+
+def test_create_sliding_window_display_truncates_with_ellipsis():
+    import io
+
+    from rich.console import Console
+
+    from interpreter.terminal_interface.utils.streaming_markdown import (
+        create_sliding_window_display,
+    )
+    from tests.terminal_interface.virtual_terminal import make_tty_console
+
+    console, _, _ = make_tty_console(80, 8)
+    lines = [f"line {i}" for i in range(10)]
+    display = create_sliding_window_display(console, lines, viewport_lines=3)
+    buf = io.StringIO()
+    Console(file=buf, width=80, height=8, force_terminal=True).print(display)
+    rendered = buf.getvalue()
+    assert "..." in rendered
+    assert "line 9" in rendered
+    assert "line 0" not in rendered
+
+
+def test_calculate_window_size_respects_fraction():
+    from interpreter.terminal_interface.utils.streaming_markdown import (
+        calculate_window_size,
+    )
+    from tests.terminal_interface.virtual_terminal import make_tty_console
+
+    console, _, _ = make_tty_console(80, 20)
+    assert calculate_window_size(console, 0.5) == 10
+    assert calculate_window_size(console, 0.0) == 1

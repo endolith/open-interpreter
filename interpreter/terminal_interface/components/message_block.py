@@ -3,24 +3,24 @@ import re
 import shutil
 
 from rich.box import MINIMAL, ROUNDED
+from rich.console import Group
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.text import Text
-from rich.console import Group
-from rich.padding import Padding
 
-from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_MESSAGE, PADDING_PANEL
 from ..utils.streaming_markdown import (
-    detect_complete_block,
     calculate_window_size,
-    create_sliding_window_display,
-    create_live_display,
     clear_live_shape,
+    create_live_display,
+    create_sliding_window_display,
+    detect_complete_block,
     refresh_live_display,
     stop_live_display,
     textify_markdown_code_blocks,
 )
+from .base_block import BaseBlock
 
 
 class MessageBlock(BaseBlock):
@@ -103,9 +103,9 @@ class MessageBlock(BaseBlock):
             self.completed_blocks.append(content)
 
             # Remove the rendered block from buffer using line numbers
-            lines = self.buffer.split('\n')
+            lines = self.buffer.split("\n")
             remaining_lines = lines[next_line_begin:]
-            self.buffer = '\n'.join(remaining_lines)
+            self.buffer = "\n".join(remaining_lines)
 
             # If we removed content, refresh the viewport with remaining content
             if remaining_lines:
@@ -117,7 +117,9 @@ class MessageBlock(BaseBlock):
             self._ensure_live_started()
 
             # Calculate viewport size
-            viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
+            viewport_lines = calculate_window_size(
+                self.live.console, self.viewport_fraction
+            )
 
             # Ensure we have a reasonable viewport size
             if viewport_lines < 1:
@@ -130,8 +132,13 @@ class MessageBlock(BaseBlock):
 
             # Create sliding window display for the buffer
             formatted_buffer = create_sliding_window_display(
-                self.live.console, self.buffer.split('\n'), viewport_lines, self.debug,
-                base_style="cyan" if self.reasoning_mode else None, width_offset=width_offset)
+                self.live.console,
+                self.buffer.split("\n"),
+                viewport_lines,
+                self.debug,
+                base_style="cyan" if self.reasoning_mode else None,
+                width_offset=width_offset,
+            )
 
             # Add cursor if requested
             if cursor and isinstance(formatted_buffer, Text):
@@ -147,11 +154,15 @@ class MessageBlock(BaseBlock):
             # renderable without rendering it; refresh=True forces an immediate render.
             if self.reasoning_mode:
                 # Distinct style so thinking is visually separate from normal blockquotes
-                streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking")
+                streaming_panel = Panel(
+                    formatted_buffer, box=ROUNDED, border_style="cyan", title="Thinking"
+                )
                 padded_buffer = Padding(streaming_panel, PADDING_PANEL)
                 refresh_live_display(self.live, padded_buffer)
             elif self.debug:
-                streaming_panel = Panel(formatted_buffer, box=ROUNDED, border_style="blue")
+                streaming_panel = Panel(
+                    formatted_buffer, box=ROUNDED, border_style="blue"
+                )
                 refresh_live_display(self.live, streaming_panel)
             else:
                 # Print streaming content directly with horizontal padding only (2 chars left/right)

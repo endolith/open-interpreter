@@ -52,9 +52,7 @@ MULTI_BLOCK_MESSAGE = """Intro paragraph before the list.
      - Level 3
 """
 
-LONG_POWERSHELL_LINE = (
-    "Get-Service wuauserv | Set-Service -StartupType Disabled"
-)
+LONG_POWERSHELL_LINE = "Get-Service wuauserv | Set-Service -StartupType Disabled"
 
 LIST_WITH_INDENTED_FENCE = """1. **First**
 
@@ -109,7 +107,9 @@ def bind_block_console(block, console: Console) -> None:
     block.live.start()
 
 
-def assert_no_excessive_blank_runs(output: str, max_consecutive_newlines: int = 12) -> None:
+def assert_no_excessive_blank_runs(
+    output: str, max_consecutive_newlines: int = 12
+) -> None:
     """Fail if output contains huge blank gaps (Live over-erase / spacing regression)."""
     for match in re.finditer(r"\n+", output):
         if len(match.group()) > max_consecutive_newlines:
@@ -157,7 +157,9 @@ def capture_message_stream(
     return console.file.getvalue()
 
 
-def capture_two_turns(first: str, second: str, *, width: int = 100, height: int = 30) -> str:
+def capture_two_turns(
+    first: str, second: str, *, width: int = 100, height: int = 30
+) -> str:
     console = make_console(width, height)
     for content in (first, second):
         block = MessageBlock()
@@ -186,7 +188,14 @@ def test_nested_list_with_heading(width, height):
         NESTED_LIST_WITH_HEADING, width=width, height=height, chunk_size=2
     )
     assert "Nested Lists Until You Die" in output
-    for token in ["Fruits", "Tropical", "Mango", "Alphonso", "Maharashtra", "Ratnagiri"]:
+    for token in [
+        "Fruits",
+        "Tropical",
+        "Mango",
+        "Alphonso",
+        "Maharashtra",
+        "Ratnagiri",
+    ]:
         assert token in output
     assert_no_excessive_blank_runs(output)
 
@@ -326,7 +335,10 @@ def test_char_by_char_nested_list():
         assert f"Level {level}" in output
     assert_no_excessive_blank_runs(output)
 
-def count_live_stops(content: str, *, width: int = 100, height: int = 30, chunk_size: int = 2) -> int:
+
+def count_live_stops(
+    content: str, *, width: int = 100, height: int = 30, chunk_size: int = 2
+) -> int:
     stops = 0
     original_stop = Live.stop
 
@@ -361,9 +373,9 @@ def test_no_standalone_hr_during_incremental_commit():
     output = capture_message_stream(MULTI_BLOCK_MESSAGE, chunk_size=2)
     # Rich HR rules are long runs of box-drawing characters.
     hr_runs = [len(m.group()) for m in re.finditer(r"[─━—]{20,}", output)]
-    assert not hr_runs or max(hr_runs) < 80, (
-        f"Standalone HR rendered during streaming: longest run {max(hr_runs)} chars"
-    )
+    assert (
+        not hr_runs or max(hr_runs) < 80
+    ), f"Standalone HR rendered during streaming: longest run {max(hr_runs)} chars"
 
 
 def test_user_flow_heading_list_after_thinking():
@@ -397,7 +409,6 @@ def test_user_flow_heading_list_after_thinking():
     assert_no_excessive_blank_runs(output, max_consecutive_newlines=6)
 
 
-
 def test_stop_live_display_no_double_refresh():
     console = make_console(80, 24)
     live = create_live_display(console)
@@ -411,6 +422,7 @@ def test_stop_live_display_no_double_refresh():
 # --- Virtual-terminal (ANSI) regression tests --------------------------------
 # pyte simulates cursor-up/erase so StringIO dumb-terminal blind spots are covered.
 
+from interpreter.terminal_interface.components.message_block import MessageBlock
 from tests.terminal_interface.virtual_terminal import (
     assert_anchor_preserved,
     assert_blank_run_lte,
@@ -420,9 +432,8 @@ from tests.terminal_interface.virtual_terminal import (
     bind_block_console,
     make_tty_console,
     panel_top_line,
-    stream_chunks as vt_stream_chunks,
 )
-from interpreter.terminal_interface.components.message_block import MessageBlock
+from tests.terminal_interface.virtual_terminal import stream_chunks as vt_stream_chunks
 
 
 def _prior_lines(console, n: int = 5) -> None:
