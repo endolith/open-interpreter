@@ -111,7 +111,7 @@ jobs:
   test-integration:
     name: test-integration
     runs-on: ubuntu-latest
-    if: ${{ secrets.OPENAI_API_KEY != '' }}
+    # Job-level `if: secrets.*` is invalid in GitHub Actions; skip inside the job when unset.
     strategy:
       fail-fast: false
       matrix:
@@ -144,6 +144,11 @@ jobs:
           poetry run pip install linkup-sdk
 
       - name: Run integration tests
-        run: poetry run pytest tests/ -m integration
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY secret not configured; skipping integration tests."
+            exit 0
+          fi
+          poetry run pytest tests/ -m integration
