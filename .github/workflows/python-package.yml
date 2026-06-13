@@ -38,3 +38,24 @@ jobs:
           pip install -e ".[server]"
           pip install pytest websockets requests
           pytest -m mock_llm
+
+  test-openrouter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OpenRouter smoke tests
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OI_CI_MODEL: openrouter/openrouter/free
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "OPENROUTER_API_KEY not configured; skipping openrouter smoke tests"
+            exit 0
+          fi
+          python -m pip install --upgrade pip
+          pip install -e ".[server]"
+          pip install pytest websockets requests
+          pytest -m openrouter -v
