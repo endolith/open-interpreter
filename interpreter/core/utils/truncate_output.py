@@ -21,7 +21,7 @@ def truncate_output(data, max_output_chars=2800, add_scrollbars=False):
             message.strip()
             + f" Run `get_last_output()[0:{max_output_chars}]` to see the first page.\n\n"
         )
-    # Then we have code in `terminal.py` which makes that function work. It should be a computer tool though to just access messages IMO. Or like, self.messages.
+    # Then we have code in `terminal.py` which makes that function work. It should be a toolbox tool though to just access messages IMO. Or like, self.messages.
 
     # Remove previous truncation message if it exists
     if data.startswith(message):

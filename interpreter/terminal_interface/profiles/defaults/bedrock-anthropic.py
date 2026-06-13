@@ -18,7 +18,7 @@ from interpreter import interpreter
 
 interpreter.llm.model = "bedrock/anthropic.claude-sonnet-4-6"
 
-interpreter.computer.import_computer_api = True
+interpreter.toolbox.import_toolbox_api = True
 
 interpreter.llm.supports_functions = False
 interpreter.llm.supports_vision = False

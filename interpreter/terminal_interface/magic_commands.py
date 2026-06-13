@@ -315,7 +315,7 @@ def handle_magic_command(self, user_input):
     # Handle shell
     if user_input.startswith("%%"):
         code = user_input[2:].strip()
-        self.computer.run("shell", code, stream=False, display=True)
+        self.toolbox.run("shell", code, stream=False, display=True)
         print("")
         return
 

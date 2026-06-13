@@ -96,7 +96,7 @@ class AsyncInterpreter:
             if "start" in chunk:
                 # self.stt.start()
                 self._last_lmc_start_flag = time.time()
-                self.interpreter.computer.terminate()
+                self.interpreter.terminal.terminate()
                 # Stop any code execution... maybe we should make interpreter.stop()?
             elif "end" in chunk:
                 asyncio.create_task(self.run())
@@ -160,7 +160,7 @@ class AsyncInterpreter:
                     # if (
                     #     self.interpreter.messages[-1]
                     #     .get("content", "")
-                    #     .startswith("computer.keyboard.write(")
+                    #     .startswith("toolbox.keyboard.write(")
                     # ):
                     #     keyboard.controller.type(content)
                     #     self._in_keyboard_write_block = True
@@ -168,12 +168,12 @@ class AsyncInterpreter:
                     #     self._in_keyboard_write_block = False
                     #     # (This will make it so it doesn't type twice when the block executes)
                     #     if self.interpreter.messages[-1]["content"].startswith(
-                    #         "computer.keyboard.write("
+                    #         "toolbox.keyboard.write("
                     #     ):
                     #         self.interpreter.messages[-1]["content"] = (
                     #             "dummy_variable = ("
                     #             + self.interpreter.messages[-1]["content"][
-                    #                 len("computer.keyboard.write(") :
+                    #                 len("toolbox.keyboard.write(") :
                     #             ]
                     #         )
 

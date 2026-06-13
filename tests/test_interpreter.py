@@ -520,7 +520,7 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            response = interpreter.computer.ai.chat(
+            response = interpreter.toolbox.ai.chat(
                 str(messages)
                 + "\n\nIn the conversation above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
             )
@@ -582,7 +582,7 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            response = interpreter.computer.ai.chat(
+            response = interpreter.toolbox.ai.chat(
                 str(messages)
                 + "\n\nIn the conversation above, does the assistant appear to be able to describe the image of a gradient? Yes or no? Only reply with one word— 'yes' or 'no'."
             )
@@ -609,7 +609,7 @@ def test_server():
 
 @pytest.mark.skip(reason="Mac only")
 def test_sms():
-    sms = interpreter.computer.sms
+    sms = interpreter.toolbox.sms
 
     # Get the last 5 messages
     messages = sms.get(limit=5)
@@ -632,7 +632,7 @@ def test_pytes():
         first_file = files_on_desktop[0]
         first_file_path = os.path.join(desktop_path, first_file)
         print(first_file_path)
-        ocr = interpreter.computer.vision.ocr(path=first_file_path)
+        ocr = interpreter.toolbox.vision.ocr(path=first_file_path)
         print(ocr)
         print("what")
     else:
@@ -643,7 +643,7 @@ def test_pytes():
 
 @pytest.mark.integration
 def test_ai_chat():
-    print(interpreter.computer.ai.chat("hi"))
+    print(interpreter.toolbox.ai.chat("hi"))
 
 
 @pytest.mark.integration
@@ -733,9 +733,9 @@ def test_generator():
 
 @pytest.mark.skip(reason="Requires open-interpreter[local]")
 def test_localos():
-    interpreter.computer.emit_images = False
-    interpreter.computer.view()
-    interpreter.computer.emit_images = True
+    interpreter.toolbox.emit_images = False
+    interpreter.toolbox.view()
+    interpreter.toolbox.emit_images = True
     assert False
 
 
@@ -769,12 +769,12 @@ def test_m_vision():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_point():
-    # interpreter.computer.debug = True
-    interpreter.computer.mouse.move(icon="gear")
-    interpreter.computer.mouse.move(icon="refresh")
-    interpreter.computer.mouse.move(icon="play")
-    interpreter.computer.mouse.move(icon="magnifying glass")
-    interpreter.computer.mouse.move("Spaces:")
+    # interpreter.toolbox.debug = True
+    interpreter.toolbox.mouse.move(icon="gear")
+    interpreter.toolbox.mouse.move(icon="refresh")
+    interpreter.toolbox.mouse.move(icon="play")
+    interpreter.toolbox.mouse.move(icon="magnifying glass")
+    interpreter.toolbox.mouse.move("Spaces:")
     assert False
 
 
@@ -801,29 +801,29 @@ def test_skills():
     )
     query = query_msg[0]["content"]
     # skills_path = '/01OS/server/skills'
-    # interpreter.computer.skills.path = skills_path
-    print(interpreter.computer.skills.path)
-    if os.path.exists(interpreter.computer.skills.path):
-        for file in os.listdir(interpreter.computer.skills.path):
-            os.remove(os.path.join(interpreter.computer.skills.path, file))
-    print("Path: ", interpreter.computer.skills.path)
+    # interpreter.toolbox.skills.path = skills_path
+    print(interpreter.toolbox.skills.path)
+    if os.path.exists(interpreter.toolbox.skills.path):
+        for file in os.listdir(interpreter.toolbox.skills.path):
+            os.remove(os.path.join(interpreter.toolbox.skills.path, file))
+    print("Path: ", interpreter.toolbox.skills.path)
     print("Files in the path: ")
-    interpreter.computer.run("python", "def testing_skilsl():\n    print('hi')")
-    for file in os.listdir(interpreter.computer.skills.path):
+    interpreter.toolbox.run("python", "def testing_skilsl():\n    print('hi')")
+    for file in os.listdir(interpreter.toolbox.skills.path):
         print(file)
-    interpreter.computer.run("python", "def testing_skill():\n    print('hi')")
+    interpreter.toolbox.run("python", "def testing_skill():\n    print('hi')")
     print("Files in the path: ")
-    for file in os.listdir(interpreter.computer.skills.path):
+    for file in os.listdir(interpreter.toolbox.skills.path):
         print(file)
 
     try:
-        skills = interpreter.computer.skills.search(query)
+        skills = interpreter.toolbox.skills.search(query)
     except ImportError:
         print("Attempting to install unstructured[all-docs]")
         import subprocess
 
         subprocess.run(["pip", "install", "unstructured[all-docs]"], check=True)
-        skills = interpreter.computer.skills.search(query)
+        skills = interpreter.toolbox.skills.search(query)
 
     lowercase_skills = [skill[0].lower() + skill[1:] for skill in skills]
     output = "\\n".join(lowercase_skills)
@@ -832,9 +832,9 @@ def test_skills():
 
 @pytest.mark.skip(reason="Local only")
 def test_browser():
-    interpreter.computer.api_base = "http://0.0.0.0:80/v0"
+    interpreter.toolbox.api_base = "http://0.0.0.0:80/v0"
     print(
-        interpreter.computer.browser.search("When's the next Dune showing in Seattle?")
+        interpreter.toolbox.browser.search("When's the next Dune showing in Seattle?")
     )
     assert False
 
@@ -843,7 +843,7 @@ def test_browser():
 def test_display_api():
     start = time.time()
 
-    # interpreter.computer.display.find_text("submit")
+    # interpreter.toolbox.display.find_text("submit")
     # assert False
 
     def say(icon_name):
@@ -895,22 +895,22 @@ def test_display_api():
     for icon in icons:
         if icon.endswith("icon icon"):
             say("click the " + icon)
-            interpreter.computer.mouse.move(icon=icon.replace("icon icon", "icon"))
+            interpreter.toolbox.mouse.move(icon=icon.replace("icon icon", "icon"))
         elif icon.endswith("icon"):
             say("click the " + icon)
-            interpreter.computer.mouse.move(icon=icon.replace(" icon", ""))
+            interpreter.toolbox.mouse.move(icon=icon.replace(" icon", ""))
         elif icon.endswith("text"):
             say("click " + icon)
-            interpreter.computer.mouse.move(icon.replace(" text", ""))
+            interpreter.toolbox.mouse.move(icon.replace(" text", ""))
         else:
             say("click " + icon)
-            interpreter.computer.mouse.move(icon=icon)
+            interpreter.toolbox.mouse.move(icon=icon)
 
-    # interpreter.computer.mouse.move(icon="caution")
-    # interpreter.computer.mouse.move(icon="bluetooth")
-    # interpreter.computer.mouse.move(icon="gear")
-    # interpreter.computer.mouse.move(icon="play button")
-    # interpreter.computer.mouse.move(icon="code icon with '>_' in it")
+    # interpreter.toolbox.mouse.move(icon="caution")
+    # interpreter.toolbox.mouse.move(icon="bluetooth")
+    # interpreter.toolbox.mouse.move(icon="gear")
+    # interpreter.toolbox.mouse.move(icon="play button")
+    # interpreter.toolbox.mouse.move(icon="code icon with '>_' in it")
     print(time.time() - start)
     assert False
 
@@ -987,7 +987,7 @@ def test_async():
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_find_text_api():
     start = time.time()
-    interpreter.computer.mouse.move(
+    interpreter.toolbox.mouse.move(
         "Left Arrow Left Arrow and a bunch of hallucinated text? or was it..."
     )
     # Left Arrow Left Arrow
@@ -1006,20 +1006,20 @@ def test_getActiveWindow():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_notify():
-    interpreter.computer.os.notify("Hello")
+    interpreter.toolbox.os.notify("Hello")
     assert False
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_get_text():
-    print(interpreter.computer.display.get_text_as_list_of_lists())
+    print(interpreter.toolbox.display.get_text_as_list_of_lists())
     assert False
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_keyboard():
     time.sleep(2)
-    interpreter.computer.keyboard.write("Hello " * 50 + "\n" + "hi" * 50)
+    interpreter.toolbox.keyboard.write("Hello " * 50 + "\n" + "hi" * 50)
     assert False
 
 
@@ -1027,16 +1027,16 @@ def test_keyboard():
 def test_get_selected_text():
     print("Getting selected text")
     time.sleep(1)
-    text = interpreter.computer.os.get_selected_text()
+    text = interpreter.toolbox.os.get_selected_text()
     print(text)
     assert False
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_display_verbose():
-    interpreter.computer.verbose = True
+    interpreter.toolbox.verbose = True
     interpreter.verbose = True
-    interpreter.computer.mouse.move(x=500, y=500)
+    interpreter.toolbox.mouse.move(x=500, y=500)
     assert False
 
 
@@ -1080,7 +1080,7 @@ def teardown_function():
 
 @pytest.mark.skip(reason="Mac only + no way to fail test")
 def test_spotlight():
-    interpreter.computer.keyboard.hotkey("command", "space")
+    interpreter.toolbox.keyboard.hotkey("command", "space")
 
 
 @pytest.mark.integration
@@ -1207,7 +1207,7 @@ with open('numbers.txt', 'a+') as f:
         f.seek(0, os.SEEK_END)
         """
     print("starting to code")
-    for chunk in interpreter.computer.run("python", code, stream=True, display=True):
+    for chunk in interpreter.toolbox.run("python", code, stream=True, display=True):
         print(chunk)
         if "format" in chunk and chunk["format"] == "output":
             if "adding 3 to file" in chunk["content"]:

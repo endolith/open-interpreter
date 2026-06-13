@@ -54,7 +54,7 @@ class PythonE2B:
 
 
 # (Tip: Do this before adding/removing languages, otherwise OI might retain the state of previous languages:)
-interpreter.computer.terminate()
+interpreter.terminal.terminate()
 
 # Give Open Interpreter its languages. This will only let it run PythonE2B:
-interpreter.computer.languages = [PythonE2B]
+interpreter.terminal.languages = [PythonE2B]

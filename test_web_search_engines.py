@@ -17,7 +17,7 @@ Note: You need API keys for the backends you want to test:
 
 import sys
 from unittest.mock import Mock
-from interpreter.core.computer.computer import Computer
+from interpreter.core.toolbox.toolbox import Toolbox
 
 
 def test_serpapi_engines():
@@ -27,7 +27,7 @@ def test_serpapi_engines():
     print("="*80)
 
     mock_interpreter = Mock()
-    computer = Computer(mock_interpreter)
+    toolbox = Toolbox(mock_interpreter)
 
     # Test cases: (query, engine, description)
     test_cases = [
@@ -46,7 +46,7 @@ def test_serpapi_engines():
         print(f"Query: '{query}', Engine: '{engine}'")
         print(f"{'-'*80}")
 
-        result = computer.web.search(query, backend="serpapi", engine=engine, num=3)
+        result = toolbox.web.search(query, backend="serpapi", engine=engine, num=3)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -64,7 +64,7 @@ def test_serper_types():
     print("="*80)
 
     mock_interpreter = Mock()
-    computer = Computer(mock_interpreter)
+    toolbox = Toolbox(mock_interpreter)
 
     # Test cases: (query, type, description)
     test_cases = [
@@ -81,7 +81,7 @@ def test_serper_types():
         print(f"Query: '{query}', Type: '{search_type}'")
         print(f"{'-'*80}")
 
-        result = computer.web.search(query, backend="serper", type=search_type, num=3)
+        result = toolbox.web.search(query, backend="serper", type=search_type, num=3)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -99,7 +99,7 @@ def test_brave_options():
     print("="*80)
 
     mock_interpreter = Mock()
-    computer = Computer(mock_interpreter)
+    toolbox = Toolbox(mock_interpreter)
 
     # Test cases: (query, options, description)
     test_cases = [
@@ -114,7 +114,7 @@ def test_brave_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = computer.web.search(query, backend="brave", **options)
+        result = toolbox.web.search(query, backend="brave", **options)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -132,7 +132,7 @@ def test_tavily_options():
     print("="*80)
 
     mock_interpreter = Mock()
-    computer = Computer(mock_interpreter)
+    toolbox = Toolbox(mock_interpreter)
 
     # Test cases: (query, options, description)
     test_cases = [
@@ -147,7 +147,7 @@ def test_tavily_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = computer.web.search(query, backend="tavily", **options)
+        result = toolbox.web.search(query, backend="tavily", **options)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")
@@ -165,7 +165,7 @@ def test_linkup_options():
     print("="*80)
 
     mock_interpreter = Mock()
-    computer = Computer(mock_interpreter)
+    toolbox = Toolbox(mock_interpreter)
 
     # Test cases: (query, options, description)
     test_cases = [
@@ -179,7 +179,7 @@ def test_linkup_options():
         print(f"Query: '{query}', Options: {options}")
         print(f"{'-'*80}")
 
-        result = computer.web.search(query, backend="linkup", **options)
+        result = toolbox.web.search(query, backend="linkup", **options)
 
         if "error" in result:
             print(f"❌ Error: {result['error']}")

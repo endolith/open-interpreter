@@ -13,7 +13,8 @@ from ..terminal_interface.terminal_interface import terminal_interface
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from ..terminal_interface.utils.local_storage_path import get_storage_path
 from ..terminal_interface.utils.oi_dir import oi_dir
-from .computer.computer import Computer
+from .toolbox.toolbox import Toolbox
+from .terminal.terminal import Terminal
 from .default_system_message import default_system_message
 from .llm.llm import Llm
 from .respond import respond
@@ -115,16 +116,22 @@ class OpenInterpreter:
         self.os = os
         self.speak_messages = speak_messages
 
-        # Computer
-        self.computer = Computer(self) if computer is None else computer
+        # Terminal (code execution system)
+        self.terminal = Terminal(self)
+
+        # Toolbox (convenience functions for AI agent)
+        self.toolbox = Toolbox(self) if computer is None else computer
         self.sync_computer = sync_computer
-        self.computer.import_computer_api = import_computer_api
+        self.toolbox.import_toolbox_api = import_computer_api
+
+        # Backward compatibility: allow profiles to use interpreter.computer
+        self.computer = self.toolbox
 
         # Skills
         if skills_path:
-            self.computer.skills.path = skills_path
+            self.toolbox.skills.path = skills_path
 
-        self.computer.import_skills = import_skills
+        self.toolbox.import_skills = import_skills
 
         # LLM
         self.llm = Llm(self) if llm is None else llm
@@ -426,7 +433,7 @@ class OpenInterpreter:
                     self.messages[-1]["content"] = truncate_output(
                         self.messages[-1]["content"],
                         self.max_output,
-                        add_scrollbars=self.computer.import_computer_api,  # I consider scrollbars to be a computer API thing
+                        add_scrollbars=self.toolbox.import_toolbox_api,  # I consider scrollbars to be a toolbox API thing
                     )
 
             # Yield a final end flag
@@ -440,8 +447,8 @@ class OpenInterpreter:
             raise
 
     def reset(self):
-        self.computer.terminate()  # Terminates all languages
-        self.computer._has_imported_computer_api = False  # Flag reset
+        self.terminal.terminate()  # Terminates all languages
+        self.toolbox._has_imported_toolbox_api = False  # Flag reset
         self.messages = []
         self.last_messages_count = 0
 

@@ -444,7 +444,7 @@ Use """ to write multi-line messages.
         args.profile = "local.py"
         if args.vision:
             # This is local vision, set up moondream!
-            interpreter.computer.vision.load()
+            interpreter.toolbox.vision.load()
         if args.os:
             args.profile = "local-os.py"
 
@@ -612,7 +612,7 @@ def main():
         start_terminal_interface(interpreter)
     except KeyboardInterrupt:
         try:
-            interpreter.computer.terminate()
+            interpreter.terminal.terminate()
 
             if not interpreter.offline and not interpreter.disable_telemetry:
                 feedback = None
@@ -658,4 +658,4 @@ def main():
         except KeyboardInterrupt:
             pass
     finally:
-        interpreter.computer.terminate()
+        interpreter.terminal.terminate()
