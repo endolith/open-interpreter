@@ -7,7 +7,7 @@ interpreter.llm.supports_vision = True
 
 interpreter.llm.model = "gpt-4o"
 
-interpreter.computer.import_computer_api = True
+interpreter.toolbox.import_toolbox_api = True
 
 interpreter.llm.supports_functions = True
 interpreter.llm.context_window = 110000
@@ -30,59 +30,59 @@ Manually summarize text.
 
 Do not try to write code that attempts the entire task at once, and verify at each step whether or not you're on track.
 
-# Computer
+# Toolbox
 
-You may use the `computer` Python module to complete tasks:
+You may use the `toolbox` Python module to complete tasks:
 
 ```python
-computer.browser.search(query) # Silently searches Google for the query, returns result. The user's browser is unaffected. (does not open a browser!)
-# Note: There are NO other browser functions — use regular `webbrowser` and `computer.display.view()` commands to view/control a real browser.
+toolbox.browser.search(query) # Silently searches Google for the query, returns result. The user's browser is unaffected. (does not open a browser!)
+# Note: There are NO other browser functions — use regular `webbrowser` and `toolbox.display.view()` commands to view/control a real browser.
 
-computer.display.view() # Shows you what's on the screen (primary display by default), returns a `pil_image` `in case you need it (rarely). To get a specific display, use the parameter screen=DISPLAY_NUMBER (0 for primary monitor 1 and above for secondary monitors). **You almost always want to do this first!**
-# NOTE: YOU MUST NEVER RUN image.show() AFTER computer.display.view. IT WILL AUTOMATICALLY SHOW YOU THE IMAGE. DO NOT RUN image.show().
+toolbox.display.view() # Shows you what's on the screen (primary display by default), returns a `pil_image` `in case you need it (rarely). To get a specific display, use the parameter screen=DISPLAY_NUMBER (0 for primary monitor 1 and above for secondary monitors). **You almost always want to do this first!**
+# NOTE: YOU MUST NEVER RUN image.show() AFTER toolbox.display.view. IT WILL AUTOMATICALLY SHOW YOU THE IMAGE. DO NOT RUN image.show().
 
-computer.keyboard.hotkey(" ", "command") # Opens spotlight (very useful)
-computer.keyboard.write("hello")
+toolbox.keyboard.hotkey(" ", "command") # Opens spotlight (very useful)
+toolbox.keyboard.write("hello")
 
 # Use this to click text:
-computer.mouse.click("text onscreen") # This clicks on the UI element with that text. Use this **frequently** and get creative! To click a video, you could pass the *timestamp* (which is usually written on the thumbnail) into this.
+toolbox.mouse.click("text onscreen") # This clicks on the UI element with that text. Use this **frequently** and get creative! To click a video, you could pass the *timestamp* (which is usually written on the thumbnail) into this.
 # Use this to click an icon, button, or other symbol:
-computer.mouse.click(icon="gear icon") # Clicks the icon with that description. Use this very often.
+toolbox.mouse.click(icon="gear icon") # Clicks the icon with that description. Use this very often.
 
-computer.mouse.move("open recent >") # This moves the mouse over the UI element with that text. Many dropdowns will disappear if you click them. You have to hover over items to reveal more.
-computer.mouse.click(x=500, y=500) # Use this very, very rarely. It's highly inaccurate
+toolbox.mouse.move("open recent >") # This moves the mouse over the UI element with that text. Many dropdowns will disappear if you click them. You have to hover over items to reveal more.
+toolbox.mouse.click(x=500, y=500) # Use this very, very rarely. It's highly inaccurate
 
-computer.mouse.scroll(-10) # Scrolls down. If you don't find some text on screen that you expected to be there, you probably want to do this
-x, y = computer.display.center() # Get your bearings
+toolbox.mouse.scroll(-10) # Scrolls down. If you don't find some text on screen that you expected to be there, you probably want to do this
+x, y = toolbox.display.center() # Get your bearings
 
-computer.clipboard.view() # Returns contents of clipboard
-computer.os.get_selected_text() # Use frequently. If editing text, the user often wants this
+toolbox.clipboard.view() # Returns contents of clipboard
+toolbox.os.get_selected_text() # Use frequently. If editing text, the user often wants this
 
 {{
 import platform
 if platform.system() == 'Darwin':
         print('''
-computer.browser.search(query) # Google search results will be returned from this function as a string
-computer.files.edit(path_to_file, original_text, replacement_text) # Edit a file
-computer.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), end_date=datetime.datetime.now() + datetime.timedelta(hours=1), notes="Note", location="") # Creates a calendar event
-computer.calendar.get_events(start_date=datetime.date.today(), end_date=None) # Get events between dates. If end_date is None, only gets events for start_date
-computer.calendar.delete_event(event_title="Meeting", start_date=datetime.datetime) # Delete a specific event with a matching title and start date, you may need to get use get_events() to find the specific event object first
-computer.contacts.get_phone_number("John Doe")
-computer.contacts.get_email_address("John Doe")
-computer.mail.send("john@email.com", "Meeting Reminder", "Reminder that our meeting is at 3pm today.", ["path/to/attachment.pdf", "path/to/attachment2.pdf"]) # Send an email with a optional attachments
-computer.mail.get(4, unread=True) # Returns the {number} of unread emails, or all emails if False is passed
-computer.mail.unread_count() # Returns the number of unread emails
-computer.sms.send("555-123-4567", "Hello from the computer!") # Send a text message. MUST be a phone number, so use computer.contacts.get_phone_number frequently here
+toolbox.browser.search(query) # Google search results will be returned from this function as a string
+toolbox.files.edit(path_to_file, original_text, replacement_text) # Edit a file
+toolbox.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), end_date=datetime.datetime.now() + datetime.timedelta(hours=1), notes="Note", location="") # Creates a calendar event
+toolbox.calendar.get_events(start_date=datetime.date.today(), end_date=None) # Get events between dates. If end_date is None, only gets events for start_date
+toolbox.calendar.delete_event(event_title="Meeting", start_date=datetime.datetime) # Delete a specific event with a matching title and start date, you may need to get use get_events() to find the specific event object first
+toolbox.contacts.get_phone_number("John Doe")
+toolbox.contacts.get_email_address("John Doe")
+toolbox.mail.send("john@email.com", "Meeting Reminder", "Reminder that our meeting is at 3pm today.", ["path/to/attachment.pdf", "path/to/attachment2.pdf"]) # Send an email with a optional attachments
+toolbox.mail.get(4, unread=True) # Returns the {number} of unread emails, or all emails if False is passed
+toolbox.mail.unread_count() # Returns the number of unread emails
+toolbox.sms.send("555-123-4567", "Hello from the toolbox!") # Send a text message. MUST be a phone number, so use toolbox.contacts.get_phone_number frequently here
 ''')
 }}
 
 ```
 
-For rare and complex mouse actions, consider using computer vision libraries on the `computer.display.view()` `pil_image` to produce a list of coordinates for the mouse to move/drag to.
+For rare and complex mouse actions, consider using computer vision libraries on the `toolbox.display.view()` `pil_image` to produce a list of coordinates for the mouse to move/drag to.
 
 If the user highlighted text in an editor, then asked you to modify it, they probably want you to `keyboard.write` over their version of the text.
 
-Tasks are 100% computer-based. DO NOT simply write long messages to the user to complete tasks. You MUST put your text back into the program they're using to deliver your text!
+Tasks are 100% toolbox-based. DO NOT simply write long messages to the user to complete tasks. You MUST put your text back into the program they're using to deliver your text!
 
 Clicking text is the most reliable way to use the mouse— for example, clicking a URL's text you see in the URL bar, or some textarea's placeholder text (like "Search" to get into a search bar).
 
@@ -98,7 +98,7 @@ Try multiple methods before saying the task is impossible. **You can do it!**
 
 # Critical Routine Procedure for Multi-Step Tasks
 
-Include `computer.display.view()` after a 2 second delay at the end of _every_ code block to verify your progress, then answer these questions in extreme detail:
+Include `toolbox.display.view()` after a 2 second delay at the end of _every_ code block to verify your progress, then answer these questions in extreme detail:
 
 1. Generally, what is happening on-screen?
 2. What is the active app?
@@ -143,7 +143,7 @@ try:
 except:
     # Non blocking
     pass
-    
+
 }}
 
 """.strip()
@@ -151,7 +151,7 @@ except:
 # Check if required packages are installed
 
 # THERE IS AN INCONSISTENCY HERE.
-# We should be testing if they import WITHIN OI's computer, not here.
+# We should be testing if they import WITHIN OI's toolbox, not here.
 
 packages = ["cv2", "plyer", "pyautogui", "pyperclip", "pywinctl"]
 missing_packages = []
@@ -183,7 +183,7 @@ if missing_packages:
             else:
                 command = f"{pip_combo[0]} install open-interpreter[os]"
 
-            interpreter.computer.run("shell", command, display=True)
+            interpreter.toolbox.run("shell", command, display=True)
 
             got_em = True
             for package in missing_packages:
@@ -235,7 +235,7 @@ if not interpreter.auto_run:
 
 # # FOR TESTING ONLY
 # # Install Open Interpreter from GitHub
-# for chunk in interpreter.computer.run(
+# for chunk in interpreter.toolbox.run(
 #     "shell",
 #     "pip install git+https://github.com/OpenInterpreter/open-interpreter.git",
 # ):

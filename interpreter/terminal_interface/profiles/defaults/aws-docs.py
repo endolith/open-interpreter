@@ -6,7 +6,7 @@ This is an Open Interpreter profile. It is specialized for searching AWS documen
 from interpreter import interpreter
 
 interpreter.llm.model = "claude-sonnet-4-6"
-interpreter.computer.import_computer_api = True
+interpreter.toolbox.import_toolbox_api = True
 interpreter.llm.supports_functions = True
 interpreter.llm.supports_vision = True
 interpreter.llm.context_window = 100000
@@ -61,11 +61,11 @@ def search_aws_docs(query):
 """
 
 
-interpreter.computer.run("python", custom_tool)
+interpreter.toolbox.run("python", custom_tool)
 
 interpreter.custom_instructions = f"""
-You have access to a special function imported inside your python environment, to be executed in python, called `search_aws_docs(query)` which lets you search the AWS docs. 
-Use it frequently to ground your usage of AWS products. 
+You have access to a special function imported inside your python environment, to be executed in python, called `search_aws_docs(query)` which lets you search the AWS docs.
+Use it frequently to ground your usage of AWS products.
 Use it often!
 
 If the user wants you to open the docs, open their browser to the URL: {AWS_DOCS_SEARCH_URL}

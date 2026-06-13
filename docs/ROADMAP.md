@@ -20,10 +20,10 @@
   - [ ] Also add `interpreter.await()` which waits for `interpreter.running` (?) to = False, and `interpreter.result()` which returns the last assistant messages content.
 - [ ] Allow for limited functions (`interpreter.functions`) using regex
   - [ ] If `interpreter.functions != []`:
-    - [ ] set `interpreter.computer.languages` to only use Python
+    - [ ] set `interpreter.terminal.languages` to only use Python
     - [ ] Use regex to ensure the output of code blocks conforms to just using those functions + other python basics
-- [ ] (Maybe) Allow for a custom embedding function (`interpreter.embed` or `computer.ai.embed`) which will let us do semantic search
-- [ ] (Maybe) if a git is detected, switch to a mode that's good for developers, like showing nested file structure in dynamic system message, searching for relevant functions (use computer.files.search)
+- [ ] (Maybe) Allow for a custom embedding function (`interpreter.embed` or `toolbox.ai.embed`) which will let us do semantic search
+- [ ] (Maybe) if a git is detected, switch to a mode that's good for developers, like showing nested file structure in dynamic system message, searching for relevant functions (use toolbox.files.search)
 - [x] Allow for integrations somehow (you can replace interpreter.llm.completions with a wrapped completions endpoint for any kind of logging. need to document this tho)
   - [ ] Document this^
 - [ ] Expand "safe mode" to have proper, simple Docker support, or maybe Cosmopolitan LibC
@@ -69,9 +69,9 @@ This roadmap gets pretty rough from here. More like working notes.
 
 # Working Notes
 
-## \* Roughly, how to build `computer.browser`:
+## \* Roughly, how to build `toolbox.browser`:
 
-First I think we should have a part, like `computer.browser.ask(query)` which just hits up [perplexity](https://www.perplexity.ai/) for fast answers to questions.
+First I think we should have a part, like `toolbox.browser.ask(query)` which just hits up [perplexity](https://www.perplexity.ai/) for fast answers to questions.
 
 Then we want these sorts of things:
 

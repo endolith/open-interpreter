@@ -736,64 +736,64 @@ The `computer` object in `interpreter.computer` is a virtual computer that the A
 
 ### Offline
 
-Running the `computer` in offline mode will disable some online features, like the hosted [Computer API](https://api.openinterpreter.com/). Inherits from `interpreter.offline`.
+Running the `toolbox` in offline mode will disable some online features, like the hosted [Toolbox API](https://api.openinterpreter.com/). Inherits from `interpreter.offline`.
 
 <CodeGroup>
 
 ```python Python
-interpreter.computer.offline = True
+interpreter.toolbox.offline = True
 ```
 
 ```yaml Profile
-computer.offline: True
+toolbox.offline: True
 ```
 
 </CodeGroup>
 
 ### Verbose
 
-This is primarily used for debugging `interpreter.computer`. Inherits from `interpreter.verbose`.
+This is primarily used for debugging `interpreter.toolbox`. Inherits from `interpreter.verbose`.
 
 <CodeGroup>
 
 ```python Python
-interpreter.computer.verbose = True
+interpreter.toolbox.verbose = True
 ```
 
 ```yaml Profile
-computer.verbose: True
+toolbox.verbose: True
 ```
 
 </CodeGroup>
 
 ### Emit Images
 
-The `emit_images` attribute in `interpreter.computer` controls whether the computer should emit images or not. This is inherited from `interpreter.llm.supports_vision`.
+The `emit_images` attribute in `interpreter.toolbox` controls whether the toolbox should emit images or not. This is inherited from `interpreter.llm.supports_vision`.
 
-This is used for multimodel vs. text only models. Running `computer.display.view()` will return an actual screenshot for multimodal models if `emit_images` is True. If it's False, `computer.display.view()` will return all the text on the screen.
+This is used for multimodel vs. text only models. Running `toolbox.display.view()` will return an actual screenshot for multimodal models if `emit_images` is True. If it's False, `toolbox.display.view()` will return all the text on the screen.
 
-Many other functions of the computer can produce image/text outputs, and this parameter controls that.
+Many other functions of the toolbox can produce image/text outputs, and this parameter controls that.
 
 <CodeGroup>
 
 ```python Python
-interpreter.computer.emit_images = True
+interpreter.toolbox.emit_images = True
 ```
 
 ```yaml Profile
-computer.emit_images: True
+toolbox.emit_images: True
 ```
 
 </CodeGroup>
 
-### Import Computer API
+### Import Toolbox API
 
-Include the computer API in the system message. The default is False and won't import the computer API automatically
+Include the toolbox API in the system message. The default is False and won't import the toolbox API automatically
 
 <CodeGroup>
 
 ```python Python
-interpreter.computer.import_computer_api = True
+interpreter.toolbox.import_toolbox_api = True
 ```
 
 ```yaml Profile

@@ -1,0 +1,348 @@
+import inspect
+import json
+
+from .ai.ai import Ai
+from .ai2 import Ai2
+from .browser.browser import Browser
+from .calendar.calendar import Calendar
+from .clipboard.clipboard import Clipboard
+from .contacts.contacts import Contacts
+from .display.display import Display
+from .docs.docs import Docs
+from .files.files import Files
+from .keyboard.keyboard import Keyboard
+from .mail.mail import Mail
+from .mouse.mouse import Mouse
+from .os.os import Os
+from .web.web import Web
+from .skills.skills import Skills
+from .sms.sms import SMS
+from .vision.vision import Vision
+
+
+class Toolbox:
+    def __init__(self, interpreter):
+        self.interpreter = interpreter
+
+        self.offline = False
+        self.verbose = False
+        self.debug = False
+
+        self.mouse = Mouse(self)
+        self.keyboard = Keyboard(self)
+        self.display = Display(self)
+        self.clipboard = Clipboard(self)
+        self.mail = Mail(self)
+        self.sms = SMS(self)
+        self.calendar = Calendar(self)
+        self.contacts = Contacts(self)
+        self.browser = Browser(self)
+        self.os = Os(self)
+        self.web = Web(self)
+        self.vision = Vision(self)
+        self.skills = Skills(self)
+        self.docs = Docs(self)
+        self.ai = Ai(self)
+        self.ai2 = Ai2(self)
+        self.files = Files(self)
+
+        self.emit_images = True
+        self.api_base = "https://api.openinterpreter.com/v0"
+        self.save_skills = True
+
+        self.import_toolbox_api = False  # Defaults to false
+        self._has_imported_toolbox_api = False  # Because we only want to do this once
+
+        self.import_skills = False
+        self._has_imported_skills = False
+        self.max_output = (
+            self.interpreter.max_output
+        )  # Should mirror interpreter.max_output
+
+        toolbox_tools = "\n".join(
+            self._get_all_toolbox_tools_signature_and_description()
+        )
+
+        self.system_message = f"""
+
+## The `toolbox` module API
+
+A python `toolbox` module is ALREADY IMPORTED, and can be used for many tasks:
+
+```python
+{toolbox_tools}
+```
+
+Do NOT `import toolbox`, or any of its sub-modules. They are already imported.
+
+Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
+
+    """.strip()
+
+    # Backward compatibility: allow profiles to use import_computer_api
+    @property
+    def import_computer_api(self):
+        return self.import_toolbox_api
+
+    @import_computer_api.setter
+    def import_computer_api(self, value):
+        self.import_toolbox_api = value
+
+    # Shortcut for interpreter.terminal.languages
+    @property
+    def languages(self):
+        return self.interpreter.terminal.languages
+
+    @languages.setter
+    def languages(self, value):
+        self.interpreter.terminal.languages = value
+
+    def _get_all_toolbox_tools_list(self):
+        return [
+            self.mouse,
+            self.keyboard,
+            self.display,
+            self.clipboard,
+            self.mail,
+            self.sms,
+            self.calendar,
+            self.contacts,
+            self.browser,
+            self.os,
+            self.web,
+            self.vision,
+            self.skills,
+            self.docs,
+            self.ai,
+            self.ai2,
+            self.files,
+        ]
+
+    def _get_all_toolbox_tools_signature_and_description(self):
+        """
+        This function returns a list of all the toolbox tools that are available with their signature and description from the function docstrings.
+        for example:
+        toolbox.browser.search(query) # Searches the web for the specified query and returns the results.
+        toolbox.calendar.create_event(title: str, start_date: datetime.datetime, end_date: datetime.datetime, location: str = "", notes: str = "", calendar: str = None) -> str # Creates a new calendar event in the default calendar with the given parameters using AppleScript.
+        """
+        tools = self._get_all_toolbox_tools_list()
+        tools_signature_and_description = []
+        for tool in tools:
+            tool_info = self._extract_tool_info(tool)
+
+            # Add module docstring as section header if available
+            if tool_info.get("module_doc"):
+                tools_signature_and_description.append(f"\n# {tool.__class__.__name__}: {tool_info['module_doc']}")
+
+            for method in tool_info["methods"]:
+                # Format as tool_signature # tool_description (first line only)
+                formatted_info = f"{method['signature']} # {method['description']}"
+                tools_signature_and_description.append(formatted_info)
+        return tools_signature_and_description
+
+    def _extract_tool_info(self, tool):
+        """
+        Helper function to extract the signature and description of a tool's methods.
+        """
+        tool_info = {"signature": tool.__class__.__name__, "methods": []}
+
+        # Extract module docstring (first line only)
+        if tool.__class__.__module__:
+            try:
+                import sys
+                module = sys.modules.get(tool.__class__.__module__)
+                if module and module.__doc__:
+                    # Get first line of module docstring
+                    first_line = module.__doc__.strip().split('\n')[0].strip()
+                    if first_line:
+                        tool_info["module_doc"] = first_line
+            except:
+                pass
+        if tool.__class__.__name__ == "Browser":
+            methods = []
+            for name in dir(tool):
+                if "driver" in name:
+                    continue  # Skip methods containing 'driver' in their name
+                attr = getattr(tool, name)
+                if (
+                    callable(attr)
+                    and not name.startswith("_")
+                    and not hasattr(attr, "__wrapped__")
+                    and not isinstance(attr, property)
+                ):
+                    # Construct the method signature manually
+                    param_str = ", ".join(
+                        param
+                        for param in attr.__code__.co_varnames[
+                            : attr.__code__.co_argcount
+                        ]
+                    )
+                    full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
+                    # Get the method description (first line only)
+                    method_description = self._get_first_line(attr.__doc__)
+                    # Get return format information if available
+                    return_format = self._extract_return_format(attr.__doc__)
+                    if return_format:
+                        method_description += f" Returns: {return_format}"
+                    # Append the method details
+                    tool_info["methods"].append(
+                        {
+                            "signature": full_signature,
+                            "description": method_description,
+                        }
+                    )
+            return tool_info
+
+        for name, method in inspect.getmembers(tool, predicate=inspect.ismethod):
+            # Check if the method should be ignored based on its decorator
+            if not name.startswith("_") and not hasattr(method, "__wrapped__"):
+                # Get the method signature
+                method_signature = inspect.signature(method)
+                # Construct the signature string without *args and **kwargs
+                param_str = ", ".join(
+                    f"{param.name}"
+                    if param.default == param.empty
+                    else f"{param.name}={param.default!r}"
+                    for param in method_signature.parameters.values()
+                    if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+                )
+                full_signature = (
+                    f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
+                )
+                # Get the method description (first line only)
+                method_description = self._get_first_line(method.__doc__)
+                # Get return format information if available
+                return_format = self._extract_return_format(method.__doc__)
+                if return_format:
+                    method_description += f" Returns: {return_format}"
+                # Append the method details
+                tool_info["methods"].append(
+                    {
+                        "signature": full_signature,
+                        "description": method_description,
+                    }
+                )
+
+        # ------------------------------------------------------------------
+        # Include read-only @property attributes (e.g., ai2.available_models)
+        # ------------------------------------------------------------------
+        for attr_name, attr_value in inspect.getmembers(tool.__class__):
+            if isinstance(attr_value, property) and not attr_name.startswith("_"):
+                full_signature = (
+                    f"toolbox.{tool.__class__.__name__.lower()}.{attr_name}"
+                )
+                prop_doc = self._get_first_line(attr_value.fget.__doc__)
+                # Get return format information if available
+                return_format = self._extract_return_format(attr_value.fget.__doc__)
+                if return_format:
+                    prop_doc += f" Returns: {return_format}"
+                tool_info["methods"].append(
+                    {
+                        "signature": full_signature,
+                        "description": prop_doc,
+                    }
+                )
+        return tool_info
+
+    def _get_first_line(self, docstring):
+        """Extract the first line of a docstring for concise documentation."""
+        if not docstring:
+            return ""
+        # Split on double newline (paragraph break) or single newline
+        first_line = docstring.strip().split('\n\n')[0].split('\n')[0].strip()
+        return first_line
+
+    def _extract_return_format(self, docstring):
+        """Extract return format information from docstring Returns: section."""
+        if not docstring:
+            return ""
+
+        # Look for "Returns:" section
+        lines = docstring.split('\n')
+        in_returns_section = False
+        return_lines = []
+        section_keywords = ['Example:', 'Examples:', 'Args:', 'Arguments:', 'Parameters:', 'Raises:', 'Note:', 'Notes:', 'See also:', 'See Also:']
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('Returns:'):
+                in_returns_section = True
+                # Get the content after "Returns:"
+                content = stripped[8:].strip()  # Remove "Returns:"
+                if content:
+                    return_lines.append(content)
+                continue
+
+            if in_returns_section:
+                # Stop at empty line if we already have content
+                if stripped == '':
+                    if return_lines:
+                        break
+                    continue
+                # Check if this is a new section
+                for keyword in section_keywords:
+                    if stripped.startswith(keyword):
+                        break
+                else:
+                    # Not a new section, continue collecting
+                    if stripped:
+                        return_lines.append(stripped)
+                        continue
+                # Found a new section, stop
+                break
+
+        if return_lines:
+            return ' '.join(return_lines).strip()
+        return ""
+
+    def run(self, *args, **kwargs):
+        """
+        Shortcut for interpreter.terminal.run
+        """
+        return self.interpreter.terminal.run(*args, **kwargs)
+
+    def exec(self, code):
+        """
+        Shortcut for interpreter.terminal.run("shell", code)
+        It has hallucinated this.
+        """
+        return self.interpreter.terminal.run("shell", code)
+
+    def stop(self):
+        """
+        Shortcut for interpreter.terminal.stop
+        """
+        return self.interpreter.terminal.stop()
+
+    def terminate(self):
+        """
+        Shortcut for interpreter.terminal.terminate
+        """
+        return self.interpreter.terminal.terminate()
+
+    def screenshot(self, *args, **kwargs):
+        """
+        Shortcut for toolbox.display.screenshot
+        """
+        return self.display.screenshot(*args, **kwargs)
+
+    def view(self, *args, **kwargs):
+        """
+        Shortcut for toolbox.display.screenshot
+        """
+        return self.display.screenshot(*args, **kwargs)
+
+    def to_dict(self):
+        def json_serializable(obj):
+            try:
+                json.dumps(obj)
+                return True
+            except:
+                return False
+
+        return {k: v for k, v in self.__dict__.items() if json_serializable(v)}
+
+    def load_dict(self, data_dict):
+        for key, value in data_dict.items():
+            if hasattr(self, key):
+                setattr(self, key, value)

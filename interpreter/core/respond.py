@@ -31,7 +31,7 @@ def respond(interpreter):
         system_message = interpreter.system_message
 
         # Add language-specific system messages
-        for language in interpreter.computer.terminal.languages:
+        for language in interpreter.terminal.languages:
             if hasattr(language, "system_message"):
                 system_message += "\n\n" + language.system_message
 
@@ -39,17 +39,17 @@ def respond(interpreter):
         if interpreter.custom_instructions:
             system_message += "\n\n## User's Custom Instructions\n\n" + interpreter.custom_instructions
 
-        # Add computer API system message
-        if interpreter.computer.import_computer_api:
-            if interpreter.computer.system_message not in system_message:
+        # Add toolbox API system message
+        if interpreter.toolbox.import_toolbox_api:
+            if interpreter.toolbox.system_message not in system_message:
                 system_message = (
-                    system_message + "\n\n" + interpreter.computer.system_message
+                    system_message + "\n\n" + interpreter.toolbox.system_message
                 )
 
-        # Storing the messages so they're accessible in the interpreter's computer
+        # Storing the messages so they're accessible in the interpreter's toolbox
         # no... this is a huge time sink.....
         # if interpreter.sync_computer:
-        #     output = interpreter.computer.run(
+        #     output = interpreter.toolbox.run(
         #         "python", f"messages={interpreter.messages}"
         #     )
 
@@ -365,7 +365,7 @@ def respond(interpreter):
                     continue
 
                 # Is this language enabled/supported?
-                if interpreter.computer.terminal.get_language(language) is None:
+                if interpreter.terminal.get_language(language) is None:
                     output = f"`{language}` disabled or not supported."
 
                     yield {
@@ -414,81 +414,81 @@ def respond(interpreter):
                     "content"
                 ]
 
-                # don't let it import computer — we handle that!
-                if interpreter.computer.import_computer_api and language == "python":
-                    code = code.replace("import computer\n", "pass\n")
+                # don't let it import toolbox — we handle that!
+                if interpreter.toolbox.import_toolbox_api and language == "python":
+                    code = code.replace("import toolbox\n", "pass\n")
                     code = re.sub(
-                        r"import computer\.(\w+) as (\w+)", r"\2 = computer.\1", code
+                        r"import toolbox\.(\w+) as (\w+)", r"\2 = toolbox.\1", code
                     )
                     code = re.sub(
-                        r"from computer import (.+)",
+                        r"from toolbox import (.+)",
                         lambda m: "\n".join(
-                            f"{x.strip()} = computer.{x.strip()}"
+                            f"{x.strip()} = toolbox.{x.strip()}"
                             for x in m.group(1).split(", ")
                         ),
                         code,
                     )
-                    code = re.sub(r"import computer\.\w+\n", "pass\n", code)
+                    code = re.sub(r"import toolbox\.\w+\n", "pass\n", code)
                     # If it does this it sees the screenshot twice (which is expected jupyter behavior)
                     if any(
                         code.strip().split("\n")[-1].startswith(text)
                         for text in [
-                            "computer.display.view",
-                            "computer.display.screenshot",
-                            "computer.view",
-                            "computer.screenshot",
+                            "toolbox.display.view",
+                            "toolbox.display.screenshot",
+                            "toolbox.view",
+                            "toolbox.screenshot",
                         ]
                     ):
                         code = code + "\npass"
 
                 # sync up some things (is this how we want to do this?)
-                interpreter.computer.verbose = interpreter.verbose
-                interpreter.computer.debug = interpreter.debug
-                interpreter.computer.emit_images = interpreter.llm.supports_vision
-                interpreter.computer.max_output = interpreter.max_output
+                interpreter.toolbox.verbose = interpreter.verbose
+                interpreter.toolbox.debug = interpreter.debug
+                interpreter.toolbox.emit_images = interpreter.llm.supports_vision
+                interpreter.toolbox.max_output = interpreter.max_output
 
-                # sync up the interpreter's computer with your computer
+                # sync up the interpreter's toolbox with your toolbox
                 try:
                     if interpreter.sync_computer and language == "python":
-                        computer_dict = interpreter.computer.to_dict()
-                        if "_hashes" in computer_dict:
-                            computer_dict.pop("_hashes")
-                        if "system_message" in computer_dict:
-                            computer_dict.pop("system_message")
-                        computer_json = json.dumps(computer_dict)
-                        sync_code = f"""import json\ncomputer.load_dict(json.loads('''{computer_json}'''))"""
-                        interpreter.computer.run("python", sync_code)
+                        toolbox_dict = interpreter.toolbox.to_dict()
+                        if "_hashes" in toolbox_dict:
+                            toolbox_dict.pop("_hashes")
+                        if "system_message" in toolbox_dict:
+                            toolbox_dict.pop("system_message")
+                        toolbox_json = json.dumps(toolbox_dict)
+                        sync_code = f"""import json\ntoolbox.load_dict(json.loads('''{toolbox_json}'''))"""
+                        interpreter.terminal.run("python", sync_code)
                 except Exception as e:
                     if interpreter.debug:
                         raise
                     print(str(e))
-                    print("Failed to sync iComputer with your Computer. Continuing...")
+                    print("Failed to sync iToolbox with your Toolbox. Continuing...")
 
                 ## ↓ CODE IS RUN HERE
 
-                for line in interpreter.computer.run(language, code, stream=True):
+                for line in interpreter.terminal.run(language, code, stream=True):
                     yield {"role": "computer", **line}
 
                 ## ↑ CODE IS RUN HERE
 
-                # sync up your computer with the interpreter's computer
+                # sync up your toolbox with the interpreter's toolbox
                 try:
                     if interpreter.sync_computer and language == "python":
-                        # sync up the interpreter's computer with your computer
-                        result = interpreter.computer.run(
+                        # sync up the interpreter's toolbox with your toolbox
+                        result = interpreter.terminal.run(
                             "python",
                             """
                             import json
-                            computer_dict = computer.to_dict()
-                            if '_hashes' in computer_dict:
-                                computer_dict.pop('_hashes')
-                            if "system_message" in computer_dict:
-                                computer_dict.pop("system_message")
-                            print(json.dumps(computer_dict))
+                            toolbox_dict = toolbox.to_dict()
+                            if '_hashes' in toolbox_dict:
+                                toolbox_dict.pop('_hashes')
+                            if "system_message" in toolbox_dict:
+                                toolbox_dict.pop("system_message")
+                            print(json.dumps(toolbox_dict))
                             """,
                         )
                         result = result[-1]["content"]
-                        interpreter.computer.load_dict(
+                        interpreter.toolbox.load_dict(
                             json.loads(result.strip('"').strip("'"))
                         )
                 except Exception as e:

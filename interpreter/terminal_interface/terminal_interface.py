@@ -362,7 +362,7 @@ def terminal_interface(interpreter, message):
                             )
 
                             # Display notification in OS mode
-                            interpreter.computer.os.notify(sanitized_message)
+                            interpreter.toolbox.os.notify(sanitized_message)
 
                             # Speak message aloud
                             if platform.system() == "Darwin" and interpreter.speak_messages:
@@ -390,8 +390,8 @@ def terminal_interface(interpreter, message):
                     if "content" in chunk:
                         active_block.code += chunk["content"]
 
-                # Computer can display visual types to user,
-                # Which sometimes creates more computer output (e.g. HTML errors, eventually)
+                # Toolbox can display visual types to user,
+                # Which sometimes creates more toolbox output (e.g. HTML errors, eventually)
                 if (
                     chunk["role"] == "computer"
                     and "content" in chunk
@@ -421,13 +421,13 @@ def terminal_interface(interpreter, message):
                         if any(
                             text in code
                             for text in [
-                                "computer.display.view",
-                                "computer.display.screenshot",
-                                "computer.view",
-                                "computer.screenshot",
+                                "toolbox.display.view",
+                                "toolbox.display.screenshot",
+                                "toolbox.view",
+                                "toolbox.screenshot",
                             ]
                         ):
-                            # If the last line of the code is a computer.view command, don't display it.
+                            # If the last line of the code is a toolbox.view command, don't display it.
                             # The LLM is going to see it, the user doesn't need to.
                             continue
 
@@ -489,7 +489,7 @@ def terminal_interface(interpreter, message):
                             if active_block.active_line < len(code_lines):
                                 action = code_lines[active_block.active_line].strip()
 
-                            if action.startswith("computer"):
+                            if action.startswith("toolbox") or action.startswith("computer"):
                                 description = None
 
                                 # Extract arguments from the action
@@ -508,22 +508,22 @@ def terminal_interface(interpreter, message):
                                 if any(
                                     action.startswith(text)
                                     for text in [
-                                        "computer.screenshot",
-                                        "computer.display.screenshot",
-                                        "computer.display.view",
-                                        "computer.view",
+                                        "toolbox.screenshot",
+                                        "toolbox.display.screenshot",
+                                        "toolbox.display.view",
+                                        "toolbox.view",
                                     ]
                                 ):
                                     description = "Viewing screen..."
-                                elif action == "computer.mouse.click()":
+                                elif action == "toolbox.mouse.click()":
                                     description = "Clicking..."
-                                elif action.startswith("computer.mouse.click("):
+                                elif action.startswith("toolbox.mouse.click("):
                                     if "icon=" in arguments:
                                         text_or_icon = "icon"
                                     else:
                                         text_or_icon = "text"
                                     description = f"Clicking {text_or_icon}..."
-                                elif action.startswith("computer.mouse.move("):
+                                elif action.startswith("toolbox.mouse.move("):
                                     if "icon=" in arguments:
                                         text_or_icon = "icon"
                                     else:
@@ -534,17 +534,17 @@ def terminal_interface(interpreter, message):
                                         description = f"Clicking {text_or_icon}..."
                                     else:
                                         description = f"Mousing over {text_or_icon}..."
-                                elif action.startswith("computer.keyboard.write("):
+                                elif action.startswith("toolbox.keyboard.write("):
                                     description = f"Typing {arguments}."
-                                elif action.startswith("computer.keyboard.hotkey("):
+                                elif action.startswith("toolbox.keyboard.hotkey("):
                                     description = f"Pressing {arguments}."
-                                elif action.startswith("computer.keyboard.press("):
+                                elif action.startswith("toolbox.keyboard.press("):
                                     description = f"Pressing {arguments}."
-                                elif action == "computer.os.get_selected_text()":
+                                elif action == "toolbox.os.get_selected_text()":
                                     description = f"Getting selected text."
 
                                 if description:
-                                    interpreter.computer.os.notify(description)
+                                    interpreter.toolbox.os.notify(description)
 
                     if "start" in chunk:
                         # We need to make a code block if we pushed out an HTML block first, which would have closed our code block.
