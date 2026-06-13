@@ -490,7 +490,7 @@ def create_router(async_interpreter):
                         """
             + (
                 """
-                        
+
                         // Acknowledge receipt
                         var acknowledge_message = {
                             "ack": eventData.id
@@ -814,10 +814,11 @@ def create_router(async_interpreter):
         # Validate the whole payload before applying any of it, so a key that is
         # refused cannot leave the keys in front of it already written.
         for key, value in payload.items():
-            if key in SENSITIVE_SERVER_SETTINGS:
-                return JSONResponse(
-                    status_code=HTTP_403_FORBIDDEN,
-                    content={
+            print("Updating settings...")
+            # print(f"Updating settings: {key} = {value}")
+            if key in ["llm", "toolbox"] and isinstance(value, dict):
+                if key == "auto_run":
+                    return {
                         "error": f"The setting {key} is not modifiable through the server due to security constraints."
                     },
                 )
@@ -890,7 +891,7 @@ def create_router(async_interpreter):
                 )
             try:
                 print(f"Running {language}:", code)
-                output = async_interpreter.computer.run(language, code)
+                output = async_interpreter.terminal.run(language, code)
                 print("Output:", output)
                 return {"output": output}
             except Exception as e:

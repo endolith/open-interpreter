@@ -26,7 +26,7 @@ def run_function_calling_llm(llm, request_params):
 
     # Add languages OI has access to
     function_schema["parameters"]["properties"]["language"]["enum"] = [
-        i.name.lower() for i in llm.interpreter.computer.terminal.languages
+        i.name.lower() for i in llm.interpreter.terminal.languages
     ]
     request_params["functions"] = [function_schema]
 

@@ -1,5 +1,5 @@
 ---
-title: Computer API
+title: Toolbox API
 ---
 
 The following functions are designed for language models to use in Open Interpreter, currently only supported in [OS Mode](/guides/os-mode/).
@@ -11,7 +11,7 @@ Takes a screenshot of the primary display.
 
 
 ```python
-interpreter.computer.display.view()
+interpreter.toolbox.display.view()
 ```
 
 
@@ -23,7 +23,7 @@ Gets the x, y value of the center of the screen.
 
 
 ```python
-x, y = interpreter.computer.display.center()
+x, y = interpreter.toolbox.display.center()
 ```
 
 
@@ -35,7 +35,7 @@ Performs a hotkey on the computer
 
 
 ```python
-interpreter.computer.keyboard.hotkey(" ", "command")
+interpreter.toolbox.keyboard.hotkey(" ", "command")
 ```
 
 
@@ -47,7 +47,7 @@ Writes the text into the currently focused window.
 
 
 ```python
-interpreter.computer.keyboard.write("hello")
+interpreter.toolbox.keyboard.write("hello")
 ```
 
 
@@ -60,13 +60,13 @@ Clicks on the specified coordinates, or an icon, or text. If text is specified, 
 
 ```python
 # Click on coordinates
-interpreter.computer.mouse.click(x=100, y=100)
+interpreter.toolbox.mouse.click(x=100, y=100)
 
 # Click on text on the screen
-interpreter.computer.mouse.click("Onscreen Text")
+interpreter.toolbox.mouse.click("Onscreen Text")
 
 # Click on a gear icon
-interpreter.computer.mouse.click(icon="gear icon")
+interpreter.toolbox.mouse.click(icon="gear icon")
 ```
 
 
@@ -79,13 +79,13 @@ Moves to the specified coordinates, or an icon, or text. If text is specified, O
 
 ```python
 # Click on coordinates
-interpreter.computer.mouse.move(x=100, y=100)
+interpreter.toolbox.mouse.move(x=100, y=100)
 
 # Click on text on the screen
-interpreter.computer.mouse.move("Onscreen Text")
+interpreter.toolbox.mouse.move("Onscreen Text")
 
 # Click on a gear icon
-interpreter.computer.mouse.move(icon="gear icon")
+interpreter.toolbox.mouse.move(icon="gear icon")
 ```
 
 
@@ -98,10 +98,10 @@ Scrolls the mouse a specified number of pixels.
 
 ```python
 # Scroll Down
-interpreter.computer.mouse.scroll(-10)
+interpreter.toolbox.mouse.scroll(-10)
 
 # Scroll Up
-interpreter.computer.mouse.scroll(10)
+interpreter.toolbox.mouse.scroll(10)
 ```
 
 
@@ -113,7 +113,7 @@ Returns the contents of the clipboard.
 
 
 ```python
-interpreter.computer.clipboard.view()
+interpreter.toolbox.clipboard.view()
 ```
 
 
@@ -125,7 +125,7 @@ Get the selected text on the screen.
 
 
 ```python
-interpreter.computer.os.get_selected_text()
+interpreter.toolbox.os.get_selected_text()
 ```
 
 
@@ -137,7 +137,7 @@ Retrieves the last `number` emails from the inbox, optionally filtering for only
 
 
 ```python
-interpreter.computer.mail.get(number=10, unread=True)
+interpreter.toolbox.mail.get(number=10, unread=True)
 ```
 
 
@@ -149,7 +149,7 @@ Sends an email with the given parameters using the default mail app. (Mac only)
 
 
 ```python
-interpreter.computer.mail.send("john@email.com", "Subject", "Body", ["path/to/attachment.pdf", "path/to/attachment2.pdf"])
+interpreter.toolbox.mail.send("john@email.com", "Subject", "Body", ["path/to/attachment.pdf", "path/to/attachment2.pdf"])
 ```
 
 
@@ -161,7 +161,7 @@ Retrieves the count of unread emails in the inbox. (Mac only)
 
 
 ```python
-interpreter.computer.mail.unread_count()
+interpreter.toolbox.mail.unread_count()
 ```
 
 
@@ -173,7 +173,7 @@ Send a text message using the default SMS app. (Mac only)
 
 
 ```python
-interpreter.computer.sms.send("2068675309", "Hello from Open Interpreter!")
+interpreter.toolbox.sms.send("2068675309", "Hello from Open Interpreter!")
 ```
 
 
@@ -185,7 +185,7 @@ Returns the phone number of a contact name. (Mac only)
 
 
 ```python
-interpreter.computer.contacts.get_phone_number("John Doe")
+interpreter.toolbox.contacts.get_phone_number("John Doe")
 ```
 
 
@@ -197,7 +197,7 @@ Returns the email of a contact name. (Mac only)
 
 
 ```python
-interpreter.computer.contacts.get_phone_number("John Doe")
+interpreter.toolbox.contacts.get_phone_number("John Doe")
 ```
 
 
@@ -209,7 +209,7 @@ Fetches calendar events for the given date or date range from all calendars. (Ma
 
 
 ```python
-interpreter.computer.calendar.get_events(start_date=datetime, end_date=datetime)
+interpreter.toolbox.calendar.get_events(start_date=datetime, end_date=datetime)
 ```
 
 
@@ -221,7 +221,7 @@ Creates a new calendar event. Uses first calendar if none is specified (Mac only
 
 
 ```python
-interpreter.computer.calendar.create_event(title="Title", start_date=datetime, end_date=datetime, location="Location", notes="Notes", calendar="Work")
+interpreter.toolbox.calendar.create_event(title="Title", start_date=datetime, end_date=datetime, location="Location", notes="Notes", calendar="Work")
 ```
 
 
@@ -233,8 +233,5 @@ Delete a specific calendar event. (Mac only)
 
 
 ```python
-interpreter.computer.calendar.delete_event(event_title="Title", start_date=datetime, calendar="Work")
+interpreter.toolbox.calendar.delete_event(event_title="Title", start_date=datetime, calendar="Work")
 ```
-
-
-

@@ -40,7 +40,7 @@ from interpreter import interpreter
 interpreter.system_message = """You are an AI assistant that writes markdown code snippets to answer the user's request. You speak very concisely and quickly, you say nothing irrelevant to the user's request. For example:
 
 User: Open the chrome app.
-Assistant: On it. 
+Assistant: On it.
 ```python
 import webbrowser
 webbrowser.open('https://chrome.google.com')
@@ -48,21 +48,21 @@ webbrowser.open('https://chrome.google.com')
 User: The code you ran produced no output. Was this expected, or are we finished?
 Assistant: No further action is required; the provided snippet opens Chrome.
 
-You also have access to a special function called `computer.view()`. This will return a description of the user's screen. Do NOT use pyautogui. For example:
+You also have access to a special function called `toolbox.view()`. This will return a description of the user's screen. Do NOT use pyautogui. For example:
 
 User: What's on my screen?
-Assistant: Viewing screen. 
+Assistant: Viewing screen.
 ```python
-computer.view()
+toolbox.view()
 ```
 User: The code you ran produced this output: "A code editor". I don't understand it, what does it mean?
 Assistant: The output means you have a code editor on your screen.
 
-You have exactly three more special computer functions:
+You have exactly three more special toolbox functions:
 
-`computer.mouse.click("button text")` which clicks the specified text on-screen.
-`computer.keyboard.hotkey(" ", "command")` which presses the hotkeys at the same time.
-`computer.keyboard.write("hello")` which types the specified text.
+`toolbox.mouse.click("button text")` which clicks the specified text on-screen.
+`toolbox.keyboard.hotkey(" ", "command")` which presses the hotkeys at the same time.
+`toolbox.keyboard.write("hello")` which types the specified text.
 
 For example:
 
@@ -70,21 +70,21 @@ User: Can you compose a new email for me
 Assistant: On it. First I will open Mail.
 ```python
 # Open Spotlight
-computer.keyboard.hotkey(" ", "command")
+toolbox.keyboard.hotkey(" ", "command")
 # Type Mail
-computer.keyboard.write("Mail")
+toolbox.keyboard.write("Mail")
 # Press enter
-computer.keyboard.write("\n")
+toolbox.keyboard.write("\n")
 ```
 User: The code you ran produced no output. Was this expected, or are we finished?
 Assistant: We are not finished. We will now view the screen.
 ```python
-computer.view()
+toolbox.view()
 ```
 User: The code you ran produced this output: "A mail app with a 'Compose' button". I don't understand it, what does it mean?
 Assistant: The output means we can click the Compose button.
 ```python
-computer.mouse.click("Compose")
+toolbox.mouse.click("Compose")
 ```
 User: The code you ran produced no output. Was this expected, or are we finished?
 Assistant: We are finished.
@@ -104,9 +104,9 @@ interpreter.llm.max_tokens = 1000
 interpreter.llm.context_window = 7000
 interpreter.llm.load()  # Loads Ollama models
 
-# Computer settings
-interpreter.computer.import_computer_api = True
-interpreter.computer.system_message = ""  # The default will explain how to use the full Computer API, and append this to the system message. For local models, we want more control, so we set this to "". The system message will ONLY be what's above ^
+# Toolbox settings
+interpreter.toolbox.import_toolbox_api = True
+interpreter.toolbox.system_message = ""  # The default will explain how to use the full Toolbox API, and append this to the system message. For local models, we want more control, so we set this to "". The system message will ONLY be what's above ^
 
 # Misc settings
 interpreter.auto_run = True
@@ -114,7 +114,7 @@ interpreter.offline = True
 interpreter.os = True
 
 # Vision setup
-interpreter.computer.vision.load()
+interpreter.toolbox.vision.load()
 
 # Final message
 interpreter.display_message(
