@@ -19,7 +19,7 @@ If no backend is specified, tests all available backends.
 import sys
 from unittest.mock import Mock
 
-from interpreter.core.computer.computer import Computer
+from interpreter.core.toolbox.toolbox import Toolbox
 
 
 def main():
@@ -38,8 +38,8 @@ def main():
     # Create a minimal mock interpreter
     mock_interpreter = Mock()
 
-    # Create Computer instance
-    computer = Computer(mock_interpreter)
+    # Create Toolbox instance
+    toolbox = Toolbox(mock_interpreter)
 
     # Define all backends to test for search method
     all_backends = ["brave", "tavily", "linkup", "serpapi", "serper"]
@@ -61,7 +61,7 @@ def main():
         print("="*60)
 
         # Call the method - it will print its own output
-        result = computer.web.search(query, backend=backend_name)
+        result = toolbox.web.search(query, backend=backend_name)
         results[backend_name] = result
 
         # Show the raw return value

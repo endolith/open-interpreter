@@ -14,7 +14,7 @@ def scan_code(code, language, interpreter):
     """
     Scan code with semgrep
     """
-    language_class = interpreter.computer.terminal.get_language(language)
+    language_class = interpreter.terminal.get_language(language)
 
     temp_file = create_temporary_file(
         code, language_class.file_extension, verbose=interpreter.verbose

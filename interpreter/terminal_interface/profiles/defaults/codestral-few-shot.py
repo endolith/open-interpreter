@@ -39,7 +39,7 @@ interpreter.display_message("\n*Loading model...*\n")
 
 old_max_tokens = interpreter.llm.max_tokens
 interpreter.llm.max_tokens = 1
-interpreter.computer.ai.chat("ping")
+interpreter.toolbox.ai.chat("ping")
 interpreter.llm.max_tokens = old_max_tokens
 
 interpreter.display_message("> Model set to `codestral`")
@@ -58,7 +58,7 @@ When a user refers to a filename, they're likely referring to an existing file i
 Write messages to the user in Markdown.
 In general, try to **make plans** with as few steps as possible. As for actually executing code to carry out that plan, **it's critical not to try to do everything in one code block.** You should try something, print information about it, then continue from there in tiny, informed steps. You will never get it on the first try, and attempting it in one go will often lead to errors you can't see.
 You are capable of **any** task.
-Once you have accomplished the task, ask the user if they are happy with the result and wait for their response. It is very important to get feedback from the user. 
+Once you have accomplished the task, ask the user if they are happy with the result and wait for their response. It is very important to get feedback from the user.
 The user will tell you the next task after you ask them.
 """
 
@@ -196,26 +196,26 @@ interpreter.messages = [
     {
         "role": "user",
         "type": "message",
-        "content": """I just imported these functions: computer.view() — which will show me an image of what's on the user's screen (but only if it's ALONE in a codeblock, like the below)
+        "content": """I just imported these functions: toolbox.view() — which will show me an image of what's on the user's screen (but only if it's ALONE in a codeblock, like the below)
 
 ```python
-computer.view()
+toolbox.view()
 ```
 
-and I also imported computer.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future?""",
+and I also imported toolbox.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future?""",
     },
     {
         "role": "assistant",
         "type": "message",
-        "content": "Yes, I'll be sure to use the `computer.view` and `computer.vision.query` functions for any future requests you have that involve vision or viewing your screen.",
+        "content": "Yes, I'll be sure to use the `toolbox.view` and `toolbox.vision.query` functions for any future requests you have that involve vision or viewing your screen.",
     },
 ]
 
 
 interpreter.llm.supports_functions = False
 
-interpreter.computer.import_computer_api = True
-interpreter.computer.system_message = ""
+interpreter.toolbox.import_toolbox_api = True
+interpreter.toolbox.system_message = ""
 
 # interpreter.user_message_template = "{content} Please send me some code that would be able to answer my question, in the form of ```python\n... the code ...\n``` or ```shell\n... the code ...\n```"
 interpreter.code_output_template = '''I executed that code. This was the output: """{content}"""\n\nWhat does this output mean (I can't understand it, please help) / what code needs to be run next (if anything, or are we done)? I can't replace any placeholders— please send me code to determine usernames, paths, etc given the request. I'm lazy!'''
@@ -286,7 +286,7 @@ interpreter.messages = [
     {
         "role": "user",
         "type": "message",
-        "content": "I just imported these functions: computer.view() — which will show me an image of what's on the user's screen when used alone in a code block, and computer.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future instead of like, pyautogui?",
+        "content": "I just imported these functions: toolbox.view() — which will show me an image of what's on the user's screen when used alone in a code block, and toolbox.vision.query(path='path/to/image', query='describe this image.') which queries any image at path in natural language. Can you use these for requests in the future instead of like, pyautogui?",
     },
     {
         "role": "assistant",
@@ -302,7 +302,7 @@ interpreter.messages = [
         "role": "assistant",
         "type": "code",
         "format": "python",
-        "content": "computer.view()",
+        "content": "toolbox.view()",
     },
     {
         "role": "user",

@@ -18,7 +18,7 @@ If no backend is specified, tests all available backends.
 import sys
 from unittest.mock import Mock
 
-from interpreter.core.computer.computer import Computer
+from interpreter.core.toolbox.toolbox import Toolbox
 
 
 # Comprehensive test URLs covering different content types
@@ -34,14 +34,14 @@ TEST_URLS = {
 }
 
 
-def test_single_url(computer, url, backend_name):
+def test_single_url(toolbox, url, backend_name):
     """Test a single URL with a specific backend."""
     print("\n" + "="*60)
     print(f"Testing backend: {backend_name}")
     print("="*60)
 
     # Call the method - it will print its own output
-    result = computer.web.fetch(url, backend=backend_name)
+    result = toolbox.web.fetch(url, backend=backend_name)
 
     # Show a truncated version of the raw return value
     print("\n" + "-"*60)
@@ -106,8 +106,8 @@ def main():
     # Create a minimal mock interpreter
     mock_interpreter = Mock()
 
-    # Create Computer instance
-    computer = Computer(mock_interpreter)
+    # Create Toolbox instance
+    toolbox = Toolbox(mock_interpreter)
 
     # Define all backends to test for fetch method
     all_backends = ["serper", "linkup", "tavily"]
@@ -137,7 +137,7 @@ def main():
 
             url_results = {}
             for backend_name in backends_to_test:
-                result = test_single_url(computer, url, backend_name)
+                result = test_single_url(toolbox, url, backend_name)
                 url_results[backend_name] = result
 
             all_results[url_type] = url_results
@@ -171,4 +171,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

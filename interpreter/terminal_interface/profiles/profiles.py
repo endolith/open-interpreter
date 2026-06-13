@@ -201,21 +201,16 @@ def apply_profile(interpreter, profile, profile_path):
 
     if "computer" in profile and "languages" in profile["computer"]:
         # this is handled specially
-        interpreter.computer.languages = [
+        interpreter.terminal.languages = [
             i
-            for i in interpreter.computer.languages
+            for i in interpreter.terminal.languages
             if i.name.lower() in [l.lower() for l in profile["computer"]["languages"]]
         ]
-        # Drop the key from a copy so the caller's dictionary keeps the
-        # filter for repeated applications of the same profile.
-        profile = {
-            **profile,
-            "computer": {
-                key: value
-                for key, value in profile["computer"].items()
-                if key != "languages"
-            },
-        }
+        del profile["computer"]["languages"]
+
+    # Map "computer" key to "toolbox" for backward compatibility with profile files
+    if "computer" in profile:
+        profile["toolbox"] = profile.pop("computer")
 
     apply_profile_to_object(interpreter, profile)
 
@@ -580,6 +575,9 @@ version: {OI_VERSION}  # Profile version (do not modify)
 
 def apply_profile_to_object(obj, profile):
     for key, value in profile.items():
+        # Map "computer" key to "toolbox" for backward compatibility
+        if key == "computer":
+            key = "toolbox"
         if isinstance(value, dict):
             if (
                 key == "wtf"

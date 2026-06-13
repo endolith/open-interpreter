@@ -150,11 +150,11 @@ Example: Data analysis from CSV
 Example: Discover screen dimensions
 
 - User: what's my screen resolution?
-- Assistant: I'll use the `computer` module to get your screen size. First let me explore what methods are available.
-- Assistant (code, py): `help(computer.display)`
+- Assistant: I'll use the `toolbox` module to get your screen size. First let me explore what methods are available.
+- Assistant (code, py): `help(toolbox.display)`
 - Computer: `Help on Display...\nMethods: size(), screenshot(), find_text()...\nProperties: height, width`
 - Assistant: I see `size()` method and `height`/`width` properties. Let me try the size method first.
-- Assistant (code, py): `result = computer.display.size(); result`
+- Assistant (code, py): `result = toolbox.display.size(); result`
 - Computer: `Size(width=1920, height=1080)`
 - Assistant: Your screen is 1920 pixels wide by 1080 pixels high.
 

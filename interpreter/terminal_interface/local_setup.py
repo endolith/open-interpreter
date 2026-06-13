@@ -311,7 +311,7 @@ def local_setup(interpreter, provider=None, model=None):
             interpreter.llm.max_tokens = 1
             interpreter.llm.context_window = 100
 
-            interpreter.computer.ai.chat("ping")
+            interpreter.toolbox.ai.chat("ping")
 
             interpreter.llm.max_tokens = old_max_tokens
             interpreter.llm.context_window = old_context_window
