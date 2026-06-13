@@ -30,8 +30,6 @@ This provides a natural-language interface to your computer's general-purpose ca
 
 **⚠️ Note: You'll be asked to approve code before it's run.**
 
-<br>
-
 ## Demo
 
 [Demo video](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
@@ -48,11 +46,23 @@ This provides a natural-language interface to your computer's general-purpose ca
 
 ### Install
 
+This repository is Endolith's fork of the classic Python Open Interpreter.
+
+This command will install **`main`** which is the default branch (stable base, CI, and merge target for ported changes):
+
 ```shell
 pip install git+https://github.com/OpenInterpreter/open-interpreter.git
 ```
 
 > See our [setup guide](https://docs.openinterpreter.com/getting-started/setup) for optional dependencies.
+
+For day-to-day use, however, you probably want to install **`classic/develop`** instead — that's the unstable branch maintained and used daily, with many changes and features vs the main branch, such as support for reasoning models, OpenRouter/DeepSeek/Qwen, web search tools, etc.:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+For fork-specific features, model notes, and setup details, see the [`classic/develop` README](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md).
 
 ### Terminal
 
