@@ -1,4 +1,4 @@
-name: CI
+name: Build and Test
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
