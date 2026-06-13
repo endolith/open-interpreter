@@ -7,6 +7,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: requires an LLM API key (not run in default CI)"
     )
+    config.addinivalue_line(
+        "markers", "mock_llm: uses local mock OpenAI-compatible HTTP server"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
