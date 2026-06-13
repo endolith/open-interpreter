@@ -53,6 +53,14 @@
 
 ## What's in our scope?
 
+This repository (`endolith/open-interpreter`) is the **Python** edition of Open Interpreter. The upstream [openinterpreter/openinterpreter](https://github.com/openinterpreter/openinterpreter) repo is a separate **Rust** rewrite (default branch `oix`).
+
+**Branches**
+
+- **`main`** — merge target; PRs and CI land here.
+- **`classic/develop`** — maintainer working branch (repo default today). Features are ported to `main` as isolated PRs, not merged wholesale.
+- **`development`** — legacy upstream branch; not maintained and not becoming `main`.
+
 Open Interpreter contains two projects which support each other, whose scopes are as follows:
 
 1. `core`, which is dedicated to figuring out how to get LLMs to safely control a computer. Right now, this means creating a real-time code execution environment that language models can operate.
