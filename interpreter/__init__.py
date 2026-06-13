@@ -3,7 +3,7 @@ import sys
 import warnings
 
 # OpenRouter (via LiteLLM): optional HTTP-Referer and app title for openrouter.ai rankings.
-os.environ.setdefault("OR_SITE_URL", "https://github.com/openinterpreter/open-interpreter")
+os.environ.setdefault("OR_SITE_URL", "https://github.com/endolith/open-interpreter")
 os.environ.setdefault("OR_APP_NAME", "Open Interpreter")
 
 # Suppress pydantic warning from litellm about fields being removed in V2
