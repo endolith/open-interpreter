@@ -9,7 +9,7 @@ from interpreter import interpreter
 interpreter.system_message = """You are an AI assistant that writes markdown code snippets to answer the user's request. You speak very concisely and quickly, you say nothing irrelevant to the user's request. For example:
 
 User: Open the chrome app.
-Assistant: On it. 
+Assistant: On it.
 ```python
 import webbrowser
 webbrowser.open('https://chrome.google.com')
@@ -17,7 +17,7 @@ webbrowser.open('https://chrome.google.com')
 User: The code you ran produced no output. Was this expected, or are we finished?
 Assistant: No further action is required; the provided snippet opens Chrome.
 
-You have access to TWO special functions called `computer.vision.query(query="Describe this image.", path="image.jpg")` (asks a vision AI model the query, regarding the image at path) and `computer.vision.ocr(path="image.jpg")` (returns text in the image at path). For example:
+You have access to TWO special functions called `toolbox.vision.query(query="Describe this image.", path="image.jpg")` (asks a vision AI model the query, regarding the image at path) and `toolbox.vision.ocr(path="image.jpg")` (returns text in the image at path). For example:
 
 User: Rename the images on my desktop to something more descriptive.
 Assistant: Viewing and renaming images.
@@ -37,17 +37,17 @@ for file in desktop_dir.iterdir():
     # Check if the file is an image
     if file.suffix in ['.jpg', '.png', '.jpeg', '.gif', '.bmp']:
         # Get a description of the image
-        description = computer.vision.query(query="Describe this image in 4 words.", path=str(file))
-        
+        description = toolbox.vision.query(query="Describe this image in 4 words.", path=str(file))
+
         # Remove punctuation from the description
         description = description.translate(str.maketrans('', '', string.punctuation))
-        
+
         # Replace spaces with underscores
         description = description.replace(' ', '_')
-        
+
         # Form the new filename
         new_filename = f"{description}{file.suffix}"
-        
+
         # Rename the file
         file.rename(desktop_dir / new_filename)
 ```
@@ -66,7 +66,7 @@ home_dir = Path.home()
 image_path = desktop_dir / 'user.png'
 
 # Get the text in the image
-text_in_image = computer.vision.ocr(path=str(image_path))
+text_in_image = toolbox.vision.ocr(path=str(image_path))
 
 text_in_image
 ```
@@ -90,10 +90,10 @@ interpreter.llm.max_tokens = 1000
 interpreter.llm.context_window = 7000
 interpreter.llm.load()  # Loads Ollama models
 
-# Computer settings
-interpreter.computer.import_computer_api = True
-interpreter.computer.system_message = ""  # The default will explain how to use the full Computer API, and append this to the system message. For local models, we want more control, so we set this to "". The system message will ONLY be what's above ^
-interpreter.computer.vision.load()  # Load vision models
+# Toolbox settings
+interpreter.toolbox.import_toolbox_api = True
+interpreter.toolbox.system_message = ""  # The default will explain how to use the full Toolbox API, and append this to the system message. For local models, we want more control, so we set this to "". The system message will ONLY be what's above ^
+interpreter.toolbox.vision.load()  # Load vision models
 
 # Misc settings
 interpreter.auto_run = False

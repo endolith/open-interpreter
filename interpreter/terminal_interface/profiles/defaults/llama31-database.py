@@ -1,5 +1,5 @@
 """
-This is an Open Interpreter profile to chat with a database. 
+This is an Open Interpreter profile to chat with a database.
 """
 
 from interpreter import interpreter
@@ -30,8 +30,8 @@ interpreter.llm.max_tokens = 1000
 interpreter.llm.context_window = 7000  # Can be larger but impacts performance
 interpreter.llm.load()  # Loads Ollama models
 
-# Computer settings
-interpreter.computer.import_computer_api = False
+# Toolbox settings
+interpreter.toolbox.import_toolbox_api = False
 
 # Misc settings
 interpreter.auto_run = False

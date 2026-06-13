@@ -63,12 +63,12 @@ if "--os" in sys.argv:
     exit()
 
 from .core.async_core import AsyncInterpreter
-from .core.computer.terminal.base_language import BaseLanguage
+from .core.terminal.base_language import BaseLanguage
 from .core.core import OpenInterpreter
-from .core.computer.ai2 import ai2
+from .core.toolbox.ai2 import ai2
 
 interpreter = OpenInterpreter()
-computer = interpreter.computer
+toolbox = interpreter.toolbox
 
 #     ____                      ____      __                            __
 #    / __ \____  ___  ____     /  _/___  / /____  _________  ________  / /____  _____
