@@ -8,6 +8,7 @@ Create branches as `cursor/<topic>-6eeb` (for example, `cursor/fix-foo-6eeb`).
 
 1. Run `ruff check interpreter tests` and fix any reported issues.
 2. Run `pytest -m "not integration"` and fix failures until green.
+3. Optional: `pytest -m "not integration" --cov=interpreter --cov-report=xml` (CI uploads coverage on Python 3.12).
 3. If `OPENAI_API_KEY` is available locally, also run `pytest -m integration`.
 4. Commit and push your branch.
 5. Open a pull request targeting `main`.

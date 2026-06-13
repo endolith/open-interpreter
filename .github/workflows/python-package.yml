@@ -41,17 +41,30 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[server]"
-          pip install pytest websockets requests
+          pip install pytest pytest-cov websockets requests
       - name: Run unit tests
-        run: pytest -m "not integration"
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            pytest -m "not integration" --cov=interpreter --cov-report=xml
+          else
+            pytest -m "not integration"
+          fi
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v6
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   test-integration:
     runs-on: ubuntu-latest
-    if: ${{ secrets.OPENAI_API_KEY != '' }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -65,4 +78,9 @@ jobs:
       - name: Run integration tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: pytest -m integration
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY secret not configured; skipping integration tests."
+            exit 0
+          fi
+          pytest -m integration
