@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-  # Maintainer adds label run-integration on external fork PRs (secrets unavailable on pull_request from forks).
+  # Maintainer adds label run-integration on the PR page (external forks only).
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       pr_number:
-        description: "PR number to run integration on (uses refs/pull/N/merge). Use for external fork PRs."
+        description: "PR number to test (uses refs/pull/N/merge). For external fork PRs after you review the code."
         required: false
         type: string
 
@@ -56,7 +56,7 @@ jobs:
           pip install requests
           pytest -m "not integration"
 
-  # Unit coverage on every PR/push — same scope on PR and main so Codecov diffs are honest.
+  # Unit coverage — Codecov upload only when CODECOV_TOKEN is available (push + same-repo PRs).
   coverage-unit:
     name: Unit test coverage
     runs-on: ubuntu-latest
@@ -94,7 +94,7 @@ jobs:
           fail_ci_if_error: true
           verbose: true
 
-  # Full suite (integration + coverage). Same-repo PRs: every push. External forks: manual only.
+  # Full suite. Same-repo PRs: every push. External fork PRs: label run-integration or workflow_dispatch.
   integration:
     name: Integration tests and coverage
     runs-on: ubuntu-latest
