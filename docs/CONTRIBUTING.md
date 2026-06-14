@@ -38,6 +38,24 @@ Once you've forked the code and created a new branch for your work, you can run 
 3. Install dependencies by running `poetry install`.
 4. Run the program with `poetry run interpreter`. Run tests with `poetry run pytest -s -x`.
 
+### Alternative: uv
+
+If you prefer [uv](https://docs.astral.sh/uv/) instead of Poetry for local setup:
+
+```bash
+uv venv
+uv pip install -e ".[server,dev]"
+```
+
+Or install the package and dev tools separately:
+
+```bash
+uv pip install -e .
+uv pip install --group dev
+```
+
+Run tests with `uv run pytest -s -x` (or activate the venv and use `python -m pytest -s -x`).
+
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 
 ### Installing New Dependencies
@@ -46,7 +64,7 @@ If you wish to install new dependencies into the project, please use `poetry add
 
 ### Installing Developer Dependencies
 
-If you need to install dependencies specific to development, like testing tools, formatting tools, etc. please use `poetry add package-name --group dev`.
+If you need to install dependencies specific to development, like testing tools, formatting tools, etc. please use `poetry add package-name --group dev`. Also add the package to the `dev` extra in `[tool.poetry.extras]` and to `[dependency-groups].dev` in `pyproject.toml` so pip and uv installs stay in sync.
 
 ### Known Issues
 
