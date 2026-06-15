@@ -1,104 +1,98 @@
-name: Lint and Test
+# CI for open-interpreter
+#
+# Unit tests: all PRs and pushes (Python 3.10–3.14). Codecov "unit" flag on 3.12 only.
+# Integration: same-repo PRs (every push), push to main, or manual triggers below.
+# External fork PRs: unit tests + tokenless Codecov only until you approve integration:
+#   - PR page → Labels → run-integration
+#   - Actions → CI → Run workflow → pr_number: <PR#>
+
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened]
-  # Maintainer adds label run-integration on the PR page (external forks only).
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Git ref to test (branch, tag, or SHA). Ignored if pr_number is set."
-        required: false
-        type: string
       pr_number:
-        description: "PR number to test (uses refs/pull/N/merge). For external fork PRs after you review the code."
+        description: "PR to test (checks out refs/pull/N/merge). Use after reviewing external fork PRs."
         required: false
         type: string
+      ref:
+        description: "Branch, tag, or SHA (ignored when pr_number is set)."
+        required: false
+        type: string
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  PYTHON_VERSION: "3.12"
+
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    name: Lint
     if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/ruff-action@v4.0.0
         with:
-          python-version: "3.12"
-      - name: Ruff
-        run: |
-          pip install ruff
-          ruff check interpreter tests
+          src: "interpreter tests"
 
   test:
-    runs-on: ubuntu-latest
+    name: Unit tests (Python ${{ matrix.python-version }})
     if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13", "3.14"]
+        include:
+          - python-version: "3.10"
+          - python-version: "3.12"
+            upload-coverage: true
+          - python-version: "3.13"
+          - python-version: "3.14"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install and test
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Run unit tests
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[server,dev]"
-          pip install requests
-          pytest -m "not integration"
-
-  # Unit coverage — Codecov upload on all PRs (tokenless on external forks when repo is public).
-  coverage-unit:
-    name: Unit test coverage
-    runs-on: ubuntu-latest
-    needs: test
-    if: >-
-      ${{
-        github.event_name != 'pull_request_target' &&
-        !cancelled() &&
-        needs.test.result == 'success'
-      }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install and run unit tests with coverage
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[server,dev]"
-          pip install requests
-          pytest -m "not integration" \
-            --cov=interpreter \
-            --cov-branch \
-            --cov-report=xml \
-            --cov-report=term-missing
-
-      # Same-repo PRs and pushes have CODECOV_TOKEN; external fork PRs do not.
-      # Codecov v5+: tokenless upload on public-repo fork PRs (no CODECOV_TOKEN secret).
-      # Same-repo PRs and pushes use CODECOV_TOKEN when available.
+          if [ "${{ matrix.upload-coverage }}" = "true" ]; then
+            pytest -m "not integration" \
+              --cov=interpreter \
+              --cov-branch \
+              --cov-report=xml \
+              --cov-report=term-missing
+          else
+            pytest -m "not integration"
+          fi
       - name: Upload unit coverage to Codecov
+        if: matrix.upload-coverage
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
+          files: coverage.xml
           flags: unit
           fail_ci_if_error: true
-          verbose: true
 
-  # Full suite. Same-repo PRs: every push. External fork PRs: label run-integration or workflow_dispatch.
   integration:
-    name: Integration tests and coverage
+    name: Integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: >-
       ${{
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -115,24 +109,30 @@ jobs:
         )
       }}
     steps:
+      - name: Resolve checkout ref
+        id: checkout-ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.pr_number }}" ]; then
+            echo "value=refs/pull/${{ inputs.pr_number }}/merge" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.ref }}" ]; then
+            echo "value=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            echo "value=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
         with:
-          ref: >-
-            ${{
-              github.event_name == 'workflow_dispatch' && inputs.pr_number != '' &&
-                format('refs/pull/{0}/merge', inputs.pr_number) ||
-              github.event_name == 'workflow_dispatch' && inputs.ref != '' &&
-                inputs.ref ||
-              github.event_name == 'pull_request_target' &&
-                github.event.pull_request.head.sha ||
-              github.ref
-            }}
+          ref: ${{ steps.checkout-ref.outputs.value }}
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Install and run full test suite with coverage
+      - name: Run full test suite with coverage
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -145,7 +145,6 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
+          files: coverage.xml
           flags: full
           fail_ci_if_error: true
-          verbose: true
