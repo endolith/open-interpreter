@@ -1,10 +1,13 @@
 # CI for open-interpreter
 #
 # Unit tests: all PRs and pushes (Python 3.10–3.14). Codecov "unit" flag on 3.12 only.
-# Integration: same-repo PRs (every push), push to main, or manual triggers below.
-# External fork PRs: unit tests + tokenless Codecov only until you approve integration:
-#   - PR page → Labels → run-integration
-#   - Actions → CI → Run workflow → pr_number: <PR#>
+# Integration: same-repo PRs, push to main, or manual dispatch:
+#   - Actions → CI → Run workflow → pr_number: <PR#> (for fork PRs after code review)
+#
+# pull_request_target is intentionally NOT used. It runs with repo secrets and is only
+# safe for metadata-only operations (labeling, comments). Checking out fork code and
+# running pytest in that context is the well-known supply-chain attack vector. See:
+# https://securitylab.github.com/resources/github-actions-new-patterns-and-mitigations/
 
 name: CI
 
@@ -13,8 +16,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  pull_request_target:
-    types: [labeled]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -39,7 +40,6 @@ env:
 jobs:
   lint:
     name: Lint
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,6 @@ jobs:
 
   test:
     name: Unit tests (Python ${{ matrix.python-version }})
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -88,14 +87,14 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
           flags: unit
-          fail_ci_if_error: true
+          # Fork PRs have no token (secrets unavailable on pull_request from forks),
+          # so the upload is tokenless and may fail — don't block contributors for that.
+          fail_ci_if_error: false
 
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # pull_request_target runs with repo secrets, so we only allow it for external forks after a
-    # maintainer adds the run-integration label. Review the PR's code before adding the label.
     if: >-
       ${{
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -119,8 +118,6 @@ jobs:
             echo "value=refs/pull/${{ inputs.pr_number }}/merge" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.ref }}" ]; then
             echo "value=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "pull_request_target" ]; then
-            echo "value=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.ref }}" >> "$GITHUB_OUTPUT"
           fi
