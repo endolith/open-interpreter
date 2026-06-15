@@ -14,11 +14,11 @@
     <a href="https://codecov.io/gh/endolith/open-interpreter">
         <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br><a href="docs/getting-started/setup.mdx">Setup</a> · <a href="docs/">Documentation</a><br>
+    <br><a href="https://docs.openinterpreter.com/">Documentation</a><br>
 </p>
 
 > [!NOTE]
-> This is the **community-maintained Python version** of Open Interpreter. The original project has been rewritten in Rust and now focuses on codebase agents — see [openinterpreter/open-interpreter](https://github.com/openinterpreter/open-interpreter) ([openinterpreter.com](https://openinterpreter.com)). This fork continues the classic Python implementation. It is **not** affiliated with openinterpreter.com, and is not currently published to PyPI.
+> This is the **community-maintained Python version** of Open Interpreter. The original project has been rewritten in Rust and now focuses on codebase agents — see [openinterpreter/open-interpreter](https://github.com/openinterpreter/open-interpreter). This fork continues the classic Python implementation.
 
 <br>
 
@@ -26,7 +26,7 @@
 
 <br>
 
-**Open Interpreter** is an interactive terminal session where an LLM runs code and shell commands **on your machine** — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. Run `interpreter` after installing.
+**Open Interpreter** is a terminal chat where an LLM runs code and shell commands **on your machine** — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. Run `interpreter` after installing.
 
 It is closest to hosted **Code Interpreter** tools ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.), but **local**: your full filesystem (not just one project folder), no upload/download step, persistent sessions you can return to days later, and the ability to run `sudo`, install packages, and use any CLI tool. Unlike those cloud sandboxes, **this is not sandboxed by default** — powerful and convenient, but dangerous if you are not paying attention.
 
@@ -56,20 +56,20 @@ Experimental [`safe_mode`](docs/SAFE_MODE.md) can scan code with semgrep, and an
 
 ### Install
 
-Install from this repository — **`main`** is the stable branch; **`classic/develop`** is the active development branch (reasoning models, OpenRouter/DeepSeek/Qwen, web search, etc.):
+From PyPI (may lag behind git):
+
+```shell
+pip install open-interpreter
+```
+
+From this repository — **`main`** is the stable branch; **`classic/develop`** is the active development branch (reasoning models, OpenRouter/DeepSeek/Qwen, web search, etc.):
 
 ```shell
 pip install git+https://github.com/endolith/open-interpreter.git              # main
 pip install git+https://github.com/endolith/open-interpreter.git@classic/develop  # bleeding edge
 ```
 
-Optional dependency groups (from `pyproject.toml`):
-
-```shell
-pip install "open-interpreter[os,safe,local,server] @ git+https://github.com/endolith/open-interpreter.git"
-```
-
-> An `open-interpreter` package may still exist on PyPI from the original project, but **this fork is not published there yet.** See [docs/getting-started/setup.mdx](docs/getting-started/setup.mdx) for optional dependencies and platform notes.
+> See our [setup guide](https://docs.openinterpreter.com/getting-started/setup) for optional dependencies (`open-interpreter[os]`, `[local]`, `[safe]`, `[server]`).
 
 ### Terminal
 
@@ -92,11 +92,11 @@ interpreter.chat() # Starts an interactive chat
 
 ### GitHub Codespaces
 
-Press the `,` key on this repository's GitHub page to create a codespace — a disposable cloud VM with open-interpreter pre-installed.
+Press the `,` key on this repository's GitHub page to create a codespace. After a moment, you'll receive a cloud virtual machine environment pre-installed with open-interpreter. You can then start interacting with it directly and freely confirm its execution of system commands without worrying about damaging the system.
 
-## Comparison to hosted Code Interpreter
+## Comparison to ChatGPT's Code Interpreter
 
-Cloud **Code Interpreter** features (OpenAI, Mistral, Grok, Gemini, etc.) run code in a hosted, ephemeral sandbox: limited packages, upload size caps, timeouts, and state that disappears when the session ends.
+OpenAI's [Code Interpreter](https://openai.com/blog/chatgpt-plugins#code-interpreter) runs Python in a hosted, ephemeral sandbox: limited packages, upload size caps, timeouts, and state that disappears when the session ends.
 
 Open Interpreter runs on **your** machine instead — any package, any path on disk, shell commands and multiple languages, and conversation history that persists across sessions. The tradeoff is that **you** are responsible for what gets executed.
 
@@ -353,9 +353,9 @@ Open Interpreter sends your conversation to an LLM (via [LiteLLM](https://docs.l
 
 Code runs in **persistent sessions**: a Jupyter kernel for Python, subprocesses for Shell/PowerShell/JavaScript/etc. Output is streamed back to the model until the task is done or you stop it. On Windows, `Shell` uses `cmd.exe`; `PowerShell` uses `powershell.exe` (or `pwsh` on other platforms).
 
-## Documentation
+## Access Documentation Offline
 
-Docs live in the [`docs/`](docs/) folder in this repo (Markdown/MDX, originally set up for [Mintlify](https://mintlify.com/)). Browse on GitHub, or run a local preview server:
+The full [documentation](https://docs.openinterpreter.com/) is accessible on-the-go without the need for an internet connection.
 
 [Node](https://nodejs.org/en) is a pre-requisite:
 
@@ -397,4 +397,4 @@ Visit [our roadmap](docs/ROADMAP.md) to preview the future of Open Interpreter.
 
 > Having access to a junior programmer working at the speed of your fingertips ... can make new workflows effortless and efficient, as well as open the benefits of programming to new audiences.
 >
-> — _on the original release of OpenAI's Code Interpreter_
+> — _OpenAI's Code Interpreter Release_
