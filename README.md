@@ -18,7 +18,7 @@
 </p>
 
 > [!NOTE]
-> This is the **community-maintained Python version** of Open Interpreter. The original project has been rewritten in Rust and now focuses on codebase agents — see [openinterpreter/open-interpreter](https://github.com/openinterpreter/open-interpreter) ([openinterpreter.com](https://openinterpreter.com)). This fork continues the classic Python implementation. It is **not** affiliated with openinterpreter.com, and is not currently published to PyPI.
+> This is the **community-maintained Python version** of Open Interpreter. The original project has been rewritten in Rust and now focuses on codebase agents — see [openinterpreter/open-interpreter](https://github.com/openinterpreter/open-interpreter).
 
 <br>
 
@@ -26,17 +26,17 @@
 
 <br>
 
-**Open Interpreter** is an interactive terminal session where an LLM runs code and shell commands **on your machine** — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. Run `interpreter` after installing.
+**Open Interpreter** lets LLMs run code and shell commands locally — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. You use it through a **chatbot interface** in your terminal; run `interpreter` after installing.
 
-It is closest to hosted **Code Interpreter** tools ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.), but **local**: your full filesystem (not just one project folder), no upload/download step, persistent sessions you can return to days later, and the ability to run `sudo`, install packages, and use any CLI tool. Unlike those cloud sandboxes, **this is not sandboxed by default** — powerful and convenient, but dangerous if you are not paying attention.
+It is closest to hosted **Code Interpreter** tools ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.), but **on your machine**: your full filesystem (not just one project folder), no upload/download step, persistent sessions you can return to days later, and the ability to run `sudo`, install packages, and use any CLI tool. Unlike those cloud sandboxes, **this is not sandboxed by default** — powerful and convenient, but dangerous if you are not paying attention.
 
 | Compared to… | Open Interpreter |
 |---|---|
 | **Coding agents** (Claude Code, Cursor, Windsurf) | Less about patching a codebase; more about **one-off tasks** in a persistent, REPL-like session (closer to a Jupyter notebook than an IDE). |
 | **MCP-based agents** | Does not route work through MCP tool calls — it **runs code directly**. No MCP client support today. |
-| **[shell_gpt](https://github.com/ther1d/shell_gpt)** | Also translates natural language into shell commands, but with a **chat UI** where you can review, reject (`n`), or edit (`e`) code before it runs, and ask the model to revise. |
+| **Natural-language shell tools** | Also translate English into shell commands, but OI is a **chatbot** where you can review, reject (`n`), or edit (`e`) code before it runs, and ask the model to revise. |
 
-By default, OI asks before executing anything. Use `interpreter -y` or `interpreter.auto_run = True` to auto-approve (not recommended unless you know what you are doing).
+**⚠️ Note: You'll be asked to approve code before it's run.**
 
 Experimental [`safe_mode`](docs/SAFE_MODE.md) can scan code with semgrep, and an optional E2B profile can run Python in a remote sandbox — but **the default is full local access, with no isolation.**
 
@@ -69,7 +69,7 @@ Optional dependency groups (from `pyproject.toml`):
 pip install "open-interpreter[os,safe,local,server] @ git+https://github.com/endolith/open-interpreter.git"
 ```
 
-> An `open-interpreter` package may still exist on PyPI from the original project, but **this fork is not published there yet.** See [docs/getting-started/setup.mdx](docs/getting-started/setup.mdx) for optional dependencies and platform notes.
+> See [docs/getting-started/setup.mdx](docs/getting-started/setup.mdx) for optional dependencies and platform notes.
 
 ### Terminal
 
@@ -92,13 +92,20 @@ interpreter.chat() # Starts an interactive chat
 
 ### GitHub Codespaces
 
-Press the `,` key on this repository's GitHub page to create a codespace — a disposable cloud VM with open-interpreter pre-installed.
+Press the `,` key on this repository's GitHub page to create a codespace. After a moment, you'll receive a cloud virtual machine environment pre-installed with open-interpreter. You can then start interacting with it directly and freely confirm its execution of system commands without worrying about damaging the system.
 
 ## Comparison to hosted Code Interpreter
 
-Cloud **Code Interpreter** features (OpenAI, Mistral, Grok, Gemini, etc.) run code in a hosted, ephemeral sandbox: limited packages, upload size caps, timeouts, and state that disappears when the session ends.
+Hosted **Code Interpreter** features (OpenAI, Mistral, Grok, Gemini, etc.) run code in a remote, ephemeral sandbox that is hosted, closed-source, and heavily restricted:
 
-Open Interpreter runs on **your** machine instead — any package, any path on disk, shell commands and multiple languages, and conversation history that persists across sessions. The tradeoff is that **you** are responsible for what gets executed.
+- No internet access.
+- [Limited set of pre-installed packages](https://wfhbrian.com/artificial-intelligence/mastering-chatgpts-code-interpreter-list-of-python-packages/).
+- 100 MB maximum upload, 120.0 second runtime limit.
+- State is cleared (along with any generated files or links) when the environment dies.
+
+---
+
+Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, can use any package or library, and supports shell commands and multiple languages beyond Python.
 
 ## Commands
 
@@ -400,4 +407,4 @@ Visit [our roadmap](docs/ROADMAP.md) to preview the future of Open Interpreter.
 
 > Having access to a junior programmer working at the speed of your fingertips ... can make new workflows effortless and efficient, as well as open the benefits of programming to new audiences.
 >
-> — _on the original release of OpenAI's Code Interpreter_
+> — _OpenAI's Code Interpreter Release_
