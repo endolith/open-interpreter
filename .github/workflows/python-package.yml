@@ -56,7 +56,7 @@ jobs:
           pip install requests
           pytest -m "not integration"
 
-  # Unit coverage — Codecov upload only when CODECOV_TOKEN is available (push + same-repo PRs).
+  # Unit coverage — Codecov upload on all PRs (tokenless on external forks when repo is public).
   coverage-unit:
     name: Unit test coverage
     runs-on: ubuntu-latest
@@ -84,8 +84,9 @@ jobs:
             --cov-report=term-missing
 
       # Same-repo PRs and pushes have CODECOV_TOKEN; external fork PRs do not.
+      # Codecov v5+: tokenless upload on public-repo fork PRs (no CODECOV_TOKEN secret).
+      # Same-repo PRs and pushes use CODECOV_TOKEN when available.
       - name: Upload unit coverage to Codecov
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
