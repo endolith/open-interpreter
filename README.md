@@ -23,16 +23,22 @@
 
 <br>
 
-**Open Interpreter** lets LLMs run code (Python, Javascript, Shell, and more) locally. You can chat with Open Interpreter through a ChatGPT-like interface in your terminal by running `$ interpreter` after installing.
+> [!NOTE]
+> This is the **community-maintained Python version** of Open Interpreter. The original project has been rewritten in Rust and now focuses on codebase agents — see [openinterpreter/open-interpreter](https://github.com/openinterpreter/open-interpreter).
 
-This provides a natural-language interface to your computer's general-purpose capabilities:
+**Open Interpreter** lets LLMs run code and shell commands locally — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. You use it through a **chatbot interface** in your terminal; run `interpreter` after installing.
 
-- Create and edit photos, videos, PDFs, etc.
-- Control a Chrome browser to perform research
-- Plot, clean, and analyze large datasets
-- ...etc.
+It is closest to hosted **Code Interpreter** tools ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.), but **on your machine**: your full filesystem (not just one project folder), no upload/download step, persistent sessions you can return to days later, and the ability to run `sudo`, install packages, and use any CLI tool. Unlike those cloud sandboxes, **this is not sandboxed by default** — powerful and convenient, but dangerous if you are not paying attention.
 
-**⚠️ Note: You'll be asked to approve code before it's run.**
+| Compared to… | Open Interpreter |
+|---|---|
+| **Coding agents** (Claude Code, Cursor, Windsurf) | Less about patching a codebase; more about **one-off tasks** in a persistent, REPL-like session (closer to a Jupyter notebook than an IDE). |
+| **MCP-based agents** | Does not route work through MCP tool calls — it **runs code directly**. No MCP client support today. |
+| **Natural-language shell tools** | Also translate English into shell commands, but OI is a **chatbot** where you can review, reject (`n`), or edit (`e`) code before it runs, and ask the model to revise. |
+
+**⚠ Note: You'll be asked to approve code before it's run.**
+
+Experimental [`safe_mode`](docs/SAFE_MODE.md) can scan code with semgrep, and an optional E2B profile can run Python in a remote sandbox — but **the default is full local access, with no isolation.**
 
 ## Demo
 
