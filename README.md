@@ -187,15 +187,15 @@ Open Interpreter uses [LiteLLM](https://docs.litellm.ai/docs/providers/) to conn
 You can change the model by setting the model parameter:
 
 ```shell
-interpreter --model gpt-3.5-turbo
-interpreter --model claude-2
-interpreter --model command-nightly
+interpreter --model gpt-4o-mini
+interpreter --model claude-sonnet-4-6
+interpreter --model ollama/llama3.1
 ```
 
 In Python, set the model on the object:
 
 ```python
-interpreter.llm.model = "gpt-3.5-turbo"
+interpreter.llm.model = "gpt-4o-mini"
 ```
 
 [Find the appropriate "model" string for your language model here.](https://docs.litellm.ai/docs/providers/)
@@ -238,7 +238,7 @@ Our Python package gives you more control over each setting. To replicate and co
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Disables online features like Open Procedures
+interpreter.offline = True # Disables online features (e.g. update checks)
 interpreter.llm.model = "openai/x" # Tells OI to send messages in OpenAI's format
 interpreter.llm.api_key = "fake_key" # LiteLLM, which we use to talk to LM Studio, requires this
 interpreter.llm.api_base = "http://localhost:1234/v1" # Point this at any OpenAI compatible server
@@ -343,7 +343,7 @@ pip install fastapi uvicorn
 uvicorn server:app --reload
 ```
 
-You can also start a server identical to the one above by simply running `interpreter.server()`.
+You can also start a built-in server with `interpreter --server` (uses `AsyncInterpreter` under the hood; requires the `[server]` extra).
 
 ## Android
 
@@ -351,23 +351,21 @@ The step-by-step guide for installing Open Interpreter on your Android device ca
 
 ## Safety Notice
 
-Since generated code is executed in your local environment, it can interact with your files and system settings, potentially leading to unexpected outcomes like data loss or security risks.
+**Open Interpreter is not sandboxed.** Generated code runs in your real environment with the same privileges as your user — it can read, write, and delete files anywhere you have access, run shell commands (including `sudo` if you approve them), and install software.
 
-**⚠️ Open Interpreter will ask for user confirmation before executing code.**
+By default, OI asks for confirmation before each code block (`y` to run, `n` to decline and let the model revise, `e` to edit the code yourself). You can bypass this with `interpreter -y` or `interpreter.auto_run = True`.
 
-You can run `interpreter -y` or set `interpreter.auto_run = True` to bypass this confirmation, in which case:
+- Treat it like handing your keyboard to someone else.
+- Be especially careful with destructive commands and credentials.
+- For isolation, consider Google Colab, an E2B profile, or your own VM — not the default setup.
 
-- Be cautious when requesting commands that modify files or system settings.
-- Watch Open Interpreter like a self-driving car, and be prepared to end the process by closing your terminal.
-- Consider running Open Interpreter in a restricted environment like Google Colab or Replit. These environments are more isolated, reducing the risks of executing arbitrary code.
-
-There is **experimental** support for [safe mode](docs/SAFE_MODE.md) to help mitigate some risks.
+There is **experimental** support for [safe mode](docs/SAFE_MODE.md) (semgrep code scanning). It does not provide a sandbox.
 
 ## How Does it Work?
 
-Open Interpreter equips a [function-calling language model](https://platform.openai.com/docs/guides/function-calling) with an `exec()` function, which accepts a `language` (like "Python" or "JavaScript") and `code` to run.
+Open Interpreter sends your conversation to an LLM (via [LiteLLM](https://docs.litellm.ai/docs/providers/)). The model responds with markdown code blocks, or — on models that support it — an `execute` tool call with a `language` and `code`.
 
-We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
+Code runs in **persistent sessions**: a Jupyter kernel for Python, subprocesses for Shell/PowerShell/JavaScript/etc. Output is streamed back to the model until the task is done or you stop it. On Windows, `Shell` uses `cmd.exe`; `PowerShell` uses `powershell.exe` (or `pwsh` on other platforms).
 
 ## Documentation
 
