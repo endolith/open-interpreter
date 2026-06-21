@@ -358,7 +358,7 @@ You can run `interpreter -y` or set `interpreter.auto_run = True` to bypass this
 - Watch Open Interpreter like a self-driving car, and be prepared to end the process by closing your terminal.
 - Consider running Open Interpreter in a restricted environment like Google Colab or Replit. These environments are more isolated, reducing the risks of executing arbitrary code.
 
-There is **experimental** support for a [safe mode](docs/SAFE_MODE.md) to help mitigate some risks.
+There is **experimental** support for [safe mode](docs/SAFE_MODE.md) to help mitigate some risks.
 
 ## How Does it Work?
 
@@ -366,9 +366,9 @@ Open Interpreter equips a [function-calling language model](https://platform.ope
 
 We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
 
-## Access Documentation Offline
+## Documentation
 
-The full [documentation](docs) is accessible on-the-go without the need for an internet connection.
+Docs live in the [`docs/`](docs/) folder in this repo (Markdown/MDX, originally set up for [Mintlify](https://mintlify.com/)). Browse on GitHub, or run a local preview server:
 
 [Node](https://nodejs.org/en) is a pre-requisite:
 
