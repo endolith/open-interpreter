@@ -7,9 +7,13 @@ import sys
 import time
 
 import inquirer
+import litellm
+import openai
 import psutil
 import requests
 import wget
+from rich.panel import Panel
+from rich import print as rich_print
 
 
 def local_setup(interpreter, provider=None, model=None):
@@ -327,6 +331,30 @@ def local_setup(interpreter, provider=None, model=None):
             )
             time.sleep(2)
             sys.exit(1)
+        except Exception as e:
+            # Handle API errors from LiteLLM with rich display
+            error_str = str(e)
+            if isinstance(e, (
+                # LiteLLM exception variants
+                getattr(litellm, "APIError", Exception),
+                getattr(litellm, "OpenAIError", Exception),
+                litellm.exceptions.APIError,
+                litellm.exceptions.OpenAIError,
+                litellm.exceptions.NotFoundError,
+                litellm.exceptions.BadRequestError,
+                litellm.exceptions.RateLimitError,
+                litellm.exceptions.AuthenticationError,
+                getattr(litellm.exceptions, "APIConnectionError", Exception),
+                # OpenAI Python client variants (defensive, in case they leak through)
+                getattr(openai, "APIError", Exception),
+                getattr(openai, "OpenAIError", Exception),
+            )):
+                # Display error in a rich panel
+                rich_print(Panel.fit(error_str, title="[red]Error", border_style="red"))
+                sys.exit(1)
+            else:
+                # Re-raise other exceptions
+                raise
 
     elif selected_model == "Jan":
         interpreter.display_message(
