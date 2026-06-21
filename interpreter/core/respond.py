@@ -196,6 +196,7 @@ def respond(interpreter):
                     litellm.exceptions.BadRequestError,
                     litellm.exceptions.RateLimitError,
                     litellm.exceptions.AuthenticationError,
+                    getattr(litellm.exceptions, "APIConnectionError", Exception),
                     *_LITELLM_OPTIONAL_API_EXCEPTIONS,
                     # OpenAI Python client variants (defensive, in case they leak through)
                     getattr(openai, "APIError", Exception),
