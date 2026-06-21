@@ -56,23 +56,20 @@ Experimental [`safe_mode`](docs/SAFE_MODE.md) can scan code with semgrep, and an
 
 ### Install
 
-This repository is Endolith's fork of the classic Python Open Interpreter.
-
-This command will install **`main`** which is the default branch (stable base, CI, and merge target for ported changes):
+Install from this repository — **`main`** is the stable branch; **`classic/develop`** is the active development branch (reasoning models, OpenRouter/DeepSeek/Qwen, web search, etc.):
 
 ```shell
-pip install git+https://github.com/endolith/open-interpreter.git
+pip install git+https://github.com/endolith/open-interpreter.git              # main
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop  # bleeding edge
 ```
 
-> See our [setup guide](docs/getting-started/setup.mdx) for optional dependencies.
-
-For day-to-day use, however, you probably want to install **`classic/develop`** instead — that's the unstable branch maintained and used daily, with many changes and features vs the main branch, such as support for reasoning models, OpenRouter/DeepSeek/Qwen, web search tools, etc.:
+Optional dependency groups (from `pyproject.toml`):
 
 ```shell
-pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+pip install "open-interpreter[os,safe,local,server] @ git+https://github.com/endolith/open-interpreter.git"
 ```
 
-For fork-specific features, model notes, and setup details, see the [`classic/develop` README](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md).
+> See [docs/getting-started/setup.mdx](docs/getting-started/setup.mdx) for optional dependencies and platform notes.
 
 ### Terminal
 
