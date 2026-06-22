@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
@@ -108,6 +109,24 @@ class TestRunSed(unittest.TestCase):
             run_sed(target, "s/aaa/AAA/\ns/bbb/BBB/\n")
             self.assertEqual(open(target, encoding="utf-8").read(), "AAA\nBBB\n")
 
+    def test_run_sed_does_not_use_inplace_flag(self):
+        """sed -i puts temp files in cwd; on Windows that breaks cross-drive targets."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                completed = mock.Mock(returncode=0, stdout=b"bar\n", stderr=b"")
+                run_mock.return_value = completed
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
+                    run_sed(target, "s/foo/bar/")
+            args = run_mock.call_args[0][0]
+            self.assertNotIn("-i", args)
+            replace_mock.assert_called_once_with(target, b"bar\n")
+
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
 class TestRunJq(unittest.TestCase):
@@ -159,6 +178,21 @@ class TestRunGawk(unittest.TestCase):
                 "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
+
+    def test_run_gawk_inplace_uses_target_parent_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "hello\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout="", stderr=""
+                )
+                run_gawk(target, "{ print }")
+            _, kwargs = run_mock.call_args
+            self.assertEqual(kwargs["cwd"], str(Path(target).parent))
+            self.assertEqual(run_mock.call_args[0][0][-1], Path(target).name)
 
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
