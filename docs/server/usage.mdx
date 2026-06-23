@@ -25,7 +25,7 @@ async_interpreter.server.run(port=8000)  # Default port is 8000, but you can cus
 Connect to the WebSocket server at `ws://localhost:8000/`.
 
 ### Message Format
-Open Interpreter uses an extended version of OpenAI's message format called [LMC messages](https://docs.openinterpreter.com/protocols/lmc-messages) that allow for rich, multi-part messages. **Messages must be sent between start and end flags.** Here's the basic structure:
+Open Interpreter uses an extended version of OpenAI's message format called [LMC messages](../protocols/lmc-messages.mdx) that allow for rich, multi-part messages. **Messages must be sent between start and end flags.** Here's the basic structure:
 
 ```json
 {"role": "user", "start": true}
@@ -154,7 +154,7 @@ asyncio.run(websocket_interaction())
 ## HTTP API
 
 ### Modifying Settings
-To change server settings, send a POST request to `http://localhost:8000/settings`. The payload should conform to [the interpreter object's settings](https://docs.openinterpreter.com/settings/all-settings).
+To change server settings, send a POST request to `http://localhost:8000/settings`. The payload should conform to [the interpreter object's settings](../settings/all-settings.mdx).
 
 Example:
 ```python

@@ -11,7 +11,7 @@
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Отримайте ранній доступ до десктопної програми</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Документація</a><br>
+    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Отримайте ранній доступ до десктопної програми</a>‎ ‎ |‎ ‎ <a href=".">Документація</a><br>
 </p>
 
 <br>
@@ -28,7 +28,7 @@
 pip install open-interpreter
 ```
 
-> Не працює? Прочитайте наш [посібник з налаштування](https://docs.openinterpreter.com/getting-started/setup).
+> Не працює? Прочитайте наш [посібник з налаштування](getting-started/setup.mdx).
 
 ```shell
 interpreter
@@ -366,7 +366,7 @@ Open Interpreter оснащує [модель мови виклику функц
 
 # Доступ до документації в автономному режимі
 
-Повна [документація](https://docs.openinterpreter.com/) доступна в дорозі без підключення до Інтернету.
+Повна [документація](.) доступна в дорозі без підключення до Інтернету.
 
 [Node](https://nodejs.org/en) є необхідною умовою:
 

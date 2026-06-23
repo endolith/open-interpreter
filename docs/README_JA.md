@@ -13,7 +13,7 @@
     <br>
     <b>自然言語で指示するだけでコードを書いて実行までしてくれる。</b><br>
     ローカルに実装したOpenAI Code Interpreterのオープンソース版。<br>
-    <br><a href="https://openinterpreter.com">デスクトップアプリへの早期アクセス</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">ドキュメント</a><br>
+    <br><a href="https://openinterpreter.com">デスクトップアプリへの早期アクセス</a>‎ ‎ |‎ ‎ <a href=".">ドキュメント</a><br>
 </p>
 
 <br>
@@ -22,7 +22,7 @@
 
 <br>
 
-**Update:** ● 0.1.12 アップデートで `interpreter --vision` 機能が導入されました。([ドキュメント](https://docs.openinterpreter.com/usage/terminal/vision))
+**Update:** ● 0.1.12 アップデートで `interpreter --vision` 機能が導入されました。([ドキュメント](usage/terminal/vision.mdx))
 
 <br>
 

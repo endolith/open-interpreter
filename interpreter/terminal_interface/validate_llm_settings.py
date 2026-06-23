@@ -53,7 +53,7 @@ def validate_llm_settings(interpreter):
 
                     To use `gpt-4o` (recommended) please provide an OpenAI API key.
 
-                    To use another language model, run `interpreter --local` or consult the documentation at [docs.openinterpreter.com](https://docs.openinterpreter.com/language-model-setup/).
+                    To use another language model, run `interpreter --local` or consult the documentation at [docs.openinterpreter.com](https://github.com/endolith/open-interpreter/blob/main/docs/language-models/introduction.mdx).
                     
                     ---
                     """

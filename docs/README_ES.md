@@ -11,7 +11,7 @@
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Obtenga acceso temprano a la aplicación de escritorio</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentación</a><br>
+    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Obtenga acceso temprano a la aplicación de escritorio</a>‎ ‎ |‎ ‎ <a href=".">Documentación</a><br>
 </p>
 
 <br>
@@ -28,7 +28,7 @@
 pip install open-interpreter
 ```
 
-> ¿No funciona? Lea nuestra [guía de configuración](https://docs.openinterpreter.com/getting-started/setup).
+> ¿No funciona? Lea nuestra [guía de configuración](getting-started/setup.mdx).
 
 ```shell
 interpreter

@@ -14,7 +14,7 @@
     <a href="https://codecov.io/gh/endolith/open-interpreter">
         <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentation</a><br>
+    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="docs">Documentation</a><br>
 </p>
 
 <br>
@@ -58,7 +58,7 @@ This command will install **`main`** which is the default branch (stable base, C
 pip install git+https://github.com/OpenInterpreter/open-interpreter.git
 ```
 
-> See our [setup guide](https://docs.openinterpreter.com/getting-started/setup) for optional dependencies.
+> See our [setup guide](docs/getting-started/setup.mdx) for optional dependencies.
 
 For day-to-day use, however, you probably want to install **`classic/develop`** instead — that's the unstable branch maintained and used daily, with many changes and features vs the main branch, such as support for reasoning models, OpenRouter/DeepSeek/Qwen, web search tools, etc.:
 
@@ -361,7 +361,7 @@ We then stream the model's messages, code, and your system's outputs to the term
 
 ## Access Documentation Offline
 
-The full [documentation](https://docs.openinterpreter.com/) is accessible on-the-go without the need for an internet connection.
+The full [documentation](docs) is accessible on-the-go without the need for an internet connection.
 
 [Node](https://nodejs.org/en) is a pre-requisite:
 

@@ -383,7 +383,7 @@ def local_setup(interpreter, provider=None, model=None):
             )
             if result.returncode != 0:
                 interpreter.display_message(
-                    "To use Llamafile, Open Interpreter requires Mac users to have Xcode installed. You can install Xcode from https://developer.apple.com/xcode/ .\n\nAlternatively, you can use `LM Studio`, `Jan.ai`, or `Ollama` to manage local language models. Learn more at https://docs.openinterpreter.com/guides/running-locally ."
+                    "To use Llamafile, Open Interpreter requires Mac users to have Xcode installed. You can install Xcode from https://developer.apple.com/xcode/ .\n\nAlternatively, you can use `LM Studio`, `Jan.ai`, or `Ollama` to manage local language models. Learn more at https://github.com/endolith/open-interpreter/blob/main/docs/guides/running-locally.mdx ."
                 )
                 time.sleep(3)
                 raise Exception(

@@ -29,4 +29,4 @@ computer:
 #   model: "gpt-4o-mini"
 
 # Documentation
-# All options: https://docs.openinterpreter.com/settings
+# All options: https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx

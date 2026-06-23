@@ -390,7 +390,7 @@ Use """ to write multi-line messages.
         print(f"\nUnrecognized argument(s): {unknown_args}")
         parser.print_usage()
         print(
-            "For detailed documentation of supported arguments, please visit: https://docs.openinterpreter.com/settings/all-settings"
+            "For detailed documentation of supported arguments, please visit: https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx"
         )
         sys.exit(1)
 

@@ -84,4 +84,4 @@ You can now use this dataframe to do whatever you need to do with the data.
 # multi_line: False # If True, you can input multiple lines starting and ending with ```
 
 # Documentation
-# All options: https://docs.openinterpreter.com/settings
+# All options: https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx

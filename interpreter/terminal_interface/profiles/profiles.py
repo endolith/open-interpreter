@@ -512,7 +512,7 @@ You are capable of **any** task.""",
 
 # custom_instructions: ""  # This will be appended to the system message
 # auto_run: False  # If True, code will run without asking for confirmation
-# safe_mode: "off"  # The safety mode (see https://docs.openinterpreter.com/usage/safe-mode)
+# safe_mode: "off"  # The safety mode (see https://github.com/endolith/open-interpreter/blob/main/docs/safety/safe-mode.mdx)
 # offline: False  # If True, will disable some online features like checking for updates
 # verbose: False  # If True, will print detailed logs
 
@@ -525,7 +525,7 @@ You are capable of **any** task.""",
     # api_version: ...  # The version of the API (this is primarily for Azure)
     # max_output: 2800  # The maximum characters of code output visible to the LLM
 
-# All options: https://docs.openinterpreter.com/settings
+# All options: https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx
 
 version: {OI_VERSION}  # Profile version (do not modify)
         """.strip()
