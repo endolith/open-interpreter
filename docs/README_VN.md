@@ -255,11 +255,11 @@ Trong chế độ tương tác, bạn có thể sử dụng những dòng lệnh
 **Các lệnh có sẵn:**
 
 - `%% [command]`: Chạy lệnh trong shell hệ thống (bỏ qua LLM).
-- `%verbose [true/false]`: Bật chế độ gỡ lỗi. Có hay không có `true` đều khởi động chế độ gỡ lỗi. Với `false` thì nó tắt chế độ gỡ lỗi.
+- `%verbose [true/false]`: Bật/tắt chế độ chi tiết. Không có tham số hoặc với `true` thì bật chế độ chi tiết. Với `false` thì tắt chế độ chi tiết.
 - `%auto_run [true/false]`: Bật hoặc tắt chạy mã không cần xác nhận. Không có tham số hoặc với `true` thì vào chế độ auto_run. Với `false` thì thoát chế độ auto_run.
 - `%reset`: Khởi động lại toàn bộ phiên trò chuyện hiện tại.
 - `%undo`: Xóa tin nhắn của người dùng trước đó và phản hồi của AI khỏi lịch sử tin nhắn.
-- `%save_message [path]`: Lưu tin nhắn vào một đường dẫn JSON được xác định từ trước. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
+- `%save_message [path]`: Lưu tin nhắn vào đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
 - `%load_message [path]`: Tải tin nhắn từ một đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
 - `%tokens [prompt]`: (_Experimental_) Tính toán các token sẽ được gửi cùng với lời nhắc tiếp theo dưới dạng ngữ cảnh và hao tổn. Tùy chọn tính toán token và hao tổn ước tính của một `prompt` nếu được cung cấp. Dựa vào [hàm `cost_per_token()` của mô hình LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) để tính toán hao tổn.
 - `%jupyter`: Xuất cuộc trò chuyện ra tệp sổ ghi Jupyter.

@@ -270,7 +270,7 @@ $ interpreter
 ...
 > %verbose true <- Activa el modo detallado
 
-> %verbose false <- Desactiva el modo verbose
+> %verbose false <- Desactiva el modo detallado
 ```
 
 ### Comandos de Modo Interactivo
@@ -281,7 +281,7 @@ En el modo interactivo, puede utilizar los siguientes comandos para mejorar su e
 
 - `%% [command]`: Ejecuta un comando en el shell del sistema (sin pasar por el LLM).
 - `%verbose [true/false]`: Activa o desactiva el modo detallado. Sin parámetros o con `true` entra en modo detallado.
-  Con `false` sale del modo verbose.
+  Con `false` sale del modo detallado.
 - `%auto_run [true/false]`: Activa o desactiva la ejecución de código sin confirmación. Sin parámetros o con `true` entra en modo auto_run. Con `false` sale del modo auto_run.
 - `%reset`: Reinicia la sesión actual de conversación.
 - `%undo`: Elimina el mensaje de usuario previo y la respuesta del AI del historial de mensajes.
