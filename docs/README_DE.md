@@ -105,7 +105,7 @@ Du kannst `interpreter -y` ausführen oder `interpreter.auto_run = True` setzen,
 - Beobachte Open Interpreter wie ein selbstfahrendes Auto und sei bereit, den Prozess zu beenden, indem du dein Terminal schließt.
 - Betrachte die Ausführung von Open Interpreter in einer eingeschränkten Umgebung wie Google Colab oder Replit. Diese Umgebungen sind isolierter und reduzieren das Risiko der Ausführung willkürlichen Codes.
 
-Es gibt **experimentelle** Unterstützung für einen [Sicherheitsmodus](docs/SAFE_MODE.md), um einige Risiken zu mindern.
+Es gibt **experimentelle** Unterstützung für einen [Sicherheitsmodus](SAFE_MODE.md), um einige Risiken zu mindern.
 
 ## Wie funktioniert es?
 
@@ -117,7 +117,7 @@ Wir streamen dann die Nachrichten des Modells, Code und die Ausgaben deines Syst
 
 Danke für dein Interesse an der Mitarbeit! Wir begrüßen die Beteiligung der Gemeinschaft.
 
-Bitte sieh dir unsere [Richtlinien für Mitwirkende](docs/CONTRIBUTING.md) für weitere Details an, wie du dich einbringen kannst.
+Bitte sieh dir unsere [Richtlinien für Mitwirkende](CONTRIBUTING.md) für weitere Details an, wie du dich einbringen kannst.
 
 ## Lizenz
 

@@ -4,10 +4,10 @@
     <a href="https://discord.gg/6p3fD6rBVm">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
     <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
-    <a href="docs/README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
-    <a href="docs/README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
+    <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
-    <a href="docs/README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
+    <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
     <br>
@@ -368,7 +368,7 @@ Bạn có thể chạy `interpreter -y` hoặc đặt `interpreter.auto_run = Tr
 - Theo dõi Open Interpreter giống như một chiếc ô tô tự lái và sẵn sàng kết thúc quá trình bằng cách đóng terminal của bạn.
 - Cân nhắc việc chạy Open Interpreter trong môi trường bị hạn chế như Google Colab hoặc Replit. Những môi trường này biệt lập hơn, giảm thiểu rủi ro khi chạy code tùy ý.
 
-Đây là hỗ trợ **thử nghiệm** cho [chế độ an toàn](docs/SAFE_MODE.md) giúp giảm thiểu rủi ro.
+Đây là hỗ trợ **thử nghiệm** cho [chế độ an toàn](SAFE_MODE.md) giúp giảm thiểu rủi ro.
 
 ## Nó hoạt động thế nào?
 
