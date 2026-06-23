@@ -28,3 +28,8 @@ When changing code, update **all** relevant documentation:
 
 - **One logical change per commit.** Break up multi-part work into separate commits that are each easy to review.
 - Write clear, descriptive commit messages.
+
+### PRs and Issues
+
+- All changes must be submitted as PRs so they can be revised independently.
+- Check if there are any Issues related to the change you are making, and if so, mention it in the PR and write `Fixes #…` in the relevant commit message, so that the Issue will be auto-closed on merge.
