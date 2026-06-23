@@ -13,7 +13,7 @@
     <br>
     <b>自然言語で指示するだけでコードを書いて実行までしてくれる。</b><br>
     ローカルに実装したOpenAI Code Interpreterのオープンソース版。<br>
-    <br><a href="https://www.openinterpreter.com/">デスクトップアプリ</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">ドキュメント</a><br>
+    <br><a href="https://www.openinterpreter.com/">デスクトップアプリ</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">ドキュメント</a><br>
 </p>
 
 <br>

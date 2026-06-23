@@ -12,7 +12,7 @@
     <br>
     <b>让语言模型在您的计算机上运行代码。</b><br>
     在本地实现的开源OpenAI的代码解释器。<br>
-    <br><a href="https://www.openinterpreter.com/">桌面应用</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <b><a href=".">阅读新文档</a></b><br>
+    <br><a href="https://www.openinterpreter.com/">桌面应用</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <b><a href=".">阅读新文档</a></b><br>
 </p>
 
 <br>
