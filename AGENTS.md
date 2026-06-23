@@ -1,25 +1,33 @@
 # AGENTS.md
 
-## Overview
+Open Interpreter — Python CLI (3.9+) that lets LLMs execute code locally. Uses LiteLLM, ipykernel/jupyter-client, Rich, FastAPI.
 
-Open Interpreter — Python CLI (3.9+) that lets LLMs execute code locally. Uses LiteLLM, ipykernel/jupyter-client, Rich, FastAPI. See `README.md`.
+## Development setup
 
-## Development
+See `docs/CONTRIBUTING.md` for setup instructions. CI workflow in `.github/workflows/python-package.yml` is the source of truth for how to install, lint, and test.
 
-```bash
-pip install -e ".[server]"                         # editable install
-interpreter                                        # run CLI
-interpreter --server                               # WebSocket server on port 8000
-```
-
-Build backend is Poetry but CI uses pip. May migrate to uv — check `pyproject.toml` and `.github/workflows/python-package.yml` for current approach.
+The build backend is Poetry, but CI installs via pip. The package manager may change (e.g. to uv) — always check `pyproject.toml` and CI for the current approach.
 
 ## Code change guidelines
 
-- **Always write or update unit tests.** New functions need tests; bug fixes need regression tests.
-- **Push and monitor CI** — CI is the source of truth. Keep checking until it passes and fix any failures.
-- **Update all relevant documentation**: code comments, docstrings, `docs/` pages, and all translated READMEs (`README.md`, `docs/README_ZH.md`, `docs/README_JA.md`, `docs/README_ES.md`, `docs/README_UK.md`, `docs/README_IN.md`, `docs/README_DE.md`, `docs/README_VN.md`).
-- **One logical change per commit** for easy review. Clear commit messages.
+### Testing
+
+- **Always write or update unit tests** when changing code. New functions/methods need tests; bug fixes need regression tests.
+- **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, and fix any failures before considering the work complete.
+
+### Documentation
+
+When changing code, update **all** relevant documentation:
+
+- **Code comments and docstrings** — keep them accurate and up-to-date.
+- **`docs/` folder** — update any affected documentation pages.
+- **README files** — the project has READMEs in multiple languages (`README.md`, `docs/README_ZH.md`, `docs/README_JA.md`, `docs/README_ES.md`, …). If you change something documented in the English README, update the translated versions too.
+- **`AGENTS.md`** — update this file if the development guidelines change.
+
+### Commits
+
+- **One logical change per commit.** Break up multi-part work into separate commits that are each easy to review.
+- Write clear, descriptive commit messages.
 
 ## Do not touch
 
