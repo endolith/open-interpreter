@@ -1,6 +1,7 @@
 ###########################################################################################
 # This Dockerfile runs an LMC-compatible websocket server at / on port 8000.              #
-# To learn more about LMC, visit https://github.com/endolith/open-interpreter/blob/main/docs/protocols/lmc-messages.mdx. #
+# To learn more about LMC, visit                                                          #
+# https://github.com/endolith/open-interpreter/blob/main/docs/protocols/lmc-messages.mdx. #
 ###########################################################################################
 
 FROM python:3.11.8
