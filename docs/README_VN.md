@@ -13,7 +13,7 @@
     <br>
     <b>chạy mô hình ngôn ngữ trí tuệ nhân tạo trên máy tính của bạn.</b><br>
     Mã nguồn mở và ứng dụng phát triển dựa trên code của OpenAI.<br>
-    <br><a href="https://openinterpreter.com">Quyền truy cập sớm dành cho máy tính cá nhân</a>‎ ‎ |‎ ‎ <b><a href=".">Tài liệu đọc tham khảo</a></b><br>
+    <br><a href="https://www.openinterpreter.com/">Desktop App</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <b><a href=".">Tài liệu đọc tham khảo</a></b><br>
 </p>
 
 <br>

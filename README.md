@@ -14,7 +14,7 @@
     <a href="https://codecov.io/gh/endolith/open-interpreter">
         <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="docs">Documentation</a><br>
+    <br><a href="https://www.openinterpreter.com/">Desktop App</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href="docs">Documentation</a><br>
 </p>
 
 <br>

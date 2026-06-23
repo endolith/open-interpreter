@@ -12,7 +12,7 @@
     <br><br>
     <b>अपने कंप्यूटर पर कोड चलाने के लिए भाषा मॉडल को चलाएं।</b><br>
     ओपनएआई कोड इंटरप्रेटर का एक ओपन-सोर्स, स्थानीय चलने वाला अमल।<br>
-    <br><a href="https://openinterpreter.com">डेस्कटॉप एप्लिकेशन को पहले से ही उपयोग करने के लिए एरली एक्सेस प्राप्त करें।</a><br>
+    <br><a href="https://www.openinterpreter.com/">डेस्कटॉप ऐप</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a><br>
 </p>
 
 <br>

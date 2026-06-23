@@ -13,7 +13,7 @@
     <br><br>
     <b>Lassen Sie Sprachmodelle Code auf Ihrem Computer ausführen.</b><br>
     Eine Open-Source, lokal laufende Implementierung von OpenAIs Code-Interpreter.<br>
-    <br><a href="https://openinterpreter.com">Erhalten Sie frühen Zugang zur Desktop-Anwendung.</a><br>
+    <br><a href="https://www.openinterpreter.com/">Desktop-App</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a><br>
 </p>
 
 <br>

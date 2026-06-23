@@ -11,7 +11,7 @@
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Отримайте ранній доступ до десктопної програми</a>‎ ‎ |‎ ‎ <a href=".">Документація</a><br>
+    <br><a href="https://www.openinterpreter.com/">Desktop App</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">Документація</a><br>
 </p>
 
 <br>
