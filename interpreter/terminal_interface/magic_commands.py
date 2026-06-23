@@ -50,6 +50,7 @@ def handle_help(self, arguments):
     commands_description = {
         "%% [commands]": "Run commands in system shell",
         "%verbose [true/false]": "Toggle verbose mode. Without arguments or with 'true', it enters verbose mode. With 'false', it exits verbose mode.",
+        "%auto_run [true/false]": "Toggle whether code runs without confirmation. Without arguments or with 'true', it enters auto_run mode. With 'false', it exits auto_run mode.",
         "%reset": "Resets the current session.",
         "%undo": "Remove previous messages and its response from the message history.",
         "%save_message [path]": "Saves messages to a specified JSON path. If no path is provided, it defaults to 'messages.json'.",
