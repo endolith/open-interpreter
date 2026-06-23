@@ -19,7 +19,8 @@ When changing code, update **all** relevant documentation:
 
 - **Code comments and docstrings** — keep them accurate and up-to-date.
 - **`docs/` folder** — update any affected documentation pages.
-- **README files** — the project has READMEs in multiple languages (`README.md`, `docs/README_ZH.md`, `docs/README_JA.md`, `docs/README_ES.md`, `docs/README_UK.md`, `docs/README_IN.md`, `docs/README_DE.md`, `docs/README_VN.md`). If you change something documented in the English README, update the translated versions too.
+- **README files** — the project has READMEs in multiple languages (`README.md`, `docs/README_ZH.md`, `docs/README_JA.md`, `docs/README_ES.md`, …). If you change something documented in the English README, update the translated versions too.
+- **`AGENTS.md`** — update this file if the development guidelines change.
 
 ### Commits
 
