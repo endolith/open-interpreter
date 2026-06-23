@@ -214,7 +214,7 @@ Open Interpreter 为[函数调用语言模型](https://platform.openai.com/docs/
 
 ## 规划图
 
-若要预览 Open Interpreter 的未来，请查看[我们的路线图](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) 。
+若要预览 Open Interpreter 的未来，请查看[我们的路线图](ROADMAP.md) 。
 
 **请注意**：此软件与 OpenAI 无关。
 

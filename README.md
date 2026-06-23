@@ -55,7 +55,7 @@ This repository is Endolith's fork of the classic Python Open Interpreter.
 This command will install **`main`** which is the default branch (stable base, CI, and merge target for ported changes):
 
 ```shell
-pip install git+https://github.com/OpenInterpreter/open-interpreter.git
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
 
 > See our [setup guide](docs/getting-started/setup.mdx) for optional dependencies.
@@ -351,7 +351,7 @@ You can run `interpreter -y` or set `interpreter.auto_run = True` to bypass this
 - Watch Open Interpreter like a self-driving car, and be prepared to end the process by closing your terminal.
 - Consider running Open Interpreter in a restricted environment like Google Colab or Replit. These environments are more isolated, reducing the risks of executing arbitrary code.
 
-There is **experimental** support for a [safe mode](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/SAFE_MODE.md) to help mitigate some risks.
+There is **experimental** support for a [safe mode](docs/SAFE_MODE.md) to help mitigate some risks.
 
 ## How Does it Work?
 
@@ -391,11 +391,11 @@ A new browser window should open. The documentation will be available at [http:/
 
 Thank you for your interest in contributing! We welcome involvement from the community.
 
-Please see our [contributing guidelines](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/CONTRIBUTING.md) for more details on how to get involved.
+Please see our [contributing guidelines](docs/CONTRIBUTING.md) for more details on how to get involved.
 
 ## Roadmap
 
-Visit [our roadmap](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) to preview the future of Open Interpreter.
+Visit [our roadmap](docs/ROADMAP.md) to preview the future of Open Interpreter.
 
 **Note**: This software is not affiliated with OpenAI.
 

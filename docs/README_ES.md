@@ -401,7 +401,7 @@ Por favor, consulte nuestras [directrices de contribución](docs/CONTRIBUTING.md
 
 # Roadmap
 
-Visite [nuestro roadmap](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) para ver el futuro de Intérprete Abierto.
+Visite [nuestro roadmap](ROADMAP.md) para ver el futuro de Intérprete Abierto.
 
 **Nota:** Este software no está afiliado con OpenAI.
 

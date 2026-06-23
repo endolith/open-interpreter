@@ -388,7 +388,7 @@ Open Interpreter は、[関数が呼び出せる言語モデル](https://platfor
 
 # ロードマップ
 
-Open Interpreter の未来を一足先に見るために、[私たちのロードマップ](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md)をご覧ください。
+Open Interpreter の未来を一足先に見るために、[私たちのロードマップ](ROADMAP.md)をご覧ください。
 
 **注意**: このソフトウェアは OpenAI とは関連していません。
 
