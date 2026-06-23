@@ -16,7 +16,7 @@ If you encounter a bug or have a feature in mind, don't hesitate to [open a new 
 
 This is a minimalist, **tightly scoped** project that places a premium on simplicity. We're skeptical of new extensions, integrations, and extra features. We would rather not extend the system if it adds nonessential complexity.
 
-# Contribution Guidelines
+## Contribution Guidelines
 
 1. Before taking on significant code changes, please discuss your ideas on [Discord](https://discord.gg/6p3fD6rBVm) to ensure they align with our vision. We want to keep the codebase simple and unintimidating for new users.
 2. Fork the repository and create a new branch for your work.
@@ -80,11 +80,11 @@ Our project uses `black` for code formatting and `isort` for import sorting. To 
    isort .
    ```
 
-# Licensing
+## Licensing
 
 Contributions to Open Interpreter would be under the MIT license before version 0.2.0, or under AGPL for subsequent contributions.
 
-# Questions?
+## Questions?
 
 Join our [Discord community](https://discord.gg/6p3fD6rBVm) and post in the #General channel to connect with contributors. We're happy to guide you through your first open source contribution to this project!
 
