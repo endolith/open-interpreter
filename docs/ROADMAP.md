@@ -1,11 +1,13 @@
 # Roadmap
 
 ## Documentation
+
 - [ ] Work with Mintlify to translate docs. How does Mintlify let us translate our documentation automatically? I know there's a way.
 - [ ] Better comments throughout the package (they're like docs for contributors)
 - [ ] Show how to replace interpreter.llm so you can use a custom llm
 
 ## New features
+
 - [ ] Figure out how to get OI to answer to user input requests like python's `input()`. Do we somehow detect a delay in the output..? Is there some universal flag that TUIs emit when they expect user input? Should we do this semantically with embeddings, then ask OI to review it and respond..?
 - [ ] Placeholder text that gives a compelling example OI request. Probably use `textual`
 - [ ] Everything else `textual` offers, like could we make it easier to select text? Copy paste in and out? Code editing interface?
