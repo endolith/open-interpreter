@@ -258,12 +258,17 @@ $ interpreter
 
 **利用可能なコマンド:**
 
-- `%verbose [true/false]`: デバッグモードを切り替えます。引数なしまたは `true` でデバッグモードに入ります。`false` でデバッグモードを終了します。
+- `%% [command]`: システムシェルでコマンドを実行します（LLM を経由しません）。
+- `%verbose [true/false]`: 詳細モードを切り替えます。引数なしまたは `true` で詳細モードに入ります。`false` で詳細モードを終了します。
+- `%auto_run [true/false]`: 確認なしでコードを実行するかどうかを切り替えます。引数なしまたは `true` で auto_run モードに入ります。`false` で終了します。
 - `%reset`: 現在のセッションの会話をリセットします。
 - `%undo`: メッセージ履歴から前のユーザーメッセージと AI の応答を削除します。
 - `%save_message [path]`: メッセージを指定した JSON パスに保存します。パスが指定されていない場合、デフォルトは `messages.json` になります。
 - `%load_message [path]`: 指定した JSON パスからメッセージを読み込みます。パスが指定されていない場合、デフォルトは `messages.json` になります。
 - `%tokens [prompt]`: (_実験的_) 次のプロンプトのコンテキストとして送信されるトークンを計算し、そのコストを見積もります。オプションで、`prompt` が提供された場合のトークンと見積もりコストを計算します。見積もりコストは [LiteLLM の `cost_per_token()` メソッド](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token)に依存します。
+- `%jupyter`: 会話を Jupyter ノートブックファイルにエクスポートします。
+- `%markdown [path]`: 会話を指定した Markdown パスにエクスポートします。パスが指定されていない場合、生成された会話名で Downloads フォルダに保存されます。
+- `%info`: システムとインタープリタの情報を表示します。
 - `%help`: ヘルプメッセージを表示します。
 
 ### 設定

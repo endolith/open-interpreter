@@ -273,11 +273,18 @@ In the interactive mode, you can use the below commands to enhance your experien
 
 **Available Commands:**
 
+- `%% [command]`: Run a command in your system shell (bypasses the LLM).
 - `%verbose [true/false]`: Toggle verbose mode. Without arguments or with `true` it
   enters verbose mode. With `false` it exits verbose mode.
+- `%auto_run [true/false]`: Toggle whether code runs without confirmation. Without arguments or with `true` it enters auto_run mode. With `false` it exits auto_run mode.
 - `%reset`: Resets the current session's conversation.
 - `%undo`: Removes the previous user message and the AI's response from the message history.
+- `%save_message [path]`: Saves messages to a specified JSON path. If no path is provided, it defaults to 'messages.json'.
+- `%load_message [path]`: Loads messages from a specified JSON path. If no path is provided, it defaults to 'messages.json'.
 - `%tokens [prompt]`: (_Experimental_) Calculate the tokens that will be sent with the next prompt as context and estimate their cost. Optionally calculate the tokens and estimated cost of a `prompt` if one is provided. Relies on [LiteLLM's `cost_per_token()` method](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) for estimated costs.
+- `%jupyter`: Export the conversation to a Jupyter notebook file.
+- `%markdown [path]`: Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.
+- `%info`: Show system and interpreter information.
 - `%help`: Show the help message.
 
 ### Configuration / Profiles

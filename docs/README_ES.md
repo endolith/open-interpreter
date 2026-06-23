@@ -270,7 +270,7 @@ $ interpreter
 ...
 > %verbose true <- Activa el modo detallado
 
-> %verbose false <- Desactiva el modo verbose
+> %verbose false <- Desactiva el modo detallado
 ```
 
 ### Comandos de Modo Interactivo
@@ -279,11 +279,18 @@ En el modo interactivo, puede utilizar los siguientes comandos para mejorar su e
 
 **Comandos Disponibles:**
 
+- `%% [command]`: Ejecuta un comando en el shell del sistema (sin pasar por el LLM).
 - `%verbose [true/false]`: Activa o desactiva el modo detallado. Sin parámetros o con `true` entra en modo detallado.
-  Con `false` sale del modo verbose.
+  Con `false` sale del modo detallado.
+- `%auto_run [true/false]`: Activa o desactiva la ejecución de código sin confirmación. Sin parámetros o con `true` entra en modo auto_run. Con `false` sale del modo auto_run.
 - `%reset`: Reinicia la sesión actual de conversación.
 - `%undo`: Elimina el mensaje de usuario previo y la respuesta del AI del historial de mensajes.
+- `%save_message [path]`: Guarda los mensajes en una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
+- `%load_message [path]`: Carga mensajes desde una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
 - `%tokens [prompt]`: (_Experimental_) Calcula los tokens que se enviarán con el próximo prompt como contexto y estima su costo. Opcionalmente, calcule los tokens y el costo estimado de un `prompt` si se proporciona. Depende de [LiteLLM's `cost_per_token()` method](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) para costos estimados.
+- `%jupyter`: Exporta la conversación a un archivo de cuaderno Jupyter.
+- `%markdown [path]`: Exporta la conversación a una ruta Markdown especificada. Si no se proporciona ruta, se guardará en la carpeta Downloads con un nombre de conversación generado.
+- `%info`: Muestra información del sistema y del intérprete.
 - `%help`: Muestra el mensaje de ayuda.
 
 ### Configuración / Perfiles
