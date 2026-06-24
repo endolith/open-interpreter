@@ -23,7 +23,7 @@
 
 <br>
 
-**Open Interpreter** lets LLMs run code (Python, Javascript, Shell, and more) locally. You can chat with Open Interpreter through a ChatGPT-like interface in your terminal by running `$ interpreter` after installing.
+**Open Interpreter** lets LLMs run code and shell commands locally — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. You can chat with Open Interpreter through a **chatbot interface** in your terminal by running `interpreter` after installing.
 
 This provides a natural-language interface to your computer's general-purpose capabilities:
 
@@ -31,6 +31,12 @@ This provides a natural-language interface to your computer's general-purpose ca
 - Control a Chrome browser to perform research
 - Plot, clean, and analyze large datasets
 - ...etc.
+
+| Compared to… | Open Interpreter |
+|---|---|
+| **Coding agents** (Claude Code, Cursor, Windsurf) | Less about patching a codebase; more about **one-off tasks** in a persistent, REPL-like session (closer to a Jupyter notebook than an IDE). |
+| **MCP-based agents** | Does not route work through MCP tool calls — it **runs code directly**. No MCP client support today. |
+| **Natural-language shell tools** | Also translate English into shell commands, but OI is a **chatbot** where you can review, reject (`n`), or edit (`e`) code before it runs, and ask the model to revise. |
 
 **⚠️ Note: You'll be asked to approve code before it's run.**
 
