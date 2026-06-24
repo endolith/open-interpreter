@@ -100,22 +100,19 @@ interpreter.chat() # Starts an interactive chat
 
 Press the <kbd>,</kbd> key on this repository's GitHub page to create a codespace. After a moment, you'll receive a cloud virtual machine environment pre-installed with open-interpreter. You can then start interacting with it directly and freely confirm its execution of system commands without worrying about damaging the system.
 
-## Comparison to ChatGPT's Code Interpreter
+## Comparison to hosted Code Interpreter
 
-OpenAI's release of [Code Interpreter](https://openai.com/blog/chatgpt-plugins#code-interpreter) with GPT-4 presents a fantastic opportunity to accomplish real-world tasks with ChatGPT.
+Hosted **Code Interpreter** features in chatbot products ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.) run code in a remote, sandboxed environment that is closed-source and heavily restricted compared to your local machine:
 
-However, OpenAI's service is hosted, closed-source, and heavily restricted:
-
-- No internet access.
-- [Limited set of pre-installed packages](https://wfhbrian.com/artificial-intelligence/mastering-chatgpts-code-interpreter-list-of-python-packages/).
-- 100 MB maximum upload, 120.0 second runtime limit.
-- State is cleared (along with any generated files or links) when the environment dies.
+- Sandboxed remote environment — not your local filesystem.
+- User code cannot freely access the internet or call arbitrary APIs (package installs may use provider-specific mirrors).
+- Limited set of pre-installed packages.
+- Ephemeral sessions — containers expire after inactivity (e.g. 20 minutes on the [OpenAI API](https://developers.openai.com/api/docs/guides/tools-code-interpreter)).
+- Upload and runtime limits (e.g. OpenAI allows up to 512 MB per file; details vary by provider).
 
 ---
 
 Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can utilize any package or library.
-
-This combines the power of GPT-4's Code Interpreter with the flexibility of your local development environment.
 
 ## Commands
 
