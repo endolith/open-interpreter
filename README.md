@@ -336,7 +336,7 @@ pip install fastapi uvicorn
 uvicorn server:app --reload
 ```
 
-You can also start a server identical to the one above by simply running `interpreter.server()`.
+You can also start a built-in server with `interpreter --server` (requires the `[server]` extra).
 
 ## Android
 
