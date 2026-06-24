@@ -23,7 +23,7 @@
 
 <br>
 
-**Open Interpreter** lets LLMs run code and shell commands locally — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. You use it through a **chatbot interface** in your terminal; run `interpreter` after installing.
+**Open Interpreter** lets LLMs run code and shell commands locally — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. You can chat with Open Interpreter through a **chatbot interface** in your terminal by running `interpreter` after installing.
 
 | Compared to… | Open Interpreter |
 |---|---|
@@ -94,11 +94,11 @@ Press the <kbd>,</kbd> key on this repository's GitHub page to create a codespac
 
 Hosted **Code Interpreter** features in chatbot products ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.) run code in a remote, sandboxed environment that is closed-source and heavily restricted compared to your local machine:
 
-- Sandboxed environment — not your filesystem.
-- User code generally cannot access the open internet or call arbitrary APIs (details vary by provider).
+- Sandboxed remote environment — not your local filesystem.
+- User code cannot freely access the internet or call arbitrary APIs (package installs may use provider-specific mirrors).
 - Limited set of pre-installed packages.
-- Ephemeral sessions — state and files are cleared when the environment ends (timeouts vary by provider).
-- Upload and runtime limits (vary by provider).
+- Ephemeral sessions — containers expire after inactivity (e.g. 20 minutes on the [OpenAI API](https://developers.openai.com/api/docs/guides/tools-code-interpreter)).
+- Upload and runtime limits (e.g. OpenAI allows up to 512 MB per file; details vary by provider).
 
 ---
 
