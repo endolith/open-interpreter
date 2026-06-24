@@ -23,7 +23,7 @@
 
 <br>
 
-**Open Interpreter** lets LLMs run code and shell commands locally — Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more. You can chat with Open Interpreter through a **chatbot interface** in your terminal by running `interpreter` after installing.
+**Open Interpreter** lets LLMs run code and shell commands locally (Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more). You interact with Open Interpreter through a chatbot interface in your terminal by running `interpreter` after installing.
 
 This provides a natural-language interface to your computer's general-purpose capabilities:
 
@@ -32,13 +32,16 @@ This provides a natural-language interface to your computer's general-purpose ca
 - Plot, clean, and analyze large datasets
 - ...etc.
 
-| Compared to… | Open Interpreter |
-|---|---|
-| **Coding agents** (Claude Code, Cursor, Windsurf) | Less about patching a codebase; more about **one-off tasks** in a persistent, REPL-like session (closer to a Jupyter notebook than an IDE). |
-| **MCP-based agents** | Does not route work through MCP tool calls — it **runs code directly**. No MCP client support today. |
-| **Natural-language shell tools** | Also translate English into shell commands, but OI is a **chatbot** where you can review, reject (`n`), or edit (`e`) code before it runs, and ask the model to revise. |
+**⚠️ Note: By default, you'll be asked to approve code before it's run.**
 
-**⚠️ Note: You'll be asked to approve code before it's run.**
+## Comparison with other tools
+
+Open Interpreter pre-dates many other AI coding tools, and has some similarities and differences:
+
+- While it can write code and execute shell commands, similar to coding agents like [Claude Code](https://claude.ai/code), [Cursor](https://cursor.sh), [Devin](https://www.devin.ai), and the like, Open Interpreter is less about maintaining a project codebase by patching source code files, and more about completing one-off tasks in a persistent, interactive REPL-like session (closer to a Jupyter notebook than an IDE).
+- Unlike [OpenClaw](https://openclaw.ai/), [Hermes Agent](https://hermes-agent.org/), etc. it is typically used interactively and not as an autonomous agent.
+- Rather than interacting with the world through MCP tools, like [Claude Desktop](https://claude.ai/download), it runs code snippets or [shell commands directly](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html).
+- It is similar to natural-language shell translators like [ShellGPT](https://github.com/ther1d/shell_gpt) or [cmd-ai](https://github.com/BrodaNoel/cmd-ai), but it is not limited to shell, and uses an interactive chatbot interface, so you can review, reject (`n`), or edit (`e`) commands before they run, and ask the model to revise.
 
 ## Demo
 
