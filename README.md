@@ -362,7 +362,7 @@ There is **experimental** support for a [safe mode](docs/SAFE_MODE.md) to help m
 
 ## How Does it Work?
 
-Open Interpreter equips a [function-calling language model](https://platform.openai.com/docs/guides/function-calling) with an `exec()` function, which accepts a `language` (like "Python" or "JavaScript") and `code` to run.
+Open Interpreter equips a [function-calling language model](https://platform.openai.com/docs/guides/function-calling) with an `execute` tool, which accepts a `language` (like "Python" or "JavaScript") and `code` to run. (Non-function-calling models are also supported via markdown code blocks.)
 
 We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
 
