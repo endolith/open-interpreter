@@ -50,7 +50,7 @@ This provides a natural-language interface to your computer's general-purpose ca
 
 ### Install
 
-This repository is Endolith's fork of the classic Python Open Interpreter.
+This is the community-maintained Python version of Open Interpreter.
 
 This command will install **`main`** which is the default branch (stable base, CI, and merge target for ported changes):
 
