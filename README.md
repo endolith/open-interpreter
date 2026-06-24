@@ -362,9 +362,9 @@ Open Interpreter equips a [function-calling language model](https://platform.ope
 
 We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
 
-## Access Documentation Offline
+## Documentation
 
-The full [documentation](docs) is accessible on-the-go without the need for an internet connection.
+The full [documentation](docs) lives in this repository.
 
 [Node](https://nodejs.org/en) is a pre-requisite:
 
