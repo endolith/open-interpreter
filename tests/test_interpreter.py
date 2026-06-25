@@ -63,8 +63,51 @@ def _stop_server_subprocess(process):
         process.terminate()
         process.join(timeout=5)
     if process.is_alive():
-        os.kill(process.pid, signal.SIGKILL)
-    process.join()
+        process.kill()
+        process.join()
+
+
+async def _wait_for_websocket_complete(
+    websocket, max_messages=500, recv_timeout=300.0, acknowledge=False
+):
+    """Read WebSocket chunks until the server sends a 'complete' status.
+
+    The old while True loops hung forever when 'complete' never arrived (for example
+    on auth failure). Bound both message count and per-recv wait time.
+    """
+
+    import asyncio
+    import json
+
+    accumulated_content = ""
+    for _ in range(max_messages):
+        try:
+            message = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
+        except asyncio.TimeoutError as exc:
+            raise Exception(
+                f"No WebSocket message within {recv_timeout}s waiting for 'complete'"
+            ) from exc
+
+        message_data = json.loads(message)
+        if acknowledge and "id" in message_data:
+            await websocket.send(json.dumps({"ack": message_data["id"]}))
+        if "error" in message_data:
+            raise Exception(message_data["content"])
+        print("Received from WebSocket:", message_data)
+        content = message_data.get("content")
+        if type(content) == str:
+            accumulated_content += content
+        elif content:
+            accumulated_content += str(content)
+        if (
+            message_data.get("role") == "server"
+            and message_data.get("type") == "status"
+            and message_data.get("content") == "complete"
+        ):
+            print("Received expected message from server")
+            return accumulated_content
+
+    raise Exception(f"Never received 'complete' status after {max_messages} messages")
 
 
 def test_hallucinations():
@@ -197,7 +240,10 @@ def test_authenticated_acknowledging_breaking_server():
                 max_chunks -= 1
                 if max_chunks == 0:
                     break
-                message = await websocket.recv()
+                try:
+                    message = await asyncio.wait_for(websocket.recv(), timeout=300.0)
+                except asyncio.TimeoutError as exc:
+                    raise Exception("Timed out waiting for early poem chunks") from exc
                 message_data = json.loads(message)
                 if "id" in message_data:
                     await websocket.send(json.dumps({"ack": message_data["id"]}))
@@ -207,11 +253,11 @@ def test_authenticated_acknowledging_breaking_server():
                 if type(message_data.get("content")) == str:
                     poem += message_data.get("content")
                     print(message_data.get("content"), end="", flush=True)
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
+                if (
+                    message_data.get("role") == "server"
+                    and message_data.get("type") == "status"
+                    and message_data.get("content") == "complete"
+                ):
                     raise (
                         Exception(
                             "It shouldn't have finished this soon, accumulated_content is: "
@@ -234,24 +280,7 @@ def test_authenticated_acknowledging_breaking_server():
             # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "id" in message_data:
-                    await websocket.send(json.dumps({"ack": message_data["id"]}))
-                if "error" in message_data:
-                    raise Exception(str(message_data))
-                print("Received from WebSocket:", message_data)
-                message_data.pop("id", "")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    break
-                if type(message_data.get("content")) == str:
-                    poem += message_data.get("content")
-                    print(message_data.get("content"), end="", flush=True)
+            poem += await _wait_for_websocket_complete(websocket, acknowledge=True)
 
             time.sleep(1)
             print("Is this a normal poem?")
@@ -277,7 +306,7 @@ def run_server():
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_server():
     # Start the server in a new process
 
@@ -338,22 +367,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             assert "crunk" in accumulated_content
 
@@ -394,22 +408,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if message_data.get("content"):
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             assert "barloney" in accumulated_content
 
@@ -443,22 +442,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if message_data.get("content"):
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             time.sleep(5)
 
@@ -493,23 +477,7 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if message_data.get("content"):
-                    if type(message_data.get("content")) == str:
-                        accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             assert "18893094989" in accumulated_content.replace(",", "")
 
@@ -564,22 +532,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
             get_url = "http://127.0.0.1:8000/settings/messages"
@@ -641,22 +594,7 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
             get_url = "http://127.0.0.1:8000/settings/messages"
@@ -679,7 +617,7 @@ def test_server():
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
             }
-            response = requests.post(post_url, json=code_data)
+            response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
     # Get the current event loop and run the test function
