@@ -42,7 +42,7 @@ In order to have a Python script use Open Interpreter locally, some fields need 
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True
+interpreter.offline = True  # Disables online features (e.g. update checks, telemetry)
 interpreter.llm.model = "ollama/codestral"
 interpreter.llm.api_base = "http://localhost:11434"
 

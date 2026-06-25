@@ -25,7 +25,7 @@ interpreter --api_base http://localhost:1337/v1  --model <model_id>
 ```python Python
 from interpreter import interpreter
 
-interpreter.offline = True # Disables online features like Open Procedures
+interpreter.offline = True # Disables online features (e.g. update checks, telemetry)
 interpreter.llm.model = "<model_id>"
 interpreter.llm.api_base = "http://localhost:1337/v1 "
 

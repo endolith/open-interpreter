@@ -241,7 +241,7 @@ Nuestro paquete de Python le da más control sobre cada ajuste. Para replicar y 
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Desactiva las características en línea como Procedimientos Abiertos
+interpreter.offline = True # Desactiva funciones en línea (p. ej. comprobación de actualizaciones, telemetría)
 interpreter.llm.model = "openai/x" # Indica a OI que envíe mensajes en el formato de OpenAI
 interpreter.llm.api_key = "fake_key" # LiteLLM, que utilizamos para hablar con LM Studio, requiere esto
 interpreter.llm.api_base = "http://localhost:1234/v1" # Apunta esto a cualquier servidor compatible con OpenAI
