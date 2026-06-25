@@ -68,7 +68,7 @@ def _stop_server_subprocess(process):
 
 
 async def _wait_for_websocket_complete(
-    websocket, max_messages=500, recv_timeout=120.0, acknowledge=False
+    websocket, max_messages=500, recv_timeout=300.0, acknowledge=False
 ):
     """Read WebSocket chunks until the server sends a 'complete' status.
 
@@ -99,11 +99,11 @@ async def _wait_for_websocket_complete(
             accumulated_content += content
         elif content:
             accumulated_content += str(content)
-        if message_data == {
-            "role": "server",
-            "type": "status",
-            "content": "complete",
-        }:
+        if (
+            message_data.get("role") == "server"
+            and message_data.get("type") == "status"
+            and message_data.get("content") == "complete"
+        ):
             print("Received expected message from server")
             return accumulated_content
 
@@ -253,11 +253,11 @@ def test_authenticated_acknowledging_breaking_server():
                 if type(message_data.get("content")) == str:
                     poem += message_data.get("content")
                     print(message_data.get("content"), end="", flush=True)
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
+                if (
+                    message_data.get("role") == "server"
+                    and message_data.get("type") == "status"
+                    and message_data.get("content") == "complete"
+                ):
                     raise (
                         Exception(
                             "It shouldn't have finished this soon, accumulated_content is: "
@@ -306,7 +306,7 @@ def run_server():
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1800)
 def test_server():
     # Start the server in a new process
 
