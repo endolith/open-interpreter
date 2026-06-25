@@ -3,40 +3,28 @@
 <p align="center">
     <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
+    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
     <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
     <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
+    <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
     <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
-    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br>
-    <br><a href="https://www.openinterpreter.com/">Desktop App</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Документація</a><br>
+    <br><a href="https://www.openinterpreter.com/">Десктопний застосунок</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Документація</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
-
-<br>
-<p align="center">
-<strong>Нове комп'ютерне оновлення</strong> представило <strong><code>--os</code></strong> та новий <strong>Computer API</strong>. <a href="https://changes.openinterpreter.com/log/the-new-computer-update">Читати далі →</a>
-</p>
-<br>
-
-```shell
-pip install open-interpreter
-```
-
-> Не працює? Прочитайте наш [посібник з налаштування](getting-started/setup.mdx).
-
-```shell
-interpreter
-```
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
 
-**Open Interpreter** дозволяє LLM локально запускати код (Python, Javascript, Shell тощо). Ви можете спілкуватися з Open Interpreter через інтерфейс, схожий на ChatGPT, у вашому терміналі, запустивши `$ interpreter` після встановлення.
+**Open Interpreter** дозволяє LLM локально запускати код і команди оболонки (Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java тощо). Ви взаємодієте з Open Interpreter через інтерфейс чатбота у терміналі, запустивши `interpreter` після встановлення.
 
 Це забезпечує інтерфейс природною мовою для загального використання можливостей вашого комп’ютера:
 
@@ -45,27 +33,51 @@ interpreter
 - Створювати, очищати та аналізувати великі набори даних
 - ...і т.д.
 
-**⚠️ Увага: Вам буде запропоновано підтвердити код перед його запуском.**
+**⚠️ Увага: За замовчуванням вам буде запропоновано підтвердити код перед його запуском.**
 
-<br>
+## Порівняння з іншими інструментами
+
+Open Interpreter існує раніше за багато інших інструментів ШІ для кодування і має як схожості, так і відмінності:
+
+- Хоча він може писати код і виконувати команди оболонки, подібно до агентів кодування на кшталт [Claude Code](https://claude.ai/code), [Cursor](https://cursor.sh), [Devin](https://www.devin.ai) тощо, Open Interpreter менше зосереджений на підтримці кодової бази проєкту шляхом патчингу вихідних файлів, а більше на виконанні разових завдань у постійній інтерактивній сесії на кшталт REPL (ближче до Jupyter notebook, ніж до IDE).
+- На відміну від [OpenClaw](https://openclaw.ai/), [Hermes Agent](https://hermes-agent.org/) тощо, його зазвичай використовують інтерактивно, а не як автономного агента.
+- Замість взаємодії зі світом через інструменти MCP, як [Claude Desktop](https://claude.ai/download), він запускає фрагменти коду або [команди оболонки безпосередньо](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html).
+- Він схожий на перекладачі оболонки природною мовою, як [ShellGPT](https://github.com/ther1d/shell_gpt) або [cmd-ai](https://github.com/BrodaNoel/cmd-ai), але не обмежений оболонкою і використовує інтерактивний інтерфейс чатбота, тож ви можете переглядати, відхиляти (`n`) або редагувати (`e`) команди перед запуском і просити модель переробити.
+- Функції Code Interpreter у веб-чатботах ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution) тощо) запускають код у віддаленому ізольованому середовищі з закритим вихідним кодом і обмеженнями. Файли потрібно завантажувати окремо, а результати потім завантажувати. Виконаний код зазвичай не має доступу до Інтернету, обмежений набором попередньо встановлених пакетів, а його контейнер завершується після бездіяльності, втрачаючи прогрес і дані. Open Interpreter долає ці обмеження, працюючи у вашому локальному середовищі. Він має повний доступ до Інтернету, не обмежений часом або розміром файлу, і може використовувати будь-який пакет або бібліотеку, навіть самостійно встановлюючи бібліотеки, корисні для конкретного завдання.
 
 ## Demo
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+[Демонстраційне відео](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
-#### Інтерактивна демонстрація також доступна на Google Colab:
+### Інтерактивна демонстрація також доступна на Google Colab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WKmRXZgsErej2xUriKzxrEAXdxMSgWbb?usp=sharing)
 
-#### Разом із прикладом голосового інтерфейсу, натхненного _Her_:
+### Разом із прикладом голосового інтерфейсу, натхненного _Her_
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1NojYGHDgxH6Y1G1oxThEBBb2AtyODBIK)
 
 ## Швидкий старт
 
+### Встановлення
+
+Це версія Open Interpreter на Python, яку підтримує спільнота.
+
+Ця команда встановить **`main`** — гілку за замовчуванням (стабільна база, CI та ціль для злиття перенесених змін):
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> Дивіться наш [посібник з налаштування](getting-started/setup.mdx) для додаткових залежностей.
+
+Однак для щоденного використання, ймовірно, вам варто встановити **`classic/develop`** — це нестабільна гілка, яка підтримується та використовується щодня, з багатьма змінами та функціями порівняно з гілкою main, такими як підтримка моделей міркування, OpenRouter/DeepSeek/Qwen, інструменти веб-пошуку тощо:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+Для функцій форку, приміток щодо моделей та деталей налаштування дивіться [README `classic/develop`](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md).
 
 ### Термінал
 
@@ -74,6 +86,8 @@ pip install open-interpreter
 ```shell
 interpreter
 ```
+
+Open Interpreter за замовчуванням використовуватиме **GPT-4o** від OpenAI і попросить вас ввести ключ, який можна отримати на [сторінці ключів API OpenAI](https://platform.openai.com/api-keys). Для інших провайдерів або локальних моделей дивіться нижче.
 
 ### Python
 
@@ -86,35 +100,9 @@ interpreter.chat() # Починає інтерактивний чат
 
 ### GitHub Codespaces
 
-Натисніть клавішу `,` на сторінці GitHub цього репозиторію, щоб створити Codespace. Через деякий час ви отримаєте хмарне середовище віртуальної машини, попередньо встановлене з відкритим інтерпретатором. Потім ви можете почати взаємодіяти з ним безпосередньо та вільно підтверджувати виконання ним системних команд, не турбуючись про пошкодження системи.
-
-## Порівняння з інтерпретатором коду ChatGPT
-
-Випуск OpenAI [Code Interpreter](https://openai.com/blog/chatgpt-plugins#code-interpreter) з GPT-4 надає фантастичну можливість виконувати реальні завдання за допомогою ChatGPT.
-
-Однак служба OpenAI є хмарною, з закритим вихідним кодом і суворо обмежена:
-
-- Немає доступу до Інтернету.
-- [Обмежений набір попередньо встановлених пакетів](https://wfhbrian.com/mastering-chatgpts-code-interpreter-list-of-python-packages/).
-- Максимальний розмір завантаження - 100 МБ, обмеження часу виконання - 120,0 секунд.
-- Стан очищається (разом із будь-якими згенерованими файлами чи посиланнями), коли середовище зупиняється.
-
----
-
-Open Interpreter долає ці обмеження, запускаючись у вашому локальному середовищі. Він має повний доступ до Інтернету, не обмежений часом або розміром файлу, і може використовувати будь-який пакет або бібліотеку.
-
-Це поєднує потужність інтерпретатора коду GPT-4 із гнучкістю вашого локального середовища розробки.
+Натисніть клавішу <kbd>,</kbd> на сторінці GitHub цього репозиторію, щоб створити Codespace. Через деякий час ви отримаєте хмарне середовище віртуальної машини з попередньо встановленим open-interpreter. Потім ви можете почати взаємодіяти з ним безпосередньо та вільно підтверджувати виконання ним системних команд, не турбуючись про пошкодження системи.
 
 ## Команди
-
-**Оновлення:** Оновлення Generator (0.1.5) представило потокове передавання:
-
-```python
-message = "What operating system are we on?"
-
-for chunk in interpreter.chat(message, display=False, stream=True):
-  print(chunk)
-```
 
 ### Інтерактивний чат
 
@@ -155,7 +143,7 @@ interpreter.chat("Виглядає чудово, але чи можеш ти з�
 
 ### Почати новий чат
 
-В Python, Open Interpreter запам’ятовує історію розмов. Якщо ви хочете почати заново, ви можете скинути її:
+В Python Open Interpreter запам’ятовує історію розмов. Якщо ви хочете почати заново, ви можете скинути її:
 
 ```python
 interpreter.messages = []
@@ -195,7 +183,7 @@ interpreter --model claude-2
 interpreter --model command-nightly
 ```
 
-В Pythonб встановити модель на об’єкт:
+В Python встановіть модель на об’єкт:
 
 ```python
 interpreter.llm.model = "gpt-3.5-turbo"
@@ -207,25 +195,25 @@ interpreter.llm.model = "gpt-3.5-turbo"
 
 #### Термінал
 
-Open Interpreter може використовувати OpenAI-сумісний сервер для запуску моделей локально. (LM Studio, jan.ai, ollama тощо)
+Open Interpreter може використовувати OpenAI-сумісний сервер для запуску моделей локально (LM Studio, Jan.ai, Ollama тощо)
 
-Просто запустіть `interpreter` з URL-адресою api_base вашого сервера interference (для LM Studio це `http://localhost:1234/v1` за замовчуванням):
+Просто запустіть `interpreter` з URL-адресою api_base вашого сервера inference (для LM Studio це `http://localhost:1234/v1` за замовчуванням):
 
 ```shell
 interpreter --api_base "http://localhost:1234/v1" --api_key "fake_key"
 ```
 
-Крім того, ви можете використовувати Llamafile без встановлення стороннього програмного забезпечення, просто запустивши його
+Крім того, ви можете використовувати Llamafile без встановлення стороннього програмного забезпечення, просто запустивши
 
 ```shell
 interpreter --local
 ```
 
-for a more detailed guide check out [this video by Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU?si=cN7f6QhfT4edfG5H)
+Для детальнішого посібника перегляньте [це відео від Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
 
 **Як запустити LM Studio у фоновому режимі.**
 
-1. Завантажте [https://lmstudio.ai/](https://lmstudio.ai/), після чого запустіть його.
+1. Завантажте [LM Studio](https://lmstudio.ai/), після чого запустіть його.
 2. Виберіть модель і натисніть **↓ Завантажити**.
 3. Натисніть кнопку **↔️** ліворуч (нижче 💬).
 4. Виберіть свою модель угорі, а потім натисніть **Запустити сервер**.
@@ -241,10 +229,10 @@ for a more detailed guide check out [this video by Mike Bird](https://www.youtub
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Вимикає онлайн-функції (наприклад, перевірку оновлень, телеметрію)
-interpreter.llm.model = "openai/x" # Каже AI надсилати повідомлення у форматі OpenAI
-interpreter.llm.api_key = "fake_key" # LiteLLM, який ми використовуємо для спілкування з LM Studio, вимагає api-ключ
-interpreter.llm.api_base = "http://localhost:1234/v1" # Познчате це на будь-якому сервері, сумісному з OpenAI
+interpreter.offline = True # Вимикає онлайн-функції (наприклад, перевірки оновлень, телеметрію)
+interpreter.llm.model = "openai/x" # Каже OI надсилати повідомлення у форматі OpenAI
+interpreter.llm.api_key = "fake_key" # LiteLLM, який ми використовуємо для спілкування з LM Studio, вимагає це
+interpreter.llm.api_base = "http://localhost:1234/v1" # Вкажіть на будь-який сервер, сумісний з OpenAI
 
 interpreter.chat()
 ```
@@ -259,11 +247,11 @@ interpreter.chat()
 interpreter --local --max_tokens 1000 --context_window 3000
 ```
 
-### Режим "verbose"
+### Режим verbose
 
 Щоб допомогти вам перевірити Open Interpreter, у нас є режим `--verbose` для налагодження.
 
-Ви можете активувати режим "verbose", використовуючи його прапорець (`interpreter --verbose`) або в середині чату:
+Ви можете активувати режим verbose, використовуючи його прапорець (`interpreter --verbose`) або в середині чату:
 
 ```shell
 $ interpreter
@@ -276,19 +264,20 @@ $ interpreter
 ### Команди інтерактивного режиму
 
 В інтерактивному режимі ви можете використовувати наведені нижче команди, щоб покращити свій досвід. Ось список доступних команд:
+
 **Доступні команди:**
 
-- `%% [command]`: Виконує команду в системній оболонці (без участі LLM).
-- `%verbose [true/false]`: Перемикає режим verbose. Без аргументів або з `true` вмикає режим verbose. З `false` вимикає режим verbose.
-- `%auto_run [true/false]`: Увімкнути або вимкнути виконання коду без підтвердження. Без аргументів або з `true` входить у режим auto_run. З `false` виходить із режиму auto_run.
-- `%reset`: скидає розмову поточного сеансу.
-- `%undo`: видаляє попереднє повідомлення користувача та відповідь ШІ з історії повідомлень.
-- `%save_message [path]`: Зберігає повідомлення у вказаний JSON-шлях. Якщо шлях не вказано, за замовчуванням використовується `messages.json`.
-- `%load_message [path]`: Завантажує повідомлення з вказаного JSON-шляху. Якщо шлях не вказано, за замовчуванням використовується `messages.json`.
-- `%tokens [prompt]`: (_Експериментально_) Розраховує токени, які будуть надіслані з наступним запитом як контекст, і оцінює їх вартість. За наявності `prompt` також обчислює токени та приблизну вартість цього промпту. Покладається на [метод `cost_per_token()` LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) для оцінки витрат.
-- `%jupyter`: Експортує розмову у файл блокнота Jupyter.
-- `%markdown [path]`: Експортує розмову у вказаний Markdown-шлях. Якщо шлях не вказано, файл буде збережено в папці Downloads зі згенерованою назвою розмови.
-- `%info`: Показує інформацію про систему та інтерпретатор.
+- `%% [команда]`: Запустити команду в системній оболонці (обходить LLM).
+- `%verbose [true/false]`: Увімкнути або вимкнути режим verbose. Без аргументів або з `true` входить у режим verbose. З `false` виходить із режиму verbose.
+- `%auto_run [true/false]`: Увімкнути або вимкнути запуск коду без підтвердження. Без аргументів або з `true` входить у режим auto_run. З `false` виходить із режиму auto_run.
+- `%reset`: Скидає розмову поточного сеансу.
+- `%undo`: Видаляє попереднє повідомлення користувача та відповідь ШІ з історії повідомлень.
+- `%save_message [шлях]`: Зберігає повідомлення у вказаний JSON-шлях. Якщо шлях не вказано, за замовчуванням використовується `messages.json`.
+- `%load_message [шлях]`: Завантажує повідомлення з вказаного JSON-шляху. Якщо шлях не вказано, за замовчуванням використовується `messages.json`.
+- `%tokens [prompt]`: (_Експериментально_) Розрахувати токени, які будуть надіслані з наступним запитом як контекст, і оцінити їх вартість. Додатково обчисліть токени та приблизну вартість `prompt`, якщо він наданий. Покладається на [метод `cost_per_token()` LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) для оцінки витрат.
+- `%jupyter`: Експортувати розмову у файл Jupyter notebook.
+- `%markdown [шлях]`: Експортувати розмову у вказаний Markdown-шлях. Якщо шлях не вказано, файл буде збережено в папці Завантаження зі згенерованою назвою розмови.
+- `%info`: Показати інформацію про систему та інтерпретатор.
 - `%help`: Показати повідомлення довідки.
 
 ### Конфігурація / Профілі
@@ -315,7 +304,7 @@ interpreter --profile my_profile.yaml
 
 ## Зразок сервера FastAPI
 
-Оновлення генератора дозволяє керувати Open Interpreter через кінцеві точки HTTP REST:
+Open Interpreter можна керувати через кінцеві точки HTTP REST:
 
 ```python
 # server.py
@@ -344,7 +333,7 @@ pip install fastapi uvicorn
 uvicorn server:app --reload
 ```
 
-Ви також можете запустити сервер, ідентичний наведеному вище, просто запустивши `interpreter.server()`.
+Також можна запустити вбудований сервер із підтримкою WebSocket і веб-інтерфейсом, виконавши `interpreter --server` (потрібен додатковий пакет `[server]`).
 
 ## Android
 
@@ -366,11 +355,11 @@ uvicorn server:app --reload
 
 ## Як це працює?
 
-Open Interpreter оснащує [модель мови виклику функцій](https://platform.openai.com/docs/guides/gpt/function-calling) функцією `exec()`, яка приймає `мову` (як "Python" або "JavaScript") і `code` для запуску.
+Open Interpreter оснащує [модель мови виклику функцій](https://platform.openai.com/docs/guides/function-calling) інструментом `execute`, який приймає `language` (як "Python" або "JavaScript") і `code` для запуску. (Моделі без виклику функцій також підтримуються через блоки коду markdown.)
 
 Потім ми передаємо повідомлення моделі, код і результати вашої системи на термінал як Markdown.
 
-# Доступ до документації в автономному режимі
+## Доступ до документації в автономному режимі
 
 Повна [документація](.) доступна в дорозі без підключення до Інтернету.
 
@@ -398,13 +387,13 @@ mintlify dev
 
 Має відкритися нове вікно браузера. Документація буде доступна за адресою [http://localhost:3000](http://localhost:3000), поки працює сервер документації.
 
-# Вклади
+## Вклади
 
 Дякуємо за ваш інтерес до участі! Ми вітаємо участь спільноти.
 
 Щоб дізнатися більше про те, як взяти участь, ознайомтеся з нашими [інструкціями щодо створення внеску](CONTRIBUTING.md).
 
-# Дорожня карта
+## Дорожня карта
 
 Відвідайте [нашу дорожню карту](ROADMAP.md), щоб переглянути майбутнє Open Interpreter.
 
