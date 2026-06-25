@@ -51,16 +51,14 @@ interpreter.messages = messages # A list that resembles the one above
 
 #### `offline`
 
-<Info>This replaced `interpreter.local` in the New Computer Update (`0.2.0`).</Info>
+<Info>This replaced `interpreter.local` in the New Computer Update (`0.2.0`). The `--local` flag loads the `local.py` profile, which sets `offline = True`.</Info>
 
-This boolean flag determines whether to enable or disable some offline features like [open procedures](https://open-procedures.replit.app/).
+When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks, anonymous telemetry, conversation-contribution prompts, and offers to fall back to Open Interpreter's hosted `i` model. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
 
 ```python
-interpreter.offline = True  # Check for updates, use procedures
-interpreter.offline = False  # Don't check for updates, don't use procedures
+interpreter.offline = True  # Disables online features (e.g. update checks, telemetry)
+interpreter.offline = False  # Default — online OI features enabled
 ```
-
-Use this in conjunction with the `model` parameter to set your language model.
 
 ---
 

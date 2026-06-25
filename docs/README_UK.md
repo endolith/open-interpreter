@@ -241,7 +241,7 @@ for a more detailed guide check out [this video by Mike Bird](https://www.youtub
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Вимикає такі онлайн-функції, як Open Procedures
+interpreter.offline = True # Вимикає онлайн-функції (наприклад, перевірку оновлень, телеметрію)
 interpreter.llm.model = "openai/x" # Каже AI надсилати повідомлення у форматі OpenAI
 interpreter.llm.api_key = "fake_key" # LiteLLM, який ми використовуємо для спілкування з LM Studio, вимагає api-ключ
 interpreter.llm.api_base = "http://localhost:1234/v1" # Познчате це на будь-якому сервері, сумісному з OpenAI

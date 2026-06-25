@@ -506,7 +506,7 @@ interpreter --local
 ```python Python
 from interpreter import interpreter
 
-interpreter.offline = True # Disables online features like Open Procedures
+interpreter.offline = True # Disables online features (e.g. update checks, telemetry)
 interpreter.llm.model = "openai/x" # Tells OI to send messages in OpenAI's format
 interpreter.llm.api_key = "fake_key" # LiteLLM, which we use to talk to local models, requires this
 interpreter.llm.api_base = "http://localhost:1234/v1" # Point this at any OpenAI compatible server
@@ -598,7 +598,7 @@ disable_telemetry: true
 
 ### Offline
 
-This boolean flag determines whether to enable or disable some offline features like [open procedures](https://open-procedures.replit.app/). Use this in conjunction with the `model` parameter to set your language model.
+When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks, anonymous telemetry, conversation-contribution prompts, and offers to fall back to Open Interpreter's hosted `i` model. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
 
 <CodeGroup>
 
@@ -736,7 +736,7 @@ The `computer` object in `interpreter.computer` is a virtual computer that the A
 
 ### Offline
 
-Running the `computer` in offline mode will disable some online features, like the hosted [Computer API](https://api.openinterpreter.com/). Inherits from `interpreter.offline`.
+Separate from `interpreter.offline`. When `True`, the `computer` module skips the hosted [Computer API](https://api.openinterpreter.com/) (used for on-screen icon locating and OCR) and uses local fallbacks instead.
 
 <CodeGroup>
 
