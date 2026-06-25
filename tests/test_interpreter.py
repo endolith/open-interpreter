@@ -277,6 +277,7 @@ def run_server():
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
+@pytest.mark.timeout(600)
 def test_server():
     # Start the server in a new process
 
