@@ -8,6 +8,13 @@ Each runner is a thin wrapper that:
 
 Binary resolution mirrors resolve_bash.py: env-var override → PATH → Git usr/bin on Windows.
 The model never constructs shell command strings; flags and temp-file hygiene live here.
+
+In-place edit strategies (Windows cross-drive safety):
+  - stdout + atomic replace: sed, jq, yq, comby — tool emits the new file; we write a
+    temp sibling in the target's parent directory and os.replace().
+  - cwd in target's parent: gawk, patch — tool must edit in place (e.g. gawk without
+    print); run with cwd set to the target directory so tool temps stay on that drive.
+  - direct open: poke (binary), write (new files only).
 """
 
 import json
@@ -126,13 +133,6 @@ def _resolve_patch():
     return _resolve_binary("INTERPRETER_PATCH", ["patch"])
 
 
-def _is_gnu_sed(sed_path):
-    result = subprocess.run(
-        [sed_path, "--version"], capture_output=True, text=True
-    )
-    return "GNU" in (result.stdout + result.stderr)
-
-
 # ---------------------------------------------------------------------------
 # Path validation
 # ---------------------------------------------------------------------------
@@ -171,7 +171,17 @@ def _subprocess_text(result):
     return ((result.stdout or "") + (result.stderr or "")).strip()
 
 
+def _target_parent_dir(target):
+    """Parent directory of target; use as subprocess cwd for in-place tools on Windows."""
+    return str(Path(target).parent)
+
+
 def _atomic_replace_from_stdout(target, stdout_bytes):
+    """Write tool stdout into target atomically via a temp file in the target's directory.
+
+    Standard pattern for edit runners whose tool emits the full new file on stdout.
+    Keeps temp files on the same drive as the target (Windows cannot rename across drives).
+    """
     path = Path(target)
     fd, tmp = tempfile.mkstemp(
         suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
@@ -216,7 +226,12 @@ def _write_temp_script(code, suffix, prefix="oi-edit-"):
 
 
 def run_sed(target, code):
-    """Apply a sed script in-place (-f file). One command per line or multi-line sed scripts."""
+    """Apply a sed script (-f file), replacing the file atomically.
+
+    Avoid sed -i: GNU sed creates its backup next to the process cwd, so on
+    Windows a target on another drive (e.g. D:\\) fails with "Invalid cross-device
+    link" when cwd is on C:\\. Write stdout to a sibling temp file instead.
+    """
     _validate_target(target, must_exist=True)
     if not code.strip():
         raise ValueError("sed: no commands in code")
@@ -224,48 +239,46 @@ def run_sed(target, code):
     sed = _resolve_sed()
     script_path = _write_temp_script(code, ".sed")
     try:
-        args = [sed]
-        if _is_gnu_sed(sed):
-            args.extend(["-i", "-f", script_path, target])
-        else:
-            args.extend(["-i", "", "-f", script_path, target])
-        result = subprocess.run(args, capture_output=True, text=True)
+        result = subprocess.run(
+            [sed, "-f", script_path, target],
+            capture_output=True,
+        )
     finally:
         if os.path.isfile(script_path):
             os.remove(script_path)
 
     if result.returncode != 0:
-        raise RuntimeError(
-            (result.stderr or result.stdout or "").strip()
-            or f"sed exited with code {result.returncode}"
-        )
+        _run_failed("sed", result)
+    _atomic_replace_from_stdout(target, result.stdout or b"")
     return "sed: OK"
 
 
 def run_gawk(target, code):
-    """Apply a gawk program in-place. Requires GNU awk (-i inplace)."""
+    """Apply a gawk program in-place. Requires GNU awk (-i inplace).
+
+    Run with cwd set to the target's directory so inplace temp files land on the
+    same Windows drive as the file (avoids cross-device rename errors).
+    """
     _validate_target(target, must_exist=True)
     if not code.strip():
         raise ValueError("gawk: no program in code")
 
     gawk = _resolve_gawk()
+    path = Path(target)
     prog_path = _write_temp_script(code, ".awk")
     try:
         result = subprocess.run(
-            [gawk, "-i", "inplace", "-f", prog_path, target],
+            [gawk, "-i", "inplace", "-f", prog_path, path.name],
             capture_output=True,
-            text=True,
+            cwd=_target_parent_dir(target),
         )
     finally:
         if os.path.isfile(prog_path):
             os.remove(prog_path)
 
     if result.returncode != 0:
-        raise RuntimeError(
-            (result.stderr or result.stdout or "").strip()
-            or f"gawk exited with code {result.returncode}"
-        )
-    out = (result.stdout or "").strip()
+        _run_failed("gawk", result)
+    out = _subprocess_text(result)
     return out if out else "gawk: OK"
 
 
@@ -276,32 +289,18 @@ def run_jq(target, code):
         raise ValueError("jq: no filter in code")
 
     jq = _resolve_jq()
-    path = Path(target)
-
-    # Write to a sibling temp file so os.replace() is atomic on the same filesystem
     filter_path = _write_temp_script(code, ".jq")
-    fd, tmp = tempfile.mkstemp(
-        suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
-    )
-    os.close(fd)
     try:
         result = subprocess.run(
             [jq, "-f", filter_path, target],
             capture_output=True,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                _subprocess_text(result)
-                or f"jq exited with code {result.returncode}"
-            )
-        Path(tmp).write_bytes(result.stdout or b"")
-        os.replace(tmp, target)
-        tmp = None  # consumed; don't delete in finally
+            _run_failed("jq", result)
+        _atomic_replace_from_stdout(target, result.stdout or b"")
     finally:
         if os.path.isfile(filter_path):
             os.remove(filter_path)
-        if tmp and os.path.isfile(tmp):
-            os.remove(tmp)
 
     return "jq: OK"
 
@@ -351,24 +350,14 @@ def run_yq(target, code):
     path = Path(target)
     had_content = path.stat().st_size > 0
 
-    fd, tmp = tempfile.mkstemp(
-        suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
-    )
-    os.close(fd)
-    try:
-        result = _run_yq_eval(yq, expr, target)
-        out = result.stdout or b""
-        if had_content and not out.strip():
-            raise RuntimeError(
-                "yq produced no output for a non-empty file "
-                "(file was not modified; check the expression)"
-            )
-        Path(tmp).write_bytes(out)
-        os.replace(tmp, target)
-        tmp = None
-    finally:
-        if tmp and os.path.isfile(tmp):
-            os.remove(tmp)
+    result = _run_yq_eval(yq, expr, target)
+    out = result.stdout or b""
+    if had_content and not out.strip():
+        raise RuntimeError(
+            "yq produced no output for a non-empty file "
+            "(file was not modified; check the expression)"
+        )
+    _atomic_replace_from_stdout(target, out)
 
     return "yq: OK"
 
@@ -517,14 +506,10 @@ def run_patch(target, code):
         [patch_bin, "-p0", "--forward", path.name],
         input=diff.encode("utf-8"),
         capture_output=True,
-        cwd=str(path.parent),
+        cwd=_target_parent_dir(target),
     )
     if result.returncode != 0:
-        stderr = (result.stderr or b"").decode("utf-8", errors="replace")
-        stdout = (result.stdout or b"").decode("utf-8", errors="replace")
-        raise RuntimeError(
-            (stderr or stdout).strip() or f"patch exited with code {result.returncode}"
-        )
+        _run_failed("patch", result)
     out = _subprocess_text(result)
     return out if out else "patch: OK"
 
@@ -566,7 +551,7 @@ def dry_run_edit(language, code, target):
             [patch_bin, "-p0", "--forward", "--dry-run", path.name],
             input=diff.encode("utf-8"),
             capture_output=True,
-            cwd=str(path.parent),
+            cwd=_target_parent_dir(target),
         )
         return _preview(result, append_diff=diff)
 

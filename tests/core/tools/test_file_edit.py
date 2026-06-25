@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
@@ -108,6 +109,24 @@ class TestRunSed(unittest.TestCase):
             run_sed(target, "s/aaa/AAA/\ns/bbb/BBB/\n")
             self.assertEqual(open(target, encoding="utf-8").read(), "AAA\nBBB\n")
 
+    def test_run_sed_does_not_use_inplace_flag(self):
+        """sed -i puts temp files in cwd; on Windows that breaks cross-drive targets."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                completed = mock.Mock(returncode=0, stdout=b"bar\n", stderr=b"")
+                run_mock.return_value = completed
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
+                    run_sed(target, "s/foo/bar/")
+            args = run_mock.call_args[0][0]
+            self.assertNotIn("-i", args)
+            replace_mock.assert_called_once_with(target, b"bar\n")
+
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
 class TestRunJq(unittest.TestCase):
@@ -147,6 +166,22 @@ class TestRunJq(unittest.TestCase):
             data = json.loads(open(target, encoding="utf-8").read())
             self.assertEqual(data["label"], "✅")
 
+    def test_run_jq_uses_atomic_replace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "data.json")
+            run_write(target, '{"a":1}\n')
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b'{"a":2}\n', stderr=b""
+                )
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
+                    run_jq(target, ".a = 2")
+            replace_mock.assert_called_once_with(target, b'{"a":2}\n')
+
 
 @unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
 class TestRunGawk(unittest.TestCase):
@@ -159,6 +194,21 @@ class TestRunGawk(unittest.TestCase):
                 "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
+
+    def test_run_gawk_inplace_uses_target_parent_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "hello\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout="", stderr=""
+                )
+                run_gawk(target, "{ print }")
+            _, kwargs = run_mock.call_args
+            self.assertEqual(kwargs["cwd"], str(Path(target).parent))
+            self.assertEqual(run_mock.call_args[0][0][-1], Path(target).name)
 
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
@@ -224,6 +274,22 @@ class TestRunYq(unittest.TestCase):
             self.assertIn("9090", preview["output"])
             self.assertEqual(open(target, encoding="utf-8").read(), original)
 
+    def test_run_yq_uses_atomic_replace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "config.yaml")
+            run_write(target, "port: 8080\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit._run_yq_eval"
+            ) as eval_mock:
+                eval_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b"port: 9090\n", stderr=b""
+                )
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
+                    run_yq(target, ".port = 9090")
+            replace_mock.assert_called_once_with(target, b"port: 9090\n")
+
 
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
 class TestRunPatch(unittest.TestCase):
@@ -241,6 +307,24 @@ class TestRunPatch(unittest.TestCase):
             )
             run_patch(target, diff)
             self.assertEqual(open(target, encoding="utf-8").read(), "baz\nbar\n")
+
+    def test_run_patch_uses_target_parent_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b"", stderr=b""
+                )
+                run_patch(
+                    target,
+                    f"--- {Path(target).name}\n+++ {Path(target).name}\n",
+                )
+            self.assertEqual(
+                run_mock.call_args.kwargs["cwd"], str(Path(target).parent)
+            )
 
 
 @unittest.skipUnless(shutil.which("comby"), "comby not installed")
