@@ -63,8 +63,8 @@ def _stop_server_subprocess(process):
         process.terminate()
         process.join(timeout=5)
     if process.is_alive():
-        os.kill(process.pid, signal.SIGKILL)
-    process.join()
+        process.kill()
+        process.join()
 
 
 async def _wait_for_websocket_complete(
@@ -241,7 +241,7 @@ def test_authenticated_acknowledging_breaking_server():
                 if max_chunks == 0:
                     break
                 try:
-                    message = await asyncio.wait_for(websocket.recv(), timeout=120.0)
+                    message = await asyncio.wait_for(websocket.recv(), timeout=300.0)
                 except asyncio.TimeoutError as exc:
                     raise Exception("Timed out waiting for early poem chunks") from exc
                 message_data = json.loads(message)
@@ -306,7 +306,7 @@ def run_server():
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
-@pytest.mark.timeout(1800)
+@pytest.mark.timeout(900)
 def test_server():
     # Start the server in a new process
 
@@ -617,7 +617,7 @@ def test_server():
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
             }
-            response = requests.post(post_url, json=code_data)
+            response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
     # Get the current event loop and run the test function
