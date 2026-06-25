@@ -110,6 +110,18 @@ async def _wait_for_websocket_complete(
     raise Exception(f"Never received 'complete' status after {max_messages} messages")
 
 
+def _assert_llm_judge(chat_fn, expected, attempts=2):
+    """Retry LLM judge calls once; the yes/no judge is flaky but usually works on retry."""
+
+    last = None
+    for _ in range(attempts):
+        response = chat_fn()
+        last = response.strip(" \n.").lower()
+        if last == expected:
+            return
+    assert last == expected
+
+
 def test_hallucinations():
     # We should be resiliant to common hallucinations.
 
@@ -542,11 +554,13 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            response = interpreter.computer.ai.chat(
-                str(messages)
-                + "\n\nIn the conversation above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+            _assert_llm_judge(
+                lambda: interpreter.computer.ai.chat(
+                    str(messages)
+                    + "\n\nIn the conversation above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+                ),
+                "no",
             )
-            assert response.strip(" \n.").lower() == "no"
 
             #### TEST IMAGES ####
 
@@ -604,11 +618,13 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            response = interpreter.computer.ai.chat(
-                str(messages)
-                + "\n\nIn the conversation above, does the assistant appear to be able to describe the image of a gradient? Yes or no? Only reply with one word— 'yes' or 'no'."
+            _assert_llm_judge(
+                lambda: interpreter.computer.ai.chat(
+                    str(messages)
+                    + "\n\nIn the conversation above, does the assistant appear to be able to describe the image of a gradient? Yes or no? Only reply with one word— 'yes' or 'no'."
+                ),
+                "yes",
             )
-            assert response.strip(" \n.").lower() == "yes"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter

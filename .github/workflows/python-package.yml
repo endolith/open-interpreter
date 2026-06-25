@@ -144,4 +144,4 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[server,dev]"
-          pytest -m integration -rs -sv --timeout=900 --reruns 1 --only-rerun AssertionError
+          pytest -m integration -rs -sv --timeout=900
