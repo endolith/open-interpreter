@@ -1260,6 +1260,24 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
+def test_shell_nested_loop_quoting():
+    """Shell execution must pass nested quotes/variables through unchanged.
+
+    Deterministic: no LLM, no API. The old integration test tried to cover this
+    via LLM-generated nested shell loops, which hung when quoting was malformed.
+    """
+
+    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
+    chunks = interpreter.computer.run("shell", code)
+    output = "".join(
+        chunk.get("content", "")
+        for chunk in chunks
+        if chunk.get("format") == "output"
+    )
+    assert "a_1" in output
+    assert "b_2" in output
+
+
 @pytest.mark.integration
 def test_delayed_exec():
     interpreter.chat(
