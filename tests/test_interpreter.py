@@ -23,6 +23,26 @@ import time
 import pytest
 from websocket import create_connection
 
+# Use spawn, not fork. After earlier integration tests run, the pytest process may
+# have background threads (asyncio, litellm, etc.). fork() in a threaded parent is
+# unsafe on Linux and can leave the child uvicorn process unable to accept connections.
+_MP_SPAWN = multiprocessing.get_context("spawn")
+
+
+def _start_server_subprocess(target):
+    process = _MP_SPAWN.Process(target=target)
+    process.start()
+    return process
+
+
+def _stop_server_subprocess(process):
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+    if process.is_alive():
+        os.kill(process.pid, signal.SIGKILL)
+    process.join()
+
 
 def test_hallucinations():
     # We should be resiliant to common hallucinations.
@@ -93,8 +113,7 @@ def test_authenticated_acknowledging_breaking_server():
 
     # Start the server in a new process
 
-    process = multiprocessing.Process(target=run_auth_server)
-    process.start()
+    process = _start_server_subprocess(run_auth_server)
 
     # Give the server a moment to start
     time.sleep(2)
@@ -222,10 +241,7 @@ def test_authenticated_acknowledging_breaking_server():
     try:
         loop.run_until_complete(test_fastapi_server())
     finally:
-        # Kill server process
-        process.terminate()
-        os.kill(process.pid, signal.SIGKILL)  # Send SIGKILL signal
-        process.join()
+        _stop_server_subprocess(process)
 
 
 def run_server():
@@ -242,8 +258,7 @@ def run_server():
 def test_server():
     # Start the server in a new process
 
-    process = multiprocessing.Process(target=run_server)
-    process.start()
+    process = _start_server_subprocess(run_server)
 
     # Give the server a moment to start
     time.sleep(2)
@@ -647,11 +662,10 @@ def test_server():
 
     # Get the current event loop and run the test function
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(test_fastapi_server())
-    # Kill server process
-    process.terminate()
-    os.kill(process.pid, signal.SIGKILL)  # Send SIGKILL signal
-    process.join()
+    try:
+        loop.run_until_complete(test_fastapi_server())
+    finally:
+        _stop_server_subprocess(process)
 
 
 @pytest.mark.skip(reason="Mac only")
