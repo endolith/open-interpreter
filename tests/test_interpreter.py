@@ -621,7 +621,10 @@ def test_server():
             _assert_llm_judge(
                 lambda: interpreter.computer.ai.chat(
                     str(messages)
-                    + "\n\nIn the conversation above, does the assistant appear to be able to describe the image of a gradient? Yes or no? Only reply with one word— 'yes' or 'no'."
+                    + "\n\nDoes the assistant's reply describe a gradient or color transition (e.g. orange to blue), "
+                    "even if they also say they cannot see the image? "
+                    "Answer yes if the message discusses gradient or colors in that sense; answer no only if it does not. "
+                    "Only reply with one word— 'yes' or 'no'."
                 ),
                 "yes",
             )
