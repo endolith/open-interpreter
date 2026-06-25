@@ -15,7 +15,7 @@
     <a href="https://codecov.io/gh/endolith/open-interpreter">
         <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br><a href="https://www.openinterpreter.com/">Aplicación de Escritorio</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">Documentación</a><br>
+    <br><a href="https://www.openinterpreter.com/">Aplicación de Escritorio</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Documentación</a><br>
 </p>
 
 <br>
@@ -23,7 +23,8 @@
 ![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-**Intérprete Abierto** permite a los LLMs ejecutar código (Python, JavaScript, Shell, etc.) localmente. Puede chatear con Intérprete Abierto a través de una interfaz de chat como ChatGPT en su terminal después de instalar.
+
+**Intérprete Abierto** permite a los LLM ejecutar código y comandos de shell localmente (Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java y más). Interactúa con Intérprete Abierto a través de una interfaz de chatbot en su terminal ejecutando `interpreter` después de instalar.
 
 Esto proporciona una interfaz de lenguaje natural para las capacidades generales de su computadora:
 
@@ -32,19 +33,27 @@ Esto proporciona una interfaz de lenguaje natural para las capacidades generales
 - Graficar, limpiar y analizar conjuntos de datos grandes
 - ... etc.
 
-**⚠️ Nota: Se le pedirá que apruebe el código antes de ejecutarlo.**
+**⚠️ Nota: De forma predeterminada, se le pedirá que apruebe el código antes de ejecutarlo.**
 
-<br>
+## Comparación con otras herramientas
+
+Intérprete Abierto es anterior a muchas otras herramientas de codificación con IA, y tiene similitudes y diferencias:
+
+- Aunque puede escribir código y ejecutar comandos de shell, similar a agentes de codificación como [Claude Code](https://claude.ai/code), [Cursor](https://cursor.sh), [Devin](https://www.devin.ai) y similares, Intérprete Abierto se centra menos en mantener una base de código de proyecto parcheando archivos fuente, y más en completar tareas puntuales en una sesión interactiva y persistente tipo REPL (más cercano a un cuaderno Jupyter que a un IDE).
+- A diferencia de [OpenClaw](https://openclaw.ai/), [Hermes Agent](https://hermes-agent.org/), etc., normalmente se usa de forma interactiva y no como agente autónomo.
+- En lugar de interactuar con el mundo a través de herramientas MCP, como [Claude Desktop](https://claude.ai/download), ejecuta fragmentos de código o [comandos de shell directamente](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html).
+- Es similar a traductores de shell en lenguaje natural como [ShellGPT](https://github.com/ther1d/shell_gpt) o [cmd-ai](https://github.com/BrodaNoel/cmd-ai), pero no está limitado a shell, y usa una interfaz de chatbot interactiva, por lo que puede revisar, rechazar (`n`) o editar (`e`) comandos antes de ejecutarlos, y pedir al modelo que revise.
+- Las funciones de intérprete de código en chatbots web ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution), etc.) ejecutan código en un entorno remoto y aislado que es de código cerrado y restringido. Los archivos deben cargarse individualmente y los resultados descargarse después. El código ejecutado generalmente no puede acceder a Internet, está limitado a un conjunto de paquetes preinstalados, y su contenedor expira tras inactividad, perdiendo progreso y datos. Intérprete Abierto supera estas limitaciones al ejecutarse en su entorno local. Tiene acceso completo a Internet, no está restringido por tiempo o tamaño de archivo, y puede usar cualquier paquete o biblioteca, incluso instalando bibliotecas útiles para una tarea por sí mismo.
 
 ## Demo
 
 [Vídeo de demostración](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
-#### También hay disponible una demo interactiva en Google Colab:
+### También hay disponible una demo interactiva en Google Colab
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WKmRXZgsErej2xUriKzxrEAXdxMSgWbb?usp=sharing)
 
-#### Además, hay un ejemplo de interfaz de voz inspirada en _Her_:
+### Además, hay un ejemplo de interfaz de voz inspirada en _Her_
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1NojYGHDgxH6Y1G1oxThEBBb2AtyODBIK)
 
@@ -52,7 +61,7 @@ Esto proporciona una interfaz de lenguaje natural para las capacidades generales
 
 ### Instalación
 
-Este repositorio es el fork de Endolith del Open Interpreter clásico en Python.
+Esta es la versión en Python de Open Interpreter mantenida por la comunidad.
 
 Este comando instalará **`main`**, la rama predeterminada (base estable, CI y destino de fusión para cambios portados):
 
@@ -78,6 +87,8 @@ Después de la instalación, simplemente ejecute `interpreter`:
 interpreter
 ```
 
+Intérprete Abierto usará **GPT-4o** de OpenAI por defecto y le pedirá una clave, que puede obtener en [la página de claves API de OpenAI](https://platform.openai.com/api-keys). Para otros proveedores o modelos locales, consulte más abajo.
+
 ### Python
 
 ```python
@@ -89,24 +100,7 @@ interpreter.chat() # Inicia una sesión de chat interactiva
 
 ### GitHub Codespaces
 
-Presione la tecla `,` en la página de GitHub de este repositorio para crear un espacio de códigos. Después de un momento, recibirá un entorno de máquina virtual en la nube con Interprete Abierto pre-instalado. Puede entonces empezar a interactuar con él directamente y confirmar su ejecución de comandos del sistema sin preocuparse por dañar el sistema.
-
-## Comparación con el Intérprete de Código de ChatGPT
-
-El lanzamiento de [Intérprete de Código](https://openai.com/blog/chatgpt-plugins#code-interpreter) de OpenAI con GPT-4 presenta una oportunidad fantástica para realizar tareas del mundo real con ChatGPT.
-
-Sin embargo, el servicio de OpenAI está alojado, su codigo es cerrado y está fuertemente restringido:
-
-- No hay acceso a Internet.
-- [Conjunto limitado de paquetes preinstalados](https://wfhbrian.com/mastering-chatgpts-code-interpreter-list-of-python-packages/).
-- Límite de 100 MB de carga, límite de tiempo de 120.0 segundos.
-- El estado se elimina (junto con cualquier archivo generado o enlace) cuando el entorno se cierra.
-
----
-
-Intérprete Abierto supera estas limitaciones al ejecutarse en su entorno local. Tiene acceso completo a Internet, no está restringido por tiempo o tamaño de archivo y puede utilizar cualquier paquete o libreria.
-
-Esto combina el poder del Intérprete de Código de GPT-4 con la flexibilidad de su entorno de desarrollo local.
+Presione la tecla <kbd>,</kbd> en la página de GitHub de este repositorio para crear un codespace. Después de un momento, recibirá un entorno de máquina virtual en la nube con Intérprete Abierto preinstalado. Puede entonces empezar a interactuar con él directamente y confirmar su ejecución de comandos del sistema sin preocuparse por dañar el sistema.
 
 ## Comandos
 
@@ -130,7 +124,7 @@ interpreter.chat()
 message = "¿Qué sistema operativo estamos utilizando?"
 
 for chunk in interpreter.chat(message, display=False, stream=True):
-    print(chunk)
+  print(chunk)
 ```
 
 ### Chat Programático
@@ -201,7 +195,7 @@ interpreter.llm.model = "gpt-3.5-turbo"
 
 #### Terminal
 
-Intérprete Abierto puede utilizar un servidor de OpenAI compatible para ejecutar modelos localmente. (LM Studio, jan.ai, ollama, etc.)
+Intérprete Abierto puede utilizar un servidor compatible con OpenAI para ejecutar modelos localmente (LM Studio, Jan.ai, Ollama, etc.)
 
 Simplemente ejecute `interpreter` con la URL de base de API de su servidor de inferencia (por defecto, `http://localhost:1234/v1` para LM Studio):
 
@@ -215,14 +209,14 @@ O puede utilizar Llamafile sin instalar software adicional simplemente ejecutand
 interpreter --local
 ```
 
-Para una guía mas detallada, consulte [este video de Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU?si=cN7f6QhfT4edfG5H)
+Para una guía más detallada, consulte [este video de Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
 
 **Cómo ejecutar LM Studio en segundo plano.**
 
-1. Descargue [https://lmstudio.ai/](https://lmstudio.ai/) luego ejecutelo.
-2. Seleccione un modelo, luego haga clic **↓ Descargar**.
-3. Haga clic en el botón **↔️** en la izquierda (debajo de 💬).
-4. Seleccione su modelo en la parte superior, luego haga clic **Iniciar Servidor**.
+1. Descargue [LM Studio](https://lmstudio.ai/) y luego ejecútelo.
+2. Seleccione un modelo, luego haga clic en **↓ Descargar**.
+3. Haga clic en el botón **↔️** a la izquierda (debajo de 💬).
+4. Seleccione su modelo en la parte superior, luego haga clic en **Iniciar Servidor**.
 
 Una vez que el servidor esté funcionando, puede empezar su conversación con Intérprete Abierto.
 
@@ -235,7 +229,7 @@ Nuestro paquete de Python le da más control sobre cada ajuste. Para replicar y 
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Desactiva las características en línea como Procedimientos Abiertos
+interpreter.offline = True # Desactiva funciones en línea (p. ej., comprobaciones de actualización, telemetría)
 interpreter.llm.model = "openai/x" # Indica a OI que envíe mensajes en el formato de OpenAI
 interpreter.llm.api_key = "fake_key" # LiteLLM, que utilizamos para hablar con LM Studio, requiere esto
 interpreter.llm.api_base = "http://localhost:1234/v1" # Apunta esto a cualquier servidor compatible con OpenAI
@@ -264,7 +258,7 @@ $ interpreter
 ...
 > %verbose true <- Activa el modo detallado
 
-> %verbose false <- Desactiva el modo verbose
+> %verbose false <- Desactiva el modo detallado
 ```
 
 ### Comandos de Modo Interactivo
@@ -273,11 +267,17 @@ En el modo interactivo, puede utilizar los siguientes comandos para mejorar su e
 
 **Comandos Disponibles:**
 
-- `%verbose [true/false]`: Activa o desactiva el modo detallado. Sin parámetros o con `true` entra en modo detallado.
-  Con `false` sale del modo verbose.
+- `%% [comando]`: Ejecuta un comando en el shell del sistema (omite el LLM).
+- `%verbose [true/false]`: Activa o desactiva el modo detallado. Sin parámetros o con `true` entra en modo detallado. Con `false` sale del modo detallado.
+- `%auto_run [true/false]`: Activa o desactiva si el código se ejecuta sin confirmación. Sin parámetros o con `true` entra en modo auto_run. Con `false` sale del modo auto_run.
 - `%reset`: Reinicia la sesión actual de conversación.
 - `%undo`: Elimina el mensaje de usuario previo y la respuesta del AI del historial de mensajes.
-- `%tokens [prompt]`: (_Experimental_) Calcula los tokens que se enviarán con el próximo prompt como contexto y estima su costo. Opcionalmente, calcule los tokens y el costo estimado de un `prompt` si se proporciona. Depende de [LiteLLM's `cost_per_token()` method](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) para costos estimados.
+- `%save_message [ruta]`: Guarda mensajes en una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
+- `%load_message [ruta]`: Carga mensajes desde una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
+- `%tokens [prompt]`: (_Experimental_) Calcula los tokens que se enviarán con el próximo prompt como contexto y estima su costo. Opcionalmente, calcule los tokens y el costo estimado de un `prompt` si se proporciona. Depende del [método `cost_per_token()` de LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) para costos estimados.
+- `%jupyter`: Exporta la conversación a un archivo de cuaderno Jupyter.
+- `%markdown [ruta]`: Exporta la conversación a una ruta Markdown especificada. Si no se proporciona ruta, se guardará en la carpeta Descargas con un nombre de conversación generado.
+- `%info`: Muestra información del sistema y del intérprete.
 - `%help`: Muestra el mensaje de ayuda.
 
 ### Configuración / Perfiles
@@ -286,7 +286,7 @@ Intérprete Abierto permite establecer comportamientos predeterminados utilizand
 
 Esto proporciona una forma flexible de configurar el intérprete sin cambiar los argumentos de línea de comandos cada vez.
 
-Ejecutar el siguiente comando para abrir el directorio de perfiles:
+Ejecute el siguiente comando para abrir el directorio de perfiles:
 
 ```
 interpreter --profiles
@@ -304,7 +304,7 @@ interpreter --profile my_profile.yaml
 
 ## Servidor de FastAPI de ejemplo
 
-El generador actualiza permite controlar Intérprete Abierto a través de puntos de conexión HTTP REST:
+Intérprete Abierto puede controlarse mediante puntos de conexión HTTP REST:
 
 ```python
 # server.py
@@ -333,11 +333,11 @@ pip install fastapi uvicorn
 uvicorn server:app --reload
 ```
 
-Puede iniciar un servidor idéntico al anterior simplemente ejecutando `interpreter.server()`.
+También puede iniciar un servidor integrado con soporte WebSocket e interfaz web ejecutando `interpreter --server` (requiere el extra `[server]`).
 
 ## Android
 
-La guía paso a paso para instalar Intérprete Abierto en su dispositivo Android se encuentra en el [repo de open-interpreter-termux](https://github.com/MikeBirdTech/open-interpreter-termux).
+La guía paso a paso para instalar Intérprete Abierto en su dispositivo Android se encuentra en el [repositorio open-interpreter-termux](https://github.com/MikeBirdTech/open-interpreter-termux).
 
 ## Aviso de Seguridad
 
@@ -355,13 +355,13 @@ Hay soporte **experimental** para un [modo seguro](SAFE_MODE.md) para ayudar a m
 
 ## ¿Cómo Funciona?
 
-Intérprete Abierto equipa un [modelo de lenguaje de llamada a funciones](https://platform.openai.com/docs/guides/gpt/function-calling) con una función `exec()`, que acepta un `lenguaje` (como "Python" o "JavaScript") y `código` para ejecutar.
+Intérprete Abierto equipa un [modelo de lenguaje de llamada a funciones](https://platform.openai.com/docs/guides/function-calling) con una herramienta `execute`, que acepta un `language` (como "Python" o "JavaScript") y `code` para ejecutar. (Los modelos sin llamada a funciones también son compatibles mediante bloques de código markdown.)
 
 Luego, transmite los mensajes del modelo, el código y las salidas del sistema a la terminal como Markdown.
 
-# Acceso a la Documentación Offline
+## Acceso a la Documentación Offline
 
-La documentación completa está disponible en línea sin necesidad de conexión a Internet.
+La [documentación](.) completa está disponible sobre la marcha sin necesidad de conexión a Internet.
 
 [Node](https://nodejs.org/en) es un requisito previo:
 
@@ -375,7 +375,7 @@ Instale [Mintlify](https://mintlify.com/):
 npm i -g mintlify@latest
 ```
 
-Cambia a la carpeta de documentos y ejecuta el comando apropiado:
+Cambie a la carpeta de documentos y ejecute el comando apropiado:
 
 ```bash
 # Suponiendo que estás en la carpeta raíz del proyecto
@@ -387,13 +387,13 @@ mintlify dev
 
 Una nueva ventana del navegador debería abrirse. La documentación estará disponible en [http://localhost:3000](http://localhost:3000) mientras el servidor de documentación esté funcionando.
 
-# Contribuyendo
+## Contribuyendo
 
 ¡Gracias por su interés en contribuir! Damos la bienvenida a la implicación de la comunidad.
 
 Por favor, consulte nuestras [directrices de contribución](CONTRIBUTING.md) para obtener más detalles sobre cómo involucrarse.
 
-# Roadmap
+## Roadmap
 
 Visite [nuestro roadmap](ROADMAP.md) para ver el futuro de Intérprete Abierto.
 
@@ -401,7 +401,7 @@ Visite [nuestro roadmap](ROADMAP.md) para ver el futuro de Intérprete Abierto.
 
 ![thumbnail-ncu](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/1b19a5db-b486-41fd-a7a1-fe2028031686)
 
-> Tener acceso a un programador junior trabajando a la velocidad de su dedos... puede hacer que los nuevos flujos de trabajo sean sencillos y eficientes, además de abrir los beneficios de la programación a nuevas audiencias.
+> Tener acceso a un programador junior trabajando a la velocidad de sus dedos... puede hacer que los nuevos flujos de trabajo sean sencillos y eficientes, además de abrir los beneficios de la programación a nuevas audiencias.
 >
 > — _Lanzamiento del intérprete de código de OpenAI_
 

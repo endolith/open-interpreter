@@ -4,6 +4,7 @@
     <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
     <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
+    <a href="README_VN.md"><img src="https://img.shields.io/badge/Tài%20liệu-Tiếng%20Việt-white.svg" alt="VN doc"/></a>
     <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
     <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
     <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
@@ -23,36 +24,45 @@
 ![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-**Open Interpreter** Chạy LLMs trên máy tính cục bộ (Có thể sử dụng ngôn ngữ Python, Javascript, Shell, và nhiều hơn thế). Bạn có thể nói chuyện với Open Interpreter thông qua giao diện giống với ChatGPT ngay trên terminal của bạn bằng cách chạy lệnh `$ interpreter` sau khi tải thành công.
 
-Các tính năng chung giao diện ngôn ngữ mang llại
+**Open Interpreter** cho phép các LLM chạy mã và lệnh shell cục bộ (Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java và hơn thế nữa). Bạn tương tác với Open Interpreter qua giao diện chatbot trong terminal bằng cách chạy `interpreter` sau khi cài đặt.
 
-- Tạo và chỉnh sửa ảnh, videos, PDF, vân vân...
-- Điều khiển trình duyệt Chrome để tiến hành nghiên cứu
-- Vẽ, làm sạch và phân tích các tập dữ liệu lớn (large datasets)
-- ...vân vân.
+Điều này cung cấp giao diện ngôn ngữ tự nhiên cho các khả năng đa dụng của máy tính:
 
-**⚠️ Lưu ý: Bạn sẽ được yêu cầu phê duyệt mã trước khi chạy.**
+- Tạo và chỉnh sửa ảnh, video, PDF, v.v.
+- Điều khiển trình duyệt Chrome để nghiên cứu
+- Vẽ biểu đồ, làm sạch và phân tích các bộ dữ liệu lớn
+- ...v.v.
 
-<br>
+**⚠️ Lưu ý: Mặc định, bạn sẽ được yêu cầu phê duyệt mã trước khi chạy.**
 
-## Thử nghiệm
+## So sánh với các công cụ khác
+
+Open Interpreter ra đời trước nhiều công cụ lập trình AI khác, và có những điểm tương đồng cũng như khác biệt:
+
+- Mặc dù có thể viết mã và thực thi lệnh shell, tương tự các agent lập trình như [Claude Code](https://claude.ai/code), [Cursor](https://cursor.sh), [Devin](https://www.devin.ai) và các công cụ tương tự, Open Interpreter ít tập trung vào việc duy trì codebase dự án bằng cách vá các tệp mã nguồn, mà tập trung hơn vào hoàn thành các tác vụ một lần trong phiên tương tác, bền vững giống REPL (gần với Jupyter notebook hơn là IDE).
+- Khác với [OpenClaw](https://openclaw.ai/), [Hermes Agent](https://hermes-agent.org/), v.v., Open Interpreter thường được dùng theo cách tương tác chứ không phải như agent tự động.
+- Thay vì tương tác với thế giới qua các công cụ MCP, như [Claude Desktop](https://claude.ai/download), Open Interpreter chạy các đoạn mã hoặc [lệnh shell trực tiếp](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html).
+- Tương tự các công cụ dịch shell bằng ngôn ngữ tự nhiên như [ShellGPT](https://github.com/ther1d/shell_gpt) hoặc [cmd-ai](https://github.com/BrodaNoel/cmd-ai), nhưng không giới hạn ở shell, và dùng giao diện chatbot tương tác — bạn có thể xem xét, từ chối (`n`), hoặc chỉnh sửa (`e`) lệnh trước khi chạy, và yêu cầu mô hình sửa lại.
+- Tính năng Code Interpreter trong chatbot web ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution), v.v.) chạy mã trong môi trường từ xa, sandbox, mã nguồn đóng và bị hạn chế. Tệp phải được tải lên từng cái và kết quả phải tải xuống sau đó. Mã được thực thi thường không truy cập được internet, bị giới hạn bởi bộ gói cài sẵn, và container hết hạn sau thời gian không hoạt động, làm mất tiến trình và dữ liệu. Open Interpreter vượt qua các hạn chế này bằng cách chạy trong môi trường cục bộ của bạn. Nó có quyền truy cập internet đầy đủ, không bị giới hạn thời gian hay kích thước tệp, và có thể dùng bất kỳ gói hay thư viện nào — thậm chí tự cài các thư viện hữu ích cho từng tác vụ.
+
+## Demo
 
 [Video demo](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
-#### Bản thử nghiệm có sẵn trên Google Colab:
+### Bản demo tương tác cũng có sẵn trên Google Colab
 
-[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WKmRXZgsErej2xUriKzxrEAXdxMSgWbb?usp=sharing)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WKmRXZgsErej2xUriKzxrEAXdxMSgWbb?usp=sharing)
 
-#### Đi kèm với ứng dụng mẫu qua tương tác giọng nói (Lấy cảm hứng từ _Cô ấy_ (Giọng nữ)):
+### Cùng với ví dụ giao diện giọng nói, lấy cảm hứng từ _Her_
 
-[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1NojYGHDgxH6Y1G1oxThEBBb2AtyODBIK)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1NojYGHDgxH6Y1G1oxThEBBb2AtyODBIK)
 
-## Hướng dẫn khởi dộng ngắn
+## Bắt đầu nhanh
 
 ### Cài đặt
 
-Kho lưu trữ này là fork của Endolith từ Open Interpreter Python cổ điển.
+Đây là phiên bản Python do cộng đồng duy trì của Open Interpreter.
 
 Lệnh này sẽ cài đặt **`main`**, nhánh mặc định (cơ sở ổn định, CI và đích hợp nhất cho các thay đổi được chuyển):
 
@@ -72,119 +82,101 @@ pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
 
 ### Terminal
 
-Sau khi cài đặt, chạy dòng lệnh `interpreter`:
+Sau khi cài đặt, chỉ cần chạy `interpreter`:
 
 ```shell
 interpreter
 ```
+
+Open Interpreter mặc định dùng **GPT-4o** của OpenAI và sẽ yêu cầu bạn nhập khóa API, có thể lấy tại [trang khóa API của OpenAI](https://platform.openai.com/api-keys). Đối với nhà cung cấp khác hoặc mô hình cục bộ, xem bên dưới.
 
 ### Python
 
 ```python
 from interpreter import interpreter
 
-interpreter.chat("Vẽ giá cổ phiếu đã bình hoá của AAPL và META ") # Chạy trên 1 dòng lệnh
-interpreter.chat() # Khởi động chat có khả năng tương tác
+interpreter.chat("Plot AAPL and META's normalized stock prices") # Thực thi một lệnh
+interpreter.chat() # Bắt đầu chat tương tác
 ```
 
-## So sánh Code Interpreter của ChatGPT
+### GitHub Codespaces
 
-Bản phát hành của OpenAI [Code Interpreter](https://openai.com/blog/chatgpt-plugins#code-interpreter) sử dụng GPT-4 tăng khả năng hoàn thiện vấn đề thực tiễn với ChatGPT.
+Nhấn phím <kbd>,</kbd> trên trang GitHub của kho lưu trữ này để tạo codespace. Sau một lúc, bạn sẽ nhận được môi trường máy ảo trên cloud đã cài sẵn open-interpreter. Bạn có thể bắt đầu tương tác trực tiếp và thoải mái xác nhận việc thực thi lệnh hệ thống mà không lo hư hại máy.
 
-Tuy nhiên, dịch vụ của OpenAI được lưu trữ, mã nguồn đóng, và rất hạn chế:
+## Lệnh
 
-- Không có truy cập Internet.
-- [Số lượng gói cài đặt hỗ trỡ có sẵn giới hạn](https://wfhbrian.com/mastering-chatgpts-code-interpreter-list-of-python-packages/).
-- tốc độ tải tối đa 100 MB , thời gian chạy giới hạn 120.0 giây .
-- Trạng thái tin nhắn bị xoá kèm với các tệp và liên kết được tạo trước đó khi đóng môi trường lại.
+### Chat tương tác
 
----
-
-Open Interpreter khắc phục những hạn chế này bằng cách chạy cục bộ trobộ môi trường máy tính của bạn. Nó có toàn quyền truy cập vào Internet, không bị hạn chế về thời gian hoặc kích thước tệp và có thể sử dụng bất kỳ gói hoặc thư viện nào.
-
-Đây là sự kết hợp sức mạnh của mã nguồn của GPT-4 với tính linh hoạt của môi trường phát triển cục bộ của bạn.
-
-## Dòng lệnh
-
-```python
-message = "Chúng ta đang ở trên hệ điều hành nào?"
-
-for chunk in interpreter.chat(message, display=False, stream=True):
-  print(chunk)
-```
-
-### Trò chuyện tương tác
-
-Để tạo một cuộc trò chuyện tương tác từ terminal của bạn, chạy `interpreter` bằng dòng lệnh:
+Để bắt đầu chat tương tác trong terminal, chạy `interpreter` từ dòng lệnh:
 
 ```shell
 interpreter
 ```
 
-hoặc `interpreter.chat()` từ file có đuôi .py :
+Hoặc `interpreter.chat()` từ tệp `.py`:
 
 ```python
 interpreter.chat()
 ```
 
-**Bạn cũng có thể phát trực tuyến từng đoạn:**
+**Bạn cũng có thể stream từng phần:**
 
 ```python
-message = "Chúng ta đang chạy trên hệ điều hành nào?"
+message = "Chúng ta đang dùng hệ điều hành nào?"
 
 for chunk in interpreter.chat(message, display=False, stream=True):
   print(chunk)
 ```
 
-### Trò chuyện lập trình được
+### Chat lập trình
 
-Để kiểm soát tốt hơn, bạn chuyển tin nhắn qua `.chat(message)`:
+Để kiểm soát chính xác hơn, bạn có thể truyền tin nhắn trực tiếp vào `.chat(message)`:
 
 ```python
-interpreter.chat("Truyền phụ đề tới tất cả videos vào /videos.")
+interpreter.chat("Thêm phụ đề cho tất cả video trong /videos.")
 
-# ... Truyền đầu ra đến thiết bị đầu cuối của bạn (terminal) hoàn thành tác vụ ...
+# ... Stream đầu ra ra terminal, hoàn thành tác vụ ...
 
-interpreter.chat("Nhìn đẹp đấy nhưng bạn có thể làm cho phụ đề lớn hơn được không?")
+interpreter.chat("Trông ổn rồi, nhưng bạn có thể làm phụ đề to hơn không?")
 
 # ...
 ```
 
-### Tạo một cuộc trò chuyện mới:
+### Bắt đầu chat mới
 
-Trong Python, Open Interpreter ghi nhớ lịch sử hội thoại, nếu muốn bắt đầu lại từ đầu, bạn có thể cài thứ:
+Trong Python, Open Interpreter ghi nhớ lịch sử hội thoại. Nếu muốn bắt đầu lại, bạn có thể đặt lại:
 
 ```python
 interpreter.messages = []
 ```
 
-### Lưu và khôi phục cuộc trò chuyện
+### Lưu và khôi phục chat
 
-`interpreter.chat()` trả về danh sách tin nhắn, có thể được sử dụng để tiếp tục cuộc trò chuyện với `interpreter.messages = messages`:
+`interpreter.chat()` trả về danh sách tin nhắn, có thể dùng để tiếp tục cuộc trò chuyện với `interpreter.messages = messages`:
 
 ```python
-messages = interpreter.chat("Tên của tôi là Killian.") # Lưu tin nhắn tới 'messages'
-interpreter.messages = [] # Khởi động lại trình phiên dịch ("Killian" sẽ bị lãng quên)
+messages = interpreter.chat("Tên tôi là Killian.") # Lưu tin nhắn vào 'messages'
+interpreter.messages = [] # Đặt lại interpreter ("Killian" sẽ bị quên)
 
-interpreter.messages = messages # Tiếp tục cuộc trò chuyện từ 'messages' ("Killian" sẽ được ghi nhớ)
+interpreter.messages = messages # Tiếp tục chat từ 'messages' ("Killian" sẽ được nhớ)
 ```
 
-### Cá nhân hoá tin nhắn từ hệ thống
+### Tùy chỉnh tin nhắn hệ thống
 
-Bạn có thể kiếm tra và điều chỉnh tin nhắn hệ thống từ Optừ Interpreter để mở rộng chức năng của nó, thay đổi quyền, hoặc đưa cho nó nhiều ngữ cảnh hơn.
+Bạn có thể kiểm tra và cấu hình tin nhắn hệ thống của Open Interpreter để mở rộng chức năng, thay đổi quyền, hoặc cung cấp thêm ngữ cảnh.
 
 ```python
 interpreter.system_message += """
-Chạy shell commands với -y để người dùng không phải xác nhận chúng.
+Chạy lệnh shell với -y để người dùng không phải xác nhận.
 """
 print(interpreter.system_message)
 ```
 
 ### Thay đổi mô hình ngôn ngữ
 
-Open Interpreter sử dụng mô hình [LiteLLM](https://docs.litellm.ai/docs/providers/) để kết nối tới các mô hình ngôn ngữ được lưu trữ trước đó.
+Open Interpreter dùng [LiteLLM](https://docs.litellm.ai/docs/providers/) để kết nối với các mô hình ngôn ngữ được lưu trữ.
 
-Bạn có thể thay đổi mô hình ngôn ngữ bằng cách thay đổi tham số mô hình:
+Bạn có thể đổi mô hình bằng cách đặt tham số model:
 
 ```shell
 interpreter --model gpt-3.5-turbo
@@ -192,147 +184,128 @@ interpreter --model claude-2
 interpreter --model command-nightly
 ```
 
-Ở trong Python, đổi model bằng cách thay đổi đối tượng:
+Trong Python, đặt mô hình trên đối tượng:
 
 ```python
 interpreter.llm.model = "gpt-3.5-turbo"
 ```
 
-[Tìm tên chuỗi "mô hình" phù hợp cho mô hình ngôn ngữ của bạn ở đây.](https://docs.litellm.ai/docs/providers/)
+[Tìm chuỗi "model" phù hợp cho mô hình ngôn ngữ của bạn tại đây.](https://docs.litellm.ai/docs/providers/)
 
-### Chạy Open Interpreter trên máy cục bộ
+### Chạy Open Interpreter cục bộ
 
-Open Interpreter có thể sử dụng máy chủ tương thích với OpenAI để chạy các mô hình cục bộ. (LM Studio, jan.ai, ollama, v.v.)
+#### Terminal
 
-Chỉ cần chạy `interpreter` với URL api_base của máy chủ suy luận của bạn (đối với LM studio, nó là `http://localhost:1234/v1` theo mặc định):
+Open Interpreter có thể dùng máy chủ tương thích OpenAI để chạy mô hình cục bộ (LM Studio, Jan.ai, Ollama, v.v.)
 
-```vỏ
-trình thông dịch --api_base "http://localhost:1234/v1" --api_key "fake_key"
+Chỉ cần chạy `interpreter` với URL `api_base` của máy chủ suy luận (với LM Studio, mặc định là `http://localhost:1234/v1`):
+
+```shell
+interpreter --api_base "http://localhost:1234/v1" --api_key "fake_key"
 ```
 
-Ngoài ra, bạn có thể sử dụng Llamafile mà không cần cài đặt bất kỳ phần mềm bên thứ ba nào chỉ bằng cách chạy
+Hoặc bạn có thể dùng Llamafile mà không cần cài phần mềm bên thứ ba, chỉ cần chạy:
 
-```vỏ
-thông dịch viên --local
+```shell
+interpreter --local
 ```
 
-để biết hướng dẫn chi tiết hơn, hãy xem [video này của Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU?si=cN7f6QhfT4edfG5H)
+Để xem hướng dẫn chi tiết hơn, hãy xem [video này của Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
 
-**Để chạy LM Studio ở chế độ nền.**
+**Cách chạy LM Studio ở chế độ nền.**
 
-1. Tải [https://lmstudio.ai/](https://lmstudio.ai/) và khởi động.
+1. Tải [LM Studio](https://lmstudio.ai/) rồi khởi động.
 2. Chọn một mô hình rồi nhấn **↓ Download**.
-3. Nhấn vào nút **↔️** ở bên trái (dưới 💬).
-4. Chọn mô hình của bạn ở phía trên, rồi nhấn chạy **Start Server**.
+3. Nhấn nút **↔️** bên trái (dưới 💬).
+4. Chọn mô hình ở phía trên, rồi nhấn **Start Server**.
 
-Một khi server chạy, bạn có thể bắt đầu trò chuyện với Open Interpreter.
+Khi máy chủ đã chạy, bạn có thể bắt đầu trò chuyện với Open Interpreter.
 
-> **Lưu ý:** Chế độ cục bộ chỉnh `context_window` của bạn tới 3000, và `max_tokens` của bạn tới 600. Nếu mô hình của bạn có các yêu cầu khác, thì hãy chỉnh các tham số thủ công (xem bên dưới).
+> **Lưu ý:** Chế độ cục bộ đặt `context_window` thành 3000 và `max_tokens` thành 1000. Nếu mô hình của bạn có yêu cầu khác, hãy đặt các tham số này thủ công (xem bên dưới).
 
-#### Cửa sổ ngữ cảnh (Context Window), (Max Tokens)
+#### Python
 
-Bạn có thể thay đổi `max_tokens` và `context_window` (ở trong các) of locally running models.
+Gói Python của chúng tôi cho bạn kiểm soát chi tiết hơn từng cài đặt. Để kết nối với LM Studio, dùng các cài đặt sau:
 
-Ở chế độ cục bộ, các cửa sổ ngữ cảnh sẽ tiêu ít RAM hơn, vậy nên chúng tôi khuyến khích dùng cửa sổ nhỏ hơn (~1000) nếu như nó chạy không ổn định / hoặc nếu nó chậm. Đảm bảo rằng `max_tokens` ít hơn `context_window`.
+```python
+from interpreter import interpreter
+
+interpreter.offline = True # Tắt tính năng trực tuyến (ví dụ: kiểm tra cập nhật, telemetry)
+interpreter.llm.model = "openai/x" # Báo cho OI gửi tin nhắn theo định dạng OpenAI
+interpreter.llm.api_key = "fake_key" # LiteLLM, dùng để nói chuyện với LM Studio, yêu cầu giá trị này
+interpreter.llm.api_base = "http://localhost:1234/v1" # Trỏ tới bất kỳ máy chủ tương thích OpenAI nào
+
+interpreter.chat()
+```
+
+#### Cửa sổ ngữ cảnh, Max Tokens
+
+Bạn có thể sửa `max_tokens` và `context_window` (tính bằng token) của các mô hình chạy cục bộ.
+
+Ở chế độ cục bộ, cửa sổ ngữ cảnh nhỏ hơn sẽ dùng ít RAM hơn, vì vậy chúng tôi khuyên thử cửa sổ ngắn hơn nhiều (~1000) nếu bị lỗi hoặc chạy chậm. Đảm bảo `max_tokens` nhỏ hơn `context_window`.
 
 ```shell
 interpreter --local --max_tokens 1000 --context_window 3000
 ```
 
-### Chế độ sửa lỗi
+### Chế độ verbose
 
-Để giúp đóng góp kiểm tra Open Interpreter, thì chế độ `--verbose` hơi dài dòng.
+Để giúp bạn kiểm tra Open Interpreter, chúng tôi có chế độ `--verbose` để gỡ lỗi.
 
-Bạn có thể khởi động chế độ sửa lỗi bằng cách sử dụng cờ (`interpreter --verbose`), hoặc mid-chat:
+Bạn có thể bật chế độ verbose bằng cờ (`interpreter --verbose`), hoặc giữa phiên chat:
 
 ```shell
 $ interpreter
 ...
-> %verbose true <- Khởi động chế độ gỡ lỗi
+> %verbose true <- Bật chế độ verbose
 
-> %verbose false <- Tắt chế độ gỡ lỗi
+> %verbose false <- Tắt chế độ verbose
 ```
 
 ### Lệnh chế độ tương tác
 
-Trong chế độ tương tác, bạn có thể sử dụng những dòng lệnh sau để cải thiện trải nghiệm của mình. Đây là danh sách các dòng lệnh có sẵn:
+Trong chế độ tương tác, bạn có thể dùng các lệnh sau để cải thiện trải nghiệm. Đây là danh sách các lệnh có sẵn:
 
 **Các lệnh có sẵn:**
 
-- `%verbose [true/false]`: Bật chế độ gỡ lỗi. Có hay không có `true` đều khởi động chế độ gỡ lỗi. Với `false` thì nó tắt chế độ gỡ lỗi.
-- `%reset`: Khởi động lại toàn bộ phiên trò chuyện hiện tại.
-- `%undo`: Xóa tin nhắn của người dùng trước đó và phản hồi của AI khỏi lịch sử tin nhắn.
-- `%save_message [path]`: Lưu tin nhắn vào một đường dẫn JSON được xác định từ trước. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
-- `%load_message [path]`: Tải tin nhắn từ một đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
-- `%tokens [prompt]`: (_Experimental_) Tính toán các token sẽ được gửi cùng với lời nhắc tiếp theo dưới dạng ngữ cảnh và hao tổn. Tùy chọn tính toán token và hao tổn ước tính của một `prompt` nếu được cung cấp. Dựa vào [hàm `cost_per_token()` của mô hình LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) để tính toán hao tổn.
-- `%help`: Hiện lên trợ giúp cho cuộc trò chuyện.
+- `%% [lệnh]`: Chạy lệnh trong shell hệ thống (bỏ qua LLM).
+- `%verbose [true/false]`: Bật/tắt chế độ verbose. Không có tham số hoặc với `true` thì vào chế độ verbose. Với `false` thì thoát chế độ verbose.
+- `%auto_run [true/false]`: Bật/tắt việc chạy mã không cần xác nhận. Không có tham số hoặc với `true` thì vào chế độ auto_run. Với `false` thì thoát chế độ auto_run.
+- `%reset`: Đặt lại cuộc trò chuyện của phiên hiện tại.
+- `%undo`: Xóa tin nhắn người dùng trước đó và phản hồi của AI khỏi lịch sử tin nhắn.
+- `%save_message [path]`: Lưu tin nhắn vào đường dẫn JSON chỉ định. Nếu không có đường dẫn, mặc định là `messages.json`.
+- `%load_message [path]`: Tải tin nhắn từ đường dẫn JSON chỉ định. Nếu không có đường dẫn, mặc định là `messages.json`.
+- `%tokens [prompt]`: (_Thử nghiệm_) Tính số token sẽ được gửi cùng prompt tiếp theo làm ngữ cảnh và ước tính chi phí. Tùy chọn tính token và chi phí ước tính của `prompt` nếu được cung cấp. Dựa vào [phương thức `cost_per_token()` của LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) để ước tính chi phí.
+- `%jupyter`: Xuất cuộc trò chuyện ra tệp Jupyter notebook.
+- `%markdown [path]`: Xuất cuộc trò chuyện ra đường dẫn Markdown chỉ định. Nếu không có đường dẫn, sẽ lưu vào thư mục Downloads với tên cuộc trò chuyện được tạo tự động.
+- `%info`: Hiển thị thông tin hệ thống và interpreter.
+- `%help`: Hiển thị thông báo trợ giúp.
 
-### Cấu hình cài
+### Cấu hình / Hồ sơ
 
-Open Interpreter cho phép bạn thiết lập các tác vụ mặc định bằng cách sử dụng file `config.yaml`.
+Open Interpreter cho phép bạn đặt hành vi mặc định bằng tệp `yaml`.
 
-Điều này cung cấp một cách linh hoạt để định cấu hình trình thông dịch mà không cần thay đổi đối số dòng lệnh mỗi lần
+Điều này cung cấp cách linh hoạt để cấu hình interpreter mà không cần thay đổi đối số dòng lệnh mỗi lần.
 
-Chạy lệnh sau để mở tệp cấu hình:
-
-```
-interpreter --config
-```
-
-#### Cấu hình cho nhiều tệp
-
-Open Interpreter hỗ trợ nhiều file `config.yaml`, cho phép bạn dễ dàng chuyển đổi giữa các cấu hình thông qua lệnh `--config_file`.
-
-**Chú ý**: `--config_file` chấp nhận tên tệp hoặc đường dẫn tệp. Tên tệp sẽ sử dụng thư mục cấu hình mặc định, trong khi đường dẫn tệp sẽ sử dụng đường dẫn đã chỉ định.
-
-Để tạo hoặc chỉnh sửa cấu hình mới, hãy chạy:
+Chạy lệnh sau để mở thư mục hồ sơ:
 
 ```
-interpreter --config --config_file $config_path
+interpreter --profiles
 ```
 
-Để yêu cầu Open Interpreter chạy một tệp cấu hình cụ thể, hãy chạy:
+Bạn có thể thêm tệp `yaml` ở đó. Hồ sơ mặc định có tên `default.yaml`.
+
+#### Nhiều hồ sơ
+
+Open Interpreter hỗ trợ nhiều tệp `yaml`, cho phép bạn dễ dàng chuyển đổi giữa các cấu hình:
 
 ```
-interpreter --config_file $config_path
-```
-
-**Chú ý**: Thay đổi `$config_path` với tên hoặc đường dẫn đến tệp cấu hình của bạn.
-
-##### Ví dụ CLI
-
-1. Tạo mới một file `config.turbo.yaml`
-   ```
-   interpreter --config --config_file config.turbo.yaml
-   ```
-2. Chạy file `config.turbo.yaml`để đặt lại `model` thành `gpt-3.5-turbo`
-3. Chạy Open Interpreter với cấu hình `config.turbo.yaml
-   ```
-   interpreter --config_file config.turbo.yaml
-   ```
-
-##### Ví dụ Python
-
-Bạn cũng có thể tải các tệp cấu hình khi gọi Open Interpreter từ tập lệnh Python:
-
-```python
-import os
-from interpreter import interpreter
-
-currentPath = os.path.dirname(os.path.abspath(__file__))
-config_path=os.path.join(currentPath, './config.test.yaml')
-
-interpreter.extend_config(config_path=config_path)
-
-message = "What operating system are we on?"
-
-for chunk in interpreter.chat(message, display=False, stream=True):
-  print(chunk)
+interpreter --profile my_profile.yaml
 ```
 
 ## Máy chủ FastAPI mẫu
 
-Bản cập nhật trình tạo cho phép điều khiển Trình thông dịch mở thông qua các điểm cuối HTTP REST:
+Open Interpreter có thể được điều khiển qua các endpoint HTTP REST:
 
 ```python
 # server.py
@@ -361,36 +334,76 @@ pip install fastapi uvicorn
 uvicorn server:app --reload
 ```
 
-## Hướng dẫn an toàn
+Bạn cũng có thể khởi động máy chủ tích hợp với hỗ trợ WebSocket và giao diện web bằng cách chạy `interpreter --server` (yêu cầu extra `[server]`).
 
-Vì mã được tạo được thực thi trong môi trường cục bộ của bạn nên nó có thể tương tác với các tệp và cài đặt hệ thống của bạn, có khả năng dẫn đến các kết quả không mong muốn như mất dữ liệu hoặc rủi ro bảo mật.
+## Android
 
-**⚠️ Open Interpreter sẽ yêu cầu xác nhận của người dùng trước khi chạy code.**
+Hướng dẫn từng bước cài đặt Open Interpreter trên thiết bị Android có trong [kho open-interpreter-termux](https://github.com/MikeBirdTech/open-interpreter-termux).
+
+## Lưu ý an toàn
+
+Vì mã được tạo chạy trong môi trường cục bộ của bạn, nó có thể tương tác với tệp và cài đặt hệ thống, dẫn đến kết quả không mong muốn như mất dữ liệu hoặc rủi ro bảo mật.
+
+**⚠️ Open Interpreter sẽ yêu cầu xác nhận của người dùng trước khi thực thi mã.**
 
 Bạn có thể chạy `interpreter -y` hoặc đặt `interpreter.auto_run = True` để bỏ qua xác nhận này, trong trường hợp đó:
 
 - Hãy thận trọng khi yêu cầu các lệnh sửa đổi tệp hoặc cài đặt hệ thống.
-- Theo dõi Open Interpreter giống như một chiếc ô tô tự lái và sẵn sàng kết thúc quá trình bằng cách đóng terminal của bạn.
-- Cân nhắc việc chạy Open Interpreter trong môi trường bị hạn chế như Google Colab hoặc Replit. Những môi trường này biệt lập hơn, giảm thiểu rủi ro khi chạy code tùy ý.
+- Theo dõi Open Interpreter như xe tự lái, và sẵn sàng kết thúc tiến trình bằng cách đóng terminal.
+- Cân nhắc chạy Open Interpreter trong môi trường bị hạn chế như Google Colab hoặc Replit. Các môi trường này cô lập hơn, giảm rủi ro khi chạy mã tùy ý.
 
-Đây là hỗ trợ **thử nghiệm** cho [chế độ an toàn](SAFE_MODE.md) giúp giảm thiểu rủi ro.
+Có hỗ trợ **thử nghiệm** cho [chế độ an toàn](SAFE_MODE.md) để giúp giảm thiểu một số rủi ro.
 
-## Nó hoạt động thế nào?
+## Cách hoạt động
 
-Open Interpreter trang bị [mô hình ngôn ngữ gọi hàm](https://platform.openai.com/docs/guides/gpt/function-calling) với một hàm `exec()`, chấp nhận một `language` (như "Python" hoặc "JavaScript") và `code` để chạy.
+Open Interpreter trang bị [mô hình ngôn ngữ gọi hàm](https://platform.openai.com/docs/guides/function-calling) với công cụ `execute`, nhận `language` (như "Python" hoặc "JavaScript") và `code` để chạy. (Các mô hình không gọi hàm cũng được hỗ trợ qua khối mã markdown.)
 
-Sau đó, chúng tôi truyền trực tuyến thông báo, mã của mô hình và kết quả đầu ra của hệ thống của bạn đến terminal dưới dạng Markdown.
+Sau đó, chúng tôi stream tin nhắn, mã của mô hình và đầu ra hệ thống của bạn ra terminal dưới dạng Markdown.
 
-# Đóng góp
+## Truy cập tài liệu ngoại tuyến
 
-Cảm ơn bạn đã quan tâm đóng góp! Chúng tôi hoan nghênh sự tham gia của cộng đồng.
+Toàn bộ [tài liệu](.) có thể truy cập mọi lúc mà không cần kết nối internet.
 
-Vui lòng xem [Hướng dẫn đóng góp](CONTRIBUTING.md) để biết thêm chi tiết cách tham gia.
+[Node](https://nodejs.org/en) là điều kiện tiên quyết:
+
+- Phiên bản 18.17.0 hoặc bất kỳ phiên bản 18.x.x sau đó.
+- Phiên bản 20.3.0 hoặc bất kỳ phiên bản 20.x.x sau đó.
+- Bất kỳ phiên bản nào từ 21.0.0 trở lên, không giới hạn trên.
+
+Cài đặt [Mintlify](https://mintlify.com/):
+
+```bash
+npm i -g mintlify@latest
+```
+
+Chuyển vào thư mục docs và chạy lệnh phù hợp:
+
+```bash
+# Giả sử bạn đang ở thư mục gốc của dự án
+cd ./docs
+
+# Chạy máy chủ tài liệu
+mintlify dev
+```
+
+Một cửa sổ trình duyệt mới sẽ mở. Tài liệu sẽ có tại [http://localhost:3000](http://localhost:3000) miễn là máy chủ tài liệu đang chạy.
+
+## Đóng góp
+
+Cảm ơn bạn đã quan tâm đến việc đóng góp! Chúng tôi hoan nghênh sự tham gia từ cộng đồng.
+
+Vui lòng xem [hướng dẫn đóng góp](CONTRIBUTING.md) để biết thêm chi tiết cách tham gia.
+
+## Lộ trình
+
+Truy cập [lộ trình](ROADMAP.md) của chúng tôi để xem trước tương lai của Open Interpreter.
 
 **Lưu ý**: Phần mềm này không liên kết với OpenAI.
 
-> Có quyền truy cập vào một lập trình viên cấp dưới làm việc nhanh chóng trong tầm tay bạn ... có thể khiến quy trình làm việc mới trở nên dễ dàng và hiệu quả, cũng như mở ra những lợi ích của việc lập trình cho người mới.
+![thumbnail-ncu](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/1b19a5db-b486-41fd-a7a1-fe2028031686)
+
+> Có quyền truy cập vào một lập trình viên junior làm việc nhanh như tốc độ đầu ngón tay của bạn... có thể khiến quy trình làm việc mới trở nên dễ dàng và hiệu quả, đồng thời mở rộng lợi ích lập trình cho nhiều đối tượng hơn.
 >
-> — _Phát hành trình thông dịch mã của OpenAI_
+> — _Phát hành Code Interpreter của OpenAI_
 
 <br>
