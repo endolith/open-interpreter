@@ -1,39 +1,28 @@
 <h1 align="center">● Open Interpreter</h1>
 
 <p align="center">
-    <a href="https://discord.gg/6p3fD6rBVm">
+    <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
-    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
     <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
+    <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
     <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
     <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br>
-    <b>自然言語で指示するだけでコードを書いて実行までしてくれる。</b><br>
-    ローカルに実装したOpenAI Code Interpreterのオープンソース版。<br>
-    <br><a href="https://www.openinterpreter.com/">デスクトップアプリ</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">ドキュメント</a><br>
+    <br><a href="https://www.openinterpreter.com/">デスクトップアプリ</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">ドキュメント</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-
-**Update:** ● 0.1.12 アップデートで `interpreter --vision` 機能が導入されました。([ドキュメント](usage/terminal/vision.mdx))
-
-<br>
-
-```shell
-pip install open-interpreter
-```
-
-```shell
-interpreter
-```
-
 <br>
 
 **Open Interpreter**は、言語モデルに指示し、コード（Python、Javascript、Shell など）をローカル環境で実行できるようにします。インストール後、`$ interpreter` を実行するとターミナル経由で ChatGPT のようなインターフェースを介し、Open Interpreter とチャットができます。
@@ -51,7 +40,7 @@ interpreter
 
 ## デモ
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+[デモ動画](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
 #### Google Colab でも対話形式のデモを利用できます:
 
@@ -63,9 +52,25 @@ https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680
 
 ## クイックスタート
 
+### インストール
+
+このリポジトリは、クラシック Python Open Interpreter の Endolith によるフォークです。
+
+次のコマンドは、デフォルトブランチである **`main`**（安定版のベース、CI、移植変更のマージ先）をインストールします:
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> オプションの依存関係については、[セットアップガイド](getting-started/setup.mdx)を参照してください。
+
+ただし、日常的な使用では、代わりに **`classic/develop`** をインストールすることをお勧めします。これは毎日メンテナンスされ使用されている不安定なブランチで、推論モデル、OpenRouter/DeepSeek/Qwen、ウェブ検索ツールなど、main ブランチと比べて多くの変更と機能があります:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+フォーク固有の機能、モデルに関する注記、セットアップの詳細については、[`classic/develop` README](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md)を参照してください。
 
 ### ターミナル
 
@@ -102,15 +107,6 @@ Open Interpreter は、ローカル環境で操作することで、これらの
 Open Interpter は、GPT-4 Code Interpreter のパワーとローカル開発環境の柔軟性を組み合わせたものです。
 
 ## コマンド
-
-**更新:** アップデート(0.1.5)でストリーミング機能が導入されました:
-
-```python
-message = "どのオペレーティングシステムを使用していますか？"
-
-for chunk in interpreter.chat(message, display=False, stream=True):
-  print(chunk)
-```
 
 ### 対話型チャット
 
@@ -258,17 +254,12 @@ $ interpreter
 
 **利用可能なコマンド:**
 
-- `%% [command]`: システムシェルでコマンドを実行します（LLM を経由しません）。
-- `%verbose [true/false]`: 詳細モードを切り替えます。引数なしまたは `true` で詳細モードに入ります。`false` で詳細モードを終了します。
-- `%auto_run [true/false]`: 確認なしでコードを実行するかどうかを切り替えます。引数なしまたは `true` で auto_run モードに入ります。`false` で終了します。
+- `%verbose [true/false]`: デバッグモードを切り替えます。引数なしまたは `true` でデバッグモードに入ります。`false` でデバッグモードを終了します。
 - `%reset`: 現在のセッションの会話をリセットします。
 - `%undo`: メッセージ履歴から前のユーザーメッセージと AI の応答を削除します。
 - `%save_message [path]`: メッセージを指定した JSON パスに保存します。パスが指定されていない場合、デフォルトは `messages.json` になります。
 - `%load_message [path]`: 指定した JSON パスからメッセージを読み込みます。パスが指定されていない場合、デフォルトは `messages.json` になります。
 - `%tokens [prompt]`: (_実験的_) 次のプロンプトのコンテキストとして送信されるトークンを計算し、そのコストを見積もります。オプションで、`prompt` が提供された場合のトークンと見積もりコストを計算します。見積もりコストは [LiteLLM の `cost_per_token()` メソッド](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token)に依存します。
-- `%jupyter`: 会話を Jupyter ノートブックファイルにエクスポートします。
-- `%markdown [path]`: 会話を指定した Markdown パスにエクスポートします。パスが指定されていない場合、生成された会話名で Downloads フォルダに保存されます。
-- `%info`: システムとインタープリタの情報を表示します。
 - `%help`: ヘルプメッセージを表示します。
 
 ### 設定

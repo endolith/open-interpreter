@@ -3,39 +3,26 @@
 <p align="center">
     <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
+    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
     <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
     <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
+    <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
     <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
-    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br>
-    <br><a href="https://www.openinterpreter.com/">Desktop App</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Документація</a><br>
+    <br><a href="https://www.openinterpreter.com/">Десктопний застосунок</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">Документація</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-<p align="center">
-<strong>Нове комп'ютерне оновлення</strong> представило <strong><code>--os</code></strong> та новий <strong>Computer API</strong>. <a href="https://changes.openinterpreter.com/log/the-new-computer-update">Читати далі →</a>
-</p>
-<br>
-
-```shell
-pip install open-interpreter
-```
-
-> Не працює? Прочитайте наш [посібник з налаштування](getting-started/setup.mdx).
-
-```shell
-interpreter
-```
-
-<br>
-
 **Open Interpreter** дозволяє LLM локально запускати код (Python, Javascript, Shell тощо). Ви можете спілкуватися з Open Interpreter через інтерфейс, схожий на ChatGPT, у вашому терміналі, запустивши `$ interpreter` після встановлення.
 
 Це забезпечує інтерфейс природною мовою для загального використання можливостей вашого комп’ютера:
@@ -51,7 +38,7 @@ interpreter
 
 ## Demo
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+[Демонстраційне відео](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
 #### Інтерактивна демонстрація також доступна на Google Colab:
 
@@ -63,9 +50,25 @@ https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680
 
 ## Швидкий старт
 
+### Встановлення
+
+Цей репозиторій — форк Endolith класичного Python Open Interpreter.
+
+Ця команда встановить **`main`** — гілку за замовчуванням (стабільна база, CI та ціль для злиття перенесених змін):
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> Дивіться наш [посібник з налаштування](getting-started/setup.mdx) для додаткових залежностей.
+
+Однак для щоденного використання, ймовірно, вам варто встановити **`classic/develop`** — це нестабільна гілка, яка підтримується та використовується щодня, з багатьма змінами та функціями порівняно з гілкою main, такими як підтримка моделей міркування, OpenRouter/DeepSeek/Qwen, інструменти веб-пошуку тощо:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+Для функцій форку, приміток щодо моделей та деталей налаштування дивіться [README `classic/develop`](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md).
 
 ### Термінал
 
@@ -106,15 +109,6 @@ Open Interpreter долає ці обмеження, запускаючись у
 Це поєднує потужність інтерпретатора коду GPT-4 із гнучкістю вашого локального середовища розробки.
 
 ## Команди
-
-**Оновлення:** Оновлення Generator (0.1.5) представило потокове передавання:
-
-```python
-message = "What operating system are we on?"
-
-for chunk in interpreter.chat(message, display=False, stream=True):
-  print(chunk)
-```
 
 ### Інтерактивний чат
 
@@ -241,7 +235,7 @@ for a more detailed guide check out [this video by Mike Bird](https://www.youtub
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Вимикає онлайн-функції (наприклад, перевірку оновлень, телеметрію)
+interpreter.offline = True # Вимикає такі онлайн-функції, як Open Procedures
 interpreter.llm.model = "openai/x" # Каже AI надсилати повідомлення у форматі OpenAI
 interpreter.llm.api_key = "fake_key" # LiteLLM, який ми використовуємо для спілкування з LM Studio, вимагає api-ключ
 interpreter.llm.api_base = "http://localhost:1234/v1" # Познчате це на будь-якому сервері, сумісному з OpenAI
@@ -278,17 +272,11 @@ $ interpreter
 В інтерактивному режимі ви можете використовувати наведені нижче команди, щоб покращити свій досвід. Ось список доступних команд:
 **Доступні команди:**
 
-- `%% [command]`: Виконує команду в системній оболонці (без участі LLM).
-- `%verbose [true/false]`: Перемикає режим verbose. Без аргументів або з `true` вмикає режим verbose. З `false` вимикає режим verbose.
-- `%auto_run [true/false]`: Увімкнути або вимкнути виконання коду без підтвердження. Без аргументів або з `true` входить у режим auto_run. З `false` виходить із режиму auto_run.
+- `%verbose [true/false]`: увімкнути режим verbose. Без аргументів або з `true`.
+  переходить у багатослівний режим. З `false` він виходить із багатослівного режиму.
 - `%reset`: скидає розмову поточного сеансу.
-- `%undo`: видаляє попереднє повідомлення користувача та відповідь ШІ з історії повідомлень.
-- `%save_message [path]`: Зберігає повідомлення у вказаний JSON-шлях. Якщо шлях не вказано, за замовчуванням використовується `messages.json`.
-- `%load_message [path]`: Завантажує повідомлення з вказаного JSON-шляху. Якщо шлях не вказано, за замовчуванням використовується `messages.json`.
-- `%tokens [prompt]`: (_Експериментально_) Розраховує токени, які будуть надіслані з наступним запитом як контекст, і оцінює їх вартість. За наявності `prompt` також обчислює токени та приблизну вартість цього промпту. Покладається на [метод `cost_per_token()` LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) для оцінки витрат.
-- `%jupyter`: Експортує розмову у файл блокнота Jupyter.
-- `%markdown [path]`: Експортує розмову у вказаний Markdown-шлях. Якщо шлях не вказано, файл буде збережено в папці Downloads зі згенерованою назвою розмови.
-- `%info`: Показує інформацію про систему та інтерпретатор.
+- `% undo`: видаляє попереднє повідомлення користувача та відповідь ШІ з історії повідомлень.
+- `%tokens [prompt]`: (_Експериментально_) Розрахувати токени, які будуть надіслані з наступним запитом як контекст, і оцінити їх вартість. Додатково обчисліть токени та приблизну вартість «підказки», якщо вона надається. Покладається на [метод `cost_per_token()` LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) для оцінки витрат.
 - `%help`: Показати повідомлення довідки.
 
 ### Конфігурація / Профілі

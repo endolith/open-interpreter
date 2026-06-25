@@ -5,37 +5,24 @@
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
     <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
-    <a href="README_ZH.md"> <img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
-    <a href="README_IN.md"> <img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
+    <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br>
-    <br><a href="https://www.openinterpreter.com/">Aplicación de Escritorio</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Documentación</a><br>
+    <br><a href="https://www.openinterpreter.com/">Aplicación de Escritorio</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">Documentación</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-<p align="center">
-<strong>La Nueva Actualización del Computador</strong> presenta <strong><code>--os</code></strong> y una nueva <strong>API de Computadora</strong>. <a href="https://changes.openinterpreter.com/log/the-new-computer-update">Lea más →</a>
-</p>
-<br>
-
-```shell
-pip install open-interpreter
-```
-
-> ¿No funciona? Lea nuestra [guía de configuración](getting-started/setup.mdx).
-
-```shell
-interpreter
-```
-
-<br>
-
 **Intérprete Abierto** permite a los LLMs ejecutar código (Python, JavaScript, Shell, etc.) localmente. Puede chatear con Intérprete Abierto a través de una interfaz de chat como ChatGPT en su terminal después de instalar.
 
 Esto proporciona una interfaz de lenguaje natural para las capacidades generales de su computadora:
@@ -51,7 +38,7 @@ Esto proporciona una interfaz de lenguaje natural para las capacidades generales
 
 ## Demo
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+[Vídeo de demostración](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
 #### También hay disponible una demo interactiva en Google Colab:
 
@@ -63,9 +50,25 @@ https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680
 
 ## Inicio Rápido
 
+### Instalación
+
+Este repositorio es el fork de Endolith del Open Interpreter clásico en Python.
+
+Este comando instalará **`main`**, la rama predeterminada (base estable, CI y destino de fusión para cambios portados):
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> Consulte nuestra [guía de configuración](getting-started/setup.mdx) para dependencias opcionales.
+
+Para el uso diario, sin embargo, probablemente quiera instalar **`classic/develop`** en su lugar — esa es la rama inestable mantenida y usada a diario, con muchos cambios y funciones respecto a la rama main, como soporte para modelos de razonamiento, OpenRouter/DeepSeek/Qwen, herramientas de búsqueda web, etc.:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+Para funciones específicas del fork, notas de modelos y detalles de configuración, consulte el [README de `classic/develop`](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md).
 
 ### Terminal
 
@@ -106,15 +109,6 @@ Intérprete Abierto supera estas limitaciones al ejecutarse en su entorno local.
 Esto combina el poder del Intérprete de Código de GPT-4 con la flexibilidad de su entorno de desarrollo local.
 
 ## Comandos
-
-**Actualización:** La Actualización del Generador (0.1.5) introdujo streaming:
-
-```python
-message = "¿Qué sistema operativo estamos utilizando?"
-
-for chunk in interpreter.chat(message, display=False, stream=True):
-    print(chunk)
-```
 
 ### Chat Interactivo
 
@@ -241,7 +235,7 @@ Nuestro paquete de Python le da más control sobre cada ajuste. Para replicar y 
 ```python
 from interpreter import interpreter
 
-interpreter.offline = True # Desactiva funciones en línea (p. ej. comprobación de actualizaciones, telemetría)
+interpreter.offline = True # Desactiva las características en línea como Procedimientos Abiertos
 interpreter.llm.model = "openai/x" # Indica a OI que envíe mensajes en el formato de OpenAI
 interpreter.llm.api_key = "fake_key" # LiteLLM, que utilizamos para hablar con LM Studio, requiere esto
 interpreter.llm.api_base = "http://localhost:1234/v1" # Apunta esto a cualquier servidor compatible con OpenAI
@@ -270,7 +264,7 @@ $ interpreter
 ...
 > %verbose true <- Activa el modo detallado
 
-> %verbose false <- Desactiva el modo detallado
+> %verbose false <- Desactiva el modo verbose
 ```
 
 ### Comandos de Modo Interactivo
@@ -279,18 +273,11 @@ En el modo interactivo, puede utilizar los siguientes comandos para mejorar su e
 
 **Comandos Disponibles:**
 
-- `%% [command]`: Ejecuta un comando en el shell del sistema (sin pasar por el LLM).
 - `%verbose [true/false]`: Activa o desactiva el modo detallado. Sin parámetros o con `true` entra en modo detallado.
-  Con `false` sale del modo detallado.
-- `%auto_run [true/false]`: Activa o desactiva la ejecución de código sin confirmación. Sin parámetros o con `true` entra en modo auto_run. Con `false` sale del modo auto_run.
+  Con `false` sale del modo verbose.
 - `%reset`: Reinicia la sesión actual de conversación.
 - `%undo`: Elimina el mensaje de usuario previo y la respuesta del AI del historial de mensajes.
-- `%save_message [path]`: Guarda los mensajes en una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
-- `%load_message [path]`: Carga mensajes desde una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
 - `%tokens [prompt]`: (_Experimental_) Calcula los tokens que se enviarán con el próximo prompt como contexto y estima su costo. Opcionalmente, calcule los tokens y el costo estimado de un `prompt` si se proporciona. Depende de [LiteLLM's `cost_per_token()` method](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) para costos estimados.
-- `%jupyter`: Exporta la conversación a un archivo de cuaderno Jupyter.
-- `%markdown [path]`: Exporta la conversación a una ruta Markdown especificada. Si no se proporciona ruta, se guardará en la carpeta Downloads con un nombre de conversación generado.
-- `%info`: Muestra información del sistema y del intérprete.
 - `%help`: Muestra el mensaje de ayuda.
 
 ### Configuración / Perfiles

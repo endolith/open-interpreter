@@ -1,36 +1,28 @@
 <h1 align="center">● Open Interpreter</h1>
 
 <p align="center">
-    <a href="https://discord.gg/6p3fD6rBVm">
-        <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/>
-    </a>
-    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
+    <a href="https://discord.gg/Hvz9Axh84z">
+        <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
+    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
     <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
+    <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
-    <br><br>
-    <b>अपने कंप्यूटर पर कोड चलाने के लिए भाषा मॉडल को चलाएं।</b><br>
-    ओपनएआई कोड इंटरप्रेटर का एक ओपन-सोर्स, स्थानीय चलने वाला अमल।<br>
-    <br><a href="https://www.openinterpreter.com/">डेस्कटॉप ऐप</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a><br>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
+    <br>
+    <br><a href="https://www.openinterpreter.com/">डेस्कटॉप ऐप</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">दस्तावेज़</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-
-```shell
-pip install open-interpreter
-```
-
-```shell
-interpreter
-```
-
-<br>
-
 **ओपन इंटरप्रेटर** एलएलएम कोड (पायथन, जावास्क्रिप्ट, शेल, और अधिक) को स्थानीय रूप से चलाने की अनुमति देता है। आप इंस्टॉल करने के बाद अपने टर्मिनल में `$ interpreter` चलाकर ओपन इंटरप्रेटर के साथ एक चैटजीपीटी-जैसे इंटरफ़ेस के माध्यम से चैट कर सकते हैं।
 
 यह आपके कंप्यूटर की सामान्य-उद्देश्य क्षमताओं के लिए एक प्राकृतिक भाषा इंटरफ़ेस प्रदान करता है:
@@ -46,13 +38,33 @@ interpreter
 
 ## डेमो
 
+[डेमो वीडियो](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
+
+### Google Colab पर एक इंटरैक्टिव डेमो भी उपलब्ध है
+
 [![कोलैब में खोलें](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WKmRXZgsErej2xUriKzxrEAXdxMSgWbb?usp=sharing)
 
 ## त्वरित प्रारंभ
 
+### इंस्टॉलेशन
+
+यह रिपॉजिटरी क्लासिक Python Open Interpreter का Endolith का फ़ोर्क है।
+
+यह कमांड **`main`** इंस्टॉल करेगी, जो डिफ़ॉल्ट शाखा है (स्थिर आधार, CI, और पोर्ट किए गए परिवर्तनों के लिए मर्ज लक्ष्य):
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> वैकल्पिक निर्भरताओं के लिए हमारी [सेटअप गाइड](getting-started/setup.mdx) देखें।
+
+हालाँकि, दैनिक उपयोग के लिए, आप शायद **`classic/develop`** इंस्टॉल करना चाहेंगे — यह अस्थिर शाखा है जिसे रोज़ाना बनाए रखा और उपयोग किया जाता है, main शाखा की तुलना में कई परिवर्तनों और सुविधाओं के साथ, जैसे reasoning मॉडल, OpenRouter/DeepSeek/Qwen, वेब खोज टूल, आदि का समर्थन:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+फ़ोर्क-विशिष्ट सुविधाओं, मॉडल नोट्स और सेटअप विवरण के लिए, [`classic/develop` README](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md) देखें।
 
 ### टर्मिनल
 
@@ -91,22 +103,6 @@ interpreter.chat() # एक इंटरैक्टिव चैट शुर�
 
 यह GPT-4 के कोड इंटरप्रेटर की शक्ति को आपके स्थानीय विकास वातावरण की लचीलापन के साथ मिलाता है।
 
-## Commands
-
-### Interactive Chat
-
-To start an interactive chat in your terminal, either run `interpreter` from the command line:
-
-```shell
-interpreter
-```
-
-Or `interpreter.chat()` from a .py file:
-
-```python
-interpreter.chat()
-```
-
 ## कमांड
 
 ### इंटरैक्टिव चैट
@@ -119,7 +115,7 @@ interpreter
 
 या एक .py फ़ाइल से `interpreter.chat()` चलाएँ:
 
-````python
+```python
 interpreter.chat()
 
 ### प्रोग्रामेटिक चैट
@@ -134,7 +130,7 @@ interpreter.chat("सभी वीडियो में उपशीर्ष�
 interpreter.chat("ये बड़े दिख रहे हैं लेकिन क्या आप उपशीर्षक को और बड़ा कर सकते हैं?")
 
 # ...
-````
+```
 
 ### नया चैट शुरू करें
 
@@ -212,17 +208,11 @@ $ interpreter
 इंटरैक्टिव मोड में, आप निम्नलिखित कमांडों का उपयोग करके अपने अनुभव को बेहतर बना सकते हैं। यहां उपलब्ध कमांडों की सूची है:
 
 **उपलब्ध कमांड:**
-• `%% [command]`: सिस्टम शेल में कमांड चलाएं (LLM को बायपास करता है)।
-• `%verbose [true/false]`: विस्तृत मोड को टॉगल करें। कोई तर्क नहीं या 'true' के साथ, यह विस्तृत मोड में प्रवेश करता है। 'false' के साथ, यह विस्तृत मोड से बाहर निकलता है।
-• `%auto_run [true/false]`: पुष्टि के बिना कोड चलाने को टॉगल करें। कोई तर्क नहीं या 'true' के साथ, यह auto_run मोड में प्रवेश करता है। 'false' के साथ, यह auto_run मोड से बाहर निकलता है।
+• `%verbose [true/false]`: डीबग मोड को टॉगल करें। कोई तर्क नहीं या 'true' के साथ, यह डीबग मोड में प्रवेश करता है। 'false' के साथ, यह डीबग मोड से बाहर निकलता है।
 • `%reset`: वर्तमान सत्र को रीसेट करता है।
 • `%undo`: पिछले संदेश और उसके जवाब को संदेश इतिहास से हटा देता है।
 • `%save_message [पथ]`: संदेशों को एक निर्दिष्ट JSON पथ पर सहेजता है। यदि कोई पथ निर्दिष्ट नहीं किया गया है, तो यह डिफ़ॉल्ट रूप से 'messages.json' पर जाता है।
 • `%load_message [पथ]`: एक निर्दिष्ट JSON पथ से संदेश लोड करता है। यदि कोई पथ निर्दिष्ट नहीं किया गया है, तो यह डिफ़ॉल्ट रूप से 'messages.json' पर जाता है।
-• `%tokens [prompt]`: (_प्रयोगात्मक_) अगले प्रॉम्प्ट के संदर्भ के रूप में भेजे जाने वाले टोकन की गणना करता है और उनकी लागत का अनुमान लगाता है। वैकल्पिक रूप से, यदि `prompt` प्रदान किया गया है तो उसके टोकन और अनुमानित लागत की गणना करता है। अनुमानित लागत के लिए [LiteLLM के `cost_per_token()` विधि](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) पर निर्भर करता है।
-• `%jupyter`: बातचीत को Jupyter नोटबुक फ़ाइल में निर्यात करता है।
-• `%markdown [path]`: बातचीत को निर्दिष्ट Markdown पथ पर निर्यात करता है। यदि कोई पथ प्रदान नहीं किया गया है, तो यह उत्पन्न वार्तालाप नाम के साथ Downloads फ़ोल्डर में सहेजा जाएगा।
-• `%info`: सिस्टम और इंटरप्रेटर की जानकारी दिखाता है।
 • `%help`: मदद संदेश दिखाएं।
 
 इन कमांडों का प्रयोग करके अपनी प्रतिक्रिया दें और हमें अपनी प्रतिक्रिया दें!
@@ -251,9 +241,6 @@ Open Interpreter एक [फ़ंक्शन-कॉलिंग भाषा �
 
 अधिक जानकारी के लिए कृपया हमारे [योगदान दिशानिर्देश](CONTRIBUTING.md) देखें।
 
-## लाइसेंस
-
-Open Interpreter MIT लाइसेंस के तहत लाइसेंस है। आपको सॉफ़्टवेयर की प्रतिलिपि का उपयोग, प्रतिलिपि, संशोधन, वितरण, सबलाइसेंस और बेचने की अनुमति है।
 
 **ध्यान दें**: यह सॉफ़्टवेयर OpenAI से संबद्ध नहीं है।
 

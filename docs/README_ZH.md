@@ -1,36 +1,28 @@
 <h1 align="center">● Open Interpreter（开放解释器）</h1>
 
 <p align="center">
-    <a href="https://discord.gg/6p3fD6rBVm"><img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"></a>
-    <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"></a>
+    <a href="https://discord.gg/Hvz9Axh84z">
+        <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
+    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
+    <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
+    <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
     <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
     <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
-    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br>
-    <b>让语言模型在您的计算机上运行代码。</b><br>
-    在本地实现的开源OpenAI的代码解释器。<br>
-    <br><a href="https://www.openinterpreter.com/">桌面应用</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <b><a href=".">阅读新文档</a></b><br>
+    <br><a href="https://www.openinterpreter.com/">桌面应用</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">文档</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-
-```shell
-pip install open-interpreter
-```
-
-```shell
-interpreter
-```
-
-<br>
-
 **Open Interpreter（开放解释器）** 可以让大语言模型（LLMs）在本地运行代码（比如 Python、JavaScript、Shell 等）。安装后，在终端上运行 `$ interpreter` 即可通过类似 ChatGPT 的界面与 Open Interpreter 聊天。
 
 本软件为计算机的通用功能提供了一个自然语言界面，比如：
@@ -46,7 +38,7 @@ interpreter
 
 ## 演示
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+[演示视频](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
 #### Google Colab 上也提供了交互式演示：
 
@@ -54,9 +46,25 @@ https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680
 
 ## 快速开始
 
+### 安装
+
+本仓库是经典 Python Open Interpreter 的 Endolith 分支。
+
+以下命令将安装 **`main`**，即默认分支（稳定基础、CI 以及移植更改的合并目标）:
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> 有关可选依赖项，请参阅我们的[设置指南](getting-started/setup.mdx)。
+
+不过，对于日常使用，您可能更希望安装 **`classic/develop`** —— 这是每日维护和使用的不稳定分支，相比 main 分支有许多变化和功能，例如对推理模型、OpenRouter/DeepSeek/Qwen、网络搜索工具等的支持:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+有关分支特有功能、模型说明和设置详情，请参阅 [`classic/develop` README](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md)。
 
 ### 终端
 

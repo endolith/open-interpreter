@@ -1,37 +1,28 @@
 <h1 align="center">● Open Interpreter</h1>
 
 <p align="center">
-    <a href="https://discord.gg/6p3fD6rBVm">
+    <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
-    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
+    <a href="../README.md"><img src="https://img.shields.io/badge/english-document-white.svg" alt="EN doc"></a>
     <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
     <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
     <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
+    <a href="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml">
+        <img alt="Build and Test" src="https://github.com/endolith/open-interpreter/actions/workflows/python-package.yml/badge.svg"/></a>
+    <a href="https://codecov.io/gh/endolith/open-interpreter">
+        <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br>
-    <b>chạy mô hình ngôn ngữ trí tuệ nhân tạo trên máy tính của bạn.</b><br>
-    Mã nguồn mở và ứng dụng phát triển dựa trên code của OpenAI.<br>
-    <br><a href="https://www.openinterpreter.com/">Desktop App</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <b><a href=".">Tài liệu đọc tham khảo</a></b><br>
+    <br><a href="https://www.openinterpreter.com/">Ứng dụng máy tính</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">Tài liệu</a><br>
 </p>
 
 <br>
 
-![poster](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/08f0d493-956b-4d49-982e-67d4b20c4b56)
+![local_explorer](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a)
 
 <br>
-
-```shell
-pip install open-interpreter
-```
-
-```shell
-interpreter
-```
-
-<br>
-
 **Open Interpreter** Chạy LLMs trên máy tính cục bộ (Có thể sử dụng ngôn ngữ Python, Javascript, Shell, và nhiều hơn thế). Bạn có thể nói chuyện với Open Interpreter thông qua giao diện giống với ChatGPT ngay trên terminal của bạn bằng cách chạy lệnh `$ interpreter` sau khi tải thành công.
 
 Các tính năng chung giao diện ngôn ngữ mang llại
@@ -47,7 +38,7 @@ Các tính năng chung giao diện ngôn ngữ mang llại
 
 ## Thử nghiệm
 
-https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60
+[Video demo](https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680d-4423-9af3-64836a6f7b60)
 
 #### Bản thử nghiệm có sẵn trên Google Colab:
 
@@ -59,9 +50,25 @@ https://github.com/OpenInterpreter/open-interpreter/assets/63927363/37152071-680
 
 ## Hướng dẫn khởi dộng ngắn
 
+### Cài đặt
+
+Kho lưu trữ này là fork của Endolith từ Open Interpreter Python cổ điển.
+
+Lệnh này sẽ cài đặt **`main`**, nhánh mặc định (cơ sở ổn định, CI và đích hợp nhất cho các thay đổi được chuyển):
+
 ```shell
-pip install open-interpreter
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
+
+> Xem [hướng dẫn thiết lập](getting-started/setup.mdx) của chúng tôi để biết các phụ thuộc tùy chọn.
+
+Tuy nhiên, để sử dụng hàng ngày, bạn có thể muốn cài đặt **`classic/develop`** thay thế — đó là nhánh không ổn định được duy trì và sử dụng hàng ngày, với nhiều thay đổi và tính năng so với nhánh main, chẳng hạn như hỗ trợ mô hình suy luận, OpenRouter/DeepSeek/Qwen, công cụ tìm kiếm web, v.v.:
+
+```shell
+pip install git+https://github.com/endolith/open-interpreter.git@classic/develop
+```
+
+Để biết các tính năng riêng của fork, ghi chú về mô hình và chi tiết thiết lập, hãy xem [README `classic/develop`](https://github.com/endolith/open-interpreter/blob/classic/develop/README.md).
 
 ### Terminal
 
@@ -98,8 +105,6 @@ Open Interpreter khắc phục những hạn chế này bằng cách chạy cụ
 Đây là sự kết hợp sức mạnh của mã nguồn của GPT-4 với tính linh hoạt của môi trường phát triển cục bộ của bạn.
 
 ## Dòng lệnh
-
-**Update:** Cập nhật trình tạo lệnh (0.1.5) giới thiệu tính năng trực tuyến:
 
 ```python
 message = "Chúng ta đang ở trên hệ điều hành nào?"
@@ -254,17 +259,12 @@ Trong chế độ tương tác, bạn có thể sử dụng những dòng lệnh
 
 **Các lệnh có sẵn:**
 
-- `%% [command]`: Chạy lệnh trong shell hệ thống (bỏ qua LLM).
-- `%verbose [true/false]`: Bật/tắt chế độ chi tiết. Không có tham số hoặc với `true` thì bật chế độ chi tiết. Với `false` thì tắt chế độ chi tiết.
-- `%auto_run [true/false]`: Bật hoặc tắt chạy mã không cần xác nhận. Không có tham số hoặc với `true` thì vào chế độ auto_run. Với `false` thì thoát chế độ auto_run.
+- `%verbose [true/false]`: Bật chế độ gỡ lỗi. Có hay không có `true` đều khởi động chế độ gỡ lỗi. Với `false` thì nó tắt chế độ gỡ lỗi.
 - `%reset`: Khởi động lại toàn bộ phiên trò chuyện hiện tại.
 - `%undo`: Xóa tin nhắn của người dùng trước đó và phản hồi của AI khỏi lịch sử tin nhắn.
-- `%save_message [path]`: Lưu tin nhắn vào đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
+- `%save_message [path]`: Lưu tin nhắn vào một đường dẫn JSON được xác định từ trước. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
 - `%load_message [path]`: Tải tin nhắn từ một đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
 - `%tokens [prompt]`: (_Experimental_) Tính toán các token sẽ được gửi cùng với lời nhắc tiếp theo dưới dạng ngữ cảnh và hao tổn. Tùy chọn tính toán token và hao tổn ước tính của một `prompt` nếu được cung cấp. Dựa vào [hàm `cost_per_token()` của mô hình LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) để tính toán hao tổn.
-- `%jupyter`: Xuất cuộc trò chuyện ra tệp sổ ghi Jupyter.
-- `%markdown [path]`: Xuất cuộc trò chuyện ra đường dẫn Markdown được chỉ định. Nếu không có đường dẫn, tệp sẽ được lưu vào thư mục Downloads với tên cuộc trò chuyện được tạo tự động.
-- `%info`: Hiển thị thông tin hệ thống và trình thông dịch.
 - `%help`: Hiện lên trợ giúp cho cuộc trò chuyện.
 
 ### Cấu hình cài
@@ -386,10 +386,6 @@ Sau đó, chúng tôi truyền trực tuyến thông báo, mã của mô hình v
 Cảm ơn bạn đã quan tâm đóng góp! Chúng tôi hoan nghênh sự tham gia của cộng đồng.
 
 Vui lòng xem [Hướng dẫn đóng góp](CONTRIBUTING.md) để biết thêm chi tiết cách tham gia.
-
-## Giấy phép
-
-Open Interpreter được cấp phép theo Giấy phép MIT. Bạn được phép sử dụng, sao chép, sửa đổi, phân phối, cấp phép lại và bán các bản sao của phần mềm.
 
 **Lưu ý**: Phần mềm này không liên kết với OpenAI.
 
