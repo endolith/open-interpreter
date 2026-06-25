@@ -5,12 +5,23 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to test (checks out the PR merge ref). For external fork PRs after reviewing the diff."
+        required: false
+        type: string
+      ref:
+        description: "Branch, tag, or SHA (ignored when pr_number is set)."
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   lint:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +34,7 @@ jobs:
           ruff check interpreter tests
 
   test:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,7 +70,10 @@ jobs:
   codecov:
     name: Upload to Codecov
     needs: test
-    if: ${{ !cancelled() && needs.test.result == 'success' }}
+    if: >-
+      github.event_name != 'workflow_dispatch' &&
+      !cancelled() &&
+      needs.test.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,3 +99,51 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: true
           verbose: true
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Needs OPENAI_API_KEY. Only run where secrets are available and the code is trusted:
+    # - pushes to main (post-merge verification)
+    # - same-repository pull requests (fork PRs cannot access secrets on pull_request)
+    # - manual dispatch after reviewing an external fork PR (Actions → Run workflow → pr_number)
+    #
+    # pull_request_target is intentionally NOT used: it runs with repo secrets and is unsafe
+    # for executing fork code. See:
+    # https://securitylab.github.com/resources/github-actions-new-patterns-and-mitigations/
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    steps:
+      - name: Resolve checkout ref
+        id: checkout-ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.pr_number }}" ]; then
+            echo "value=refs/pull/${{ inputs.pr_number }}/merge" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.ref }}" ]; then
+            echo "value=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.checkout-ref.outputs.value }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run integration tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[server]"
+          pip install pytest pytest-cov websockets requests
+          pytest -m integration -rs
