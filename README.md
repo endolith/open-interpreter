@@ -42,6 +42,7 @@ Open Interpreter pre-dates many other AI coding tools, and has some similarities
 - Unlike [OpenClaw](https://openclaw.ai/), [Hermes Agent](https://hermes-agent.org/), etc. it is typically used interactively and not as an autonomous agent.
 - Rather than interacting with the world through MCP tools, like [Claude Desktop](https://claude.ai/download), it runs code snippets or [shell commands directly](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html).
 - It is similar to natural-language shell translators like [ShellGPT](https://github.com/ther1d/shell_gpt) or [cmd-ai](https://github.com/BrodaNoel/cmd-ai), but it is not limited to shell, and uses an interactive chatbot interface, so you can review, reject (`n`), or edit (`e`) commands before they run, and ask the model to revise.
+- Code Interpreter features in web chatbots ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution), etc.) run code in a remote, sandboxed environment that is closed-source and restricted.  Files must be individually uploaded and results then downloaded.  Executed code generally cannot access the internet, is limited to a set of pre-installed packages, and its container expires after inactivity, losing progress and data. Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can use any package or library, even installing libraries that are useful for a given task on its own.
 
 ## Demo
 
@@ -99,20 +100,6 @@ interpreter.chat() # Starts an interactive chat
 ### GitHub Codespaces
 
 Press the <kbd>,</kbd> key on this repository's GitHub page to create a codespace. After a moment, you'll receive a cloud virtual machine environment pre-installed with open-interpreter. You can then start interacting with it directly and freely confirm its execution of system commands without worrying about damaging the system.
-
-## Comparison to hosted code interpreters
-
-Hosted Code Interpreter features in web chatbots ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution), etc.) run code in a remote, sandboxed environment that is closed-source and restricted compared to your local machine:
-
-- Sandboxed remote environment — files must be individually uploaded and downloaded
-- User code generally cannot access the internet or call arbitrary APIs
-- Limited set of pre-installed packages
-- Ephemeral sessions — containers expire after inactivity, losing state and output files
-- Upload and runtime limits
-
----
-
-Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can use any package or library.
 
 ## Commands
 
