@@ -51,14 +51,14 @@
 - [ ] On update, check for new system message and ask user to overwrite theirs, or only let users pass in "custom instructions" which adds to our system message
   - [ ] I think we could have a config that's like... system_message_version. If system_message_version is below the current version, ask the user if we can overwrite it with the default config system message of that version. (This somewhat exists now but needs to be robust)
 
-# What's in our scope?
+## What's in our scope?
 
 Open Interpreter contains two projects which support each other, whose scopes are as follows:
 
 1. `core`, which is dedicated to figuring out how to get LLMs to safely control a computer. Right now, this means creating a real-time code execution environment that language models can operate.
 2. `terminal_interface`, a text-only way for users to direct the code-running LLM running inside `core`. This includes functions for connecting the `core` to various local and hosted LLMs (which the `core` itself should not know about).
 
-# What's not in our scope?
+## What's not in our scope?
 
 Our guiding philosophy is minimalism, so we have also decided to explicitly consider the following as **out of scope**:
 
@@ -69,7 +69,7 @@ Our guiding philosophy is minimalism, so we have also decided to explicitly cons
 
 This roadmap gets pretty rough from here. More like working notes.
 
-# Working Notes
+## Working Notes
 
 ## \* Roughly, how to build `computer.browser`:
 
