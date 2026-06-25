@@ -132,11 +132,11 @@ for chunk in interpreter.chat(message, display=False, stream=True):
 より精確な制御のために、メッセージを直接 `.chat(message)` に渡すことができます:
 
 ```python
-interpreter.chat("Add subtitles to all videos in /videos.")
+interpreter.chat("/videos フォルダにあるすべての動画に字幕を追加する。")
 
 # ... ターミナルに出力をストリームし、タスクを完了 ...
 
-interpreter.chat("These look great but can you make the subtitles bigger?")
+interpreter.chat("良さそうですが、字幕をもっと大きくできますか？")
 
 # ...
 ```
@@ -166,7 +166,7 @@ Open Interpreter のシステムメッセージを確認・設定することで
 
 ```python
 interpreter.system_message += """
-Run shell commands with -y so the user doesn't have to confirm them.
+シェルコマンドを -y フラグ付きで実行し、ユーザーが確認しなくて済むようにする。
 """
 print(interpreter.system_message)
 ```

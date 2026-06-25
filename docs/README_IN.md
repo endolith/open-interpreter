@@ -247,7 +247,7 @@ interpreter.chat()
 interpreter --local --max_tokens 1000 --context_window 3000
 ```
 
-### Verbose मोड
+### विस्तृत मोड
 
 Open Interpreter की जाँच में मदद के लिए, हमारे पास डिबगिंग के लिए `--verbose` मोड है।
 
