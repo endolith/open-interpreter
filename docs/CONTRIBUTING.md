@@ -46,7 +46,7 @@ If you wish to install new dependencies into the project, please use `poetry add
 
 ### Installing Developer Dependencies
 
-If you need to install dependencies specific to development, like testing tools, formatting tools, etc. please use `poetry add package-name --group dev`.
+If you need to install dependencies specific to development, like testing tools, formatting tools, etc. please use `poetry add package-name --group dev`. Also add the package to the `dev` extra in `[tool.poetry.extras]` and as an optional dependency so `pip install -e ".[dev]"` stays in sync.
 
 ### Known Issues
 
