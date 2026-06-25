@@ -16,7 +16,7 @@
     <a href="https://codecov.io/gh/endolith/open-interpreter">
         <img alt="codecov" src="https://codecov.io/gh/endolith/open-interpreter/branch/main/graph/badge.svg"/></a>
     <br>
-    <br><a href="https://www.openinterpreter.com/">Ứng dụng máy tính</a> ‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <a href=".">Tài liệu</a><br>
+    <br><a href="https://www.openinterpreter.com/">Ứng dụng máy tính</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Tài liệu</a><br>
 </p>
 
 <br>
