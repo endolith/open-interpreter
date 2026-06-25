@@ -100,19 +100,19 @@ interpreter.chat() # Starts an interactive chat
 
 Press the <kbd>,</kbd> key on this repository's GitHub page to create a codespace. After a moment, you'll receive a cloud virtual machine environment pre-installed with open-interpreter. You can then start interacting with it directly and freely confirm its execution of system commands without worrying about damaging the system.
 
-## Comparison to hosted Code Interpreter
+## Comparison to hosted code interpreters
 
-Hosted **Code Interpreter** features in chatbot products ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), Gemini, etc.) run code in a remote, sandboxed environment that is closed-source and heavily restricted compared to your local machine:
+Hosted Code Interpreter features in web chatbots ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution), etc.) run code in a remote, sandboxed environment that is closed-source and restricted compared to your local machine:
 
-- Sandboxed remote environment — not your local filesystem.
-- User code cannot freely access the internet or call arbitrary APIs (package installs may use provider-specific mirrors).
-- Limited set of pre-installed packages.
-- Ephemeral sessions — containers expire after inactivity (e.g. 20 minutes on the [OpenAI API](https://developers.openai.com/api/docs/guides/tools-code-interpreter)).
-- Upload and runtime limits (e.g. OpenAI allows up to 512 MB per file; details vary by provider).
+- Sandboxed remote environment — files must be individually uploaded and downloaded
+- User code generally cannot access the internet or call arbitrary APIs
+- Limited set of pre-installed packages
+- Ephemeral sessions — containers expire after inactivity, losing state and output files
+- Upload and runtime limits
 
 ---
 
-Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can utilize any package or library.
+Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can use any package or library.
 
 ## Commands
 
