@@ -215,13 +215,13 @@ def test_authenticated_acknowledging_breaking_server():
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
-                "system_message": "You are a poem writing bot. Do not do anything but respond with a poem.",
-                "auto_run": True,
+                "custom_instructions": "You are a poem writing bot. Do not do anything but respond with a poem.",
             }
             response = requests.post(
                 post_url, json=settings, headers={"X-API-KEY": "testing"}
             )
             print("POST request sent, response:", response.json())
+            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -342,19 +342,11 @@ def test_server():
             post_url = "http://127.0.0.1:8000/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
-                "messages": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "The secret word is 'crunk'.",
-                    },
-                    {"role": "assistant", "type": "message", "content": "Understood."},
-                ],
                 "custom_instructions": "",
-                "auto_run": True,
             }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
+            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -365,7 +357,10 @@ def test_server():
                     {
                         "role": "user",
                         "type": "message",
-                        "content": "What's the secret word?",
+                        "content": (
+                            "The secret word is 'crunk'. What is the secret word? "
+                            "Reply with only that word."
+                        ),
                     }
                 )
             )
@@ -383,19 +378,11 @@ def test_server():
             post_url = "http://127.0.0.1:8000/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
-                "messages": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "The secret word is 'barloney'.",
-                    },
-                    {"role": "assistant", "type": "message", "content": "Understood."},
-                ],
                 "custom_instructions": "",
-                "auto_run": True,
             }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
+            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -406,7 +393,10 @@ def test_server():
                     {
                         "role": "user",
                         "type": "message",
-                        "content": "What's the secret word?",
+                        "content": (
+                            "The secret word is now 'barloney' (ignore any previous secret word). "
+                            "What is the secret word? Reply with only that word."
+                        ),
                     }
                 )
             )
@@ -423,13 +413,12 @@ def test_server():
             # Send another POST request
             post_url = "http://127.0.0.1:8000/settings"
             settings = {
-                "messages": [],
                 "custom_instructions": "",
-                "auto_run": False,
                 "verbose": False,
             }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
+            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -490,12 +479,6 @@ def test_server():
             assert "18893094989" in accumulated_content.replace(",", "")
 
             #### TEST FILE ####
-
-            # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
-            settings = {"messages": [], "auto_run": True}
-            response = requests.post(post_url, json=settings)
-            print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
             await websocket.send(json.dumps({"role": "user", "start": True}))
@@ -559,12 +542,6 @@ def test_server():
             assert response.strip(" \n.").lower() == "no"
 
             #### TEST IMAGES ####
-
-            # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
-            settings = {"messages": [], "auto_run": True}
-            response = requests.post(post_url, json=settings)
-            print("POST request sent, response:", response.json())
 
             base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
 
