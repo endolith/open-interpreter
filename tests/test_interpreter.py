@@ -589,19 +589,9 @@ def test_server():
             # Wait for response
             accumulated_content = await _wait_for_websocket_complete(websocket)
 
-            # Get messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
-            response_json = requests.get(get_url).json()
-            print("GET request sent, response:", response_json)
-            if isinstance(response_json, str):
-                response_json = json.loads(response_json)
-            messages = response_json["messages"]
-
-            last_assistant = _last_assistant_message(messages)
-            assert last_assistant, "expected assistant message after image turn"
             assert re.search(
-                r"\bB\b", last_assistant, re.IGNORECASE
-            ), f"expected vision model to answer B (gradient), got: {last_assistant!r}"
+                r"\bB\b", accumulated_content, re.IGNORECASE
+            ), f"expected vision model to answer B (gradient), got: {accumulated_content!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
