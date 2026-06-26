@@ -587,9 +587,11 @@ def test_server():
 
                 accumulated_content = await _wait_for_websocket_complete(image_websocket)
 
+                # _wait_for_websocket_complete appends the status content "complete".
+                vision_reply = accumulated_content.removesuffix("complete")
                 assert re.search(
-                    r"\bB\b", accumulated_content, re.IGNORECASE
-                ), f"expected vision model to answer B (gradient), got: {accumulated_content!r}"
+                    r"\bB\b", vision_reply, re.IGNORECASE
+                ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
