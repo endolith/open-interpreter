@@ -2,6 +2,7 @@ import os
 import platform
 import re
 import signal
+import socket
 import time
 from random import randint
 
@@ -32,7 +33,24 @@ _SERVER_HOST = "127.0.0.1"
 _SERVER_PORT = 8000
 
 
+def _allocate_server_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_SERVER_HOST, 0))
+        return sock.getsockname()[1]
+
+
+def _server_ws_url():
+    return f"ws://{_SERVER_HOST}:{_SERVER_PORT}/"
+
+
+def _server_http_url(path=""):
+    return f"http://{_SERVER_HOST}:{_SERVER_PORT}{path}"
+
+
 def _start_server_subprocess(target):
+    global _SERVER_PORT
+    _SERVER_PORT = _allocate_server_port()
+    os.environ["INTERPRETER_PORT"] = str(_SERVER_PORT)
     process = _MP_SPAWN.Process(target=target)
     process.start()
     return process
@@ -69,7 +87,12 @@ def _stop_server_subprocess(process):
 
 
 async def _wait_for_websocket_complete(
-    websocket, max_messages=500, recv_timeout=300.0, acknowledge=False
+    websocket,
+    max_messages=500,
+    recv_timeout=300.0,
+    acknowledge=False,
+    phase="unknown",
+    server_process=None,
 ):
     """Read WebSocket chunks until the server sends a 'complete' status.
 
@@ -81,13 +104,22 @@ async def _wait_for_websocket_complete(
     import json
 
     accumulated_content = ""
+    messages_received = 0
     for _ in range(max_messages):
+        if server_process is not None and not server_process.is_alive():
+            raise RuntimeError(
+                f"Server subprocess exited during WebSocket wait (phase: {phase}, "
+                f"exit code {server_process.exitcode}, port {_SERVER_PORT})"
+            )
         try:
             message = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
         except asyncio.TimeoutError as exc:
             raise Exception(
-                f"No WebSocket message within {recv_timeout}s waiting for 'complete'"
+                f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
+                f"(phase: {phase}, messages received: {messages_received}, "
+                f"port {_SERVER_PORT})"
             ) from exc
+        messages_received += 1
 
         message_data = json.loads(message)
         if acknowledge and "id" in message_data:
@@ -108,7 +140,10 @@ async def _wait_for_websocket_complete(
             print("Received expected message from server")
             return accumulated_content
 
-    raise Exception(f"Never received 'complete' status after {max_messages} messages")
+    raise Exception(
+        f"Never received 'complete' status after {max_messages} messages "
+        f"(phase: {phase}, port {_SERVER_PORT})"
+    )
 
 
 def _last_assistant_message(messages):
@@ -200,7 +235,7 @@ def test_authenticated_acknowledging_breaking_server():
     async def test_fastapi_server():
         import asyncio
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -208,7 +243,7 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             # Sending POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
                     "model": "gpt-4o-mini",
@@ -281,24 +316,24 @@ def test_authenticated_acknowledging_breaking_server():
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
             # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
-            poem += await _wait_for_websocket_complete(websocket, acknowledge=True)
+            poem += await _wait_for_websocket_complete(
+                websocket, acknowledge=True, phase="auth_server_resume_poem"
+            )
 
             time.sleep(1)
             print("Is this a normal poem?")
             print(poem)
             time.sleep(1)
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
     try:
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
         _stop_server_subprocess(process)
 
@@ -331,7 +366,7 @@ def test_server():
     async def test_fastapi_server():
         import asyncio
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -339,7 +374,7 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -375,12 +410,14 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_crunk", server_process=process
+            )
 
             assert "crunk" in accumulated_content
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -416,12 +453,14 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_barloney", server_process=process
+            )
 
             assert "barloney" in accumulated_content
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "messages": [],
                 "custom_instructions": "",
@@ -450,12 +489,14 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="math_code_auto_run_false", server_process=process
+            )
 
             time.sleep(5)
 
             # Send a GET request to /settings/messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
 
@@ -485,14 +526,16 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="go_execute_code", server_process=process
+            )
 
             assert "18893094989" in accumulated_content.replace(",", "")
 
             #### TEST FILE ####
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -540,10 +583,12 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="file_exists", server_process=process
+            )
 
             # Get messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -561,7 +606,7 @@ def test_server():
             #### TEST IMAGES ####
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -610,10 +655,12 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="vision_mcq", server_process=process
+            )
 
             # Get messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -628,7 +675,7 @@ def test_server():
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = "http://127.0.0.1:8000/run"
+            post_url = _server_http_url("/run")
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
@@ -636,10 +683,8 @@ def test_server():
             response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
     try:
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
         _stop_server_subprocess(process)
 

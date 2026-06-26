@@ -19,7 +19,16 @@ class Shell(SubprocessLanguage):
         if platform.system() == "Windows":
             self.start_cmd = ["cmd.exe"]
         else:
-            self.start_cmd = [os.environ.get("SHELL", "bash")]
+            shell = os.environ.get("SHELL", "bash")
+            shell_name = os.path.basename(shell)
+            # Skip rc/profile scripts. They can hang or block when HOME is on a slow
+            # or network-mounted filesystem (common cause of shell subprocess timeouts).
+            if shell_name == "bash":
+                self.start_cmd = [shell, "--norc", "--noprofile"]
+            elif shell_name == "zsh":
+                self.start_cmd = [shell, "-f"]
+            else:
+                self.start_cmd = [shell]
 
     def preprocess_code(self, code):
         return preprocess_shell(code)
