@@ -128,6 +128,27 @@ class TestAsyncApprovalBinding(TestCase):
         self.assertFalse(self.interpreter._approve_pending_confirmation("deadbeef"))
 
 
+class TestAsyncInputCommandHandling(TestCase):
+    def setUp(self):
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.auto_run = False
+        self.interpreter.output_queue = mock.MagicMock()
+        self.interpreter.output_queue.sync_q = mock.MagicMock()
+        self.interpreter.respond_thread = mock.MagicMock()
+        self.interpreter.respond_thread.is_alive.return_value = True
+
+    def test_command_start_does_not_require_join(self):
+        import asyncio
+
+        async def run():
+            await self.interpreter.input(
+                {"role": "user", "type": "command", "start": True}
+            )
+            self.interpreter.respond_thread.join.assert_not_called()
+
+        asyncio.run(run())
+
+
 class TestSettingsEndpointGuards(TestCase):
     def test_sensitive_settings_constant_includes_auto_run(self):
         self.assertIn("auto_run", SENSITIVE_SERVER_SETTINGS)

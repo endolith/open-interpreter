@@ -142,7 +142,12 @@ class AsyncInterpreter(OpenInterpreter):
 
         if "start" in chunk:
             # If the user is starting something, the interpreter should stop.
-            if self.respond_thread is not None and self.respond_thread.is_alive():
+            # Command blocks (e.g. go/stop) must not tear down a thread waiting on approval.
+            if (
+                self.respond_thread is not None
+                and self.respond_thread.is_alive()
+                and chunk.get("type") != "command"
+            ):
                 self.stop_event.set()
                 self._cancel_pending_approval()
                 self.respond_thread.join()
