@@ -1,0 +1,42 @@
+### OPEN INTERPRETER CONFIGURATION FILE — develop.yaml
+###
+### =============================================================================
+### DEVELOP BRANCH ONLY — DO NOT MERGE TO main / classic/main
+###
+### This file is the default profile on classic/develop (`interpreter` with no
+### --profile flag). Put fork-specific settings here (or in
+### ~/.open-interpreter/profiles/develop.yaml). Upstream main uses default.yaml.
+### Revert start_terminal_interface._DEFAULT_PROFILE before merging to main.
+### =============================================================================
+
+# Remove the "#" before the settings below to use them.
+
+# LLM Settings
+llm:
+  model: "gpt-4.1-mini"
+  temperature: 0
+  # api_key: ...  # Your API key, if the API requires it
+  # api_base: ...  # The URL where an OpenAI-compatible server is running to handle LLM API requests
+  # api_version: ...  # The version of the API (this is primarily for Azure)
+
+# Toolbox Settings
+toolbox:
+  import_toolbox_api: True # Gives OI a helpful Toolbox API designed for code interpreting language models
+
+# Custom Instructions
+# custom_instructions: ""  # This will be appended to the system message
+
+# General Configuration
+# auto_run: False  # If True, code will run without asking. Or use prompt | all | allowlist
+# auto_run_allowlist_file: ...  # Optional path for user-approved allowlist rules (YAML)
+# safe_mode: "off"  # The safety mode for the LLM — one of "off", "ask", "auto"
+# offline: False  # If True, will disable some online features like checking for updates
+# verbose: False  # If True, will print detailed logs
+# max_output: 2500  # The maximum characters of code output visible to the LLM
+
+# To use a separate model for the `wtf` command:
+# wtf:
+#   model: "gpt-4.1-nano"
+
+# Documentation
+# All options: https://docs.openinterpreter.com/settings
