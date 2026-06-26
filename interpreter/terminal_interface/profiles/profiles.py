@@ -41,9 +41,10 @@ def profile(interpreter, filename_or_url):
     profile = None
 
     # If they have a profile at a reserved profile name, rename it to {name}_custom.
-    # Don't do this for the default one though.
+    # Don't do this for default.yaml or develop.yaml (develop: classic/develop only).
     if (
-        filename_or_url not in ["default", "default.yaml"]
+        filename_or_url
+        not in ["default", "default.yaml", "develop", "develop.yaml"]
         and filename_or_url in default_profiles_names
     ):
         if os.path.isfile(profile_path):
@@ -58,6 +59,9 @@ def profile(interpreter, filename_or_url):
             if filename_or_url in ["default", "default.yaml"]:
                 # Literally this just happens to default.yaml
                 reset_profile(filename_or_url)
+                profile = get_profile(filename_or_url, profile_path)
+            elif filename_or_url in ["develop", "develop.yaml"]:
+                ensure_develop_profile()
                 profile = get_profile(filename_or_url, profile_path)
             else:
                 raise
@@ -648,6 +652,27 @@ def open_storage_dir(directory):
             # Fallback to using 'open' on macOS if 'xdg-open' is not available
             subprocess.call(["open", dir])
     return
+
+
+def ensure_develop_profile():
+    """
+    Copy bundled develop.yaml into the user profile dir if missing.
+
+    classic/develop only — do not merge to main / classic/main.
+    """
+    bundled = os.path.join(oi_default_profiles_path, "develop.yaml")
+    if not os.path.exists(bundled):
+        raise FileNotFoundError(
+            "Bundled develop.yaml not found. This profile is for classic/develop only."
+        )
+
+    target_file = os.path.join(profile_dir, "develop.yaml")
+
+    if not os.path.exists(profile_dir):
+        os.makedirs(profile_dir)
+
+    if not os.path.exists(target_file):
+        shutil.copy(bundled, target_file)
 
 
 def reset_profile(specific_default_profile=None):

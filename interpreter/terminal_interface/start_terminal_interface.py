@@ -19,6 +19,15 @@ from .utils.check_for_update import check_for_update
 # import litellm (directly or transitively) and are deferred to after
 # argparse parses args, so --help / --version exit before they load.
 
+# =============================================================================
+# DEVELOP BRANCH ONLY — DO NOT MERGE TO main / classic/main
+#
+# classic/develop loads `develop.yaml` by default so day-to-day fork settings
+# stay separate from upstream `default.yaml`. Revert `_DEFAULT_PROFILE` to
+# `"default.yaml"` before merging this file into main.
+# =============================================================================
+_DEFAULT_PROFILE = "develop.yaml"
+
 
 def start_terminal_interface(interpreter):
     """
@@ -37,7 +46,7 @@ def start_terminal_interface(interpreter):
             "nickname": "p",
             "help_text": "name of profile. run `--profiles` to open profile directory",
             "type": str,
-            "default": "default.yaml",
+            "default": _DEFAULT_PROFILE,
         },
         {
             "name": "custom_instructions",
