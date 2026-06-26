@@ -189,6 +189,55 @@ def test_hallucinations():
             break
 
 
+def test_streaming_output_chunks_are_incremental():
+    """
+    Regression test for issue #73: multi-line shell output must stream
+    incremental deltas. Previously, _respond_and_store reused the same dict
+    objects for yielded chunks and accumulated messages, so consumers that
+    held references to earlier chunks saw growing content on every new line.
+    """
+    from unittest.mock import patch
+
+    output_lines = ["file1\n", "file2\n", "file3\n"]
+    respond_chunks = [
+        {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": line,
+        }
+        for line in output_lines
+    ]
+
+    original_messages = interpreter.messages
+    try:
+        interpreter.messages = [
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "shell",
+                "content": "ls -l",
+            }
+        ]
+
+        with patch("interpreter.core.core.respond", return_value=iter(respond_chunks)):
+            yielded_output_chunks = []
+            for chunk in interpreter._respond_and_store():
+                if chunk.get("format") == "output":
+                    yielded_output_chunks.append(chunk)
+
+            assert [c["content"] for c in yielded_output_chunks] == output_lines
+
+            # Earlier yielded chunks must not be mutated as later lines arrive.
+            assert yielded_output_chunks[0]["content"] == "file1\n"
+            assert yielded_output_chunks[1]["content"] == "file2\n"
+
+            # Conversation history should still accumulate the full output.
+            assert interpreter.messages[-1]["content"] == "".join(output_lines)
+    finally:
+        interpreter.messages = original_messages
+
+
 def run_auth_server():
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
