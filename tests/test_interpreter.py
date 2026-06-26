@@ -329,6 +329,7 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
+        nonlocal process
         import asyncio
 
         async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
