@@ -543,55 +543,52 @@ def test_server():
 
             #### TEST IMAGES ####
 
-            base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
+            # Message history can no longer be cleared via POST /settings, so restart
+            # the server for an isolated vision turn.
+            await websocket.close()
+            _stop_server_subprocess(process)
+            process = _start_server_subprocess(run_server)
+            _wait_for_server(process)
 
-            # Sending messages via WebSocket
-            await websocket.send(json.dumps({"role": "user", "start": True}))
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": (
-                            "What do you see in this image? Reply with only one letter.\n"
-                            "A) a cat\n"
-                            "B) a color gradient\n"
-                            "C) a table of numbers\n"
-                            "D) a black rectangle"
-                        ),
-                    }
+            async with websockets.connect("ws://127.0.0.1:8000/") as image_websocket:
+                await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
+
+                base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
+
+                await image_websocket.send(json.dumps({"role": "user", "start": True}))
+                await image_websocket.send(
+                    json.dumps(
+                        {
+                            "role": "user",
+                            "type": "message",
+                            "content": (
+                                "What do you see in this image? Reply with only one letter.\n"
+                                "A) a cat\n"
+                                "B) a color gradient\n"
+                                "C) a table of numbers\n"
+                                "D) a black rectangle"
+                            ),
+                        }
+                    )
                 )
-            )
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "image",
-                        "format": "base64.png",
-                        "content": base64png,
-                    }
+                await image_websocket.send(
+                    json.dumps(
+                        {
+                            "role": "user",
+                            "type": "image",
+                            "format": "base64.png",
+                            "content": base64png,
+                        }
+                    )
                 )
-            )
-            # await websocket.send(
-            #     json.dumps(
-            #         {
-            #             "role": "user",
-            #             "type": "image",
-            #             "format": "path",
-            #             "content": "/Users/killianlucas/Documents/GitHub/open-interpreter/screen.png",
-            #         }
-            #     )
-            # )
+                await image_websocket.send(json.dumps({"role": "user", "end": True}))
+                print("WebSocket chunks sent")
 
-            await websocket.send(json.dumps({"role": "user", "end": True}))
-            print("WebSocket chunks sent")
+                accumulated_content = await _wait_for_websocket_complete(image_websocket)
 
-            # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            assert re.search(
-                r"\bB\b", accumulated_content, re.IGNORECASE
-            ), f"expected vision model to answer B (gradient), got: {accumulated_content!r}"
+                assert re.search(
+                    r"\bB\b", accumulated_content, re.IGNORECASE
+                ), f"expected vision model to answer B (gradient), got: {accumulated_content!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
