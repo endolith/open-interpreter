@@ -1267,7 +1267,10 @@ def test_shell_nested_loop_quoting():
     via LLM-generated nested shell loops, which hung when quoting was malformed.
     """
 
-    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
+    if platform.system() == "Windows":
+        code = 'for %i in (a b) do for %j in (1 2) do echo %i_%j'
+    else:
+        code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
     chunks = interpreter.computer.run("shell", code)
     output = "".join(
         chunk.get("content", "")
