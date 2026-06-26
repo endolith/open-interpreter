@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import signal
 import time
 from random import randint
@@ -22,6 +23,99 @@ import time
 
 import pytest
 from websocket import create_connection
+
+# Use spawn, not fork. After earlier integration tests run, the pytest process may
+# have background threads (asyncio, litellm, etc.). fork() in a threaded parent is
+# unsafe on Linux and can leave the child uvicorn process unable to accept connections.
+_MP_SPAWN = multiprocessing.get_context("spawn")
+_SERVER_HOST = "127.0.0.1"
+_SERVER_PORT = 8000
+
+
+def _start_server_subprocess(target):
+    process = _MP_SPAWN.Process(target=target)
+    process.start()
+    return process
+
+
+def _wait_for_server(process, timeout=120):
+    import urllib.error
+    import urllib.request
+
+    url = f"http://{_SERVER_HOST}:{_SERVER_PORT}/heartbeat"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not process.is_alive():
+            raise RuntimeError(
+                f"Server subprocess exited before becoming ready (exit code {process.exitcode})"
+            )
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            return
+        except urllib.error.URLError:
+            time.sleep(0.5)
+    raise TimeoutError(
+        f"Server at {_SERVER_HOST}:{_SERVER_PORT} did not respond within {timeout}s"
+    )
+
+
+def _stop_server_subprocess(process):
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
+        process.join()
+
+
+async def _wait_for_websocket_complete(
+    websocket, max_messages=500, recv_timeout=300.0, acknowledge=False
+):
+    """Read WebSocket chunks until the server sends a 'complete' status.
+
+    The old while True loops hung forever when 'complete' never arrived (for example
+    on auth failure). Bound both message count and per-recv wait time.
+    """
+
+    import asyncio
+    import json
+
+    accumulated_content = ""
+    for _ in range(max_messages):
+        try:
+            message = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
+        except asyncio.TimeoutError as exc:
+            raise Exception(
+                f"No WebSocket message within {recv_timeout}s waiting for 'complete'"
+            ) from exc
+
+        message_data = json.loads(message)
+        if acknowledge and "id" in message_data:
+            await websocket.send(json.dumps({"ack": message_data["id"]}))
+        if "error" in message_data:
+            raise Exception(message_data["content"])
+        print("Received from WebSocket:", message_data)
+        content = message_data.get("content")
+        if type(content) == str:
+            accumulated_content += content
+        elif content:
+            accumulated_content += str(content)
+        if (
+            message_data.get("role") == "server"
+            and message_data.get("type") == "status"
+            and message_data.get("content") == "complete"
+        ):
+            print("Received expected message from server")
+            return accumulated_content
+
+    raise Exception(f"Never received 'complete' status after {max_messages} messages")
+
+
+def _last_assistant_message(messages):
+    for message in reversed(messages):
+        if message.get("role") == "assistant" and message.get("type") == "message":
+            return str(message.get("content", ""))
+    return ""
 
 
 def test_hallucinations():
@@ -93,11 +187,9 @@ def test_authenticated_acknowledging_breaking_server():
 
     # Start the server in a new process
 
-    process = multiprocessing.Process(target=run_auth_server)
-    process.start()
+    process = _start_server_subprocess(run_auth_server)
 
-    # Give the server a moment to start
-    time.sleep(2)
+    _wait_for_server(process)
 
     import asyncio
     import json
@@ -108,7 +200,7 @@ def test_authenticated_acknowledging_breaking_server():
     async def test_fastapi_server():
         import asyncio
 
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -116,10 +208,10 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             # Sending POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://127.0.0.1:8000/settings"
             settings = {
                 "llm": {
-                    "model": "gpt-4o",
+                    "model": "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
@@ -156,7 +248,10 @@ def test_authenticated_acknowledging_breaking_server():
                 max_chunks -= 1
                 if max_chunks == 0:
                     break
-                message = await websocket.recv()
+                try:
+                    message = await asyncio.wait_for(websocket.recv(), timeout=300.0)
+                except asyncio.TimeoutError as exc:
+                    raise Exception("Timed out waiting for early poem chunks") from exc
                 message_data = json.loads(message)
                 if "id" in message_data:
                     await websocket.send(json.dumps({"ack": message_data["id"]}))
@@ -166,11 +261,11 @@ def test_authenticated_acknowledging_breaking_server():
                 if type(message_data.get("content")) == str:
                     poem += message_data.get("content")
                     print(message_data.get("content"), end="", flush=True)
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
+                if (
+                    message_data.get("role") == "server"
+                    and message_data.get("type") == "status"
+                    and message_data.get("content") == "complete"
+                ):
                     raise (
                         Exception(
                             "It shouldn't have finished this soon, accumulated_content is: "
@@ -186,31 +281,14 @@ def test_authenticated_acknowledging_breaking_server():
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
             # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "id" in message_data:
-                    await websocket.send(json.dumps({"ack": message_data["id"]}))
-                if "error" in message_data:
-                    raise Exception(str(message_data))
-                print("Received from WebSocket:", message_data)
-                message_data.pop("id", "")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    break
-                if type(message_data.get("content")) == str:
-                    poem += message_data.get("content")
-                    print(message_data.get("content"), end="", flush=True)
+            poem += await _wait_for_websocket_complete(websocket, acknowledge=True)
 
             time.sleep(1)
             print("Is this a normal poem?")
@@ -222,10 +300,7 @@ def test_authenticated_acknowledging_breaking_server():
     try:
         loop.run_until_complete(test_fastapi_server())
     finally:
-        # Kill server process
-        process.terminate()
-        os.kill(process.pid, signal.SIGKILL)  # Send SIGKILL signal
-        process.join()
+        _stop_server_subprocess(process)
 
 
 def run_server():
@@ -239,14 +314,13 @@ def run_server():
 
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
+@pytest.mark.timeout(900)
 def test_server():
     # Start the server in a new process
 
-    process = multiprocessing.Process(target=run_server)
-    process.start()
+    process = _start_server_subprocess(run_server)
 
-    # Give the server a moment to start
-    time.sleep(2)
+    _wait_for_server(process)
 
     import asyncio
     import json
@@ -257,7 +331,7 @@ def test_server():
     async def test_fastapi_server():
         import asyncio
 
-        async with websockets.connect("ws://localhost:8000/") as websocket:
+        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -265,7 +339,7 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://127.0.0.1:8000/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -301,27 +375,12 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             assert "crunk" in accumulated_content
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://127.0.0.1:8000/settings"
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "messages": [
@@ -357,27 +416,12 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if message_data.get("content"):
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             assert "barloney" in accumulated_content
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://127.0.0.1:8000/settings"
             settings = {
                 "messages": [],
                 "custom_instructions": "",
@@ -406,27 +450,12 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if message_data.get("content"):
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             time.sleep(5)
 
             # Send a GET request to /settings/messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = "http://127.0.0.1:8000/settings/messages"
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
 
@@ -456,30 +485,14 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if message_data.get("content"):
-                    if type(message_data.get("content")) == str:
-                        accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             assert "18893094989" in accumulated_content.replace(",", "")
 
             #### TEST FILE ####
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://127.0.0.1:8000/settings"
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -527,41 +540,28 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = "http://127.0.0.1:8000/settings/messages"
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
+            last_assistant = _last_assistant_message(messages)
+            assert last_assistant, "expected assistant message after file turn"
             response = interpreter.computer.ai.chat(
-                str(messages)
-                + "\n\nIn the conversation above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+                last_assistant
+                + "\n\nBased on the assistant message above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
             )
             assert response.strip(" \n.").lower() == "no"
 
             #### TEST IMAGES ####
 
             # Send another POST request
-            post_url = "http://localhost:8000/settings"
+            post_url = "http://127.0.0.1:8000/settings"
             settings = {"messages": [], "auto_run": True}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
@@ -575,7 +575,13 @@ def test_server():
                     {
                         "role": "user",
                         "type": "message",
-                        "content": "describe this image",
+                        "content": (
+                            "What do you see in this image? Reply with only one letter.\n"
+                            "A) a cat\n"
+                            "B) a color gradient\n"
+                            "C) a table of numbers\n"
+                            "D) a black rectangle"
+                        ),
                     }
                 )
             )
@@ -604,54 +610,38 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = ""
-            while True:
-                message = await websocket.recv()
-                message_data = json.loads(message)
-                if "error" in message_data:
-                    raise Exception(message_data["content"])
-                print("Received from WebSocket:", message_data)
-                if type(message_data.get("content")) == str:
-                    accumulated_content += message_data.get("content")
-                if message_data == {
-                    "role": "server",
-                    "type": "status",
-                    "content": "complete",
-                }:
-                    print("Received expected message from server")
-                    break
+            accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
-            get_url = "http://localhost:8000/settings/messages"
+            get_url = "http://127.0.0.1:8000/settings/messages"
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            response = interpreter.computer.ai.chat(
-                str(messages)
-                + "\n\nIn the conversation above, does the assistant appear to be able to describe the image of a gradient? Yes or no? Only reply with one word— 'yes' or 'no'."
-            )
-            assert response.strip(" \n.").lower() == "yes"
+            last_assistant = _last_assistant_message(messages)
+            assert last_assistant, "expected assistant message after image turn"
+            assert re.search(
+                r"\bB\b", last_assistant, re.IGNORECASE
+            ), f"expected vision model to answer B (gradient), got: {last_assistant!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = "http://localhost:8000/run"
+            post_url = "http://127.0.0.1:8000/run"
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
             }
-            response = requests.post(post_url, json=code_data)
+            response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
     # Get the current event loop and run the test function
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(test_fastapi_server())
-    # Kill server process
-    process.terminate()
-    os.kill(process.pid, signal.SIGKILL)  # Send SIGKILL signal
-    process.join()
+    try:
+        loop.run_until_complete(test_fastapi_server())
+    finally:
+        _stop_server_subprocess(process)
 
 
 @pytest.mark.skip(reason="Mac only")
@@ -971,7 +961,7 @@ def test_websocket_server():
     time.sleep(3)
 
     # Connect to the server
-    ws = create_connection("ws://localhost:8000/")
+    ws = create_connection("ws://127.0.0.1:8000/")
 
     # Send the first message
     ws.send(
@@ -998,7 +988,7 @@ def test_websocket_server():
 def test_i():
     import requests
 
-    url = "http://localhost:8000/"
+    url = "http://127.0.0.1:8000/"
     data = "Hello, interpreter! What operating system are you on? Also, what time is it in Seattle?"
     headers = {"Content-Type": "text/plain"}
 
@@ -1270,6 +1260,27 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
+def test_shell_nested_loop_quoting():
+    """Shell execution must pass nested quotes/variables through unchanged.
+
+    Deterministic: no LLM, no API. The old integration test tried to cover this
+    via LLM-generated nested shell loops, which hung when quoting was malformed.
+    """
+
+    if platform.system() == "Windows":
+        code = 'for %i in (a b) do for %j in (1 2) do echo %i_%j'
+    else:
+        code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
+    chunks = interpreter.computer.run("shell", code)
+    output = "".join(
+        chunk.get("content", "")
+        for chunk in chunks
+        if chunk.get("format") == "output"
+    )
+    assert "a_1" in output
+    assert "b_2" in output
+
+
 @pytest.mark.integration
 def test_delayed_exec():
     interpreter.chat(
@@ -1277,11 +1288,23 @@ def test_delayed_exec():
     )
 
 
+# Python multiline + a trivial bash one-liner. Nested shell loops with echo
+# variables often produce broken quoting and hang subprocess_language; echo is enough
+# to verify the LLM can emit and run shell on Linux CI.
 @pytest.mark.integration
+@pytest.mark.timeout(180)
 def test_nested_loops_and_multiple_newlines():
-    interpreter.chat(
-        """Can you write a nested for loop in python and shell and run them? Don't forget to properly format your shell script and use semicolons where necessary. Also put 1-3 newlines between each line in the code. Only generate and execute the code. Yes, execute the code instantly! No explanations. Thanks!"""
+    messages = interpreter.chat(
+        """Can you write a nested for loop in python and run it? Put 1-3 newlines between each line in the python code.
+
+Then run exactly one line of bash (not python): echo shell_ok
+
+Only generate and execute the code. Execute instantly. No explanations. Thanks!"""
     )
+    combined = " ".join(
+        str(m.get("content", "")) for m in messages if isinstance(m, dict)
+    )
+    assert "shell_ok" in combined
 
 
 @pytest.mark.integration

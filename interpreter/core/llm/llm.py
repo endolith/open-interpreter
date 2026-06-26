@@ -297,7 +297,7 @@ Continuing...
             params["api_version"] = self.api_version
         if self.max_tokens:
             params["max_tokens"] = self.max_tokens
-        if self.temperature:
+        if self.temperature is not None:
             params["temperature"] = self.temperature
         if hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
