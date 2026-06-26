@@ -257,10 +257,12 @@ class AsyncInterpreter(OpenInterpreter):
 
                             self._approval_granted = False
                             self._approval_event.clear()
+                            self.output_queue.sync_q.put(complete_message)
                             self._approval_event.wait()
 
                             if not self._approval_granted:
                                 self._reset_respond_iterator()
+                                self.output_queue.sync_q.put(complete_message)
                                 return
 
                             self._clear_pending_confirmation()
