@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import json
 import os
+import secrets
 import shutil
 import socket
 import threading
@@ -40,6 +42,45 @@ except:
 
 complete_message = {"role": "server", "type": "status", "content": "complete"}
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+# Top-level interpreter attributes that must not be changed via POST /settings.
+SENSITIVE_SERVER_SETTINGS = frozenset(
+    {"auto_run", "safe_mode", "system_message", "messages"}
+)
+SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
+
+
+def is_loopback_host(host: str) -> bool:
+    return host in LOOPBACK_HOSTS
+
+
+def confirmation_digest(confirmation_content: Dict[str, Any]) -> str:
+    """
+    Stable digest for a confirmation payload so approval can be bound to reviewed code.
+    """
+    language = confirmation_content.get("format", "")
+    code = confirmation_content.get("content", "")
+    payload = f"{language}\0{code}".encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def ensure_server_api_key(host: str) -> Optional[str]:
+    """
+    Non-loopback binds require an API key. Generate one when missing so the server
+    does not listen on the network without credentials.
+    """
+    if is_loopback_host(host):
+        return None
+
+    existing_key = os.getenv("INTERPRETER_API_KEY")
+    if existing_key:
+        return None
+
+    generated_key = secrets.token_urlsafe(32)
+    os.environ["INTERPRETER_API_KEY"] = generated_key
+    return generated_key
+
 
 class AsyncInterpreter(OpenInterpreter):
     def __init__(self, *args, **kwargs):
@@ -49,6 +90,11 @@ class AsyncInterpreter(OpenInterpreter):
         self.stop_event = threading.Event()
         self.output_queue = None
         self.unsent_messages = deque()
+        self._respond_iterator = None
+        self._approval_event = threading.Event()
+        self._approval_granted = False
+        self.pending_confirmation = None
+        self.pending_confirmation_digest = None
         self.id = os.getenv("INTERPRETER_ID", datetime.now().timestamp())
         self.print = False  # Will print output
 
@@ -62,6 +108,32 @@ class AsyncInterpreter(OpenInterpreter):
         # For the 01. This lets the OAI compatible server accumulate context before responding.
         self.context_mode = False
 
+    def _clear_pending_confirmation(self):
+        self.pending_confirmation = None
+        self.pending_confirmation_digest = None
+
+    def _cancel_pending_approval(self):
+        self._approval_granted = False
+        self._approval_event.set()
+
+    def _reset_respond_iterator(self):
+        self._respond_iterator = None
+        self._clear_pending_confirmation()
+
+    def _approve_pending_confirmation(self, digest: Optional[str] = None) -> bool:
+        if self.pending_confirmation is None:
+            return False
+
+        if (
+            digest is not None
+            and digest != self.pending_confirmation_digest
+        ):
+            return False
+
+        self._approval_granted = True
+        self._approval_event.set()
+        return True
+
     async def input(self, chunk):
         """
         Accumulates LMC chunks onto interpreter.messages.
@@ -72,6 +144,7 @@ class AsyncInterpreter(OpenInterpreter):
             # If the user is starting something, the interpreter should stop.
             if self.respond_thread is not None and self.respond_thread.is_alive():
                 self.stop_event.set()
+                self._cancel_pending_approval()
                 self.respond_thread.join()
             self.accumulate(chunk)
         elif "content" in chunk:
@@ -89,14 +162,44 @@ class AsyncInterpreter(OpenInterpreter):
                 if command == "stop":
                     # Any start flag would have stopped it a moment ago, but to be sure:
                     self.stop_event.set()
-                    self.respond_thread.join()
+                    self._cancel_pending_approval()
+                    if self.respond_thread is not None:
+                        self.respond_thread.join()
                     return
-                if command == "go":
-                    # This is to approve code.
-                    run_code = True
-                    pass
+                if command == "go" or command.startswith("go:"):
+                    digest = None
+                    if command.startswith("go:"):
+                        digest = command.split(":", 1)[1]
+
+                    if not self._approve_pending_confirmation(digest):
+                        if self.output_queue is not None:
+                            self.output_queue.sync_q.put(
+                                {
+                                    "role": "server",
+                                    "type": "error",
+                                    "content": "No pending code approval matches that request.",
+                                }
+                            )
+                            self.output_queue.sync_q.put(complete_message)
+                        return
+
+                    # Approval resumes the existing respond thread; do not start a new one.
+                    if self.respond_thread is not None and self.respond_thread.is_alive():
+                        return
+
+                    if self.output_queue is not None:
+                        self.output_queue.sync_q.put(
+                            {
+                                "role": "server",
+                                "type": "error",
+                                "content": "No active response is waiting for code approval.",
+                            }
+                        )
+                        self.output_queue.sync_q.put(complete_message)
+                    return
 
             self.stop_event.clear()
+            self._reset_respond_iterator()
             self.respond_thread = threading.Thread(
                 target=self.respond, args=(run_code,)
             )
@@ -110,12 +213,26 @@ class AsyncInterpreter(OpenInterpreter):
     def respond(self, run_code=None):
         for attempt in range(5):  # 5 attempts
             try:
-                if run_code == None:
+                if run_code is None:
                     run_code = self.auto_run
 
                 sent_chunks = False
 
-                for chunk_og in self._respond_and_store():
+                if self._respond_iterator is None:
+                    self._respond_iterator = iter(self._respond_and_store())
+
+                while True:
+                    if self.stop_event.is_set():
+                        self._cancel_pending_approval()
+                        self._reset_respond_iterator()
+                        return
+
+                    try:
+                        chunk_og = next(self._respond_iterator)
+                    except StopIteration:
+                        self._reset_respond_iterator()
+                        break
+
                     chunk = (
                         chunk_og.copy()
                     )  # This fixes weird double token chunks. Probably a deeper problem?
@@ -123,11 +240,35 @@ class AsyncInterpreter(OpenInterpreter):
                     if chunk["type"] == "confirmation":
                         if run_code:
                             run_code = False
+                        elif not self.auto_run:
+                            self.pending_confirmation = chunk["content"]
+                            self.pending_confirmation_digest = confirmation_digest(
+                                chunk["content"]
+                            )
+                            chunk["confirmation_id"] = self.pending_confirmation_digest
+
+                            if self.print:
+                                print("\n")
+                            if self.debug:
+                                print("Interpreter produced this chunk:", chunk)
+
+                            self.output_queue.sync_q.put(chunk)
+                            sent_chunks = True
+
+                            self._approval_granted = False
+                            self._approval_event.clear()
+                            self._approval_event.wait()
+
+                            if not self._approval_granted:
+                                self._reset_respond_iterator()
+                                return
+
+                            self._clear_pending_confirmation()
                             continue
-                        else:
-                            break
 
                     if self.stop_event.is_set():
+                        self._cancel_pending_approval()
+                        self._reset_respond_iterator()
                         return
 
                     if self.print:
@@ -280,14 +421,12 @@ def authenticate_function(key):
     """
     This function checks if the provided key is valid for authentication.
 
-    Returns True if the key is valid, False otherwise.
+    When INTERPRETER_API_KEY is unset, loopback-only servers accept any key so local
+    development stays frictionless. Non-loopback binds call ensure_server_api_key()
+    before listening, which sets INTERPRETER_API_KEY when it was missing.
     """
-    # Fetch the API key from the environment variables. If it's not set, return True.
     api_key = os.getenv("INTERPRETER_API_KEY", None)
 
-    # If the API key is not set in the environment variables, return True.
-    # Otherwise, check if the provided key matches the fetched API key.
-    # Return True if they match, False otherwise.
     if api_key is None:
         return True
     else:
@@ -325,10 +464,15 @@ def create_router(async_interpreter):
             + str(async_interpreter.server.port)
             + """/");
                     var lastMessageElement = null;
+                    var lastConfirmationId = null;
 
                     ws.onmessage = function(event) {
 
                         var eventData = JSON.parse(event.data);
+
+                        if (eventData.type === "confirmation" && eventData.confirmation_id) {
+                            lastConfirmationId = eventData.confirmation_id;
+                        }
 
                         """
             + (
@@ -407,7 +551,7 @@ def create_router(async_interpreter):
                     var commandBlock = {
                         "role": "user",
                         "type": "command",
-                        "content": "go"
+                        "content": lastConfirmationId ? ("go:" + lastConfirmationId) : "go"
                     };
                     ws.send(JSON.stringify(commandBlock));
 
@@ -643,12 +787,23 @@ def create_router(async_interpreter):
     async def set_settings(payload: Dict[str, Any]):
         for key, value in payload.items():
             print("Updating settings...")
-            # print(f"Updating settings: {key} = {value}")
-            if key in ["llm", "computer"] and isinstance(value, dict):
-                if key == "auto_run":
-                    return {
+            if key in SENSITIVE_SERVER_SETTINGS:
+                return JSONResponse(
+                    status_code=HTTP_403_FORBIDDEN,
+                    content={
                         "error": f"The setting {key} is not modifiable through the server due to security constraints."
-                    }, 403
+                    },
+                )
+            if key in ["llm", "computer"] and isinstance(value, dict):
+                if key == "llm":
+                    for sub_key in value:
+                        if sub_key in SENSITIVE_LLM_SETTINGS:
+                            return JSONResponse(
+                                status_code=HTTP_403_FORBIDDEN,
+                                content={
+                                    "error": f"The setting llm.{sub_key} is not modifiable through the server due to security constraints."
+                                },
+                            )
                 if hasattr(async_interpreter, key):
                     for sub_key, sub_value in value.items():
                         if hasattr(getattr(async_interpreter, key), sub_key):
@@ -1004,6 +1159,8 @@ class Server:
         if port is not None:
             self.port = port
 
+        generated_api_key = ensure_server_api_key(self.host)
+
         # Print server information
         if self.host == "0.0.0.0":
             print(
@@ -1015,6 +1172,15 @@ class Server:
             s.close()
         else:
             print(f"Server will run at http://{self.host}:{self.port}")
+
+        if generated_api_key:
+            print(
+                "Warning: INTERPRETER_API_KEY was not set. Generated one for this session:"
+            )
+            print(generated_api_key)
+            print(
+                "Pass it as the WebSocket `auth` message and HTTP `X-API-KEY` header."
+            )
 
         self.uvicorn_server.run()
 

@@ -61,7 +61,13 @@ To control the server's behavior, send the following commands:
    ```json
    {"role": "user", "type": "command", "content": "go"}
    ```
-   This executes a generated code block and allows the agent to proceed.
+   This approves the pending code block shown in the most recent `confirmation` chunk and resumes execution of that exact code.
+
+   When the server sends a confirmation chunk, it includes a `confirmation_id` (SHA-256 digest of the language + code). Clients should send `go:<confirmation_id>` to bind approval to the reviewed code:
+
+   ```json
+   {"role": "user", "type": "command", "content": "go:abc123..."}
+   ```
 
    **Note**: If `auto_run` is set to `False`, the agent will pause after generating code blocks. You must send the "go" command to continue execution.
 
@@ -163,11 +169,12 @@ import requests
 settings = {
     "llm": {"model": "gpt-4"},
     "custom_instructions": "You only write Python code.",
-    "auto_run": True,
 }
 response = requests.post("http://localhost:8000/settings", json=settings)
 print(response.status_code)
 ```
+
+Sensitive settings such as `auto_run`, `safe_mode`, `system_message`, and `messages` cannot be changed through this endpoint.
 
 ### Retrieving Settings
 To get current settings, send a GET request to `http://localhost:8000/settings/{property}`.
@@ -304,6 +311,24 @@ from interpreter import AsyncInterpreter
 async_interpreter = AsyncInterpreter()
 async_interpreter.server.run()
 ```
+
+## Authentication
+
+By default, the server binds to `127.0.0.1` and does not require an API key. This matches the CLI model: you are running the server on your own machine.
+
+If you bind to a non-loopback address (for example `0.0.0.0`), the server requires `INTERPRETER_API_KEY`. When that variable is unset, the server generates a random key at startup and prints it.
+
+Set a fixed key before starting the server:
+
+```bash
+export INTERPRETER_API_KEY="your-secret-key"
+interpreter --server --host 0.0.0.0
+```
+
+Clients must then authenticate:
+
+- **WebSocket**: send `{"auth": "your-secret-key"}` as the first message.
+- **HTTP**: include the `X-API-KEY: your-secret-key` header.
 
 ## Advanced Usage: Accessing the FastAPI App Directly
 
