@@ -6,7 +6,7 @@ from interpreter.terminal_interface.validate_llm_settings import (
     validate_llm_settings,
 )
 
-from tests.conftest import TEST_LLM_MODEL
+from tests.helpers import TEST_LLM_MODEL
 
 
 def test_validate_llm_settings_offline_breaks_immediately():

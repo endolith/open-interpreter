@@ -3,7 +3,7 @@ from unittest import mock
 
 from interpreter.core.utils import telemetry
 
-from tests.conftest import patch_expanduser
+from tests.helpers import patch_expanduser
 
 
 def test_get_or_create_uuid_reads_existing(tmp_path, monkeypatch):

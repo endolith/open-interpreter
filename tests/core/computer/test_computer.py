@@ -3,7 +3,7 @@ from unittest import mock
 
 from interpreter.core.computer.computer import Computer
 
-from tests.conftest import COMPUTER_TOOL_SUBSYSTEMS
+from tests.helpers import COMPUTER_TOOL_SUBSYSTEMS
 
 
 class TestComputer(unittest.TestCase):

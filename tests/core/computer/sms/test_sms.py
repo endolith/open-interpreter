@@ -1,10 +1,11 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import interpreter.core.computer.sms.sms as sms_module
 from interpreter.core.computer.sms.sms import SMS
 
-from tests.conftest import patch_expanduser
+from tests.helpers import patch_expanduser
 
 
 def test_send_non_macos_prints_message(capsys):
@@ -19,7 +20,7 @@ def test_resolve_database_path(monkeypatch, tmp_path):
     patch_expanduser(monkeypatch, sms_module, tmp_path)
     with mock.patch("sys.platform", "darwin"):
         sms = SMS(computer=SimpleNamespace())
-    assert sms.database_path == str(tmp_path / "Library" / "Messages" / "chat.db")
+    assert Path(sms.database_path) == tmp_path / "Library" / "Messages" / "chat.db"
 
 
 def test_get_non_macos(capsys):

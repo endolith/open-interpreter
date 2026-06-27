@@ -4,7 +4,7 @@ from unittest import mock
 
 from interpreter.terminal_interface import magic_commands
 
-from tests.conftest import TEST_LLM_MODEL
+from tests.helpers import TEST_LLM_MODEL
 
 
 def _interpreter(**kwargs):

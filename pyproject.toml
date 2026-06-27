@@ -147,3 +147,6 @@ ignore = [
 "interpreter/core/llm/utils/convert_to_openai_messages.py" = ["F821"]
 "interpreter/core/respond.py" = ["F821"]
 "tests/test_interpreter.py" = ["F821"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

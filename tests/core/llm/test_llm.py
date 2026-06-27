@@ -5,7 +5,7 @@ from unittest import mock
 from interpreter import OpenInterpreter
 from interpreter.core.llm.llm import Llm, SuppressDebugFilter
 
-from tests.conftest import TEST_LLM_MODEL
+from tests.helpers import TEST_LLM_MODEL
 
 _MESSAGES = [
     {"role": "system", "type": "message", "content": "system"},

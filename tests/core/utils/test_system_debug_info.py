@@ -5,7 +5,7 @@ from unittest import mock
 
 from interpreter.core.utils import system_debug_info
 
-from tests.conftest import TEST_LLM_MODEL
+from tests.helpers import TEST_LLM_MODEL
 
 
 def test_get_python_version_matches_current_interpreter():
