@@ -6,6 +6,23 @@ There are many ways to contribute, from helping others on [Github](https://githu
 
 We depend on contributors like you. Let's build this.
 
+## Which version is this?
+
+The name "Open Interpreter" has been used for several related but distinct projects. If you are reading this file, you are in the **community-maintained fork of the classic Python version** at [endolith/open-interpreter](https://github.com/endolith/open-interpreter).
+
+| Project | Where | Language | Status | What it does |
+| --- | --- | --- | --- | --- |
+| **Open Interpreter (Classic)** | `main` | Python | Active | The OG Python project: a terminal chatbot that runs code and shell commands locally in an interactive, REPL-like session.  **Contributions should target this branch.** |
+| **OI Classic `develop`** | `classic/develop` | Python | Active | The day-to-day development branch of OI Classic. Same codebase as `main`, but with in-progress changes.  This is what I use regularly, and its features will be merged into `main` eventually. |
+| **Open Interpreter 1.0 (abandoned)** | `development` | Python | Inactive | An incomplete rewrite that was meant to become OI 1.0, using Anthropic-native tools like Claude **computer use**, and a new TUI. Some features or architecture may be cherry-picked into `main` later. |
+| **oiv2** | [Notnaton/oiv2](https://github.com/Notnaton/oiv2) | Python | Inactive | A proof of concept aimed at **small local LLMs**. Uses simple XML tool tags, a persistent Python environment, and a grid-overlay screenshot system (`A1`, `B2`, …) so weaker models can click the screen without fine-grained vision. |
+| **Open Interpreter (Rust)** | [openinterpreter/openinterpreter](https://github.com/openinterpreter/openinterpreter) | Rust | Active | Originally the home of this project, now repurposed as a **fork of OpenAI Codex** acting as a terminal **coding agent**. (Edits files in a project, runs sandboxed commands, MCP, etc. Somewhat different focus from OI Classic?) |
+| **Interpreter (desktop app)** | [openinterpreter.com](https://www.openinterpreter.com/) | Unknown | Active | A desktop product focused on document/knowledge work (Word, Excel, PDFs, browser). [Open Interpreter's blog](https://www.openinterpreter.com/blog/open-interpreter-1-0) says it is "built on the new Open Interpreter runtime." The public Rust repo's releases ship the terminal `interpreter` CLI, not the desktop installer. |
+
+**Who maintains what?** Killian Lucas created the original Python Open Interpreter and now focuses on the Rust agent and desktop app. He is no longer maintaining the Python version. This fork (`endolith/open-interpreter`) is the community home for **OI Classic** going forward.
+
+**Contributing here:** open issues and PRs against **`main`** (OI Classic) in [endolith/open-interpreter](https://github.com/endolith/open-interpreter). Do not assume the Rust repo, the `development` branch, or `oiv2` share the same architecture or contribution process.
+
 ## What should I work on?
 
 First, please familiarize yourself with our [project scope](ROADMAP.md#whats-in-our-scope). Then, pick up a task from our [roadmap](ROADMAP.md) or work on solving an [issue](https://github.com/endolith/open-interpreter/issues).
