@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-from unittest import mock
 
 from interpreter.core.llm.run_tool_calling_llm import run_tool_calling_llm
 

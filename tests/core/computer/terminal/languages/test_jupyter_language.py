@@ -1,6 +1,4 @@
 import ast
-import os
-from unittest import mock
 
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,

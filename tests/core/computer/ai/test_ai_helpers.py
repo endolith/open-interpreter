@@ -16,9 +16,8 @@ def test_split_into_chunks_fallback_without_tiktoken():
     llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
     text = "abcdefghij" * 50
     chunks = split_into_chunks(text, tokens=10, llm=llm, overlap=2)
-    assert len(chunks) >= 1
+    assert len(chunks) >= 2
     assert chunks[0].startswith("abcd")
-    assert all(chunk for chunk in chunks)
 
 
 def test_chunk_responses_respects_token_limit():

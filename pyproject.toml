@@ -150,3 +150,7 @@ ignore = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: requires an LLM API key (not run in default CI)",
+    "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
+]

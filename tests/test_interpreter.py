@@ -7,6 +7,8 @@ from random import randint
 
 import pytest
 
+from tests.helpers import require_bash_compatible_shell
+
 #####
 from interpreter import AsyncInterpreter, OpenInterpreter
 from interpreter.terminal_interface.utils.count_tokens import (
@@ -131,6 +133,7 @@ def _last_assistant_text(messages):
     return ""
 
 
+@pytest.mark.timeout(120)
 def test_hallucinations():
     # We should be resiliant to common hallucinations.
 
@@ -1126,10 +1129,12 @@ def test_long_message():
     assert "A" in interpreter.messages[-1]["content"]
 
 
-# this function will run after each test
-# we're introducing some sleep to help avoid timeout issues with the OpenAI API
-def teardown_function():
-    time.sleep(4)
+# Pause after OpenAI integration tests to reduce API rate-limit errors.
+@pytest.fixture(autouse=True)
+def _rate_limit_openai_after_integration(request):
+    yield
+    if request.node.get_closest_marker("integration"):
+        time.sleep(4)
 
 
 @pytest.mark.skip(reason="Mac only + no way to fail test")
@@ -1139,6 +1144,7 @@ def test_spotlight():
 
 @pytest.mark.integration
 def test_files():
+    require_bash_compatible_shell()
     messages = [
         {"role": "user", "type": "message", "content": "Does this file exist?"},
         {
@@ -1226,6 +1232,7 @@ def test_math():
     assert str(round(test_result, 2)) in messages[-1]["content"]
 
 
+@pytest.mark.timeout(120)
 def test_break_execution():
     """
     Breaking from the generator while it's executing should halt the operation.
@@ -1279,12 +1286,18 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
+@pytest.mark.timeout(30)
 def test_shell_nested_loop_quoting():
     """Shell execution must pass nested quotes/variables through unchanged.
 
     Deterministic: no LLM, no API. The old integration test tried to cover this
     via LLM-generated nested shell loops, which hung when quoting was malformed.
+
+    Uses bash-style loop syntax fed to subprocess_language, which spawns
+    os.environ["SHELL"]. If SHELL is fish (or other non-bash), fail immediately
+    (see require_bash_compatible_shell) instead of hanging forever.
     """
+    require_bash_compatible_shell()
 
     if platform.system() == "Windows":
         code = 'for %i in (a b) do for %j in (1 2) do echo %i_%j'
@@ -1302,6 +1315,7 @@ def test_shell_nested_loop_quoting():
 
 @pytest.mark.integration
 def test_delayed_exec():
+    require_bash_compatible_shell()
     interpreter.chat(
         """Can you write a single block of code and execute it that prints something, then delays 1 second, then prints something else? No talk just code, execute the code. Thanks!"""
     )
@@ -1313,6 +1327,7 @@ def test_delayed_exec():
 @pytest.mark.integration
 @pytest.mark.timeout(180)
 def test_nested_loops_and_multiple_newlines():
+    require_bash_compatible_shell()
     messages = interpreter.chat(
         """Can you write a nested for loop in python and run it? Put 1-3 newlines between each line in the python code.
 
@@ -1328,6 +1343,7 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 @pytest.mark.integration
 def test_write_to_file():
+    require_bash_compatible_shell()
     interpreter.chat(
         """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
     )

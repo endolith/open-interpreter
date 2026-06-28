@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from interpreter.core.computer.terminal.languages.powershell import (
     PowerShell,
     preprocess_powershell,

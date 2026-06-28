@@ -21,7 +21,9 @@ def test_get_or_create_uuid_creates_new(tmp_path, monkeypatch):
     new_id = telemetry.get_or_create_uuid()
     uuid_file = tmp_path / ".cache" / "open-interpreter" / "telemetry_user_id"
     assert uuid_file.read_text() == new_id
-    assert len(new_id) > 0
+    # Must be a valid UUID4 (8-4-4-4-12 hex digits separated by dashes)
+    import re
+    assert re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", new_id)
 
 
 def test_send_telemetry_posts_event():

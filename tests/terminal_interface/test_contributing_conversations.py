@@ -1,8 +1,6 @@
 import json
 from unittest import mock
 
-import pytest
-
 from interpreter.terminal_interface import contributing_conversations as cc
 
 

@@ -41,4 +41,6 @@ def test_r_detect_active_line():
 
 def test_r_detect_end_of_execution():
     r_lang = R()
-    assert r_lang.detect_end_of_execution("##execution_error##")
+    assert r_lang.detect_end_of_execution("##end_of_execution##") is True
+    assert r_lang.detect_end_of_execution("##execution_error##") is True
+    assert r_lang.detect_end_of_execution("still running") is False

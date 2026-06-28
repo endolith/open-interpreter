@@ -23,4 +23,5 @@ def test_applescript_detect_active_line():
 
 def test_applescript_detect_end_of_execution():
     script = AppleScript()
-    assert script.detect_end_of_execution("##end_of_execution##")
+    assert script.detect_end_of_execution("##end_of_execution##") is True
+    assert script.detect_end_of_execution("still running") is False

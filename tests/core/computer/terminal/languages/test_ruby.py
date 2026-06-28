@@ -30,6 +30,6 @@ def test_ruby_detect_active_line():
 
 def test_ruby_detect_end_of_execution():
     ruby = Ruby()
-    assert ruby.detect_end_of_execution("##end_of_execution##")
-    assert ruby.detect_end_of_execution("##execution_error##")
-    assert not ruby.detect_end_of_execution("running")
+    assert ruby.detect_end_of_execution("##end_of_execution##") is True
+    assert ruby.detect_end_of_execution("##execution_error##") is True
+    assert ruby.detect_end_of_execution("running") is False

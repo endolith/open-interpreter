@@ -27,3 +27,4 @@ def test_get_non_macos(capsys):
     with mock.patch("sys.platform", "linux"):
         sms = SMS(computer=SimpleNamespace())
         assert sms.get() is None
+    assert "Only supported on Mac" in capsys.readouterr().out
