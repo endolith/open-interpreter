@@ -61,10 +61,18 @@ GitHub Actions splits work by OS so Linux runs the full suite without re-running
 
 | Job | Runner | What runs |
 | --- | --- | --- |
-| **Unit tests (Linux)** | `ubuntu-latest` | Full unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14, plus language subprocess smokes in `tests/test_language_subprocess.py` (CI installs `ruby` and `r-base` via apt) |
+| **Unit tests (Linux)** | `ubuntu-latest` | Full unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14, plus language runtime smokes in `tests/test_language_subprocess.py` (CI installs `ruby`, `r-base`, `default-jdk`, and Google Chrome) |
 | **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only |
 | **Windows CI smoke** | `windows-latest` | Only `@pytest.mark.windows_ci` — `cmd.exe`, PowerShell, Windows paths, `tests` import path |
 | **macOS CI smoke** | `macos-latest` | Only `@pytest.mark.darwin_ci` — real `osascript`, Unix `$SHELL` |
+
+Every Terminal language has a runtime smoke on at least one runner:
+
+| Language | Runner |
+| --- | --- |
+| Python, JavaScript, Shell (bash), Ruby, R, Java, HTML, React | Linux |
+| Shell (`cmd.exe`), PowerShell | Windows |
+| AppleScript | macOS |
 
 Platform-only tests live in `tests/test_platform_ci.py`. When fixing cross-platform bugs, add or extend the marker for that OS rather than running the full ~300-test suite on every runner.
 

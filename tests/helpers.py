@@ -7,6 +7,7 @@ on all platforms (notably Windows).
 
 import os
 import platform
+import shutil
 
 import pytest
 
@@ -28,6 +29,19 @@ SUBPROCESS_E2E_SKIP_REASON = (
 
 def subprocess_e2e_enabled():
     return os.environ.get("OI_RUN_SUBPROCESS_E2E") == "1"
+
+
+def chunks_of_type(chunks, chunk_type):
+    return [chunk for chunk in chunks if chunk.get("type") == chunk_type]
+
+
+def require_chrome_for_html():
+    """Skip when no Chrome/Chromium binary is available for html2image."""
+
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        if shutil.which(name):
+            return
+    pytest.skip("google-chrome or chromium not installed (needed for HTML/React e2e)")
 
 
 # Subsystems returned by Computer._get_all_computer_tools_list (order matters).

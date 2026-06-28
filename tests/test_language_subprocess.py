@@ -1,8 +1,24 @@
-"""Real subprocess smokes for languages supported on Linux CI.
+"""Real runtime smokes for languages exercised on Linux CI.
 
 Unit tests mock preprocess/detect helpers; these catch hangs, missing binaries,
 and marker parsing against a live interpreter process. Snippets are hardcoded
 (not LLM-generated), but they use the same ``computer.run()`` path as production.
+
+All ten Terminal languages are covered across CI runners:
+
+| Language   | CI runner |
+|------------|-----------|
+| Python     | Linux     |
+| Shell/bash | Linux     |
+| JavaScript | Linux     |
+| Ruby       | Linux     |
+| R          | Linux     |
+| Java       | Linux     |
+| HTML       | Linux     |
+| React      | Linux     |
+| Shell/cmd  | Windows   |
+| PowerShell | Windows   |
+| AppleScript| macOS     |
 
 Opt in locally with ``OI_RUN_SUBPROCESS_E2E=1`` or ``pytest --run-subprocess-e2e``.
 Skipped by default on home machines; CI sets the env var.
@@ -13,9 +29,25 @@ import shutil
 import pytest
 
 from interpreter import OpenInterpreter
-from tests.helpers import console_output_text, require_bash_compatible_shell
+from tests.helpers import (
+    chunks_of_type,
+    console_output_text,
+    require_bash_compatible_shell,
+    require_chrome_for_html,
+)
 
 pytestmark = [pytest.mark.linux_ci, pytest.mark.subprocess_e2e]
+
+_JAVA_SMOKE = """class JavaOk {
+    public static void main(String[] args) {
+        System.out.println("java_ok");
+    }
+}"""
+
+_REACT_SMOKE = """function App() {
+  return <div>react_ok</div>;
+}
+ReactDOM.render(<App />, document.getElementById('root'));"""
 
 
 @pytest.fixture
@@ -70,3 +102,45 @@ def test_r_subprocess_smoke(interpreter):
         pytest.skip("R not installed")
     chunks = list(interpreter.computer.run("r", 'cat("r_ok\\n")'))
     assert "r_ok" in console_output_text(chunks)
+
+
+@pytest.mark.timeout(60)
+def test_java_subprocess_smoke(interpreter):
+    if shutil.which("javac") is None or shutil.which("java") is None:
+        pytest.skip("jdk not installed")
+    chunks = list(interpreter.computer.run("java", _JAVA_SMOKE))
+    assert "java_ok" in console_output_text(chunks)
+
+
+@pytest.mark.timeout(90)
+def test_html_runtime_smoke(interpreter):
+    require_chrome_for_html()
+    try:
+        chunks = list(
+            interpreter.computer.run(
+                "html", '<html><body style="font-size:32px">html_ok</body></html>'
+            )
+        )
+    except FileNotFoundError as exc:
+        pytest.skip(f"html2image screenshot failed: {exc}")
+    assert chunks_of_type(chunks, "console")
+    assert chunks_of_type(chunks, "code")[0]["format"] == "html"
+    images = chunks_of_type(chunks, "image")
+    assert len(images) == 1
+    assert images[0]["format"] == "base64.png"
+    assert len(images[0]["content"]) > 50
+
+
+@pytest.mark.timeout(120)
+def test_react_runtime_smoke(interpreter):
+    require_chrome_for_html()
+    try:
+        chunks = list(interpreter.computer.run("react", _REACT_SMOKE))
+    except FileNotFoundError as exc:
+        pytest.skip(f"html2image screenshot failed: {exc}")
+    assert chunks_of_type(chunks, "console")
+    assert chunks_of_type(chunks, "code")[0]["format"] == "html"
+    images = chunks_of_type(chunks, "image")
+    assert len(images) == 1
+    assert images[0]["format"] == "base64.png"
+    assert len(images[0]["content"]) > 50
