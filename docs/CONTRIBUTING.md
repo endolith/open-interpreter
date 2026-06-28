@@ -85,7 +85,22 @@ wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 sudo apt install ./google-chrome-stable_current_amd64.deb
 ```
 
-**Integration tests** (`pytest -m integration`) call an LLM and may execute generated code. They require `OPENAI_API_KEY` and are skipped locally without it; CI runs them on trusted branches.
+**Integration tests** (`pytest -m integration`) are the only tests that call an LLM and execute whatever code it returns. They are **off by default** locally. To run them:
+
+```bash
+export OPENAI_API_KEY=...
+export OI_RUN_INTEGRATION=1
+pytest -m integration
+```
+
+You will be **prompted before each code block** the LLM generates (`y` / `n` / `a`pprove all). To skip prompts after you accept the risk:
+
+```bash
+pytest -m integration --approve-integration
+# or: OI_AUTO_APPROVE_INTEGRATION=1 pytest -m integration
+```
+
+CI sets `GITHUB_ACTIONS=true` and runs integration automatically on trusted branches.
 
 Locally: `pytest -m "not integration"` runs the full mocked unit suite + any language binaries you have installed. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
 
