@@ -27,6 +27,21 @@ def _code_hash(language: str, code: str) -> str:
     return hashlib.sha256(f"{language}\0{code}".encode()).hexdigest()
 
 
+def _tty_print(msg: str) -> None:
+    # pytest replaces sys.stderr/stdout; sys.__stderr__ is the original fd and
+    # goes directly to the terminal regardless of capture settings.
+    sys.__stderr__.write(msg + "\n")
+    sys.__stderr__.flush()
+
+
+def _tty_input(prompt: str) -> str:
+    # sys.__stdin__ is the original stdin fd, before pytest's capture wrapper.
+    sys.__stderr__.write(prompt)
+    sys.__stderr__.flush()
+    line = sys.__stdin__.readline()
+    return line.rstrip("\n")
+
+
 def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bool:
     global _approve_all
 
@@ -46,9 +61,11 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         f"{code.rstrip()}\n"
         f"{'=' * 72}"
     )
-    print(banner, flush=True)
+    _tty_print(banner)
 
-    if not sys.stdin.isatty():
+    # sys.__stdin__ is the real terminal even under pytest; isatty() on
+    # sys.stdin would return False because pytest wraps it for capture.
+    if not sys.__stdin__.isatty():
         pytest.fail(
             "Integration test wants to execute LLM-generated code in a non-interactive "
             "session. Re-run in a terminal to approve each block, or set "
@@ -56,7 +73,7 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         )
 
     while True:
-        answer = input("Execute this code? [y]es / [n]o / [a]pprove all remaining: ").strip().lower()
+        answer = _tty_input("Execute this code? [y]es / [n]o / [a]pprove all remaining: ").strip().lower()
         if answer in {"y", "yes"}:
             _approved_hashes.add(digest)
             return True
@@ -65,7 +82,7 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         if answer in {"a", "all"}:
             _approve_all = True
             return True
-        print("Please enter y, n, or a.", flush=True)
+        _tty_print("Please enter y, n, or a.")
 
 
 def install_terminal_run_approval(monkeypatch, test_name: str):
@@ -83,4 +100,3 @@ def install_terminal_run_approval(monkeypatch, test_name: str):
         return original_run(self, language, code, stream=stream, display=display)
 
     monkeypatch.setattr(terminal_mod.Terminal, "run", approving_run)
-
