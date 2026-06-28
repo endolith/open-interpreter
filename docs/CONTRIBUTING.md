@@ -76,23 +76,18 @@ Every Terminal language has a runtime smoke on at least one runner:
 
 Platform-only tests live in `tests/test_platform_ci.py`. When fixing cross-platform bugs, add or extend the marker for that OS rather than running the full ~300-test suite on every runner.
 
-### Subprocess e2e tests (opt-in)
-
-Tests marked ``subprocess_e2e`` call ``computer.run()`` with real interpreters (shell, Python, Ruby, etc.). Snippets are **hardcoded** in the test files — not LLM output — but they use the same execution path OI uses when running model-generated code. They are **skipped by default** on home machines.
-
-To run them locally (only in an isolated environment):
+The language runtime smokes (`tests/test_language_subprocess.py`) run hardcoded snippets — they don't call an LLM. They run automatically on Linux when the required binary is present (`irb`, `R`, `javac`, `google-chrome`), and skip gracefully when it isn't. To test every language locally on Linux:
 
 ```bash
-OI_RUN_SUBPROCESS_E2E=1 pytest -m subprocess_e2e
-# or
-pytest --run-subprocess-e2e -m subprocess_e2e
+sudo apt install nodejs ruby r-base default-jdk
+# For HTML/React (needs headless Chrome):
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo apt install ./google-chrome-stable_current_amd64.deb
 ```
 
-CI sets ``OI_RUN_SUBPROCESS_E2E=1`` automatically. If a language binary is missing (e.g. ``irb``, ``R``), those tests skip rather than fail.
+**Integration tests** (`pytest -m integration`) are the only tests that call an LLM and execute whatever code it returns. They require `OPENAI_API_KEY` and are skipped by default locally.
 
-**Integration tests** (``pytest -m integration``) are separate: they do call an LLM and may execute whatever code it returns. They require ``OPENAI_API_KEY`` and are already off by default locally.
-
-Locally: `pytest -m "not integration"` for the safe mocked unit suite. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
+Locally: `pytest -m "not integration"` runs the full mocked unit suite + any language binaries you have installed. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
 
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 

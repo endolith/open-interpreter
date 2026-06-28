@@ -3,25 +3,11 @@ import platform
 
 import pytest
 
-from tests.helpers import SUBPROCESS_E2E_SKIP_REASON
-
-
-def pytest_addoption(parser):
-    parser.addoption(
-        "--run-subprocess-e2e",
-        action="store_true",
-        default=False,
-        help="Run subprocess_e2e tests (sets OI_RUN_SUBPROCESS_E2E=1). "
-        "Uses real shell/code execution; see tests/helpers.py.",
-    )
-
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: requires an LLM API key (not run in default CI)"
     )
-    if config.getoption("--run-subprocess-e2e"):
-        os.environ["OI_RUN_SUBPROCESS_E2E"] = "1"
 
 
 def pytest_collection_modifyitems(config, items):
@@ -34,12 +20,6 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "integration" in item.keywords:
                 item.add_marker(skip_integration)
-
-    if not os.environ.get("OI_RUN_SUBPROCESS_E2E"):
-        skip_subprocess_e2e = pytest.mark.skip(reason=SUBPROCESS_E2E_SKIP_REASON)
-        for item in items:
-            if "subprocess_e2e" in item.keywords:
-                item.add_marker(skip_subprocess_e2e)
 
     _PLATFORM_MARKERS = {
         "linux_ci": "Linux",

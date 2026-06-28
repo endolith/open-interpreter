@@ -15,21 +15,6 @@ import pytest
 # prompts). Matches tests/config.test.yaml; never hits a real API in unit tests.
 TEST_LLM_MODEL = "gpt-4o-mini"
 
-# Opt-in for tests that call ``computer.run()`` with real subprocess interpreters.
-# These use fixed snippets (not LLM output), but the execution path is the same
-# one OI uses when running model-generated code — only enable in CI or isolation.
-SUBPROCESS_E2E_SKIP_REASON = (
-    "subprocess_e2e tests execute real code via computer.run() (shell, python, "
-    "ruby, etc.). Snippets in tests are hardcoded, but this is the same machinery "
-    "OI uses for LLM-generated code. Not enabled by default on home machines. "
-    "Set OI_RUN_SUBPROCESS_E2E=1 or pass pytest --run-subprocess-e2e only in CI "
-    "or an isolated environment."
-)
-
-
-def subprocess_e2e_enabled():
-    return os.environ.get("OI_RUN_SUBPROCESS_E2E") == "1"
-
 
 def chunks_of_type(chunks, chunk_type):
     return [chunk for chunk in chunks if chunk.get("type") == chunk_type]

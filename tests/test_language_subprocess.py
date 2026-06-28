@@ -1,27 +1,32 @@
-"""Real runtime smokes for languages exercised on Linux CI.
+"""Real runtime smokes for all languages exercised on Linux CI.
 
 Unit tests mock preprocess/detect helpers; these catch hangs, missing binaries,
-and marker parsing against a live interpreter process. Snippets are hardcoded
-(not LLM-generated), but they use the same ``computer.run()`` path as production.
+and marker parsing against a live interpreter process. All snippets are hardcoded
+(not LLM-generated). For tests that call an LLM and execute whatever it returns,
+see ``test_interpreter.py`` integration tests (require OPENAI_API_KEY).
 
 All ten Terminal languages are covered across CI runners:
 
-| Language   | CI runner |
-|------------|-----------|
-| Python     | Linux     |
-| Shell/bash | Linux     |
-| JavaScript | Linux     |
-| Ruby       | Linux     |
-| R          | Linux     |
-| Java       | Linux     |
-| HTML       | Linux     |
-| React      | Linux     |
-| Shell/cmd  | Windows   |
-| PowerShell | Windows   |
-| AppleScript| macOS     |
+| Language    | CI runner |
+|-------------|-----------|
+| Python      | Linux     |
+| Shell/bash  | Linux     |
+| JavaScript  | Linux     |
+| Ruby        | Linux     |
+| R           | Linux     |
+| Java        | Linux     |
+| HTML        | Linux     |
+| React       | Linux     |
+| Shell/cmd   | Windows   |
+| PowerShell  | Windows   |
+| AppleScript | macOS     |
 
-Opt in locally with ``OI_RUN_SUBPROCESS_E2E=1`` or ``pytest --run-subprocess-e2e``.
-Skipped by default on home machines; CI sets the env var.
+To run locally on Linux, install the language runtimes that are missing:
+
+    sudo apt install nodejs ruby r-base default-jdk
+    # For HTML/React (needs headless Chrome):
+    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    sudo apt install ./google-chrome-stable_current_amd64.deb
 """
 
 import shutil
@@ -36,7 +41,7 @@ from tests.helpers import (
     require_chrome_for_html,
 )
 
-pytestmark = [pytest.mark.linux_ci, pytest.mark.subprocess_e2e]
+pytestmark = pytest.mark.linux_ci
 
 _JAVA_SMOKE = """class JavaOk {
     public static void main(String[] args) {

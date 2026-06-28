@@ -49,13 +49,12 @@ def test_run_returns_stdout_stderr():
 
 
 def test_run_raises_timeout_error():
+    # communicate is a plain Mock (not async) because wait_for is patched to
+    # raise TimeoutError before it ever tries to await the communicate()
+    # result. Using a plain Mock avoids an unawaited-coroutine RuntimeWarning
+    # that AsyncMock would trigger when wait_for discards it.
     mock_process = mock.Mock()
-
-    async def slow_communicate():
-        await asyncio.sleep(10)
-        return (b"", b"")
-
-    mock_process.communicate = slow_communicate
+    mock_process.communicate = mock.Mock(return_value=None)
     mock_process.kill = mock.Mock()
 
     with mock.patch.object(
