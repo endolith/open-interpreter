@@ -68,7 +68,23 @@ GitHub Actions splits work by OS so Linux runs the full suite without re-running
 
 Platform-only tests live in `tests/test_platform_ci.py`. When fixing cross-platform bugs, add or extend the marker for that OS rather than running the full ~300-test suite on every runner.
 
-Locally: `pytest -m windows_ci` on Windows, `pytest -m darwin_ci` on a Mac, or the usual `pytest -m "not integration"` on Linux. `linux_ci` tests are skipped automatically off Linux.
+### Subprocess e2e tests (opt-in)
+
+Tests marked ``subprocess_e2e`` call ``computer.run()`` with real interpreters (shell, Python, Ruby, etc.). Snippets are **hardcoded** in the test files — not LLM output — but they use the same execution path OI uses when running model-generated code. They are **skipped by default** on home machines.
+
+To run them locally (only in an isolated environment):
+
+```bash
+OI_RUN_SUBPROCESS_E2E=1 pytest -m subprocess_e2e
+# or
+pytest --run-subprocess-e2e -m subprocess_e2e
+```
+
+CI sets ``OI_RUN_SUBPROCESS_E2E=1`` automatically. If a language binary is missing (e.g. ``irb``, ``R``), those tests skip rather than fail.
+
+**Integration tests** (``pytest -m integration``) are separate: they do call an LLM and may execute whatever code it returns. They require ``OPENAI_API_KEY`` and are already off by default locally.
+
+Locally: `pytest -m "not integration"` for the safe mocked unit suite. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
 
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 

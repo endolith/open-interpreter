@@ -41,6 +41,7 @@ def test_shell_start_cmd_uses_cmd_exe():
 
 
 @pytest.mark.windows_ci
+@pytest.mark.subprocess_e2e
 @pytest.mark.timeout(30)
 def test_shell_cmd_echo_smoke(interpreter):
     chunks = list(interpreter.computer.run("shell", "echo shell_ok"))
@@ -48,6 +49,7 @@ def test_shell_cmd_echo_smoke(interpreter):
 
 
 @pytest.mark.windows_ci
+@pytest.mark.subprocess_e2e
 @pytest.mark.timeout(30)
 def test_shell_cmd_nested_loop_quoting(interpreter):
     """cmd.exe nested ``for`` loops — distinct quoting from bash (Linux CI)."""
@@ -60,6 +62,7 @@ def test_shell_cmd_nested_loop_quoting(interpreter):
 
 
 @pytest.mark.windows_ci
+@pytest.mark.subprocess_e2e
 @pytest.mark.timeout(30)
 def test_powershell_subprocess_smoke(interpreter):
     chunks = list(interpreter.computer.run("powershell", 'Write-Output "ps_ok"'))
@@ -76,6 +79,7 @@ def test_shell_start_cmd_uses_shell_env():
 
 
 @pytest.mark.darwin_ci
+@pytest.mark.subprocess_e2e
 @pytest.mark.timeout(30)
 def test_shell_bash_nested_loop_quoting(interpreter):
     code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
@@ -86,6 +90,7 @@ def test_shell_bash_nested_loop_quoting(interpreter):
 
 
 @pytest.mark.darwin_ci
+@pytest.mark.subprocess_e2e
 @pytest.mark.timeout(30)
 def test_applescript_subprocess_smoke(interpreter):
     chunks = list(interpreter.computer.run("applescript", 'return "as_ok"'))

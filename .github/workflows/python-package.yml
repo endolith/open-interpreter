@@ -37,6 +37,8 @@ jobs:
     name: Unit tests (Linux)
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      OI_RUN_SUBPROCESS_E2E: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +75,8 @@ jobs:
     name: Windows CI smoke
     if: github.event_name != 'workflow_dispatch'
     runs-on: windows-latest
+    env:
+      OI_RUN_SUBPROCESS_E2E: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -89,6 +93,8 @@ jobs:
     name: macOS CI smoke
     if: github.event_name != 'workflow_dispatch'
     runs-on: macos-latest
+    env:
+      OI_RUN_SUBPROCESS_E2E: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

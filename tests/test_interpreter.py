@@ -1287,6 +1287,7 @@ with open('numbers.txt', 'a+') as f:
 
 
 @pytest.mark.linux_ci
+@pytest.mark.subprocess_e2e
 @pytest.mark.timeout(30)
 def test_shell_nested_loop_quoting():
     """Shell execution must pass nested quotes/variables through unchanged.
