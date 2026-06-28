@@ -41,16 +41,36 @@ def test_prompt_for_code_execution_can_approve_all(monkeypatch):
     )
 
 
-def test_install_terminal_run_approval_blocks_when_denied(monkeypatch):
+def test_install_chat_approval_blocks_when_denied(monkeypatch):
     support._approve_all = False
     support._approved_hashes.clear()
     monkeypatch.setattr(support, "prompt_for_code_execution", lambda **_: False)
 
-    from interpreter.core.computer.terminal.terminal import Terminal
+    from interpreter import OpenInterpreter
+    from interpreter.core import core as core_mod
 
-    install = support.install_terminal_run_approval
-    install(monkeypatch, "demo_test")
+    confirmation_chunk = {
+        "role": "computer",
+        "type": "confirmation",
+        "format": "execution",
+        "content": {"type": "code", "format": "python", "content": 'print("hi")'},
+    }
 
-    terminal = Terminal(computer=mock.Mock())
-    with pytest.raises(pytest.fail.Exception, match="not approved"):
-        terminal.run("python", 'print("hi")')
+    # Install the hook first, then replace the *original* reference it captured
+    # so the wrapped function sees the confirmation chunk.
+    support.install_chat_approval(monkeypatch, "demo_test")
+
+    # approving_chat calls original_chat (captured inside install_chat_approval).
+    # Patch the class method AFTER install so the wrapper calls through to our fake.
+    # Instead, patch prompt_for_code_execution to raise directly.
+    oi = OpenInterpreter()
+
+    def fake_original_chat(self, message=None, display=False, stream=False, blocking=True):
+        yield confirmation_chunk
+
+    # Patch at module level so the captured original_chat sees our fake
+    with mock.patch.object(core_mod.OpenInterpreter, "chat", fake_original_chat):
+        # Re-install to capture the fake as original
+        support.install_chat_approval(monkeypatch, "demo_test")
+        with pytest.raises(pytest.fail.Exception, match="not approved"):
+            list(oi.chat("test", stream=True))

@@ -59,7 +59,7 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         "-" * 72,
         code.rstrip(),
         "=" * 72,
-        f"  Run this code? [y]es / [n]o / [a]ll",
+        "  Run this code? [y]es / [n]o / [a]ll",
         "",
     ]
     _tty_print("\n".join(lines))
@@ -86,18 +86,51 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         _tty_print("  Please enter y, n, or a.")
 
 
-def install_terminal_run_approval(monkeypatch, test_name: str):
-    from interpreter.core.computer.terminal import terminal as terminal_mod
+def install_chat_approval(monkeypatch, test_name: str):
+    """Wrap interpreter.chat to intercept confirmation chunks before code runs.
 
-    original_run = terminal_mod.Terminal.run
+    respond.py yields a {"type": "confirmation"} chunk exactly when LLM-generated
+    code is about to execute. We intercept that chunk from the chat stream rather
+    than patching Terminal.run, so display=True / terminal_interface routing is
+    completely unaffected.
+    """
+    from interpreter.core import core as core_mod
 
-    def approving_run(self, language, code, stream=False, display=False):
-        if not prompt_for_code_execution(
-            test_name=test_name, language=language, code=code
-        ):
-            pytest.fail(
-                f"LLM-generated {language} code was not approved for {test_name!r}"
-            )
-        return original_run(self, language, code, stream=stream, display=display)
+    original_chat = core_mod.OpenInterpreter.chat
 
-    monkeypatch.setattr(terminal_mod.Terminal, "run", approving_run)
+    def approving_chat(self, message=None, display=False, stream=False, blocking=True):
+        raw = original_chat(self, message=message, display=False, stream=True, blocking=blocking)
+
+        def guarded():
+            for chunk in raw:
+                if chunk.get("type") == "confirmation":
+                    language = chunk.get("content", {}).get("format", "?")
+                    code = chunk.get("content", {}).get("content", "")
+                    if not prompt_for_code_execution(
+                        test_name=test_name, language=language, code=code
+                    ):
+                        pytest.fail(
+                            f"LLM-generated {language} code was not approved for {test_name!r}"
+                        )
+                yield chunk
+
+        if stream:
+            return guarded()
+
+        # Non-streaming: collect into a list, just like the real chat(stream=False)
+        output_messages = []
+        for chunk in guarded():
+            if chunk.get("format") != "active_line":
+                if (
+                    output_messages
+                    and output_messages[-1].get("type") == chunk.get("type")
+                    and output_messages[-1].get("format") == chunk.get("format")
+                    and "start" not in chunk
+                    and "end" not in chunk
+                ):
+                    output_messages[-1]["content"] += chunk.get("content", "")
+                else:
+                    output_messages.append(chunk)
+        return output_messages
+
+    monkeypatch.setattr(core_mod.OpenInterpreter, "chat", approving_chat)

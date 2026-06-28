@@ -6,7 +6,7 @@ import pytest
 from tests.helpers import INTEGRATION_SKIP_REASON
 from tests.integration_support import (
     integration_tests_allowed,
-    install_terminal_run_approval,
+    install_chat_approval,
 )
 
 
@@ -76,4 +76,4 @@ def approve_llm_generated_code(request, monkeypatch):
         return
     if os.environ.get("GITHUB_ACTIONS") == "true":
         return
-    install_terminal_run_approval(monkeypatch, request.node.name)
+    install_chat_approval(monkeypatch, request.node.name)
