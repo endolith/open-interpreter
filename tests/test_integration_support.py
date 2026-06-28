@@ -29,28 +29,15 @@ def test_integration_tests_allowed_on_ci(monkeypatch):
 def test_prompt_for_code_execution_can_approve_all(monkeypatch):
     support._approve_all = False
     support._approved_hashes.clear()
-    # Simulate a real terminal: sys.__stdin__.isatty() returns True.
     monkeypatch.setattr(support.sys.__stdin__, "isatty", lambda: True)
-    # Provide input via _tty_input_with_timeout; 'a' approves all.
     responses = iter(["a"])
-    monkeypatch.setattr(support, "_tty_input_with_timeout", lambda _p, timeout: next(responses))
+    monkeypatch.setattr(support, "_tty_input", lambda _prompt: next(responses))
     monkeypatch.setattr(support, "_tty_print", lambda _msg: None)
     assert support.prompt_for_code_execution(
         test_name="demo", language="python", code='print("hi")'
     )
     assert support.prompt_for_code_execution(
         test_name="demo", language="python", code='print("other")'
-    )
-
-
-def test_prompt_for_code_execution_timeout_denies(monkeypatch):
-    support._approve_all = False
-    support._approved_hashes.clear()
-    monkeypatch.setattr(support.sys.__stdin__, "isatty", lambda: True)
-    monkeypatch.setattr(support, "_tty_input_with_timeout", lambda _p, timeout: None)
-    monkeypatch.setattr(support, "_tty_print", lambda _msg: None)
-    assert not support.prompt_for_code_execution(
-        test_name="demo", language="python", code='print("hi")'
     )
 
 

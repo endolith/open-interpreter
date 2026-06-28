@@ -9,10 +9,6 @@ import pytest
 _approve_all = False
 _approved_hashes: set[str] = set()
 
-# Auto-deny after this many seconds of no input so the test suite doesn't
-# hang indefinitely when the user steps away.
-_INPUT_TIMEOUT_SECONDS = 120
-
 
 def integration_tests_allowed() -> bool:
     if not os.environ.get("OPENAI_API_KEY"):
@@ -46,26 +42,6 @@ def _tty_input(prompt: str) -> str:
     return line.rstrip("\n")
 
 
-def _tty_input_with_timeout(prompt: str, timeout: int) -> str | None:
-    """Return the line entered, or None if timed out. Works on Windows and Unix."""
-    import threading
-
-    result: list[str | None] = [None]
-    done = threading.Event()
-
-    def reader():
-        sys.__stderr__.write(prompt)
-        sys.__stderr__.flush()
-        line = sys.__stdin__.readline()
-        result[0] = line.rstrip("\n")
-        done.set()
-
-    t = threading.Thread(target=reader, daemon=True)
-    t.start()
-    done.wait(timeout=timeout)
-    return result[0]
-
-
 def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bool:
     global _approve_all
 
@@ -83,7 +59,7 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         "-" * 72,
         code.rstrip(),
         "=" * 72,
-        f"  Run this code? [y]es / [n]o / [a]ll  (auto-deny in {_INPUT_TIMEOUT_SECONDS}s)",
+        f"  Run this code? [y]es / [n]o / [a]ll",
         "",
     ]
     _tty_print("\n".join(lines))
@@ -98,11 +74,7 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         )
 
     while True:
-        answer = _tty_input_with_timeout("> ", timeout=_INPUT_TIMEOUT_SECONDS)
-        if answer is None:
-            _tty_print(f"  (no input after {_INPUT_TIMEOUT_SECONDS}s — denying)")
-            return False
-        answer = answer.strip().lower()
+        answer = _tty_input("> ").strip().lower()
         if answer in {"y", "yes"}:
             _approved_hashes.add(digest)
             return True
