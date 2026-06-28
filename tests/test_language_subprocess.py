@@ -59,7 +59,7 @@ def test_shell_bash_nested_loop_quoting(interpreter):
 @pytest.mark.timeout(30)
 def test_ruby_subprocess_smoke(interpreter):
     if shutil.which("irb") is None:
-        pytest.skip("irb not installed")
+        pytest.fail("irb not found — Linux CI installs the ruby package")
     chunks = list(interpreter.computer.run("ruby", 'puts "ruby_ok"'))
     assert "ruby_ok" in console_output_text(chunks)
 
@@ -68,6 +68,6 @@ def test_ruby_subprocess_smoke(interpreter):
 @pytest.mark.timeout(30)
 def test_r_subprocess_smoke(interpreter):
     if shutil.which("R") is None:
-        pytest.skip("R not installed")
+        pytest.fail("R not found — Linux CI installs the r-base package")
     chunks = list(interpreter.computer.run("r", 'cat("r_ok\\n")'))
     assert "r_ok" in console_output_text(chunks)
