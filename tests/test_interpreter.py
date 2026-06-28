@@ -16,6 +16,10 @@ from interpreter.terminal_interface.utils.count_tokens import (
 
 interpreter = OpenInterpreter()
 
+from tests.integration_support import install_approval_patch
+
+install_approval_patch()
+
 # Configure LLM for tests: Change models and API key check here if needed
 # (e.g., switch to OpenRouter free models, etc.)
 # Some tests need TEST_MODEL_MAIN for more complex operations
