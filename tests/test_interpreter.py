@@ -311,10 +311,11 @@ def test_authenticated_acknowledging_breaking_server():
             print(poem)
             time.sleep(1)
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
+    # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
+    # is no current event loop (e.g. pytest has not set one up). asyncio.run()
+    # creates a fresh loop, runs the coroutine, and closes it cleanly.
     try:
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
         _stop_server_subprocess(process)
 
@@ -658,10 +659,11 @@ def test_server():
             response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
+    # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
+    # is no current event loop. asyncio.run() creates a fresh loop and is the
+    # idiomatic replacement.
     try:
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
         _stop_server_subprocess(process)
 
@@ -1143,15 +1145,19 @@ def test_spotlight():
 
 
 @pytest.mark.integration
-def test_files():
+def test_files(tmp_path):
     require_bash_compatible_shell()
+    # Create a real file so the LLM can actually check its existence.
+    # Using tmp_path makes this cross-platform (no hardcoded Unix paths).
+    image_file = tmp_path / "image.png"
+    image_file.write_bytes(b"fake png content")
     messages = [
         {"role": "user", "type": "message", "content": "Does this file exist?"},
         {
             "role": "user",
             "type": "file",
             "format": "path",
-            "content": "/Users/Killian/image.png",
+            "content": str(image_file),
         },
     ]
     interpreter.chat(messages)
@@ -1342,12 +1348,16 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 
 @pytest.mark.integration
-def test_write_to_file():
+def test_write_to_file(monkeypatch, tmp_path):
     require_bash_compatible_shell()
+    # Run in a temp directory so the LLM-generated file.txt doesn't land in
+    # the repo root. monkeypatch.chdir restores the original directory after
+    # the test regardless of pass/fail.
+    monkeypatch.chdir(tmp_path)
     interpreter.chat(
         """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
     )
-    assert os.path.exists("file.txt")
+    assert (tmp_path / "file.txt").exists()
     interpreter.messages = []  # Just reset message history, nothing else for this test
     messages = interpreter.chat(
         """Read file.txt in the current directory and tell me what's in it."""

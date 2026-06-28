@@ -9,6 +9,10 @@ import pytest
 _approve_all = False
 _approved_hashes: set[str] = set()
 
+# Auto-deny after this many seconds of no input so the test suite doesn't
+# hang indefinitely when the user steps away.
+_INPUT_TIMEOUT_SECONDS = 120
+
 
 def integration_tests_allowed() -> bool:
     if not os.environ.get("OPENAI_API_KEY"):
@@ -42,6 +46,26 @@ def _tty_input(prompt: str) -> str:
     return line.rstrip("\n")
 
 
+def _tty_input_with_timeout(prompt: str, timeout: int) -> str | None:
+    """Return the line entered, or None if timed out. Works on Windows and Unix."""
+    import threading
+
+    result: list[str | None] = [None]
+    done = threading.Event()
+
+    def reader():
+        sys.__stderr__.write(prompt)
+        sys.__stderr__.flush()
+        line = sys.__stdin__.readline()
+        result[0] = line.rstrip("\n")
+        done.set()
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+    done.wait(timeout=timeout)
+    return result[0]
+
+
 def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bool:
     global _approve_all
 
@@ -52,16 +76,17 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
     if digest in _approved_hashes:
         return True
 
-    banner = (
-        f"\n{'=' * 72}\n"
-        f"Integration test: {test_name}\n"
-        f"Language: {language}\n"
-        f"The LLM produced code that Open Interpreter is about to run on your machine.\n"
-        f"{'-' * 72}\n"
-        f"{code.rstrip()}\n"
-        f"{'=' * 72}"
-    )
-    _tty_print(banner)
+    lines = [
+        "",
+        "=" * 72,
+        f"  [INTEGRATION] {test_name}  —  language: {language}",
+        "-" * 72,
+        code.rstrip(),
+        "=" * 72,
+        f"  Run this code? [y]es / [n]o / [a]ll  (auto-deny in {_INPUT_TIMEOUT_SECONDS}s)",
+        "",
+    ]
+    _tty_print("\n".join(lines))
 
     # sys.__stdin__ is the real terminal even under pytest; isatty() on
     # sys.stdin would return False because pytest wraps it for capture.
@@ -73,7 +98,11 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         )
 
     while True:
-        answer = _tty_input("Execute this code? [y]es / [n]o / [a]pprove all remaining: ").strip().lower()
+        answer = _tty_input_with_timeout("> ", timeout=_INPUT_TIMEOUT_SECONDS)
+        if answer is None:
+            _tty_print(f"  (no input after {_INPUT_TIMEOUT_SECONDS}s — denying)")
+            return False
+        answer = answer.strip().lower()
         if answer in {"y", "yes"}:
             _approved_hashes.add(digest)
             return True
@@ -82,7 +111,7 @@ def prompt_for_code_execution(*, test_name: str, language: str, code: str) -> bo
         if answer in {"a", "all"}:
             _approve_all = True
             return True
-        _tty_print("Please enter y, n, or a.")
+        _tty_print("  Please enter y, n, or a.")
 
 
 def install_terminal_run_approval(monkeypatch, test_name: str):
