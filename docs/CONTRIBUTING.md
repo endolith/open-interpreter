@@ -61,7 +61,7 @@ GitHub Actions splits work by OS so Linux runs the full suite without re-running
 
 | Job | Runner | What runs |
 | --- | --- | --- |
-| **Unit tests (Linux)** | `ubuntu-latest` | Full unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14, plus language subprocess smokes in `tests/test_language_subprocess.py` |
+| **Unit tests (Linux)** | `ubuntu-latest` | Full unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14, plus language subprocess smokes in `tests/test_language_subprocess.py` (CI installs `ruby` and `r-base` via apt) |
 | **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only |
 | **Windows CI smoke** | `windows-latest` | Only `@pytest.mark.windows_ci` — `cmd.exe`, PowerShell, Windows paths, `tests` import path |
 | **macOS CI smoke** | `macos-latest` | Only `@pytest.mark.darwin_ci` — real `osascript`, Unix `$SHELL` |
