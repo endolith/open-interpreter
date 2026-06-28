@@ -31,6 +31,8 @@ class Java(SubprocessLanguage):
         return "##end_of_execution##" in line
 
     def run(self, code):
+        file_name = None
+        class_file = None
         try:
             # Extract the class name from the code
             match = re.search(r'class\s+(\w+)', code)
@@ -119,10 +121,11 @@ class Java(SubprocessLanguage):
             }
         finally:
             # Clean up the generated Java files
-            if os.path.exists(file_name):
+            if file_name and os.path.exists(file_name):
                 os.remove(file_name)
-            class_file = file_name.replace(".java", ".class")
-            if os.path.exists(class_file):
+            if file_name:
+                class_file = file_name.replace(".java", ".class")
+            if class_file and os.path.exists(class_file):
                 os.remove(class_file)
 
 def preprocess_java(code):
