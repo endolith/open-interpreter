@@ -1,0 +1,36 @@
+from interpreter.core.computer.ai.ai import chunk_responses, split_into_chunks
+
+
+def test_split_into_chunks_with_tiktoken():
+    llm = type("Llm", (), {"model": "gpt-4"})()  # tiktoken encoding name, not API model
+    text = "word " * 100
+    chunks = split_into_chunks(text, tokens=20, llm=llm, overlap=5)
+    assert len(chunks) > 1
+    joined = " ".join(chunks)
+    assert joined[:20] == text[:20]
+    assert joined[-20:] == text[-20:]
+
+
+def test_split_into_chunks_fallback_without_tiktoken():
+    """Invalid model name forces character-based fallback when tiktoken fails."""
+    llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
+    text = "abcdefghij" * 50
+    chunks = split_into_chunks(text, tokens=10, llm=llm, overlap=2)
+    assert len(chunks) >= 1
+    assert chunks[0].startswith("abcd")
+    assert all(chunk for chunk in chunks)
+
+
+def test_chunk_responses_respects_token_limit():
+    llm = type("Llm", (), {"model": "gpt-4"})()
+    responses = ["short", "another short response"]
+    result = chunk_responses(responses, tokens=100, llm=llm)
+    assert result == ["short\n\nanother short response"]
+
+
+def test_chunk_responses_oversized_single_response():
+    """A single response larger than the token budget is returned unsplit."""
+    llm = type("Llm", (), {"model": "gpt-4"})()
+    big = "x" * 5000
+    result = chunk_responses([big], tokens=50, llm=llm)
+    assert result == [big]
