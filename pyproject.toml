@@ -153,4 +153,7 @@ pythonpath = ["."]
 markers = [
     "integration: requires an LLM API key (not run in default CI)",
     "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
+    "linux_ci: subprocess or OS checks that only run on Linux CI (full unit job)",
+    "windows_ci: Windows-only CI smoke (cmd.exe, PowerShell, Windows paths)",
+    "darwin_ci: macOS-only CI smoke (AppleScript, Darwin shell)",
 ]

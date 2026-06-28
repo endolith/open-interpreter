@@ -1286,6 +1286,7 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
+@pytest.mark.linux_ci
 @pytest.mark.timeout(30)
 def test_shell_nested_loop_quoting():
     """Shell execution must pass nested quotes/variables through unchanged.
@@ -1296,13 +1297,12 @@ def test_shell_nested_loop_quoting():
     Uses bash-style loop syntax fed to subprocess_language, which spawns
     os.environ["SHELL"]. If SHELL is fish (or other non-bash), fail immediately
     (see require_bash_compatible_shell) instead of hanging forever.
+
+    Windows cmd.exe variant lives in tests/test_platform_ci.py (``windows_ci``).
     """
     require_bash_compatible_shell()
 
-    if platform.system() == "Windows":
-        code = 'for %i in (a b) do for %j in (1 2) do echo %i_%j'
-    else:
-        code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
+    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
     chunks = interpreter.computer.run("shell", code)
     output = "".join(
         chunk.get("content", "")

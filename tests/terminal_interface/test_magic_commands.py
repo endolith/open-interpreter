@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from interpreter.terminal_interface import magic_commands
 
 from tests.helpers import TEST_LLM_MODEL
@@ -85,6 +87,7 @@ def test_get_downloads_path_uses_home_on_posix(monkeypatch, tmp_path):
     assert (tmp_path / "Downloads").exists()
 
 
+@pytest.mark.windows_ci
 def test_get_downloads_path_windows(monkeypatch, tmp_path):
     monkeypatch.setattr(magic_commands.os, "name", "nt")
     monkeypatch.setenv("USERPROFILE", str(tmp_path))

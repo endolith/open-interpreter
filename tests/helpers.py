@@ -57,6 +57,16 @@ def require_bash_compatible_shell():
         )
 
 
+def console_output_text(chunks):
+    """Join console output chunks from ``computer.run`` / ``terminal.run``."""
+
+    return "".join(
+        chunk.get("content", "")
+        for chunk in chunks
+        if chunk.get("format") == "output"
+    )
+
+
 def patch_expanduser(monkeypatch, module, home):
     """Make expanduser('~') resolve to home (HOME is unreliable on Windows)."""
 
