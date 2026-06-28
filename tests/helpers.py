@@ -15,6 +15,12 @@ import pytest
 # prompts). Matches tests/config.test.yaml; never hits a real API in unit tests.
 TEST_LLM_MODEL = "gpt-4o-mini"
 
+# Integration tests call an LLM and execute whatever code it returns.
+INTEGRATION_SKIP_REASON = (
+    "integration tests call an LLM and execute generated code on your machine; "
+    "set OPENAI_API_KEY and OI_RUN_INTEGRATION=1 to run locally"
+)
+
 
 def chunks_of_type(chunks, chunk_type):
     return [chunk for chunk in chunks if chunk.get("type") == chunk_type]

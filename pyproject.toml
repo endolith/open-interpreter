@@ -151,7 +151,7 @@ ignore = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 markers = [
-    "integration: requires an LLM API key (not run in default CI)",
+    "integration: calls an LLM and may execute generated code; requires OPENAI_API_KEY and OI_RUN_INTEGRATION=1 locally",
     "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
     "linux_ci: only runs on Linux CI (full unit job)",
     "windows_ci: Windows-only CI smoke (cmd.exe, PowerShell, Windows paths)",
