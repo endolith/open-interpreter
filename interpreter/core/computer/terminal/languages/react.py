@@ -44,6 +44,12 @@ class React(BaseLanguage):
     name = "React"
     file_extension = "html"
 
+    def __init__(self):
+        super().__init__()
+
+    # system_message is intentionally absent. respond.py appends it to the
+    # system prompt when present (hasattr check), but React already tells the
+    # LLM what it needs via the HTML template it returns after execution.
     # system_message = "When you execute code with `react`, your react code will be run in a script tag after being inserted into the HTML template, following the installation of React, ReactDOM, and Babel for JSX parsing. **We will handle this! Don't make an HTML file to run React, just execute `react`.**"
 
     def run(self, code):
@@ -51,7 +57,7 @@ class React(BaseLanguage):
             yield {
                 "type": "console",
                 "format": "output",
-                "content": f"Error: React format not supported. {self.system_message} Therefore some things like `require` and 'import' aren't supported.",
+                "content": "Error: React format not supported. Inline `react` cannot use `require` or ES module `import`/`export`. Write component code only.",
                 "recipient": "assistant",
             }
             return
