@@ -35,7 +35,7 @@ When changing code, update **all** relevant documentation:
 
 ### Commits
 
-- **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). Break up multi-part work into separate commits that are each easy to review.
+- **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). This includes documentation and tests related to the change—keep them in the same commit so the code, its tests, and its documentation remain in sync and can be reverted together. Break up multi-part work into separate commits that are each easy to review.
 - **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain every change—why each file or function was touched, what problem it solves, and any trade-offs. The message should serve as a complete explanation of the diff, enabling reviewers to understand the entirety before reading the actual code. Avoid jargon and terse one-liners that omit essential reasoning and specifics.
 - **Use Conventional Commits** (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`) to standardize messages and enable automated changelog generation.
 
