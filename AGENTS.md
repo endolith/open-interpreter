@@ -26,8 +26,6 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 
 ### Documentation
 
-Don't delete or omit comments while changing things.  Comments are just as important as code.
-
 When changing code, update **all** relevant documentation:
 
 - **Code comments and docstrings** — keep them accurate and up-to-date.
@@ -38,8 +36,13 @@ When changing code, update **all** relevant documentation:
 ### Commits
 
 - **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). This includes documentation and tests related to the change—keep them in the same commit so the code, its tests, and its documentation remain in sync and can be reverted together. Break up multi-part work into separate commits that are each easy to review.
-- **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain every change—why each file or function was touched, what problem it solves, and any trade-offs. The message should serve as a complete explanation of the diff, enabling reviewers to understand the entirety before reading the actual code. Avoid jargon and terse one-liners that omit essential reasoning and specifics.
-- **Use Conventional Commits** (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`) to standardize messages and enable automated changelog generation.
+- **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain the problem being solved, the chosen approach, and any trade-offs. Provide the *context* that makes the diff understandable—why each change exists and what it achieves. Avoid meta-commentary about the commit itself (e.g., "fixing my commit according to instructions"). Keep process discussion in chat.
+- **Use Conventional Commits** (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`) to categorize changes and enable automated changelog generation.
+
+### Comments
+
+- **Code comments** explain *why*: the intent, non-obvious reasoning, edge cases, and business logic. If a comment is needed to restate what the code does, rewrite the code to be clearer instead. Historical context that explains current behavior is acceptable. Remove meta-commentary about the development process (e.g., "fixing my commit according to instructions" or "now following the directions"). Keep process discussions in chat, not in comments or commit messages.
+- Don't delete or omit comments while changing things. Comments are just as important as code.
 
 ### PRs and Issues
 
