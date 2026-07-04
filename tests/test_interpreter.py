@@ -1121,10 +1121,13 @@ def test_long_message():
     assert "A" in interpreter.messages[-1]["content"]
 
 
-# this function will run after each test
-# we're introducing some sleep to help avoid timeout issues with the OpenAI API
-def teardown_function():
-    time.sleep(4)
+# Pause after OpenAI integration tests to reduce API rate-limit errors.
+@pytest.fixture(autouse=True)
+def _rate_limit_openai_after_integration(request):
+    yield
+    if request.node.get_closest_marker("integration"):
+        time.sleep(4)
+
 
 
 @pytest.mark.skip(reason="Mac only + no way to fail test")
