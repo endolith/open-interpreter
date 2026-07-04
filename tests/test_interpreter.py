@@ -118,6 +118,9 @@ def _last_assistant_message(messages):
     for message in reversed(messages):
         if message.get("role") == "assistant" and message.get("type") == "message":
             return str(message.get("content", ""))
+    return ""
+
+
 def _last_assistant_text(messages):
     """Last assistant message or code block (models often reply with code only)."""
     for message in reversed(messages):
@@ -132,7 +135,12 @@ def _last_assistant_text(messages):
 
 @pytest.mark.timeout(120)
 def test_hallucinations():
-    # We should be resiliant to common hallucinations.
+    """Common LLM code hallucinations are normalized before execution.
+
+    Covers executeexecute suffixes, JSON code blocks, functions.execute()
+    wrappers, and loose object literals — each should run and produce the
+    expected numeric or print output.
+    """
 
     code = """10+12executeexecute\n"""
 
@@ -528,49 +536,31 @@ def test_server():
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
 
+            user_start = {"role": "user", "start": True}
+            file_question = {
+                "role": "user",
+                "type": "message",
+                "content": "Does this file exist?",
+            }
+            file_path = {
+                "role": "user",
+                "type": "file",
+                "format": "path",
+                "content": "/something.txt",
+            }
+
             # Sending messages via WebSocket
-            await websocket.send(json.dumps({"role": "user", "start": True}))
-            print("sent", json.dumps({"role": "user", "start": True}))
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "Does this file exist?",
-                    }
-                )
-            )
-            print(
-                "sent",
-                {
-                    "role": "user",
-                    "type": "message",
-                    "content": "Does this file exist?",
-                },
-            )
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "file",
-                        "format": "path",
-                        "content": "/something.txt",
-                    }
-                )
-            )
-            print(
-                "sent",
-                {
-                    "role": "user",
-                    "type": "file",
-                    "format": "path",
-                    "content": "/something.txt",
-                },
-            )
+            await websocket.send(json.dumps(user_start))
+            print("sent", user_start)
+            await websocket.send(json.dumps(file_question))
+            print("sent", file_question)
+            await websocket.send(json.dumps(file_path))
+            print("sent", file_path)
             await websocket.send(json.dumps({"role": "user", "end": True}))
             print("WebSocket chunks sent")
 
-            # Wait for response
+            # WebSocket stream may arrive before GET /messages is consistent; keep
+            # accumulated_content as a fallback when picking the assistant reply.
             accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
@@ -670,8 +660,8 @@ def test_server():
             print("POST request sent, response:", response.json())
 
     # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
-    # is no current event loop (e.g. pytest has not set one up). asyncio.run()
-    # creates a fresh loop, runs the coroutine, and closes it cleanly.
+    # is no current event loop. asyncio.run() creates a fresh loop and is the
+    # idiomatic replacement.
     try:
         asyncio.run(test_fastapi_server())
     finally:
@@ -680,6 +670,11 @@ def test_server():
 
 @pytest.mark.skip(reason="Mac only")
 def test_sms():
+    """Manual Mac-only smoke for reading and searching SMS via AppleScript.
+
+    Not suitable for CI: reads real Messages, needs TCC permission, ends assert False.
+    """
+
     sms = interpreter.computer.sms
 
     # Get the last 5 messages
@@ -695,6 +690,11 @@ def test_sms():
 
 @pytest.mark.skip(reason="Mac only")
 def test_pytes():
+    """Manual Mac-only smoke for vision OCR on a Desktop PNG (developer harness).
+
+    Not suitable for CI: needs a Desktop PNG on a logged-in GUI session, assert False.
+    """
+
     import os
 
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
@@ -714,6 +714,8 @@ def test_pytes():
 
 @pytest.mark.integration
 def test_ai_chat():
+    """Integration smoke: computer.ai.chat returns a response for a simple greeting."""
+
     print(interpreter.computer.ai.chat("hi"))
 
 
@@ -804,6 +806,8 @@ def test_generator():
 
 @pytest.mark.skip(reason="Requires open-interpreter[local]")
 def test_localos():
+    """Manual smoke for local OS view with images disabled then re-enabled."""
+
     interpreter.computer.emit_images = False
     interpreter.computer.view()
     interpreter.computer.emit_images = True
@@ -812,6 +816,8 @@ def test_localos():
 
 @pytest.mark.skip(reason="Requires open-interpreter[local]")
 def test_m_vision():
+    """Manual local-model smoke: chat with a base64 image when supports_vision is off."""
+
     base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
     messages = [
         {"role": "user", "type": "message", "content": "describe this image"},
@@ -840,6 +846,8 @@ def test_m_vision():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_point():
+    """Manual display smoke: mouse.move finds common macOS icons by description."""
+
     # interpreter.computer.debug = True
     interpreter.computer.mouse.move(icon="gear")
     interpreter.computer.mouse.move(icon="refresh")
@@ -851,6 +859,8 @@ def test_point():
 
 @pytest.mark.skip(reason="Aifs not ready")
 def test_skills():
+    """Manual skills.search integration (Python 3.11 only; skipped on 3.12)."""
+
     import sys
 
     if sys.version_info[:2] == (3, 12):
@@ -902,6 +912,8 @@ def test_skills():
 
 @pytest.mark.skip(reason="Local only")
 def test_browser():
+    """Manual local smoke: browser.search issues a query against a local API base."""
+
     interpreter.computer.api_base = "http://0.0.0.0:80/v0"
     print(
         interpreter.computer.browser.search("When's the next Dune showing in Seattle?")
@@ -911,6 +923,8 @@ def test_browser():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_display_api():
+    """Manual display smoke: mouse.move locates many on-screen icons/text labels."""
+
     start = time.time()
 
     # interpreter.computer.display.find_text("submit")
@@ -987,7 +1001,8 @@ def test_display_api():
 
 @pytest.mark.skip(reason="Server is not a stable feature")
 def test_websocket_server():
-    # Start the server in a new thread
+    """Manual smoke: legacy interpreter.server WebSocket accepts chat messages."""
+
     server_thread = threading.Thread(target=interpreter.server)
     server_thread.start()
 
@@ -1020,6 +1035,8 @@ def test_websocket_server():
 
 @pytest.mark.skip(reason="Server is not a stable feature")
 def test_i():
+    """Manual smoke: HTTP POST to interpreter.server streams a non-empty response."""
+
     import requests
 
     url = "http://127.0.0.1:8000/"
@@ -1050,12 +1067,16 @@ def test_i():
 
 @pytest.mark.integration
 def test_async():
+    """Non-blocking chat returns immediately; wait() collects the final result."""
+
     interpreter.chat("Hello!", blocking=False)
     print(interpreter.wait())
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_find_text_api():
+    """Manual display smoke: mouse.move with a long natural-language target string."""
+
     start = time.time()
     interpreter.computer.mouse.move(
         "Left Arrow Left Arrow and a bunch of hallucinated text? or was it..."
@@ -1068,6 +1089,8 @@ def test_find_text_api():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_getActiveWindow():
+    """Manual smoke: pywinctl reports the currently active window."""
+
     import pywinctl
 
     print(pywinctl.getActiveWindow())
@@ -1076,18 +1099,24 @@ def test_getActiveWindow():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_notify():
+    """Manual smoke: os.notify shows a desktop notification."""
+
     interpreter.computer.os.notify("Hello")
     assert False
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_get_text():
+    """Manual display smoke: get_text_as_list_of_lists OCRs the screen."""
+
     print(interpreter.computer.display.get_text_as_list_of_lists())
     assert False
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_keyboard():
+    """Manual smoke: keyboard.write types a long multi-line string."""
+
     time.sleep(2)
     interpreter.computer.keyboard.write("Hello " * 50 + "\n" + "hi" * 50)
     assert False
@@ -1095,6 +1124,8 @@ def test_keyboard():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_get_selected_text():
+    """Manual smoke: os.get_selected_text reads the current text selection."""
+
     print("Getting selected text")
     time.sleep(1)
     text = interpreter.computer.os.get_selected_text()
@@ -1104,6 +1135,10 @@ def test_get_selected_text():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_display_verbose():
+    """Manual verbose smoke: mouse.move logs extra detail when verbose is on."""
+
+    # Both flags must be on: computer.verbose drives subsystem logging; interpreter.verbose
+    # drives the top-level CLI display path this harness was originally debugging.
     interpreter.computer.verbose = True
     interpreter.verbose = True
     interpreter.computer.mouse.move(x=500, y=500)
@@ -1127,6 +1162,12 @@ def setup_function():
     reason="Not working consistently, I think GPT related changes? It worked recently"
 )
 def test_long_message():
+    """Integration: a very long user message is handled within a tiny context window.
+
+    The model should still recall the four repeated characters from the prompt
+    despite aggressive context_window truncation.
+    """
+
     messages = [
         {
             "role": "user",
@@ -1151,6 +1192,11 @@ def _rate_limit_openai_after_integration(request):
 
 @pytest.mark.skip(reason="Mac only + no way to fail test")
 def test_spotlight():
+    """Manual Mac smoke: command+space opens Spotlight.
+
+    Not suitable for CI: drives the GUI with no pass/fail check.
+    """
+
     interpreter.computer.keyboard.hotkey("command", "space")
 
 
@@ -1174,8 +1220,11 @@ def test_files(tmp_path):
     ]
     interpreter.chat(messages)
 
+
 @pytest.mark.skip(reason="Only 100 vision calls allowed / day!")
 def test_vision():
+    """Manual vision integration: describe a base64 PNG with supports_vision enabled."""
+
     base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
     messages = [
         {"role": "user", "type": "message", "content": "describe this image"},
@@ -1201,6 +1250,8 @@ def test_vision():
 
 
 def test_multiple_instances():
+    """Each OpenInterpreter instance keeps its own system_message."""
+
     interpreter.system_message = "i"
     agent_1 = OpenInterpreter()
     agent_1.system_message = "<3"
@@ -1214,6 +1265,8 @@ def test_multiple_instances():
 
 @pytest.mark.integration
 def test_hello_world():
+    """Integration: LLM replies with exactly 'Hello, World!' and no code execution."""
+
     hello_world_response = "Hello, World!"
 
     hello_world_message = f"Please reply with just the words {hello_world_response} and nothing else. Do not run code. No confirmation just the text."
@@ -1227,7 +1280,8 @@ def test_hello_world():
 
 @pytest.mark.integration
 def test_math():
-    # we'll generate random integers between this min and max in our math tests
+    """Integration: LLM computes a random order-of-operations expression correctly."""
+
     min_number = randint(1, 99)
     max_number = randint(1001, 9999)
 
@@ -1249,6 +1303,7 @@ def test_math():
     assert str(round(test_result, 2)) in messages[-1]["content"]
 
 
+@pytest.mark.timeout(120)
 def test_break_execution():
     """
     Breaking from the generator while it's executing should halt the operation.
@@ -1307,9 +1362,17 @@ with open('numbers.txt', 'a+') as f:
 def test_shell_nested_loop_quoting():
     """Shell execution must pass nested quotes/variables through unchanged.
 
-    Deterministic: no LLM, no API. Windows cmd.exe variant: test_platform_ci.py.
+    Deterministic: no LLM, no API. The old integration test tried to cover this
+    via LLM-generated nested shell loops, which hung when quoting was malformed.
+
+    Uses bash-style loop syntax fed to subprocess_language, which spawns
+    os.environ["SHELL"]. If SHELL is fish (or other non-bash), fail immediately
+    (see require_bash_compatible_shell) instead of hanging forever.
+
+    Windows cmd.exe variant lives in tests/test_platform_ci.py (``windows_ci``).
     """
     require_bash_compatible_shell()
+
     code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
     chunks = interpreter.computer.run("shell", code)
     output = "".join(
@@ -1323,6 +1386,8 @@ def test_shell_nested_loop_quoting():
 
 @pytest.mark.integration
 def test_delayed_exec():
+    """Integration: LLM writes and runs code with a delay between print statements."""
+
     require_bash_compatible_shell()
     interpreter.chat(
         """Can you write a single block of code and execute it that prints something, then delays 1 second, then prints something else? No talk just code, execute the code. Thanks!"""
@@ -1335,6 +1400,8 @@ def test_delayed_exec():
 @pytest.mark.integration
 @pytest.mark.timeout(180)
 def test_nested_loops_and_multiple_newlines():
+    """Integration: LLM runs spaced Python loops then a single bash echo line."""
+
     require_bash_compatible_shell()
     messages = interpreter.chat(
         """Can you write a nested for loop in python and run it? Put 1-3 newlines between each line in the python code.
@@ -1368,19 +1435,25 @@ def test_write_to_file(monkeypatch, tmp_path):
     )
     assert "Washington" in messages[-1]["content"]
 
+
 @pytest.mark.integration
 def test_markdown():
+    """Integration: LLM emits assorted markdown features in a single reply."""
+
     interpreter.chat(
         """Hi, can you test out a bunch of markdown features? Try writing a fenced code block, a table, headers, everything. DO NOT write the markdown inside a markdown code block, just write it raw."""
     )
 
 
 def test_reset():
-    # make sure that interpreter.reset() clears out the messages Array
+    """setup_function leaves messages empty after interpreter.reset()."""
+
     assert interpreter.messages == []
 
 
 def test_token_counter():
+    """count_tokens and count_messages_tokens agree for system and user prompts."""
+
     system_tokens = count_tokens(
         text=interpreter.system_message, model=interpreter.llm.model
     )
