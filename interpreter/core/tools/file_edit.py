@@ -152,7 +152,7 @@ def _validate_target(target, *, must_exist):
     else:
         if path.exists():
             raise FileExistsError(
-                f"file already exists — use another edit language (not write): {target}"
+                f"file already exists — write a new file name or use another edit language to modify the file: {target}"
             )
 
 
