@@ -7,6 +7,8 @@ from random import randint
 
 import pytest
 
+from tests.helpers import require_bash_compatible_shell
+
 #####
 from interpreter import AsyncInterpreter, OpenInterpreter
 from interpreter.terminal_interface.utils.count_tokens import (
@@ -1277,6 +1279,8 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
+@pytest.mark.linux_ci
+@pytest.mark.timeout(30)
 def test_shell_nested_loop_quoting():
     """Shell execution must pass nested quotes/variables through unchanged.
 
@@ -1284,10 +1288,9 @@ def test_shell_nested_loop_quoting():
     via LLM-generated nested shell loops, which hung when quoting was malformed.
     """
 
-    if platform.system() == "Windows":
-        code = 'for %i in (a b) do for %j in (1 2) do echo %i_%j'
-    else:
-        code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
+    require_bash_compatible_shell()
+
+    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
     chunks = interpreter.computer.run("shell", code)
     output = "".join(
         chunk.get("content", "")
