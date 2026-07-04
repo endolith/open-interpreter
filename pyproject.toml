@@ -147,3 +147,13 @@ ignore = [
 "interpreter/core/llm/utils/convert_to_openai_messages.py" = ["F821"]
 "interpreter/core/respond.py" = ["F821"]
 "tests/test_interpreter.py" = ["F821"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "integration: calls an LLM, costs money, and executes generated code without approval; set OI_RUN_INTEGRATION=1 locally",
+    "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
+    "linux_ci: only runs on Linux CI (full unit job)",
+    "windows_ci: Windows-only CI smoke (cmd.exe, PowerShell, Windows paths)",
+    "darwin_ci: macOS-only CI smoke (AppleScript, Darwin shell)",
+]

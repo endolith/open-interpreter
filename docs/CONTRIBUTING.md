@@ -55,6 +55,32 @@ Once you've forked the code and created a new branch for your work, you can run 
 3. Install dependencies by running `poetry install`.
 4. Run the program with `poetry run interpreter`. Run tests with `poetry run pytest -s -x`.
 
+
+### CI test layout
+
+GitHub Actions splits work by OS so Linux runs the full suite without re-running everything on Windows and macOS:
+
+| Job | Runner | What runs |
+| --- | --- | --- |
+| **Unit tests (Linux)** | `ubuntu-latest` | Full unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14 |
+| **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only; sets `OI_RUN_INTEGRATION=1` |
+| **Windows CI smoke** | `windows-latest` | Only `@pytest.mark.windows_ci` — `cmd.exe`, PowerShell, Windows paths, `tests` import path |
+| **macOS CI smoke** | `macos-latest` | Only `@pytest.mark.darwin_ci` — real `osascript`, Unix `$SHELL` |
+
+**Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped by default locally even when `OPENAI_API_KEY` is set — pass `OI_RUN_INTEGRATION=1` to run them. CI sets `OI_RUN_INTEGRATION=1` in the integration workflow job.
+
+```bash
+# Linux/macOS
+OI_RUN_INTEGRATION=1 pytest -m integration
+
+# Windows
+set OI_RUN_INTEGRATION=1
+pytest -m integration
+```
+
+Locally: `pytest -m "not integration"` runs the full unit suite. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
+
+
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 
 ### Installing New Dependencies
