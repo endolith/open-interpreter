@@ -15,6 +15,7 @@ from interpreter.terminal_interface.utils.count_tokens import (
 )
 
 interpreter = OpenInterpreter()
+interpreter.conversation_history = False
 #####
 
 import multiprocessing
