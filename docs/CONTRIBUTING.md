@@ -73,6 +73,17 @@ set OI_RUN_INTEGRATION=1
 pytest -m integration
 ```
 
+### CI test layout
+
+| Job | Runner | What runs |
+| --- | --- | --- |
+| **Unit tests (Linux)** | `ubuntu-latest` | Unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14 |
+| **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only; sets `OI_RUN_INTEGRATION=1` and `OPENAI_API_KEY` |
+
+Platform-specific tests use `linux_ci`, `windows_ci`, and `darwin_ci` markers. conftest skips each marker on the wrong host so a local Linux run does not fail on Windows-only tests. Dedicated Windows/macOS workflow jobs ship with the smoke tests that use those markers.
+
+Locally: `pytest -m "not integration"` runs the unit suite. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
+
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 
 ### Installing New Dependencies

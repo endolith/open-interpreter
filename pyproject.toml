@@ -146,6 +146,9 @@ pythonpath = ["."]
 markers = [
     "integration: calls an LLM, costs money, and executes generated code without approval; requires OI_RUN_INTEGRATION=1 and OPENAI_API_KEY",
     "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
+    "linux_ci: runs on Linux CI and locally on Linux hosts",
+    "windows_ci: runs on Windows CI and locally on Windows hosts",
+    "darwin_ci: runs on macOS CI and locally on Darwin hosts",
 ]
 
 [tool.ruff.lint.per-file-ignores]
