@@ -523,45 +523,26 @@ def test_server():
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
 
+            user_start = {"role": "user", "start": True}
+            file_question = {
+                "role": "user",
+                "type": "message",
+                "content": "Does this file exist?",
+            }
+            file_path = {
+                "role": "user",
+                "type": "file",
+                "format": "path",
+                "content": "/something.txt",
+            }
+
             # Sending messages via WebSocket
-            await websocket.send(json.dumps({"role": "user", "start": True}))
-            print("sent", json.dumps({"role": "user", "start": True}))
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "Does this file exist?",
-                    }
-                )
-            )
-            print(
-                "sent",
-                {
-                    "role": "user",
-                    "type": "message",
-                    "content": "Does this file exist?",
-                },
-            )
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "file",
-                        "format": "path",
-                        "content": "/something.txt",
-                    }
-                )
-            )
-            print(
-                "sent",
-                {
-                    "role": "user",
-                    "type": "file",
-                    "format": "path",
-                    "content": "/something.txt",
-                },
-            )
+            await websocket.send(json.dumps(user_start))
+            print("sent", user_start)
+            await websocket.send(json.dumps(file_question))
+            print("sent", file_question)
+            await websocket.send(json.dumps(file_path))
+            print("sent", file_path)
             await websocket.send(json.dumps({"role": "user", "end": True}))
             print("WebSocket chunks sent")
 
