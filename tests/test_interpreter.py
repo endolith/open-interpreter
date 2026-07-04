@@ -1139,6 +1139,7 @@ def test_spotlight():
 
 @pytest.mark.integration
 def test_files():
+    require_bash_compatible_shell()
     messages = [
         {"role": "user", "type": "message", "content": "Does this file exist?"},
         {
@@ -1303,6 +1304,7 @@ def test_shell_nested_loop_quoting():
 
 @pytest.mark.integration
 def test_delayed_exec():
+    require_bash_compatible_shell()
     interpreter.chat(
         """Can you write a single block of code and execute it that prints something, then delays 1 second, then prints something else? No talk just code, execute the code. Thanks!"""
     )
@@ -1314,6 +1316,7 @@ def test_delayed_exec():
 @pytest.mark.integration
 @pytest.mark.timeout(180)
 def test_nested_loops_and_multiple_newlines():
+    require_bash_compatible_shell()
     messages = interpreter.chat(
         """Can you write a nested for loop in python and run it? Put 1-3 newlines between each line in the python code.
 
@@ -1329,6 +1332,7 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 @pytest.mark.integration
 def test_write_to_file():
+    require_bash_compatible_shell()
     interpreter.chat(
         """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
     )
