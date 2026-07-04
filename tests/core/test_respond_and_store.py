@@ -1,0 +1,55 @@
+from unittest import mock
+
+from interpreter import OpenInterpreter
+
+
+def test_respond_and_store_merges_consecutive_chunks():
+    """Consecutive assistant message chunks of the same type are merged into one stored message."""
+    interpreter = OpenInterpreter()
+    interpreter.messages = []
+
+    def fake_respond(_interpreter):
+        yield {"role": "assistant", "type": "message", "content": "Hello "}
+        yield {"role": "assistant", "type": "message", "content": "world"}
+
+    with mock.patch("interpreter.core.core.respond", fake_respond):
+        chunks = list(interpreter._respond_and_store())
+
+    assert interpreter.messages[-1]["content"] == "Hello world"
+    assert chunks[0].get("start") is True
+    assert chunks[0]["role"] == "assistant"
+
+
+def test_respond_and_store_skips_ephemeral_review_chunks():
+    """Review-type chunks are yielded but not persisted to the conversation history."""
+    interpreter = OpenInterpreter()
+    interpreter.messages = []
+
+    def fake_respond(_interpreter):
+        yield {"role": "assistant", "type": "review", "format": "safe", "content": "ok"}
+        yield {"role": "assistant", "type": "message", "content": "done"}
+
+    with mock.patch("interpreter.core.core.respond", fake_respond):
+        list(interpreter._respond_and_store())
+
+    assert len(interpreter.messages) == 1
+
+
+def test_respond_and_store_truncates_console_output():
+    """Console output stored via _respond_and_store is truncated to interpreter.max_output."""
+    interpreter = OpenInterpreter()
+    interpreter.max_output = 100
+    interpreter.messages = []
+
+    def fake_respond(_interpreter):
+        yield {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "x" * 500,
+        }
+
+    with mock.patch("interpreter.core.core.respond", fake_respond):
+        list(interpreter._respond_and_store())
+
+    assert "Output truncated" in interpreter.messages[-1]["content"]
