@@ -469,7 +469,8 @@ def test_server():
             assert messages[-1]["type"] == "code"
             assert "18893094989" not in accumulated_content.replace(",", "")
 
-            # Send go message
+            # The math turn used auto_run=False, so the model wrote Python code but did
+            # not execute it. "go" tells the server to run that pending code block now.
             await websocket.send(
                 json.dumps({"role": "user", "type": "command", "start": True})
             )
