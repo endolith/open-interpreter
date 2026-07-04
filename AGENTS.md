@@ -6,9 +6,11 @@ This repo (`endolith/open-interpreter`) is the community-maintained home of OI C
 
 ## Quick commands
 
+- `pytest -m "not integration"` – fast local unit tests (skip LLM calls)
 - `pytest -k "test_name"` – run a single test
 - `ruff check .` – lint
 - `ruff format .` – auto-format
+- `OI_RUN_INTEGRATION=1 pytest -m integration` – integration tests (also needs `OPENAI_API_KEY`; use sparingly locally)
 
 ## Development setup
 
@@ -23,6 +25,7 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 - **Always write or update unit tests** when changing code. New functions/methods need tests; bug fixes need regression tests.
 - **Every test function must have a docstring** explaining what behavior it verifies and why. Someone who breaks the test must be able to understand what they broke and what the intended behavior is.
 - **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, fixing any failures before considering the work complete.
+- **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally they need both `OI_RUN_INTEGRATION=1` and `OPENAI_API_KEY`; without either, pytest skips them. CI sets both in the integration workflow job (see `docs/CONTRIBUTING.md`).
 
 ### Documentation
 
@@ -51,7 +54,7 @@ When changing code, update **all** relevant documentation:
 
 ### Done checklist
 
-- [ ] Local tests pass
+- [ ] Local tests pass (`pytest -m "not integration"`)
 - [ ] CI is green (monitor until it passes)
 - [ ] New logic has a test with a docstring
 - [ ] All affected docs updated (READMEs, `docs/`, docstrings, AGENTS.md)

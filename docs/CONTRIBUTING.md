@@ -55,6 +55,24 @@ Once you've forked the code and created a new branch for your work, you can run 
 3. Install dependencies by running `poetry install`.
 4. Run the program with `poetry run interpreter`. Run tests with `poetry run pytest -s -x`.
 
+### Integration tests locally
+
+**Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped unless **both** conditions are met:
+
+1. `OI_RUN_INTEGRATION=1` — explicit opt-in (skipped by default even when `OPENAI_API_KEY` is set)
+2. `OPENAI_API_KEY` is set — skipped when unset, even with `OI_RUN_INTEGRATION=1`
+
+CI sets both in the integration workflow job.
+
+```bash
+# Linux/macOS
+OI_RUN_INTEGRATION=1 pytest -m integration
+
+# Windows
+set OI_RUN_INTEGRATION=1
+pytest -m integration
+```
+
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 
 ### Installing New Dependencies
