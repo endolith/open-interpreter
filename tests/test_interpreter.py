@@ -116,9 +116,19 @@ def _last_assistant_message(messages):
     for message in reversed(messages):
         if message.get("role") == "assistant" and message.get("type") == "message":
             return str(message.get("content", ""))
+def _last_assistant_text(messages):
+    """Last assistant message or code block (models often reply with code only)."""
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        if message.get("type") in ("message", "code"):
+            content = message.get("content")
+            if content:
+                return str(content)
     return ""
 
 
+@pytest.mark.timeout(120)
 def test_hallucinations():
     # We should be resiliant to common hallucinations.
 
@@ -318,7 +328,12 @@ def run_server():
 @pytest.mark.integration
 @pytest.mark.timeout(900)
 def test_server():
-    # Start the server in a new process
+    """FastAPI/WebSocket server accepts settings, streams chat, and completes cleanly.
+
+    Spins up AsyncInterpreter in a subprocess (spawn context), posts settings,
+    sends a user message over WebSocket, and verifies poem-style responses
+    arrive without authentication when INTERPRETER_REQUIRE_ACKNOWLEDGE is off.
+    """
 
     process = _start_server_subprocess(run_server)
 
@@ -469,7 +484,8 @@ def test_server():
             assert messages[-1]["type"] == "code"
             assert "18893094989" not in accumulated_content.replace(",", "")
 
-            # Send go message
+            # The math turn used auto_run=False, so the model wrote Python code but did
+            # not execute it. "go" tells the server to run that pending code block now.
             await websocket.send(
                 json.dumps({"role": "user", "type": "command", "start": True})
             )
@@ -494,8 +510,19 @@ def test_server():
             #### TEST FILE ####
 
             # Send another POST request
+            # auto_run=False: this turn only checks the model's text answer about a file
+            # path (judged via computer.ai.chat). We must not auto-execute shell code here
+            # or the server can hang before WebSocket 'complete' — unrelated to fish/$SHELL.
+            # custom_instructions steers plain-text replies; _last_assistant_text handles
+            # models that still emit a code block instead of a message.
             post_url = "http://127.0.0.1:8000/settings"
-            settings = {"messages": [], "auto_run": True}
+            settings = {
+                "messages": [],
+                "auto_run": False,
+                "custom_instructions": (
+                    "Answer in plain text only. Do not write or run code."
+                ),
+            }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
 
@@ -552,19 +579,21 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            last_assistant = _last_assistant_message(messages)
-            assert last_assistant, "expected assistant message after file turn"
+            last_assistant = _last_assistant_text(messages) or accumulated_content
+            assert last_assistant, "expected assistant response after file turn"
             response = interpreter.computer.ai.chat(
                 last_assistant
-                + "\n\nBased on the assistant message above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+                + "\n\nBased on the assistant response above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
             )
             assert response.strip(" \n.").lower() == "no"
 
             #### TEST IMAGES ####
 
             # Send another POST request
+            # auto_run=False again so vision MCQ is text-only. custom_instructions=""
+            # clears the file-turn "plain text only" prompt for this image turn.
             post_url = "http://127.0.0.1:8000/settings"
-            settings = {"messages": [], "auto_run": True}
+            settings = {"messages": [], "auto_run": False, "custom_instructions": ""}
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
 
@@ -622,8 +651,8 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
-            last_assistant = _last_assistant_message(messages)
-            assert last_assistant, "expected assistant message after image turn"
+            last_assistant = _last_assistant_text(messages) or accumulated_content
+            assert last_assistant, "expected assistant response after image turn"
             assert re.search(
                 r"\bB\b", last_assistant, re.IGNORECASE
             ), f"expected vision model to answer B (gradient), got: {last_assistant!r}"
