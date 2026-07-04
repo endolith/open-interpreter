@@ -15,6 +15,7 @@ from interpreter.terminal_interface.utils.count_tokens import (
 )
 
 interpreter = OpenInterpreter()
+interpreter.conversation_history = False
 #####
 
 import multiprocessing
@@ -1078,6 +1079,7 @@ def test_display_verbose():
 
 # this function will run before each test
 # we're clearing out the messages Array so we can start fresh and reduce token usage
+# Clear message history before each test to reduce token usage across the module fixture.
 def setup_function():
     interpreter.reset()
     interpreter.llm.temperature = 0
