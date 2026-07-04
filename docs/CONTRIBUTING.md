@@ -55,7 +55,6 @@ Once you've forked the code and created a new branch for your work, you can run 
 3. Install dependencies by running `poetry install`.
 4. Run the program with `poetry run interpreter`. Run tests with `poetry run pytest -s -x`.
 
-
 ### CI test layout
 
 GitHub Actions splits work by OS so Linux runs the full suite without re-running everything on Windows and macOS:
@@ -63,7 +62,7 @@ GitHub Actions splits work by OS so Linux runs the full suite without re-running
 | Job | Runner | What runs |
 | --- | --- | --- |
 | **Unit tests (Linux)** | `ubuntu-latest` | Full unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14, plus language runtime smokes in `tests/test_language_subprocess.py` (CI installs `ruby`, `r-base`, `default-jdk`, and Google Chrome) |
-| **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only; sets `OI_RUN_INTEGRATION=1` |
+| **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only |
 | **Windows CI smoke** | `windows-latest` | Only `@pytest.mark.windows_ci` — `cmd.exe`, PowerShell, Windows paths, `tests` import path |
 | **macOS CI smoke** | `macos-latest` | Only `@pytest.mark.darwin_ci` — real `osascript`, Unix `$SHELL` |
 
@@ -75,6 +74,10 @@ Every Terminal language has a runtime smoke on at least one runner:
 | Shell (`cmd.exe`), PowerShell | Windows |
 | AppleScript | macOS |
 
+Platform-only tests live in `tests/test_platform_ci.py`. When fixing cross-platform bugs, add or extend the marker for that OS rather than running the full ~300-test suite on every runner.
+
+**Manual Mac harness tests** (`test_sms`, `test_pytes`, `test_spotlight` in `tests/test_interpreter.py`) stay `@pytest.mark.skip` — they predate this fork, have no real assertions (`assert False` or none), and need SMS permissions, Desktop files, or GUI focus. macOS CI runs `darwin_ci` smokes in `test_platform_ci.py` instead (AppleScript subprocess, `$SHELL` quoting). Add new `darwin_ci` tests there when you need automated Mac coverage; do not un-skip the harnesses.
+
 The language runtime smokes (`tests/test_language_subprocess.py`) run hardcoded snippets — they don't call an LLM. They run automatically on Linux when the required binary is present (`irb`, `R`, `javac`, `google-chrome`), and skip gracefully when it isn't. To test every language locally on Linux:
 
 ```bash
@@ -84,7 +87,7 @@ wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 sudo apt install ./google-chrome-stable_current_amd64.deb
 ```
 
-**Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped by default locally even when `OPENAI_API_KEY` is set — pass `OI_RUN_INTEGRATION=1` to run them. CI sets `OI_RUN_INTEGRATION=1` in the integration workflow job.
+**Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped by default locally even when `OPENAI_API_KEY` is set — pass `OI_RUN_INTEGRATION=1` to run them. CI runs them on trusted branches via the integration job.
 
 ```bash
 # Linux/macOS
@@ -95,8 +98,7 @@ set OI_RUN_INTEGRATION=1
 pytest -m integration
 ```
 
-Locally: `pytest -m "not integration"` runs the full unit suite. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
-
+Locally: `pytest -m "not integration"` runs the full mocked unit suite + any language binaries you have installed. `linux_ci` / `windows_ci` / `darwin_ci` tests are skipped automatically on the wrong OS.
 
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 

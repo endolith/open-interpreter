@@ -25,10 +25,12 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 - **Always write or update unit tests** when changing code. New functions/methods need tests; bug fixes need regression tests.
 - **Every test function must have a docstring** explaining what behavior it verifies and why. Someone who breaks the test must be able to understand what they broke and what the intended behavior is.
 - **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, fixing any failures before considering the work complete.
-- **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally, set `OI_RUN_INTEGRATION=1` to run them. CI sets the same variable in the integration workflow job (see `docs/CONTRIBUTING.md`).
 - **Shell tests on Unix** that feed bash-syntax snippets to `subprocess_language` should call `require_bash_compatible_shell()` from `tests.helpers`:  Non-bash `$SHELL` (e.g. fish) hangs instead of failing.
 - **Shared test helpers** live in `tests/helpers.py` (import `from tests.helpers import …`). Do not import from `conftest.py` — it is not a stable import path on all platforms.
 - **Computer subsystem tests** use `COMPUTER_TOOL_SUBSYSTEMS` in `tests/helpers.py` — update when `_get_all_computer_tools_list` changes (until [#101](https://github.com/endolith/open-interpreter/issues/101) lands).
+- **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally, set `OI_RUN_INTEGRATION=1` to run them. CI sets the same variable in the integration workflow job (see `docs/CONTRIBUTING.md`).
+- **Platform-specific tests** use `linux_ci`, `windows_ci`, or `darwin_ci` markers. Add OS-only coverage to `tests/test_platform_ci.py` (or the appropriate language file) rather than running the full suite on every CI runner.
+- **Manual harness tests** in `tests/test_interpreter.py` (e.g. `@pytest.mark.skip(reason="Mac only")`) are legacy developer smokes — they `assert False`, read private data (SMS), or need a display. **Do not enable them in macOS CI**; write deterministic `darwin_ci` tests in `test_platform_ci.py` instead (AppleScript and shell quoting are already covered there).
 
 ### Documentation
 

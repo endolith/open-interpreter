@@ -668,7 +668,7 @@ def test_server():
         _stop_server_subprocess(process)
 
 
-@pytest.mark.skip(reason="Mac only")
+@pytest.mark.skip(reason="Mac only — manual harness; use darwin_ci in test_platform_ci.py for CI")
 def test_sms():
     """Manual Mac-only smoke for reading and searching SMS via AppleScript.
 
@@ -688,7 +688,7 @@ def test_sms():
     assert False
 
 
-@pytest.mark.skip(reason="Mac only")
+@pytest.mark.skip(reason="Mac only — manual harness; use darwin_ci in test_platform_ci.py for CI")
 def test_pytes():
     """Manual Mac-only smoke for vision OCR on a Desktop PNG (developer harness).
 
@@ -1190,7 +1190,7 @@ def _rate_limit_openai_after_integration(request):
         time.sleep(4)
 
 
-@pytest.mark.skip(reason="Mac only + no way to fail test")
+@pytest.mark.skip(reason="Mac only — manual harness; no assertion; not for CI")
 def test_spotlight():
     """Manual Mac smoke: command+space opens Spotlight.
 
