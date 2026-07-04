@@ -1,15 +1,18 @@
-"""Regression tests for issue #3: lazy pynput import masking AttributeError."""
-
 import importlib
 import importlib.abc
 import importlib.util
 import sys
+from types import SimpleNamespace
+from unittest import mock
 
 import pytest
+
+from interpreter.core.computer.skills.skills import Skills
 
 SKILLS_MODULE = "interpreter.core.computer.skills.skills"
 
 
+# 3 regression tests for issue #3: lazy pynput import masking AttributeError.
 def _install_headless_lazy_module(module_name):
     """Register a PEP 562 lazy module that fails like pynput on headless SSH."""
 
@@ -91,3 +94,58 @@ def test_attribute_error_unmasked_when_skills_does_not_preload_pynput():
     finally:
         for name, mod in saved.items():
             sys.modules[name] = mod
+
+
+# Other tests
+
+def test_list_returns_empty_when_skills_disabled(capsys):
+    """Skills.list() returns an empty list when import_skills is disabled."""
+    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
+    skills = Skills(computer)
+    assert skills.list() == []
+
+
+def test_list_returns_skill_names(tmp_path):
+    """Skills.list() returns callable signatures for each .py file in the skills directory."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "demo_skill.py").write_text("def demo_skill(): pass")
+    computer = SimpleNamespace(
+        import_skills=True,
+        _has_imported_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    result = skills.list()
+    assert result == ["demo_skill()"]
+
+
+def test_import_skills_runs_python_files(tmp_path):
+    """import_skills() executes each skill file via computer.run and enables save_skills."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    skill_file = skills_dir / "skill_a.py"
+    skill_file.write_text("x = 1")
+    computer = SimpleNamespace(
+        import_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    skills.import_skills()
+    computer.run.assert_called_once_with("python",
+                                         skill_file.read_text() + "\n")
+    assert computer.save_skills is True
+
+
+def test_import_skills_skips_when_disabled():
+    """import_skills() does nothing when import_skills is False on the computer."""
+    computer = SimpleNamespace(import_skills=False, run=mock.Mock())
+    skills = Skills(computer)
+    skills.import_skills()
+    computer.run.assert_not_called()
