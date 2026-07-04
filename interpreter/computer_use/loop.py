@@ -1,4 +1,9 @@
 """
+Anthropic computer-use demo loop (entered via `interpreter --os` in __init__.py).
+
+Not the same as `--profile os`, which uses Classic's execute tool + computer.* APIs.
+Uses legacy beta computer-use-2024-10-22 / computer_20241022; see docs/guides/os-mode.mdx.
+
 Based on Anthropic's computer use example at https://github.com/anthropics/anthropic-quickstarts/blob/main/computer-use-demo/computer_use_demo/loop.py
 """
 

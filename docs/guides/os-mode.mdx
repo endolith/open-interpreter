@@ -2,16 +2,48 @@
 title: OS Mode
 ---
 
-OS mode is a highly experimental mode that allows Open Interpreter to control the operating system visually through the mouse and keyboard. It provides a multimodal LLM like GPT-4V with the necessary tools to capture screenshots of the display and interact with on-screen elements such as text and icons. It will try to use the most direct method to achieve the goal, like using spotlight on Mac to open applications, and using query parameters in the URL to open websites with additional information.
+Open Interpreter on Classic (`main`) has **two separate ways** to control the desktop. They use different code and APIs.
 
-OS mode is a work in progress, if you have any suggestions or experience issues, please reach out on our [Discord](https://discord.com/invite/6p3fD6rBVm).
+## Recommended: profile-based OS control
 
-To enable OS Mode, run the interpreter with the `--os` flag:
+```bash
+interpreter --profile os
+```
+
+Related profiles include `local-os`, `codestral-os`, and `llama3-os` (combined with `--local`, `--codestral`, or `--llama3`).
+
+This is the normal Classic interpreter loop (`respond.py`):
+
+- The model uses the **`execute` tool** (or markdown code blocks) with languages such as `python` or `shell`.
+- GUI actions use the Python **`computer.*` module** (PyAutoGUI, screenshots, etc.), as described in `interpreter/terminal_interface/profiles/defaults/os.py`.
+- Shell commands run through **`interpreter/core/computer/terminal/`** (a persistent `Shell` subprocess). This is the same execution path as everyday Classic use—not Anthropic's computer-use beta API.
+
+This path works with LiteLLM-supported models (tool calling or markdown code blocks). Profiles set `interpreter.os = True` and `auto_run = True`.
+
+## Experimental: `interpreter --os` (Anthropic computer-use demo)
 
 ```bash
 interpreter --os
 ```
 
-Please note that screen recording permissions must be enabled for your terminal application for OS mode to work properly to work.
+Importing the package with `--os` in `sys.argv` exits early into **`interpreter/computer_use/loop.py`**—a port of [Anthropic's computer-use quickstart](https://github.com/anthropics/anthropic-quickstarts/tree/main/computer-use-demo)—**before** the normal CLI or `--profile os` runs.
 
-OS mode does not currently support multiple displays.
+This path:
+
+- Calls the **Anthropic SDK directly** (not LiteLLM).
+- Requires an **Anthropic API key**.
+- Sends the beta header **`computer-use-2024-10-22`** and registers **`ComputerTool`** (`computer_20241022`) only. **`BashTool`** (`bash_20241022`) and **`EditTool`** exist under `interpreter/computer_use/tools/` but are **commented out** in `loop.py`.
+
+### Legacy API status
+
+The `2024-10-22` beta stack is **legacy**. Current Anthropic models expect newer beta headers (for example `computer-use-2025-01-24` or `computer-use-2025-11-24`) and matching tool types (`computer_20250124`, `bash_20250124`, etc.). **`interpreter --os` may fail or behave unpredictably with current Claude models** until this code is updated.
+
+See [Anthropic's computer use documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) for supported beta headers and tool types.
+
+### Requirements
+
+Screen recording permissions must be enabled for your terminal application. Neither path currently supports multiple displays.
+
+---
+
+OS control is experimental. For suggestions or issues, reach out on [Discord](https://discord.com/invite/6p3fD6rBVm).

@@ -171,6 +171,10 @@ Run shell commands with -y so the user doesn't have to confirm them.
 print(interpreter.system_message)
 ```
 
+### OS control (experimental)
+
+To control the desktop (mouse, keyboard, screenshots), use **`interpreter --profile os`**—the maintained Classic path (`execute` tool + Python `computer.*` module). The separate **`interpreter --os`** flag runs an older Anthropic computer-use demo with a legacy beta API; see [`docs/guides/os-mode.mdx`](docs/guides/os-mode.mdx).
+
 ### Change your Language Model
 
 Open Interpreter uses [LiteLLM](https://docs.litellm.ai/docs/providers/) to connect to hosted language models.
