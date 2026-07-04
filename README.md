@@ -359,6 +359,23 @@ Open Interpreter equips a [function-calling language model](https://platform.ope
 
 We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
 
+## Supported Languages
+
+| Language | Linux | macOS | Windows | Session |
+|----------|:-----:|:-----:|:-------:|:-------:|
+| Python | ✓ | ✓ | ✓ | Yes |
+| Shell | ✓ | ✓ | ✓ | Yes |
+| JavaScript | ✓ | ✓ | ✓ | Yes |
+| Ruby | ✓ | ✓ | ✓ | Yes |
+| R | ✓ | ✓ | ✓ | Yes |
+| PowerShell | ✓ | ✓ | ✓ | Yes |
+| Java | ✓ | ✓ | ✓ | No |
+| AppleScript | — | ✓ | — | No |
+| HTML | ✓ | ✓ | ✓ | View only |
+| React | ✓ | ✓ | ✓ | View only |
+
+**Session:** `Yes` = persistent REPL; `No` = each block runs fresh; `View only` = renders content in the UI (no code executed).
+
 ## Access Documentation Offline
 
 The full [documentation](docs) is accessible on-the-go without the need for an internet connection.
