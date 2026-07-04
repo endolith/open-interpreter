@@ -134,6 +134,7 @@ def _last_assistant_text(messages):
     return ""
 
 
+@pytest.mark.timeout(120)
 def test_hallucinations():
     """Common LLM code hallucinations are normalized before execution.
 
@@ -1296,6 +1297,7 @@ def test_math():
     assert str(round(test_result, 2)) in messages[-1]["content"]
 
 
+@pytest.mark.timeout(120)
 def test_break_execution():
     """
     Breaking from the generator while it's executing should halt the operation.
