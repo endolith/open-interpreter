@@ -26,6 +26,7 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 - **Every test function must have a docstring** explaining what behavior it verifies and why. Someone who breaks the test must be able to understand what they broke and what the intended behavior is.
 - **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, fixing any failures before considering the work complete.
 - **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally they need both `OI_RUN_INTEGRATION=1` and `OPENAI_API_KEY`; without either, pytest skips them. CI sets both in the integration workflow job (see `docs/CONTRIBUTING.md`).
+- **Optional test gates skip; they do not fail.** Integration tests, OS markers (`linux_ci` / `windows_ci` / `darwin_ci`), and missing external binaries should produce a pytest skip with a clear reason—not a test failure—when prerequisites are absent.
 
 ### Documentation
 
@@ -38,7 +39,7 @@ When changing code, update **all** relevant documentation:
 
 ### Commits
 
-- **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). This includes documentation and tests related to the change—keep them in the same commit so the code, its tests, and its documentation remain in sync and can be reverted together. Break up multi-part work into separate commits that are each easy to review.
+- **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). Unrelated edits belong in separate commits even when each is small (e.g. a workflow trigger change and a pytest marker are two commits). This includes documentation and tests for that idea—keep them in the same commit as the code they describe, not in a later commit for a different feature, so reviewers can read commit-by-commit and `git revert <commit>` undoes one idea cleanly.
 - **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain the problem being solved, the chosen approach, and any trade-offs. Provide the *context* that makes the diff understandable—why each change exists and what it achieves. Avoid meta-commentary about the commit itself (e.g., "fixing my commit according to instructions"). Keep process discussion in chat.
 - **Use Conventional Commits** (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`) to categorize changes and enable automated changelog generation.
 
@@ -50,6 +51,7 @@ When changing code, update **all** relevant documentation:
 ### PRs and Issues
 
 - All changes must be submitted as PRs so they can be revised independently.
+- **Prefer small, reviewable PRs.** Split large efforts into stacked PRs with a clear merge order. Each PR should have one scope; the description should list commits and what each one does so reviewers can read commit-by-commit.
 - Check if there are any Issues related to the change you are making, and if so, mention it in the PR and write `Fixes #…` in the relevant commit message, so that the Issue will be auto-closed on merge.
 
 ### Done checklist
