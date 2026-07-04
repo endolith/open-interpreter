@@ -26,6 +26,9 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 - **Every test function must have a docstring** explaining what behavior it verifies and why. Someone who breaks the test must be able to understand what they broke and what the intended behavior is.
 - **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, fixing any failures before considering the work complete.
 - **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally, set `OI_RUN_INTEGRATION=1` to run them. CI sets the same variable in the integration workflow job (see `docs/CONTRIBUTING.md`).
+- **Shell tests on Unix** that feed bash-syntax snippets to `subprocess_language` should call `require_bash_compatible_shell()` from `tests.helpers`:  Non-bash `$SHELL` (e.g. fish) hangs instead of failing.
+- **Shared test helpers** live in `tests/helpers.py` (import `from tests.helpers import …`). Do not import from `conftest.py` — it is not a stable import path on all platforms.
+- **Computer subsystem tests** use `COMPUTER_TOOL_SUBSYSTEMS` in `tests/helpers.py` — update when `_get_all_computer_tools_list` changes (until [#101](https://github.com/endolith/open-interpreter/issues/101) lands).
 
 ### Documentation
 
