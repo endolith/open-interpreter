@@ -1138,15 +1138,19 @@ def test_spotlight():
 
 
 @pytest.mark.integration
-def test_files():
+def test_files(tmp_path):
     require_bash_compatible_shell()
+    # Main used a hardcoded /Users/Killian/... path that only existed on one machine.
+    # tmp_path creates a real file on any OS so the LLM can answer the existence question.
+    image_file = tmp_path / "image.png"
+    image_file.write_bytes(b"fake png content")
     messages = [
         {"role": "user", "type": "message", "content": "Does this file exist?"},
         {
             "role": "user",
             "type": "file",
             "format": "path",
-            "content": "/Users/Killian/image.png",
+            "content": str(image_file),
         },
     ]
     interpreter.chat(messages)
@@ -1331,12 +1335,16 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 
 @pytest.mark.integration
-def test_write_to_file():
+def test_write_to_file(monkeypatch, tmp_path):
     require_bash_compatible_shell()
+    # Run in a temp directory so the LLM-generated file.txt does not land in the
+    # repo root or the developer's home folder. monkeypatch.chdir restores cwd after
+    # the test regardless of pass/fail.
+    monkeypatch.chdir(tmp_path)
     interpreter.chat(
         """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
     )
-    assert os.path.exists("file.txt")
+    assert (tmp_path / "file.txt").exists()
     interpreter.messages = []  # Just reset message history, nothing else for this test
     messages = interpreter.chat(
         """Read file.txt in the current directory and tell me what's in it."""
