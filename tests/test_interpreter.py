@@ -296,10 +296,11 @@ def test_authenticated_acknowledging_breaking_server():
             print(poem)
             time.sleep(1)
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
+    # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
+    # is no current event loop (e.g. pytest has not set one up). asyncio.run()
+    # creates a fresh loop, runs the coroutine, and closes it cleanly.
     try:
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
         _stop_server_subprocess(process)
 
@@ -637,10 +638,11 @@ def test_server():
             response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
+    # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
+    # is no current event loop (e.g. pytest has not set one up). asyncio.run()
+    # creates a fresh loop, runs the coroutine, and closes it cleanly.
     try:
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
         _stop_server_subprocess(process)
 
