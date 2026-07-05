@@ -576,9 +576,27 @@ system_message: "You are Open Interpreter..."
 
 </CodeGroup>
 
-### Disable Telemetry
+### Telemetry
 
-Opt out of [telemetry](telemetry/telemetry).
+Anonymous [telemetry](telemetry/telemetry) is **disabled by default**. Opt in if you want to help improve Open Interpreter.
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --no-disable_telemetry
+```
+
+```python Python
+interpreter.disable_telemetry = False
+```
+
+```yaml Profile
+disable_telemetry: false
+```
+
+</CodeGroup>
+
+To force telemetry off (the default):
 
 <CodeGroup>
 
@@ -587,7 +605,7 @@ interpreter --disable_telemetry
 ```
 
 ```python Python
-interpreter.anonymized_telemetry = False
+interpreter.disable_telemetry = True
 ```
 
 ```yaml Profile
