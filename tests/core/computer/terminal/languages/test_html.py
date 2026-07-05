@@ -1,0 +1,19 @@
+from unittest import mock
+
+from interpreter.core.computer.terminal.languages.html import HTML
+
+
+def test_html_run_yields_console_code_and_image():
+    """HTML.run() yields console, code, and base64 PNG image chunks in order."""
+    html = HTML()
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.html.html_to_png_base64",
+        return_value="base64data",
+    ):
+        chunks = list(html.run("<html><body>Hi</body></html>"))
+
+    assert chunks[0]["type"] == "console"
+    assert chunks[1]["type"] == "code"
+    assert chunks[2]["type"] == "image"
+    assert chunks[2]["format"] == "base64.png"
+    assert chunks[2]["content"] == "base64data"

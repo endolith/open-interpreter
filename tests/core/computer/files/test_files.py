@@ -10,6 +10,7 @@ class TestFiles(unittest.TestCase):
 
     @mock.patch("interpreter.core.computer.files.files.aifs")
     def test_search(self, mock_aifs):
+        """Files.search() delegates args and kwargs to aifs.search."""
         # Arrange
         mock_args = ["foo", "bar"]
         mock_kwargs = {"foo": "bar"}
@@ -21,6 +22,7 @@ class TestFiles(unittest.TestCase):
         mock_aifs.search.assert_called_once_with(mock_args, mock_kwargs)
 
     def test_edit_original_text_in_filedata(self):
+        """Files.edit() replaces original text in a file and writes the updated content."""
         # Arrange
         mock_open = mock.mock_open(read_data="foobar")
         mock_write = mock_open.return_value.write
@@ -35,6 +37,7 @@ class TestFiles(unittest.TestCase):
         mock_write.assert_called_once_with("foobarbaz")
 
     def test_edit_original_text_not_in_filedata(self):
+        """Files.edit() raises ValueError with close-match hints when text is not found."""
         # Arrange
         mock_open = mock.mock_open(read_data="foobar")
 

@@ -30,6 +30,7 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 - **Shell tests on Unix** that feed bash-syntax snippets to `subprocess_language` should call `require_bash_compatible_shell()` from `tests.helpers`: Non-bash `$SHELL` (e.g. fish) hangs instead of failing.
 - **Shared test helpers** live in `tests/helpers.py` (import `from tests.helpers import …`). Do not import from `conftest.py` — it is not a stable import path on all platforms.
 - **Computer subsystem tests** use `COMPUTER_TOOL_SUBSYSTEMS` in `tests/helpers.py` — update when `_get_all_computer_tools_list` changes (until [#101](https://github.com/endolith/open-interpreter/issues/101) lands).
+- Most of the unit tests were written after the fact by AI, with the assumption that the current state of the code was correct (which is likely not true in all cases).  Keep that in mind when a test fails.  Is your code actually wrong, or was the test written to validate incorrect code?
 
 ### Documentation
 
