@@ -2,44 +2,64 @@
 title: Introduction
 ---
 
-Open Interpreter contains a telemetry feature that collects **anonymous** usage information.
+Open Interpreter contains an optional telemetry feature that collects **anonymous** usage information.
 
-We use this information to help us understand how OI is used, to help us prioritize work on new features and bug fixes, and to help us improve OI's performance and stability.
+**Telemetry is disabled by default.** When enabled, we use this information to help us understand how OI is used, to help us prioritize work on new features and bug fixes, and to help us improve OI's performance and stability.
 
-# Opting out
+# Opting in
 
-If you prefer to opt out of telemetry, you can do this in two ways.
+If you want to enable telemetry, you can do this in several ways.
 
 ### Python
 
-Set `disable_telemetry` to `true` on the `interpreter` object:
+Set `disable_telemetry` to `false` on the `interpreter` object:
 
 ```python
 from interpreter import interpreter
-interpreter.disable_telemetry = True
+interpreter.disable_telemetry = False
 ```
 
 ### Terminal
 
-Use the `--disable_telemetry` flag:
+Use the `--no-disable_telemetry` flag:
+
+```shell
+interpreter --no-disable_telemetry
+```
+
+### Profile
+
+Set `disable_telemetry` to `false`. This will persist to future terminal sessions:
+
+```yaml
+disable_telemetry: false
+```
+
+### Environment Variables
+
+Set `ENABLE_TELEMETRY` to `true` in your shell or server environment.
+
+If you are running Open Interpreter on your local computer with `docker-compose` you can set this value in an `.env` file placed in the same directory as the `docker-compose.yml` file:
+
+```
+ENABLE_TELEMETRY=true
+```
+
+# Opting out
+
+Telemetry is already off by default. You can also force it off explicitly:
+
+```python
+interpreter.disable_telemetry = True
+```
 
 ```shell
 interpreter --disable_telemetry
 ```
 
-### Profile
-
-Set `disable_telemetry` to `true`. This will persist to future terminal sessions:
-
 ```yaml
 disable_telemetry: true
 ```
-
-### Environment Variables
-
-Set `DISABLE_TELEMETRY` to `true` in your shell or server environment.
-
-If you are running Open Interpreter on your local computer with `docker-compose` you can set this value in an `.env` file placed in the same directory as the `docker-compose.yml` file:
 
 ```
 DISABLE_TELEMETRY=true
