@@ -75,9 +75,11 @@ pytest -m integration
 
 ### CI test layout
 
+Jobs, Python versions, and pytest commands: `.github/workflows/python-package.yml`.
+
 | Job | Runner | What runs |
 | --- | --- | --- |
-| **Unit tests (Linux)** | `ubuntu-latest` | Unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14 |
+| **Unit tests (Linux)** | `ubuntu-latest` | Unit suite (`pytest -m "not integration and not windows_ci and not darwin_ci"`), Python 3.10–3.14, plus `linux_ci` language smokes in `tests/test_language_subprocess.py` |
 | **Integration** | `ubuntu-latest` | LLM tests (`pytest -m integration`), same-repo PRs and `main` only; sets `OI_RUN_INTEGRATION=1` and `OPENAI_API_KEY` |
 
 Platform-specific tests use `linux_ci`, `windows_ci`, and `darwin_ci` markers. conftest skips each marker on the wrong host so a local Linux run does not fail on Windows-only tests. Dedicated Windows/macOS workflow jobs ship with the smoke tests that use those markers.
