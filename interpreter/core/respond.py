@@ -280,7 +280,9 @@ def respond(interpreter):
                         "format": "output",
                         "content": "Code block was empty. Please try again, be sure to write code before executing.",
                     }
-                    continue
+                    # Without breaking, the loop re-enters this branch forever because
+                    # messages[-1] is still type "code" with empty content.
+                    break
 
                 # Yield a message, such that the user can stop code execution if they want to
                 try:
