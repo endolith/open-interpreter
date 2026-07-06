@@ -669,7 +669,7 @@ def test_server():
         _stop_server_subprocess(process)
 
 
-@pytest.mark.skip(reason="Mac only")
+@pytest.mark.skip(reason="Mac only — manual harness; use darwin_ci in test_platform_ci.py for CI")
 def test_sms():
     """Manual Mac-only smoke for reading and searching SMS via AppleScript.
 
@@ -688,7 +688,7 @@ def test_sms():
     assert False
 
 
-@pytest.mark.skip(reason="Mac only")
+@pytest.mark.skip(reason="Mac only — manual harness; use darwin_ci in test_platform_ci.py for CI")
 def test_pytes():
     """Manual Mac-only smoke for vision OCR on a Desktop PNG (developer harness).
 
@@ -1184,8 +1184,7 @@ def _rate_limit_openai_after_integration(request):
         time.sleep(4)
 
 
-
-@pytest.mark.skip(reason="Mac only + no way to fail test")
+@pytest.mark.skip(reason="Mac only — manual harness; no assertion; not for CI")
 def test_spotlight():
     """Manual Mac smoke: command+space opens Spotlight.
 
@@ -1349,34 +1348,6 @@ with open('numbers.txt', 'a+') as f:
     # Check if '1' and '5' are in the content
     assert "1" in content
     assert "5" not in content
-
-
-@pytest.mark.linux_ci
-@pytest.mark.timeout(30)
-def test_shell_nested_loop_quoting():
-    """Shell execution must pass nested quotes/variables through unchanged.
-
-    Deterministic: no LLM, no API. The old integration test tried to cover this
-    via LLM-generated nested shell loops, which hung when quoting was malformed.
-
-    Uses bash-style loop syntax fed to subprocess_language, which spawns
-    os.environ["SHELL"]. If SHELL is fish (or other non-bash), fail immediately
-    (see require_bash_compatible_shell) instead of hanging forever.
-
-    Windows cmd.exe variant lives in tests/test_platform_ci.py (``windows_ci``)."""
-
-
-    require_bash_compatible_shell()
-
-    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
-    chunks = interpreter.computer.run("shell", code)
-    output = "".join(
-        chunk.get("content", "")
-        for chunk in chunks
-        if chunk.get("format") == "output"
-    )
-    assert "a_1" in output
-    assert "b_2" in output
 
 
 @pytest.mark.integration

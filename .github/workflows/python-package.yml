@@ -45,6 +45,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install language runtimes for e2e smokes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby r-base default-jdk
+      # Google Chrome is pre-installed on ubuntu-latest (actions/runner-images).
+      # HTML/React smokes find it via require_chrome_for_html() — no .deb download.
+      - name: Verify Chrome for HTML/React smokes
+        run: command -v google-chrome || command -v google-chrome-stable
       - name: Install and test
         run: |
           python -m pip install --upgrade pip
@@ -65,6 +73,37 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  test-windows:
+    name: Windows CI smoke
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install and run Windows-only tests
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[server,dev]"
+          pytest -m windows_ci -v
+
+  test-macos:
+    name: macOS CI smoke
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install and run macOS-only tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[server,dev]"
+          pytest -m darwin_ci -v
 
   codecov:
     name: Upload to Codecov

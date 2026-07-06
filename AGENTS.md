@@ -31,6 +31,8 @@ The build backend is Poetry, but CI installs via pip. The package manager may ch
 - **Shared test helpers** live in `tests/helpers.py` (import `from tests.helpers import …`). Do not import from `conftest.py` — it is not a stable import path on all platforms.
 - **Computer subsystem tests** use `COMPUTER_TOOL_SUBSYSTEMS` in `tests/helpers.py` — update when `_get_all_computer_tools_list` changes (until [#101](https://github.com/endolith/open-interpreter/issues/101) lands).
 - Most of the unit tests were written after the fact by AI, with the assumption that the current state of the code was correct (which is likely not true in all cases).  Keep that in mind when a test fails.  Is your code actually wrong, or was the test written to validate incorrect code?
+- **Platform-specific tests** use `linux_ci`, `windows_ci`, or `darwin_ci` markers. Add OS-only coverage to `tests/test_platform_ci.py` (or the appropriate language file) rather than running the full suite on every CI runner.
+- **Manual harness tests** in `tests/test_interpreter.py` (e.g. `@pytest.mark.skip(reason="Mac only")`) are legacy developer smokes — they `assert False`, read private data (SMS), or need a display. **Do not enable them in macOS CI**; write deterministic `darwin_ci` tests in `test_platform_ci.py` instead (AppleScript and shell quoting are already covered there).
 
 ### Documentation
 

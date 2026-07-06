@@ -82,6 +82,29 @@ def console_output_text(chunks):
     )
 
 
+# Bash nested-loop quoting smoke shared by linux_ci and darwin_ci jobs.
+# Linux CI excludes darwin_ci markers; macOS CI runs only darwin_ci — so we
+# keep thin per-runner tests that call this helper rather than one dual-marked test.
+BASH_NESTED_LOOP_QUOTING_SNIPPET = (
+    'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
+)
+
+
+def assert_bash_nested_loop_output(output):
+    assert "a_1" in output
+    assert "b_2" in output
+
+
+def run_bash_nested_loop_quoting_smoke(interpreter):
+    """Run nested bash loops through computer.run; fail fast on non-bash $SHELL."""
+
+    require_bash_compatible_shell()
+    chunks = list(
+        interpreter.computer.run("shell", BASH_NESTED_LOOP_QUOTING_SNIPPET)
+    )
+    assert_bash_nested_loop_output(console_output_text(chunks))
+
+
 def patch_expanduser(monkeypatch, module, home):
     """Make expanduser('~') resolve to home (HOME is unreliable on Windows)."""
 
