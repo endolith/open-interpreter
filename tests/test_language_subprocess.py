@@ -39,6 +39,7 @@ from tests.helpers import (
     console_output_text,
     require_bash_compatible_shell,
     require_chrome_for_html,
+    run_bash_nested_loop_quoting_smoke,
 )
 
 pytestmark = pytest.mark.linux_ci
@@ -88,13 +89,13 @@ def test_shell_bash_echo_smoke(interpreter):
 
 @pytest.mark.timeout(30)
 def test_shell_bash_nested_loop_quoting(interpreter):
-    """Nested bash loops with variable interpolation pass through subprocess unchanged."""
-    require_bash_compatible_shell()
-    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
-    chunks = list(interpreter.computer.run("shell", code))
-    output = console_output_text(chunks)
-    assert "a_1" in output
-    assert "b_2" in output
+    """Nested bash loops with variable interpolation pass through subprocess unchanged.
+
+    Regression for fish/non-bash $SHELL hangs (require_bash_compatible_shell).
+    macOS CI runs the same snippet under darwin_ci in test_platform_ci.py.
+    Windows cmd.exe variant is in test_platform_ci.py (windows_ci).
+    """
+    run_bash_nested_loop_quoting_smoke(interpreter)
 
 
 @pytest.mark.timeout(30)

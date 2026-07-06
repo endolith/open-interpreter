@@ -12,7 +12,7 @@ import pytest
 
 from interpreter import OpenInterpreter
 from interpreter.core.computer.terminal.languages.shell import Shell
-from tests.helpers import console_output_text
+from tests.helpers import console_output_text, run_bash_nested_loop_quoting_smoke
 
 
 @pytest.fixture
@@ -82,12 +82,8 @@ def test_shell_start_cmd_uses_shell_env():
 @pytest.mark.darwin_ci
 @pytest.mark.timeout(30)
 def test_shell_bash_nested_loop_quoting(interpreter):
-    """Bash nested loops work on macOS (zsh default, but $SHELL may be bash)."""
-    code = 'for i in a b; do for j in 1 2; do echo "${i}_${j}"; done; done'
-    chunks = list(interpreter.computer.run("shell", code))
-    output = console_output_text(chunks)
-    assert "a_1" in output
-    assert "b_2" in output
+    """Same bash nested-loop snippet as linux_ci in test_language_subprocess.py."""
+    run_bash_nested_loop_quoting_smoke(interpreter)
 
 
 @pytest.mark.darwin_ci
