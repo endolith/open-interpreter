@@ -9,6 +9,7 @@ import traceback
 from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
 
 import shortuuid
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ try:
         Request,
         UploadFile,
         WebSocket,
+        WebSocketException,
     )
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
     from starlette.status import HTTP_403_FORBIDDEN
@@ -39,6 +41,29 @@ except:
 
 
 complete_message = {"role": "server", "type": "status", "content": "complete"}
+
+LOCAL_ORIGIN_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+
+def is_websocket_origin_allowed(origin: Optional[str]) -> bool:
+    """
+    Browsers attach an Origin header to cross-origin WebSocket connections. Reject
+    remote origins so a page open in another site cannot drive a loopback server.
+
+    Non-browser clients (for example the Python websockets library) usually omit
+    Origin; allow missing values so local tooling keeps working.
+    """
+    if not origin:
+        return True
+    if origin == "null":
+        return True
+
+    parsed = urlparse(origin)
+    if parsed.scheme != "http":
+        return False
+    if parsed.hostname not in LOCAL_ORIGIN_HOSTS:
+        return False
+    return True
 
 
 class AsyncInterpreter(OpenInterpreter):
@@ -436,6 +461,10 @@ def create_router(async_interpreter):
 
     @router.websocket("/")
     async def websocket_endpoint(websocket: WebSocket):
+        origin = websocket.headers.get("origin")
+        if not is_websocket_origin_allowed(origin):
+            raise WebSocketException(code=1008, reason="Origin not allowed")
+
         await websocket.accept()
 
         try:  # solving it ;)/ # killian super wrote this
