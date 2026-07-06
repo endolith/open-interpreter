@@ -29,26 +29,6 @@ def require_chrome_for_html():
     pytest.skip("google-chrome or chromium not installed (needed for HTML/React e2e)")
 
 
-# Subsystems returned by Computer._get_all_computer_tools_list (order matters).
-COMPUTER_TOOL_SUBSYSTEMS = (
-    "mouse",
-    "keyboard",
-    "display",
-    "clipboard",
-    "mail",
-    "sms",
-    "calendar",
-    "contacts",
-    "browser",
-    "os",
-    "vision",
-    "skills",
-    "docs",
-    "ai",
-    "files",
-)
-
-
 _BASH_COMPATIBLE_SHELL_NAMES = frozenset(
     {"bash", "sh", "dash", "zsh", "ksh", "ash"}
 )
