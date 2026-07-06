@@ -1,5 +1,7 @@
 <h1 align="center">● Open Interpreter</h1>
 
+> **Python fork:** Community-maintained Python edition. The upstream project is now a [Rust rewrite](https://github.com/openinterpreter/openinterpreter) (`oix`); Python development happens here. See [docs/FORK.md](docs/FORK.md) for branches (`main` = merge target, `classic/develop` = maintainer sandbox).
+
 <p align="center">
     <a href="https://discord.gg/Hvz9Axh84z">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
