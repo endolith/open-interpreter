@@ -26,3 +26,19 @@ def test_respects_n_limit():
 def test_empty_filedata_returns_empty():
     """Empty file text yields no close matches regardless of the query."""
     assert get_close_matches_in_text("anything", "") == []
+
+
+def test_empty_original_text_matches_every_position():
+    """An empty query matches every sliding window (including empty phrases) in file text."""
+    matches = get_close_matches_in_text("", "one two three")
+    assert matches == ["", "", ""]
+
+
+def test_query_longer_than_filedata_returns_empty():
+    """When the query has more words than the file, no phrase window can match."""
+    assert get_close_matches_in_text("one two three four", "one two") == []
+
+
+def test_n_zero_returns_empty():
+    """n=0 requests zero results even when close matches exist."""
+    assert get_close_matches_in_text("one", "one two three", n=0) == []

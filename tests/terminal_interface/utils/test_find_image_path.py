@@ -16,3 +16,8 @@ def test_find_image_path_returns_longest_existing(tmp_path):
 def test_find_image_path_none_when_missing():
     """find_image_path returns None when no referenced image file exists."""
     assert find_image_path("No images in this text.") is None
+
+
+def test_find_image_path_empty_text_returns_none():
+    """find_image_path returns None for empty input."""
+    assert find_image_path("") is None

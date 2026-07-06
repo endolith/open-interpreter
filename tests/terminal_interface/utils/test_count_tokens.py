@@ -49,3 +49,18 @@ def test_count_messages_tokens_sums_message_fields():
             )
     assert tokens == 14
     assert cost == 0.01
+
+
+def test_count_tokens_empty_string_returns_zero():
+    """count_tokens returns 0 for empty text when the encoder yields no tokens."""
+    mock_encoder = mock.Mock()
+    mock_encoder.encode.return_value = []
+    with mock.patch.object(ct, "tiktoken") as mock_tiktoken:
+        mock_tiktoken.encoding_for_model.return_value = mock_encoder
+        assert ct.count_tokens("") == 0
+
+
+def test_count_messages_tokens_empty_returns_zero():
+    """count_messages_tokens returns (0, 0) for an empty message list."""
+    with mock.patch.object(ct, "token_cost", return_value=0.0):
+        assert ct.count_messages_tokens(messages=[]) == (0, 0.0)
