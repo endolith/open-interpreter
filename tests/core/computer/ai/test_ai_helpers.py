@@ -3,10 +3,17 @@ from interpreter.core.computer.ai.ai import chunk_responses, split_into_chunks
 
 def test_split_into_chunks_with_tiktoken():
     """split_into_chunks splits long text into overlapping token-sized windows."""
+    import tiktoken
+
     llm = type("Llm", (), {"model": "gpt-4"})()  # tiktoken encoding name, not API model
     text = "word " * 100
-    chunks = split_into_chunks(text, tokens=20, llm=llm, overlap=5)
+    tokens = 20
+    overlap = 5
+    chunks = split_into_chunks(text, tokens=tokens, llm=llm, overlap=overlap)
+    encoding = tiktoken.encoding_for_model(llm.model)
     assert len(chunks) > 1
+    assert all(chunk for chunk in chunks)
+    assert all(len(encoding.encode(chunk)) <= tokens for chunk in chunks)
     joined = " ".join(chunks)
     assert joined[:20] == text[:20]
     assert joined[-20:] == text[-20:]

@@ -149,7 +149,7 @@ def test_console_output_assistant_sender(interpreter):
         messages, function_calling=False, interpreter=interpreter
     )
     assert result[0]["role"] == "assistant"
-    assert "result" in result[0]["content"]
+    assert result[0]["content"] == "```output\nresult\n```"
 
 
 def test_vision_false_skips_base64_image(interpreter):

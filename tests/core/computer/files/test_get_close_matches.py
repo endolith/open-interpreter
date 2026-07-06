@@ -13,7 +13,7 @@ def test_typo_returns_closest_phrases():
     filedata = "foobar baz qux foobar"
     matches = get_close_matches_in_text("foobaz", filedata)
     assert len(matches) <= 3
-    assert any("foobar" in match for match in matches)
+    assert matches[0] == "foobar"
 
 
 def test_respects_n_limit():

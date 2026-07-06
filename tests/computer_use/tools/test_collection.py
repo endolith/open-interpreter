@@ -40,6 +40,7 @@ def test_tool_collection_unknown_tool_returns_failure():
     collection = ToolCollection(DummyTool())
     result = asyncio.run(collection.run(name="missing", tool_input={}))
     assert isinstance(result, ToolFailure)
+    assert result.error == "Tool missing is invalid"
 
 
 def test_tool_collection_tool_error_becomes_failure():

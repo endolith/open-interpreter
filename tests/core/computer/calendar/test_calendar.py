@@ -42,4 +42,4 @@ def test_create_event_non_macos():
             datetime.datetime(2024, 1, 1, 9, 0),
             datetime.datetime(2024, 1, 1, 10, 0),
         )
-    assert "MacOS" in result
+    assert result == "This method is only supported on MacOS"
