@@ -79,7 +79,7 @@ Jobs, Python versions, and pytest commands: `.github/workflows/python-package.ym
 
 | Job | Runner | What runs |
 | --- | --- | --- |
-| **Unit tests (Linux)** | `ubuntu-latest` | Unit suite + `linux_ci` language smokes (`tests/test_language_subprocess.py`) |
+| **Unit tests (Linux)** | `ubuntu-latest` | Unit suite + `linux_ci` language smokes; includes `mock_llm` (local HTTP server, no API key) |
 | **Integration** | `ubuntu-latest` | `pytest -m integration` (same-repo PRs and `main` only) |
 | **Windows CI smoke** | `windows-latest` | `pytest -m windows_ci` (`tests/test_platform_ci.py`) |
 | **macOS CI smoke** | `macos-latest` | `pytest -m darwin_ci` (`tests/test_platform_ci.py`) |
