@@ -36,3 +36,12 @@ def test_send_telemetry_posts_event():
     assert payload["event"] == "test_event"
     assert payload["properties"]["foo"] == "bar"
     assert "oi_version" in payload["properties"]
+
+
+def test_send_telemetry_swallows_errors():
+    """send_telemetry must not raise when the HTTP request fails (telemetry is non-blocking)."""
+    with mock.patch(
+        "interpreter.core.utils.telemetry.requests.post",
+        side_effect=Exception("network"),
+    ):
+        telemetry.send_telemetry("test_event")
