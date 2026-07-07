@@ -354,6 +354,7 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
+        nonlocal process
         import asyncio
 
         async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
@@ -581,74 +582,54 @@ def test_server():
 
             #### TEST IMAGES ####
 
-            # Send another POST request
-            # auto_run=False again so vision MCQ is text-only. custom_instructions=""
-            # clears the file-turn "plain text only" prompt for this image turn.
-            post_url = "http://127.0.0.1:8000/settings"
-            settings = {"messages": [], "auto_run": False, "custom_instructions": ""}
-            response = requests.post(post_url, json=settings)
-            print("POST request sent, response:", response.json())
+            # Fresh server for an isolated vision turn. With approval binding, reusing
+            # the same WebSocket after auto_run=False can leave a pending confirmation
+            # and the stream ends with only "complete".
+            await websocket.close()
+            _stop_server_subprocess(process)
+            process = _start_server_subprocess(run_server)
+            _wait_for_server(process)
 
             base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
 
-            # Sending messages via WebSocket
-            await websocket.send(json.dumps({"role": "user", "start": True}))
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": (
-                            "What do you see in this image? Reply with only one letter.\n"
-                            "A) a cat\n"
-                            "B) a color gradient\n"
-                            "C) a table of numbers\n"
-                            "D) a black rectangle"
-                        ),
-                    }
+            async with websockets.connect("ws://127.0.0.1:8000/") as image_websocket:
+                await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
+
+                await image_websocket.send(json.dumps({"role": "user", "start": True}))
+                await image_websocket.send(
+                    json.dumps(
+                        {
+                            "role": "user",
+                            "type": "message",
+                            "content": (
+                                "What do you see in this image? Reply with only one letter.\n"
+                                "A) a cat\n"
+                                "B) a color gradient\n"
+                                "C) a table of numbers\n"
+                                "D) a black rectangle"
+                            ),
+                        }
+                    )
                 )
-            )
-            await websocket.send(
-                json.dumps(
-                    {
-                        "role": "user",
-                        "type": "image",
-                        "format": "base64.png",
-                        "content": base64png,
-                    }
+                await image_websocket.send(
+                    json.dumps(
+                        {
+                            "role": "user",
+                            "type": "image",
+                            "format": "base64.png",
+                            "content": base64png,
+                        }
+                    )
                 )
-            )
-            # await websocket.send(
-            #     json.dumps(
-            #         {
-            #             "role": "user",
-            #             "type": "image",
-            #             "format": "path",
-            #             "content": "/Users/killianlucas/Documents/GitHub/open-interpreter/screen.png",
-            #         }
-            #     )
-            # )
+                await image_websocket.send(json.dumps({"role": "user", "end": True}))
+                print("WebSocket chunks sent")
 
-            await websocket.send(json.dumps({"role": "user", "end": True}))
-            print("WebSocket chunks sent")
+                accumulated_content = await _wait_for_websocket_complete(image_websocket)
 
-            # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            # Get messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
-            response_json = requests.get(get_url).json()
-            print("GET request sent, response:", response_json)
-            if isinstance(response_json, str):
-                response_json = json.loads(response_json)
-            messages = response_json["messages"]
-
-            # Same message-or-stream fallback as the file MCQ turn above.
-            last_assistant = _last_assistant_text(messages) or accumulated_content
-            assert last_assistant, "expected assistant response after image turn"
-            assert re.search(
-                r"\bB\b", last_assistant, re.IGNORECASE
-            ), f"expected vision model to answer B (gradient), got: {last_assistant!r}"
+                vision_reply = accumulated_content.removesuffix("complete")
+                assert re.search(
+                    r"\bB\b", vision_reply, re.IGNORECASE
+                ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter

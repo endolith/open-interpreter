@@ -61,7 +61,13 @@ To control the server's behavior, send the following commands:
    ```json
    {"role": "user", "type": "command", "content": "go"}
    ```
-   This executes a generated code block and allows the agent to proceed.
+   This approves the pending code block shown in the most recent `confirmation` chunk and resumes execution of that exact code.
+
+   When the server sends a confirmation chunk, it includes a `confirmation_id` (SHA-256 digest of the language + code). Clients should send `go:<confirmation_id>` to bind approval to the reviewed code:
+
+   ```json
+   {"role": "user", "type": "command", "content": "go:abc123..."}
+   ```
 
    **Note**: If `auto_run` is set to `False`, the agent will pause after generating code blocks. You must send the "go" command to continue execution.
 
