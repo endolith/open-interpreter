@@ -151,6 +151,18 @@ class OpenInterpreter:
         return self.messages[self.last_messages_count :]
 
     @property
+    def max_output(self):
+        return self._max_output
+
+    @max_output.setter
+    def max_output(self, value):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(
+                f"max_output must be a positive integer, got {value!r}"
+            )
+        self._max_output = value
+
+    @property
     def anonymous_telemetry(self) -> bool:
         return not self.disable_telemetry and not self.offline
 

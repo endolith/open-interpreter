@@ -1,5 +1,7 @@
 from interpreter.core.utils.truncate_output import truncate_output
 
+import pytest
+
 
 def test_short_output_unchanged():
     """Output within the character limit is returned verbatim."""
@@ -56,3 +58,11 @@ def test_unicode_output_truncates_without_error():
     result = truncate_output(data, max_output_chars=100)
     assert result.startswith("Output truncated")
     assert "✅" in result
+
+
+def test_non_positive_max_output_chars_rejected():
+    """max_output must be positive; zero and negative values raise ValueError."""
+    with pytest.raises(ValueError, match="positive integer"):
+        truncate_output("hello", max_output_chars=0)
+    with pytest.raises(ValueError, match="positive integer"):
+        truncate_output("hello", max_output_chars=-1)

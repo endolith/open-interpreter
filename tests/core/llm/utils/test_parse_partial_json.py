@@ -1,5 +1,7 @@
 from interpreter.core.llm.utils.parse_partial_json import parse_partial_json
 
+import pytest
+
 
 def test_parse_complete_json():
     """Valid complete JSON objects parse to the expected dict."""
@@ -46,3 +48,9 @@ def test_parse_truncated_array():
     """A truncated array missing its closing bracket is repaired and parsed successfully."""
     result = parse_partial_json("[1, 2, 3")
     assert result == [1, 2, 3]
+
+
+def test_parse_none_raises_type_error():
+    """None is a caller bug, not incomplete JSON — must raise, not return None."""
+    with pytest.raises(TypeError):
+        parse_partial_json(None)
