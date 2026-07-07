@@ -51,7 +51,7 @@ def test_unicode_output_unchanged_when_short():
 
 
 def test_unicode_output_truncates_without_error():
-    """Long Unicode output truncates cleanly without breaking surrogate pairs."""
+    """Long emoji output truncates without error; head/tail still contain valid emoji."""
     data = "✅" * 2000
     result = truncate_output(data, max_output_chars=100)
     assert result.startswith("Output truncated")
