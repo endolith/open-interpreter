@@ -55,12 +55,11 @@ _BASH_COMPATIBLE_SHELL_NAMES = frozenset(
 
 
 def require_bash_compatible_shell():
-    """Skip unless Shell would spawn a bash-compatible $SHELL.
+    """Skip unless the test shell is bash-compatible.
 
-    OI feeds bash-syntax snippets to subprocess_language, which uses
-    os.environ["SHELL"] on Unix. Fish and other shells hang waiting for
-    ##end_of_execution## instead of erroring, so tests requiring bash
-    syntax skip (rather than fail) when the prerequisite is absent.
+    Shell-language execution now invokes bash directly, but some tests still
+    feed bash-syntax snippets to the process directly. Skip rather than fail
+    when that prerequisite is absent.
     """
     if platform.system() == "Windows":
         return
@@ -68,8 +67,8 @@ def require_bash_compatible_shell():
     shell_name = os.path.basename(shell).lower()
     if shell_name not in _BASH_COMPATIBLE_SHELL_NAMES:
         pytest.skip(
-            f"SHELL={shell!r} cannot run bash-syntax shell code (Shell uses "
-            f"os.environ['SHELL']). Use bash or wait for explicit bash in develop."
+            f"SHELL={shell!r} is not bash-compatible; set SHELL=/bin/bash to "
+            "run bash-syntax tests."
         )
 
 
