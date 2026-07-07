@@ -43,3 +43,16 @@ def test_exactly_at_limit_not_truncated():
     """Output at exactly the character limit is not truncated."""
     data = "c" * 2800
     assert truncate_output(data, max_output_chars=2800) == data
+
+
+def test_unicode_output_unchanged_when_short():
+    """Emoji and other non-ASCII characters survive unchanged in short output."""
+    assert truncate_output("Done ✅") == "Done ✅"
+
+
+def test_unicode_output_truncates_without_error():
+    """Long Unicode output truncates cleanly without breaking surrogate pairs."""
+    data = "✅" * 2000
+    result = truncate_output(data, max_output_chars=100)
+    assert result.startswith("Output truncated")
+    assert "✅" in result
