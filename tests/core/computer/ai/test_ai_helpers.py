@@ -46,3 +46,24 @@ def test_chunk_responses_oversized_single_response():
     big = "x" * 5000
     result = chunk_responses([big], tokens=50, llm=llm)
     assert result == [big]
+
+
+def test_split_into_chunks_empty_text_returns_empty_list():
+    """Empty input text produces no chunks."""
+    llm = type("Llm", (), {"model": "gpt-4"})()
+    assert split_into_chunks("", tokens=20, llm=llm, overlap=5) == []
+
+
+def test_chunk_responses_empty_list_returns_empty():
+    """An empty responses list produces an empty result list."""
+    llm = type("Llm", (), {"model": "gpt-4"})()
+    assert chunk_responses([], tokens=100, llm=llm) == []
+
+
+def test_split_into_chunks_overlap_greater_than_tokens_returns_empty():
+    """When overlap exceeds tokens the tiktoken step is negative and yields no chunks.
+
+    This documents current behavior; callers should keep overlap < tokens.
+    """
+    llm = type("Llm", (), {"model": "gpt-4"})()
+    assert split_into_chunks("abcdefghij", tokens=5, llm=llm, overlap=6) == []

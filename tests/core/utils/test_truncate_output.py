@@ -66,3 +66,16 @@ def test_non_positive_max_output_chars_rejected():
         truncate_output("hello", max_output_chars=0)
     with pytest.raises(ValueError, match="positive integer"):
         truncate_output("hello", max_output_chars=-1)
+
+
+def test_empty_string_unchanged():
+    """Empty output is returned verbatim without adding a truncation banner."""
+    assert truncate_output("") == ""
+
+
+def test_small_max_chars_truncates_short_output():
+    """Very small max_output_chars still truncates when data exceeds the limit."""
+    data = "abcdefgh"
+    result = truncate_output(data, max_output_chars=4)
+    assert result.startswith("Output truncated (8 characters total)")
+    assert "[...]" in result

@@ -54,3 +54,14 @@ def test_parse_none_raises_type_error():
     """None is a caller bug, not incomplete JSON — must raise, not return None."""
     with pytest.raises(TypeError):
         parse_partial_json(None)
+
+
+def test_parse_whitespace_only_returns_none():
+    """Whitespace-only input is not valid JSON and returns None."""
+    assert parse_partial_json("   ") is None
+
+
+def test_parse_truncated_nested_object():
+    """A truncated nested object is repaired by closing inner and outer braces."""
+    result = parse_partial_json('{"a": {"b": 1')
+    assert result == {"a": {"b": 1}}
