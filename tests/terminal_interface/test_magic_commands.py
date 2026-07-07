@@ -506,3 +506,21 @@ def test_jupyter_handles_assistant_markdown_and_default_language(tmp_path):
     cells = captured["nb"]["cells"]
     assert cells[0] == {"cell_type": "markdown", "source": "assistant note"}
     assert cells[1].metadata == {"language": "python"}
+
+
+def test_handle_rename_conversation_routes_manual_and_generated_titles():
+    """%rename passes a title through, or asks the model for a full-transcript title."""
+    interpreter = _interpreter(
+        rename_conversation_file_from_llm_title=mock.Mock()
+    )
+
+    magic_commands.handle_rename_conversation(interpreter, " My title ")
+    interpreter.rename_conversation_file_from_llm_title.assert_called_once_with(
+        manual_title="My title"
+    )
+
+    interpreter.rename_conversation_file_from_llm_title.reset_mock()
+    magic_commands.handle_rename_conversation(interpreter, "   ")
+    interpreter.rename_conversation_file_from_llm_title.assert_called_once_with(
+        use_full_transcript=True
+    )
