@@ -12,6 +12,16 @@ def test_user_message_gets_role_header():
     assert "Hello" in md
 
 
+def test_consecutive_user_messages_each_get_header():
+    """Two user messages in a row each get their own ## user section in the export."""
+    messages = [
+        {"role": "user", "type": "message", "content": "First"},
+        {"role": "user", "type": "message", "content": "Second"},
+    ]
+    md = messages_to_markdown(messages)
+    assert md == "## user\n\nFirst\n\n## user\n\nSecond\n\n"
+
+
 def test_code_block_rendered():
     """Assistant code messages are wrapped in a fenced code block with the format language."""
     messages = [

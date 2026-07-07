@@ -11,17 +11,18 @@ def messages_to_markdown(messages: list[dict]) -> str:
     previous_role = None
     for chunk in messages:
         current_role = chunk["role"]
+
+        # User messages always get their own header, even when consecutive.
+        if chunk["role"] == "user":
+            markdown_content += f"## {current_role}\n\n{chunk['content']}\n\n"
+            previous_role = current_role
+            continue
+
         if current_role == previous_role:
             rendered_chunk = ""
         else:
             rendered_chunk = f"## {current_role}\n\n"
             previous_role = current_role
-
-        # User query message
-        if chunk["role"] == "user":
-            rendered_chunk += chunk["content"] + "\n\n"
-            markdown_content += rendered_chunk
-            continue
 
         # Message
         if chunk["type"] == "message":
