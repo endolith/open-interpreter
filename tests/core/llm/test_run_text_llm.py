@@ -40,7 +40,10 @@ def test_code_block_yields_code_chunks():
         ]
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
-    assert any(r["type"] == "code" and r["format"] == "python" for r in result)
+    assert result == [
+        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": "print(1)\n"},
+    ]
 
 
 def test_execution_instructions_appended():

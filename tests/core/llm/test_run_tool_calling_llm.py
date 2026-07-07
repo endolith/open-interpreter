@@ -40,7 +40,13 @@ def test_orphaned_function_response_gets_synthetic_tool_call():
                  "content": "late output"}]
     result = process_messages(messages)
     assert result[0]["role"] == "assistant"
-    assert result[1]["role"] == "tool"
+    assert result[0]["tool_calls"][0]["id"] == "toolu_1"
+    assert result[1] == {
+        "role": "tool",
+        "name": "execute",
+        "content": "late output",
+        "tool_call_id": "toolu_1",
+    }
 
 
 def test_passthrough_message_unchanged():
