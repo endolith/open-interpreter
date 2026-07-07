@@ -104,13 +104,16 @@ class Llm:
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
-    def run(self, messages):
+    def run(self, messages, *, auxiliary_title_request=False):
         """
         We're responsible for formatting the call into the llm.completions object,
         starting with LMC messages in interpreter.messages, going to OpenAI compatible messages into the llm,
         respecting whether it's a vision or function model, respecting its context window and max tokens, etc.
 
         And then processing its output, whether it's a function or non function calling model, into LMC format.
+
+        auxiliary_title_request: one-off naming completion — text path only, tight max_tokens,
+        and no code-execution system suffix on the prompt.
         """
 
         if not self._is_loaded:
@@ -343,13 +346,23 @@ Continuing...
                     self.reasoning_effort
                 )
 
+        if auxiliary_title_request:
+            params["timeout"] = 120
+            params["max_tokens"] = min(int(params.get("max_tokens") or 2048), 2048)
+            params["skip_execution_instructions"] = True
+            # ``run_text_llm`` treats ```...``` as executable code blocks and can yield zero
+            # chunks when the model returns a one-line fenced title (no newline after the
+            # fence). Plain streaming maps ``delta.content`` directly to messages for
+            # ``%rename`` / auto-title only.
+            params["conversation_title_plain_stream"] = True
+
         # Set some params directly on LiteLLM
         if self.max_budget:
             litellm.max_budget = self.max_budget
         if self.interpreter.verbose:
             litellm.set_verbose = True
 
-        if self.supports_functions:
+        if self.supports_functions and not auxiliary_title_request:
             yield from run_tool_calling_llm(self, params)
         else:
             yield from run_text_llm(self, params)
