@@ -1,4 +1,9 @@
 def truncate_output(data, max_output_chars=2800, add_scrollbars=False):
+    if max_output_chars <= 0:
+        raise ValueError(
+            f"max_output must be a positive integer, got {max_output_chars!r}"
+        )
+
     # if "@@@DO_NOT_TRUNCATE@@@" in data:
     #     return data
 

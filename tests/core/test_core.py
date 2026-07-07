@@ -1,5 +1,7 @@
 from unittest import mock
 
+import pytest
+
 from interpreter import OpenInterpreter
 
 
@@ -40,3 +42,15 @@ def test_streaming_chat_list_replaces_messages():
     with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
         list(interpreter._streaming_chat(message=new_messages, display=False))
     assert interpreter.messages == new_messages
+
+
+def test_max_output_must_be_positive_integer():
+    """max_output rejects zero, negatives, and non-integers at construction and assignment."""
+    with pytest.raises(ValueError, match="positive integer"):
+        OpenInterpreter(max_output=0)
+    with pytest.raises(ValueError, match="positive integer"):
+        OpenInterpreter(max_output=-100)
+
+    interpreter = OpenInterpreter()
+    with pytest.raises(ValueError, match="positive integer"):
+        interpreter.max_output = 0
