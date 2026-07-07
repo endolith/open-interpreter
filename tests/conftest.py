@@ -24,6 +24,10 @@ def pytest_configure(config):
         "integration: calls an LLM and may execute generated code; "
         "requires OI_RUN_INTEGRATION=1 and OPENAI_API_KEY",
     )
+    config.addinivalue_line(
+        "markers",
+        "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
