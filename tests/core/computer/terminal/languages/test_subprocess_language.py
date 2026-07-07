@@ -78,3 +78,30 @@ def test_run_yields_queue_output():
     mock_process.stdin.write.assert_called_once_with("echo hi\n")
     mock_process.stdin.flush.assert_called_once()
     assert chunks[0]["content"] == "result"
+
+
+def test_run_times_out_when_execution_never_completes(monkeypatch):
+    """run() yields a timeout error instead of hanging when completion never arrives."""
+    lang = EchoLanguage()
+    mock_process = mock.Mock()
+    mock_process.stdin = mock.Mock()
+    lang.process = mock_process
+    lang.done.clear()
+
+    clock = iter([0.0, 0.0, 200.0])
+    monkeypatch.setenv("INTERPRETER_SUBPROCESS_TIMEOUT", "120")
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.subprocess_language.time.time",
+        lambda: next(clock),
+    )
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.subprocess_language.time.sleep",
+        lambda _: None,
+    )
+
+    with mock.patch.object(lang, "start_process"):
+        with mock.patch.object(lang, "terminate") as terminate:
+            chunks = list(lang.run("sleep 999"))
+
+    assert any("timed out after 120" in c.get("content", "") for c in chunks)
+    terminate.assert_called_once()

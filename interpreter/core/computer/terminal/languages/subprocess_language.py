@@ -92,6 +92,10 @@ class SubprocessLanguage(BaseLanguage):
                 print(f"(after processing) Running processed code:\n{code}\n---")
 
             self.done.clear()
+            start_time = time.time()
+            max_runtime = float(
+                os.environ.get("INTERPRETER_SUBPROCESS_TIMEOUT", "120")
+            )
 
             try:
                 self.process.stdin.write(code + "\n")
@@ -120,6 +124,15 @@ class SubprocessLanguage(BaseLanguage):
                     return
 
         while True:
+            if time.time() - start_time > max_runtime:
+                self.terminate()
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": f"Execution timed out after {max_runtime}s",
+                }
+                return
+
             if not self.output_queue.empty():
                 yield self.output_queue.get()
             else:
