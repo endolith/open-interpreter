@@ -563,8 +563,9 @@ def test_server():
 
             #### TEST IMAGES ####
 
-            # Message history can no longer be cleared via POST /settings, so restart
-            # the server for an isolated vision turn.
+            # Fresh server for an isolated vision turn. With approval binding, reusing
+            # the same WebSocket after auto_run=False can leave a pending confirmation
+            # and the stream ends with only "complete".
             await websocket.close()
             _stop_server_subprocess(process)
             process = _start_server_subprocess(run_server)
