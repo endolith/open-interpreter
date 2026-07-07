@@ -47,6 +47,19 @@ def test_exactly_at_limit_not_truncated():
     assert truncate_output(data, max_output_chars=2800) == data
 
 
+def test_unicode_output_unchanged_when_short():
+    """Emoji and other non-ASCII characters survive unchanged in short output."""
+    assert truncate_output("Done ✅") == "Done ✅"
+
+
+def test_unicode_output_truncates_without_error():
+    """Long emoji output truncates without error; head/tail still contain valid emoji."""
+    data = "✅" * 2000
+    result = truncate_output(data, max_output_chars=100)
+    assert result.startswith("Output truncated")
+    assert "✅" in result
+
+
 def test_non_positive_max_output_chars_rejected():
     """max_output must be positive; zero and negative values raise ValueError."""
     with pytest.raises(ValueError, match="positive integer"):
