@@ -1,5 +1,7 @@
 from interpreter.core.utils.truncate_output import truncate_output
 
+import pytest
+
 
 def test_short_output_unchanged():
     """Output within the character limit is returned verbatim."""
@@ -43,3 +45,11 @@ def test_exactly_at_limit_not_truncated():
     """Output at exactly the character limit is not truncated."""
     data = "c" * 2800
     assert truncate_output(data, max_output_chars=2800) == data
+
+
+def test_non_positive_max_output_chars_rejected():
+    """max_output must be positive; zero and negative values raise ValueError."""
+    with pytest.raises(ValueError, match="positive integer"):
+        truncate_output("hello", max_output_chars=0)
+    with pytest.raises(ValueError, match="positive integer"):
+        truncate_output("hello", max_output_chars=-1)
