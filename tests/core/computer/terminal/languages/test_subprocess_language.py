@@ -89,10 +89,17 @@ def test_run_times_out_when_execution_never_completes(monkeypatch):
     lang.done.clear()
 
     clock = iter([0.0, 0.0, 200.0])
+
+    def fake_time():
+        try:
+            return next(clock)
+        except StopIteration:
+            return 200.0
+
     monkeypatch.setenv("INTERPRETER_SUBPROCESS_TIMEOUT", "120")
     monkeypatch.setattr(
         "interpreter.core.computer.terminal.languages.subprocess_language.time.time",
-        lambda: next(clock),
+        fake_time,
     )
     monkeypatch.setattr(
         "interpreter.core.computer.terminal.languages.subprocess_language.time.sleep",
