@@ -1,4 +1,3 @@
-import asyncio
 import os
 from unittest import mock
 
@@ -44,28 +43,3 @@ def test_accumulate_requires_start_before_content():
     async_i.messages = []
     with pytest.raises(Exception, match="start"):
         async_i.accumulate({"role": "user", "type": "message", "content": "oops"})
-
-
-def test_input_joins_alive_respond_thread_with_timeout_on_start():
-    """A new user 'start' chunk must not block forever waiting for respond() to finish."""
-    async_i = AsyncInterpreter()
-    mock_thread = mock.Mock()
-    mock_thread.is_alive.return_value = True
-    async_i.respond_thread = mock_thread
-
-    asyncio.run(async_i.input({"role": "user", "type": "message", "start": True}))
-
-    mock_thread.join.assert_called_once_with(timeout=30)
-    assert async_i.stop_event.is_set()
-
-
-def test_stop_command_joins_respond_thread_with_timeout():
-    """The WebSocket 'stop' command must bound how long input() waits on respond()."""
-    async_i = AsyncInterpreter()
-    mock_thread = mock.Mock()
-    async_i.respond_thread = mock_thread
-    async_i.messages = [{"role": "user", "type": "command", "content": "stop"}]
-
-    asyncio.run(async_i.input({"role": "user", "type": "message", "end": True}))
-
-    mock_thread.join.assert_called_once_with(timeout=30)

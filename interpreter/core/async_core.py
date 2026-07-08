@@ -72,7 +72,7 @@ class AsyncInterpreter(OpenInterpreter):
             # If the user is starting something, the interpreter should stop.
             if self.respond_thread is not None and self.respond_thread.is_alive():
                 self.stop_event.set()
-                self.respond_thread.join(timeout=30)
+                self.respond_thread.join()
             self.accumulate(chunk)
         elif "content" in chunk:
             self.accumulate(chunk)
@@ -89,7 +89,7 @@ class AsyncInterpreter(OpenInterpreter):
                 if command == "stop":
                     # Any start flag would have stopped it a moment ago, but to be sure:
                     self.stop_event.set()
-                    self.respond_thread.join(timeout=30)
+                    self.respond_thread.join()
                     return
                 if command == "go":
                     # This is to approve code.
