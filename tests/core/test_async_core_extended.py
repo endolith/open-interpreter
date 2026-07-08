@@ -1,3 +1,4 @@
+import asyncio
 import os
 from unittest import mock
 
@@ -43,3 +44,28 @@ def test_accumulate_requires_start_before_content():
     async_i.messages = []
     with pytest.raises(Exception, match="start"):
         async_i.accumulate({"role": "user", "type": "message", "content": "oops"})
+
+
+def test_input_start_chunk_stops_active_response():
+    """A new start chunk should stop the active response before buffering the new turn."""
+    async_i = AsyncInterpreter()
+    mock_thread = mock.Mock()
+    mock_thread.is_alive.return_value = True
+    async_i.respond_thread = mock_thread
+
+    asyncio.run(async_i.input({"role": "user", "type": "message", "start": True}))
+
+    mock_thread.join.assert_called_once()
+    assert async_i.stop_event.is_set()
+
+
+def test_input_stop_command_joins_response_thread():
+    """A stop command should wait for the active response thread before returning."""
+    async_i = AsyncInterpreter()
+    mock_thread = mock.Mock()
+    async_i.respond_thread = mock_thread
+    async_i.messages = [{"role": "user", "type": "command", "content": "stop"}]
+
+    asyncio.run(async_i.input({"role": "user", "type": "message", "end": True}))
+
+    mock_thread.join.assert_called_once()
