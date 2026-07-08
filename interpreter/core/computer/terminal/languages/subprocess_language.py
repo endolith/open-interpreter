@@ -71,6 +71,11 @@ class SubprocessLanguage(BaseLanguage):
         ).start()
 
     def run(self, code):
+        # WARNING: Do not add a wall-clock timeout to this method.
+        # Long-running shell jobs (btrfs scrub, model downloads, training)
+        # are valid use cases that can take hours or days.
+        # See PR #144 (closed) and issue #148 for history.
+
         retry_count = 0
         max_retries = 3
 

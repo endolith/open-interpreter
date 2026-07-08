@@ -55,6 +55,9 @@ def preprocess_shell(code):
     # Add end command (we'll be listening for this so we know when it ends)
     code += '\necho "##end_of_execution##"'
 
+    # WARNING: Do not add a wall-clock timeout for the end-of-execution marker.
+    # Long-running shell jobs are valid. See PR #144 (closed) and issue #148.
+
     return code
 
 
