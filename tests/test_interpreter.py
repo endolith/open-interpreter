@@ -2,6 +2,7 @@ import os
 import platform
 import re
 import signal
+import socket
 import time
 from random import randint
 
@@ -35,7 +36,16 @@ _SERVER_HOST = "127.0.0.1"
 _SERVER_PORT = 8000
 
 
+def _allocate_server_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_SERVER_HOST, 0))
+        return sock.getsockname()[1]
+
+
 def _start_server_subprocess(target):
+    global _SERVER_PORT
+    _SERVER_PORT = _allocate_server_port()
+    os.environ["INTERPRETER_PORT"] = str(_SERVER_PORT)
     process = _MP_SPAWN.Process(target=target)
     process.start()
     return process
