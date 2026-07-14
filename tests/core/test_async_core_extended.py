@@ -52,20 +52,28 @@ def test_input_start_chunk_stops_active_response():
     mock_thread = mock.Mock()
     mock_thread.is_alive.return_value = True
     async_i.respond_thread = mock_thread
+    async_i.messages = []
 
     asyncio.run(async_i.input({"role": "user", "type": "message", "start": True}))
 
     mock_thread.join.assert_called_once()
     assert async_i.stop_event.is_set()
+    assert async_i.messages == [
+        {"role": "user", "type": "message", "content": ""},
+    ]
 
 
-def test_input_stop_command_joins_response_thread():
-    """A stop command should wait for the active response thread before returning."""
+def test_input_end_chunk_with_queued_stop_command_joins_response_thread():
+    """An end chunk should honor a queued stop command without starting respond()."""
     async_i = AsyncInterpreter()
     mock_thread = mock.Mock()
     async_i.respond_thread = mock_thread
     async_i.messages = [{"role": "user", "type": "command", "content": "stop"}]
 
-    asyncio.run(async_i.input({"role": "user", "type": "message", "end": True}))
+    with mock.patch("interpreter.core.async_core.threading.Thread") as thread_cls:
+        asyncio.run(async_i.input({"role": "user", "type": "message", "end": True}))
 
     mock_thread.join.assert_called_once()
+    assert async_i.stop_event.is_set()
+    thread_cls.assert_not_called()
+    assert async_i.messages == []
