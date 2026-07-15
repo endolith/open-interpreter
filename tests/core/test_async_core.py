@@ -1,7 +1,11 @@
 import os
 from unittest import TestCase, mock
 
-from interpreter.core.async_core import AsyncInterpreter, Server
+from interpreter.core.async_core import (
+    AsyncInterpreter,
+    Server,
+    is_websocket_origin_allowed,
+)
 
 
 class TestServerConstruction(TestCase):
@@ -52,3 +56,16 @@ class TestServerConstruction(TestCase):
             s = Server(AsyncInterpreter())
             self.assertEqual(s.host, fake_host)
             self.assertEqual(s.port, fake_port)
+
+
+class TestWebSocketOriginPolicy(TestCase):
+    def test_missing_origin_allowed_for_local_clients(self):
+        self.assertTrue(is_websocket_origin_allowed(None))
+        self.assertTrue(is_websocket_origin_allowed(""))
+
+    def test_localhost_origins_allowed(self):
+        self.assertTrue(is_websocket_origin_allowed("http://127.0.0.1:8000"))
+        self.assertTrue(is_websocket_origin_allowed("http://localhost:8000"))
+
+    def test_remote_origins_rejected(self):
+        self.assertFalse(is_websocket_origin_allowed("https://evil.example"))

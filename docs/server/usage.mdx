@@ -24,6 +24,8 @@ async_interpreter.server.run(port=8000)  # Default port is 8000, but you can cus
 ### Establishing a Connection
 Connect to the WebSocket server at `ws://localhost:8000/`.
 
+The server rejects WebSocket connections whose browser `Origin` header is not `http://127.0.0.1` or `http://localhost`. This blocks other websites you have open from driving the server while still allowing the bundled page, other local web UIs, and non-browser clients (which usually send no `Origin` header).
+
 ### Message Format
 Open Interpreter uses an extended version of OpenAI's message format called [LMC messages](../protocols/lmc-messages.mdx) that allow for rich, multi-part messages. **Messages must be sent between start and end flags.** Here's the basic structure:
 
