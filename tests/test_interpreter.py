@@ -193,6 +193,11 @@ def run_auth_server():
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
+    # auto_run and system_message are blocked on POST /settings; set them at startup.
+    async_interpreter.auto_run = True
+    async_interpreter.custom_instructions = (
+        "You are a poem writing bot. Do not do anything but respond with a poem."
+    )
     async_interpreter.print = False
     async_interpreter.server.run()
 
@@ -235,7 +240,6 @@ def test_authenticated_acknowledging_breaking_server():
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
-                "custom_instructions": "You are a poem writing bot. Do not do anything but respond with a poem.",
             }
             response = requests.post(
                 post_url, json=settings, headers={"X-API-KEY": "testing"}
@@ -288,20 +292,23 @@ def test_authenticated_acknowledging_breaking_server():
                 ):
                     raise (
                         Exception(
-                            "It shouldn't have finished this soon, accumulated_content is: "
-                            + accumulated_content
+                            "It shouldn't have finished this soon, poem so far is: "
+                            + poem
                         )
                     )
 
             await websocket.close()
             print("Disconnected from WebSocket")
 
-        time.sleep(3)
+        # Give uvicorn time to finish tearing down the first WebSocket session.
+        time.sleep(5)
 
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(
+            "ws://127.0.0.1:8000/", open_timeout=30
+        ) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
