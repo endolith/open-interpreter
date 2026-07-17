@@ -5,6 +5,8 @@ from interpreter.core.async_core import (
     AsyncInterpreter,
     Server,
     is_websocket_origin_allowed,
+    SENSITIVE_LLM_SETTINGS,
+    SENSITIVE_SERVER_SETTINGS,
 )
 
 
@@ -69,3 +71,34 @@ class TestWebSocketOriginPolicy(TestCase):
 
     def test_remote_origins_rejected(self):
         self.assertFalse(is_websocket_origin_allowed("https://evil.example"))
+
+
+class TestSettingsEndpointGuards(TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(Server(AsyncInterpreter()).app)
+
+    def _assert_settings_blocked(self, payload, error_substring):
+        response = self.client.post("/settings", json=payload)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(error_substring, response.json()["error"])
+
+    def test_post_settings_blocks_sensitive_server_attributes(self):
+        """POST /settings must reject top-level keys that control execution or history."""
+        for key in SENSITIVE_SERVER_SETTINGS:
+            with self.subTest(key=key):
+                self._assert_settings_blocked({key: True}, key)
+
+    def test_post_settings_blocks_sensitive_llm_attributes(self):
+        """POST /settings must reject llm.api_key and llm.api_base."""
+        for sub_key in SENSITIVE_LLM_SETTINGS:
+            with self.subTest(sub_key=sub_key):
+                self._assert_settings_blocked(
+                    {"llm": {sub_key: "secret"}}, f"llm.{sub_key}"
+                )
+
+    def test_post_settings_allows_non_sensitive_llm_model(self):
+        """Non-sensitive llm fields like model remain writable via POST /settings."""
+        response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
+        self.assertEqual(response.status_code, 200)

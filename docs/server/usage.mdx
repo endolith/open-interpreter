@@ -165,11 +165,12 @@ import requests
 settings = {
     "llm": {"model": "gpt-4"},
     "custom_instructions": "You only write Python code.",
-    "auto_run": True,
 }
 response = requests.post("http://localhost:8000/settings", json=settings)
 print(response.status_code)
 ```
+
+Sensitive settings such as `auto_run`, `safe_mode`, `system_message`, and `messages` cannot be changed through this endpoint.
 
 ### Retrieving Settings
 To get current settings, send a GET request to `http://localhost:8000/settings/{property}`.

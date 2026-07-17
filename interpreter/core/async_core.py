@@ -66,6 +66,13 @@ def is_websocket_origin_allowed(origin: Optional[str]) -> bool:
     return True
 
 
+# Top-level interpreter attributes that must not be changed via POST /settings.
+SENSITIVE_SERVER_SETTINGS = frozenset(
+    {"auto_run", "safe_mode", "system_message", "messages"}
+)
+SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
+
+
 class AsyncInterpreter(OpenInterpreter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -672,12 +679,23 @@ def create_router(async_interpreter):
     async def set_settings(payload: Dict[str, Any]):
         for key, value in payload.items():
             print("Updating settings...")
-            # print(f"Updating settings: {key} = {value}")
-            if key in ["llm", "computer"] and isinstance(value, dict):
-                if key == "auto_run":
-                    return {
+            if key in SENSITIVE_SERVER_SETTINGS:
+                return JSONResponse(
+                    status_code=HTTP_403_FORBIDDEN,
+                    content={
                         "error": f"The setting {key} is not modifiable through the server due to security constraints."
-                    }, 403
+                    },
+                )
+            if key in ["llm", "computer"] and isinstance(value, dict):
+                if key == "llm":
+                    for sub_key in value:
+                        if sub_key in SENSITIVE_LLM_SETTINGS:
+                            return JSONResponse(
+                                status_code=HTTP_403_FORBIDDEN,
+                                content={
+                                    "error": f"The setting llm.{sub_key} is not modifiable through the server due to security constraints."
+                                },
+                            )
                 if hasattr(async_interpreter, key):
                     for sub_key, sub_value in value.items():
                         if hasattr(getattr(async_interpreter, key), sub_key):
