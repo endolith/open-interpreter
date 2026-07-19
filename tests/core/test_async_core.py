@@ -8,6 +8,7 @@ from interpreter.core.async_core import (
     is_websocket_origin_allowed,
     SENSITIVE_LLM_SETTINGS,
     SENSITIVE_SERVER_SETTINGS,
+    confirmation_digest,
 )
 
 
@@ -104,6 +105,10 @@ class TestSettingsEndpointGuards(TestCase):
         response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
         self.assertEqual(response.status_code, 200)
 
+<<<<<<< ours
+=======
+
+>>>>>>> theirs
 class TestAsyncApprovalBinding(TestCase):
     def setUp(self):
         self.interpreter = AsyncInterpreter()
@@ -291,4 +296,8 @@ class TestAsyncRespondApproval(TestCase):
         self._run_respond_with_chunks([confirmation, console], approve=False)
 
         put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
+<<<<<<< ours
         self.assertFalse(any(c.get("content") == "ok" for c in put_chunks))
+=======
+        self.assertFalse(any(c.get("content") == "ok" for c in put_chunks))
+>>>>>>> theirs
