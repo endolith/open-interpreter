@@ -1,5 +1,50 @@
 # Roadmap
 
+## Plan
+
+This repository (`endolith/open-interpreter`) is the community-maintained home of **OI Classic**, the Python edition of Open Interpreter. The upstream [openinterpreter/openinterpreter](https://github.com/openinterpreter/openinterpreter) repo was rewritten as an unrelated Rust project, so OI Classic now evolves independently.
+
+Work is organized in phases so that each step makes the next one more trustworthy.
+
+### Phase 1: CI and test foundation (in progress)
+
+Automation so that pull requests can be reviewed and merged with confidence. Much of this is already in place on `main`:
+
+- [x] Unit tests run in CI without an API key (`pytest -m "not integration"`)
+- [x] Ruff lint job with `pyproject.toml` configuration
+- [x] Python 3.10–3.14 test matrix with `fail-fast: false`
+- [x] Coverage reports with optional Codecov upload
+- [x] Mock OpenAI server so LLM-dependent smoke tests need no real key
+- [x] Integration tests gated behind `OI_RUN_INTEGRATION` + `OPENAI_API_KEY`, run in their own job
+- [x] Shared test helpers (`tests/helpers.py`) and `linux_ci`/`windows_ci`/`darwin_ci` platform markers
+- [x] Hundreds of unit tests across `interpreter/` — coverage rose significantly over recent commits
+- [ ] Close the remaining coverage gaps (see [#141](https://github.com/endolith/open-interpreter/issues/141)) and keep every new feature test-backed
+
+### Phase 2: Port features from `classic/develop` into `main`
+
+`classic/develop` is where features are developed, but they are scattered across one long linear history. Port each feature to `main` as its own isolated PR:
+
+- [ ] File-edit tools (sed, gawk, jq, yq, comby, patch) with dry-run previews
+- [ ] Tool-calling instruction refactor and generated tool schemas
+- [ ] PowerShell prompt detection, profile loading, and shell improvements
+- [ ] `reasoning_content` streaming
+- [ ] Web toolbox (`web.search` / `web.fetch` / `web.answer`) with pluggable backends
+- [ ] Conversation title generation, `%rename`, and atomic conversation saving
+- [ ] `view_image` tool with user approval flow
+- [ ] Tri-state `auto_run` with allowlist
+- [ ] Profile validation and telemetry opt-out
+- [ ] Provider error retry logic and improved error rendering
+- [ ] Conversation undo improvements
+- [ ] … and the other feature clusters in `classic/develop`
+
+### Phase 3: Pythonic refactor
+
+Once the develop features are in, refactor the codebase to be more Pythonic and better written in general. This must wait until after Phase 2, because `classic/develop` is based on the older, less Pythonic `main` code.
+
+### Phase 4: Mine the abandoned OI 1.0 rewrite (maybe)
+
+The `development` branch (and its continuation `develop_1.0`) was meant to become Open Interpreter 1.0, but depends on Anthropic computer-use APIs that are now obsolete and was never feature-complete. After the earlier phases, consider cherry-picking any worthwhile ideas from it.
+
 ## Documentation
 
 - [ ] Work with Mintlify to translate docs. How does Mintlify let us translate our documentation automatically? I know there's a way.
@@ -57,9 +102,10 @@ This repository (`endolith/open-interpreter`) is the **Python** edition of Open 
 
 **Branches**
 
-- **`main`** — merge target; PRs and CI land here.
-- **`classic/develop`** — maintainer working branch (repo default today). Features are ported to `main` as isolated PRs, not merged wholesale.
-- **`development`** — legacy upstream branch; not maintained and not becoming `main`.
+- **`main`** — merge target; PRs and CI land here. This is the default branch and what most users install.
+- **`classic/develop`** — maintainer working branch where features are developed. Features are ported to `main` as isolated PRs, not merged wholesale (see the [Plan](#plan)).
+- **`development`** — abandoned attempt at Open Interpreter 1.0 (see the [Plan](#plan) Phase 4); not maintained and not becoming `main`.
+- **`develop_1.0`** — experimental continuation of `development`; also abandoned.
 
 Open Interpreter contains two projects which support each other, whose scopes are as follows:
 
