@@ -17,12 +17,13 @@ Automation so that pull requests can be reviewed and merged with confidence. Muc
 - [x] Mock OpenAI server so LLM-dependent smoke tests need no real key
 - [x] Integration tests gated behind `OI_RUN_INTEGRATION` + `OPENAI_API_KEY`, run in their own job
 - [x] Shared test helpers (`tests/helpers.py`) and `linux_ci`/`windows_ci`/`darwin_ci` platform markers
+- [x] [CodeRabbit](https://github.com/apps/coderabbitai) AI code review on pull requests
 - [x] Hundreds of unit tests across `interpreter/` — coverage rose significantly over recent commits
 - [ ] Close the remaining coverage gaps (see [#141](https://github.com/endolith/open-interpreter/issues/141)) and keep every new feature test-backed
 
 ### Phase 2: Port features from `classic/develop` into `main`
 
-`classic/develop` is where features are developed, but they are scattered across one long linear history. Port each feature to `main` as its own isolated PR:
+`classic/develop` is the maintainer's daily driver: it contains most recent features and is what most users should install for now. Its features are scattered across one long linear history, so each one is ported to `main` as its own isolated PR. As features land, `main` gradually becomes the better (and eventually the recommended) install for everyone:
 
 - [ ] File-edit tools (sed, gawk, jq, yq, comby, patch) with dry-run previews
 - [ ] Tool-calling instruction refactor and generated tool schemas
@@ -102,10 +103,10 @@ This repository (`endolith/open-interpreter`) is the **Python** edition of Open 
 
 **Branches**
 
-- **`main`** — merge target; PRs and CI land here. This is the default branch and what most users install.
-- **`classic/develop`** — maintainer working branch where features are developed. Features are ported to `main` as isolated PRs, not merged wholesale (see the [Plan](#plan)).
+- **`main`** — merge target; PRs and CI land here. Default branch and CI badge. As features are ported over from `classic/develop` (see the [Plan](#plan)), this becomes the recommended install for everyone.
+- **`classic/develop`** — the maintainer's daily driver and currently the best install for most users. Features are ported to `main` as isolated PRs, not merged wholesale (see the [Plan](#plan) Phase 2).
 - **`development`** — abandoned attempt at Open Interpreter 1.0 (see the [Plan](#plan) Phase 4); not maintained and not becoming `main`.
-- **`develop_1.0`** — experimental continuation of `development`; also abandoned.
+- **`develop_1.0`** — experimental continuation of `development` (the maintainer's work on it before it was abandoned); also abandoned.
 
 Open Interpreter contains two projects which support each other, whose scopes are as follows:
 
