@@ -90,7 +90,12 @@ def _stop_server_subprocess(process):
 
 
 async def _wait_for_websocket_complete(
-    websocket, max_messages=500, recv_timeout=300.0, acknowledge=False
+    websocket,
+    max_messages=500,
+    recv_timeout=300.0,
+    acknowledge=False,
+    phase="unknown",
+    server_process=None,
 ):
     """Read WebSocket chunks until the server sends a 'complete' status.
 
@@ -102,13 +107,22 @@ async def _wait_for_websocket_complete(
     import json
 
     accumulated_content = ""
+    messages_received = 0
     for _ in range(max_messages):
+        if server_process is not None and not server_process.is_alive():
+            raise RuntimeError(
+                f"Server subprocess exited during WebSocket wait (phase: {phase}, "
+                f"exit code {server_process.exitcode}, port {_SERVER_PORT})"
+            )
         try:
             message = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
         except asyncio.TimeoutError as exc:
             raise Exception(
-                f"No WebSocket message within {recv_timeout}s waiting for 'complete'"
+                f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
+                f"(phase: {phase}, messages received: {messages_received}, "
+                f"port {_SERVER_PORT})"
             ) from exc
+        messages_received += 1
 
         message_data = json.loads(message)
         if acknowledge and "id" in message_data:
@@ -129,7 +143,10 @@ async def _wait_for_websocket_complete(
             print("Received expected message from server")
             return accumulated_content
 
-    raise Exception(f"Never received 'complete' status after {max_messages} messages")
+    raise Exception(
+        f"Never received 'complete' status after {max_messages} messages "
+        f"(phase: {phase}, port {_SERVER_PORT})"
+    )
 
 
 def _last_assistant_message(messages):
