@@ -1,5 +1,77 @@
 # Roadmap
 
+## Plan
+
+This repository (`endolith/open-interpreter`) is the community-maintained home of **OI Classic**, the Python edition of Open Interpreter. The upstream [openinterpreter/openinterpreter](https://github.com/openinterpreter/openinterpreter) repo was rewritten as an unrelated Rust project, so OI Classic now evolves independently.
+
+Work is organized in phases so that each step makes the next one more trustworthy.
+
+### Phase 1: CI and test foundation (in progress)
+
+Automation so that pull requests can be reviewed and merged with confidence. Much of this is already in place on `main`:
+
+- [x] Unit tests run in CI without an API key (`pytest -m "not integration"`)
+- [x] Ruff lint job with `pyproject.toml` configuration
+- [x] Python 3.10–3.14 test matrix with `fail-fast: false`
+- [x] Coverage reports with optional Codecov upload
+- [x] Mock OpenAI server so LLM-dependent smoke tests need no real key
+- [x] Integration tests gated behind `OI_RUN_INTEGRATION` + `OPENAI_API_KEY`, run in their own job
+- [x] Shared test helpers (`tests/helpers.py`) and `linux_ci`/`windows_ci`/`darwin_ci` platform markers
+- [x] [CodeRabbit](https://github.com/apps/coderabbitai) AI code review on pull requests
+- [x] Hundreds of unit tests across `interpreter/` — coverage rose significantly over recent commits
+- [ ] Close the remaining coverage gaps (see [#141](https://github.com/endolith/open-interpreter/issues/141)) and keep every new feature test-backed
+
+### Phase 2: Port features from `classic/develop` into `main`
+
+`classic/develop` is the maintainer's daily driver: it contains most recent features and is what most users should install for now. Its features are scattered across one long linear history, so each one is ported to `main` as its own isolated PR. As features land, `main` gradually becomes the better (and eventually the recommended) install for everyone.
+
+Ports are prioritized: proven daily-use features first, uncertain or shaky ones last.
+
+**Priority 1 — LLM API quality (definitely want):**
+
+- [ ] `reasoning_content` streaming with cyan "Thinking" panels, plus `include_reasoning` / `reasoning_effort` and OpenRouter `extra_body` reasoning support
+- [ ] DeepSeek API support (`--model deepseek/deepseek-v4-flash`, `DEEPSEEK_API_KEY`, optional `DEEPSEEK_API_BASE`)
+- [ ] Split the ambiguous `shell` language into explicit `bash` and `cmd` languages, and clarify REPL semantics in the tool schema
+- [ ] OpenRouter support (`--model openrouter/...` with `OPENROUTER_API_KEY`)
+- [ ] DashScope / Qwen support with vision for Qwen 3.5 models
+- [ ] Mistral compatibility fixes (tool ID length, image role mapping)
+- [ ] API error handling: styled error panels, retry prompts, auto-retry on temporary provider errors, clean exits
+- [ ] `%usage` command with token statistics
+
+**Priority 2 — Proven daily tools:**
+
+- [ ] `view_image` tool with approval flow (working well)
+- [ ] Web tools (`web.search` / `web.answer` / `web.fetch`) with multi-backend fallbacks and result classes (working well)
+
+**Priority 3 — General improvements:**
+
+- [ ] Conversation improvements: auto-title files + `%rename`, atomic saving, user-message timestamps, "New Conversation" menu option
+- [ ] Cache-aware truncation (`truncation_step`) to cut token costs by reusing KV/prefix caches
+- [ ] Secret redaction so passwords and API keys aren't sent to the LLM
+- [ ] Incremental markdown rendering to avoid screen flickering, with streaming permanent output for large code blocks
+- [ ] Python REPL state output (variables, modules, CWD, restart alerts)
+- [ ] Better terminal size detection and reflow on window resize
+- [ ] Windows support improvements (Downloads folder detection, UTF-8 code page, `bat` highlighting, editor fallbacks)
+- [ ] Tri-state `auto_run` with allowlist
+- [ ] Profile validation with warnings for invalid config attributes
+- [ ] Conversation undo improvements
+
+**Priority 4 — Uncertain, merge later:**
+
+- [ ] File-edit tools (sed, gawk, jq, yq, comby, patch) with dry-run previews — works inconsistently
+- [ ] `ai2` module for task delegation — rarely used, needs explicit prompting
+- [ ] `computer` → `toolbox` rename — breaking API change, uncertain benefit
+- [ ] Telemetry removal / opt-out — undecided
+- [ ] `TextFileReader` convenience class — unverified
+
+### Phase 3: Pythonic refactor
+
+Once the develop features are in, refactor the codebase to be more Pythonic and better written in general. This must wait until after Phase 2, because `classic/develop` is based on the older, less Pythonic `main` code.
+
+### Phase 4: Mine the abandoned OI 1.0 rewrite (maybe)
+
+The `development` branch (and its continuation `develop_1.0`) was meant to become Open Interpreter 1.0, but depends on Anthropic computer-use APIs that are now obsolete and was never feature-complete. After the earlier phases, consider cherry-picking any worthwhile ideas from it.
+
 ## Documentation
 
 - [ ] Work with Mintlify to translate docs. How does Mintlify let us translate our documentation automatically? I know there's a way.
@@ -57,9 +129,10 @@ This repository (`endolith/open-interpreter`) is the **Python** edition of Open 
 
 **Branches**
 
-- **`main`** — merge target; PRs and CI land here.
-- **`classic/develop`** — maintainer working branch (repo default today). Features are ported to `main` as isolated PRs, not merged wholesale.
-- **`development`** — legacy upstream branch; not maintained and not becoming `main`.
+- **`main`** — merge target; PRs and CI land here. Default branch and CI badge. As features are ported over from `classic/develop` (see the [Plan](#plan)), this becomes the recommended install for everyone.
+- **`classic/develop`** — the maintainer's daily driver and currently the best install for most users. Features are ported to `main` as isolated PRs, not merged wholesale (see the [Plan](#plan) Phase 2).
+- **`development`** — abandoned attempt at Open Interpreter 1.0 (see the [Plan](#plan) Phase 4); not maintained and not becoming `main`.
+- **`develop_1.0`** — experimental continuation of `development` (the maintainer's work on it before it was abandoned); also abandoned.
 
 Open Interpreter contains two projects which support each other, whose scopes are as follows:
 
