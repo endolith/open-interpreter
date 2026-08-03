@@ -256,13 +256,10 @@ def test_authenticated_acknowledging_breaking_server():
         import asyncio
 
         async with websockets.connect(_server_ws_url()) as websocket:
-            # Connect to the websocket
             print("Connected to WebSocket")
 
-            # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
-            # Sending POST request
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
@@ -278,7 +275,6 @@ def test_authenticated_acknowledging_breaking_server():
             )
             print("POST request sent, response:", response.json())
 
-            # Sending messages via WebSocket
             await websocket.send(
                 json.dumps({"role": "user", "type": "message", "start": True})
             )
@@ -337,10 +333,8 @@ def test_authenticated_acknowledging_breaking_server():
         print("RESUMING")
 
         async with websockets.connect(_server_ws_url()) as websocket:
-            # Connect to the websocket
             print("Connected to WebSocket")
 
-            # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
             poem += await _wait_for_websocket_complete(
@@ -397,10 +391,8 @@ def test_server():
         import asyncio
 
         async with websockets.connect(_server_ws_url()) as websocket:
-            # Connect to the websocket
             print("Connected to WebSocket")
 
-            # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # POST /settings rejects messages, system_message, and auto_run as
@@ -415,7 +407,6 @@ def test_server():
             response.raise_for_status()
             print("POST request sent, response:", response.json())
 
-            # Sending messages via WebSocket
             await websocket.send(
                 json.dumps({"role": "user", "type": "message", "start": True})
             )
@@ -438,7 +429,6 @@ def test_server():
                 websocket, phase="secret_word_crunk", server_process=process
             )
 
-            # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
@@ -447,7 +437,6 @@ def test_server():
             response.raise_for_status()
             print("POST request sent, response:", response.json())
 
-            # Sending messages via WebSocket
             await websocket.send(
                 json.dumps({"role": "user", "type": "message", "start": True})
             )
@@ -470,7 +459,6 @@ def test_server():
                 websocket, phase="secret_word_barloney", server_process=process
             )
 
-            # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
                 "custom_instructions": "",
@@ -480,7 +468,6 @@ def test_server():
             response.raise_for_status()
             print("POST request sent, response:", response.json())
 
-            # Sending messages via WebSocket
             await websocket.send(
                 json.dumps({"role": "user", "type": "message", "start": True})
             )
@@ -498,7 +485,6 @@ def test_server():
             )
             print("WebSocket chunks sent")
 
-            # Wait for response
             accumulated_content = await _wait_for_websocket_complete(
                 websocket, phase="math_code_auto_run_false", server_process=process
             )
@@ -537,14 +523,10 @@ def test_server():
                 websocket, phase="go_execute_code", server_process=process
             )
 
-            #### TEST FILE ####
-
-            # Send another POST request
-            # auto_run=False: this turn only checks the model's text answer about a file
-            # path (judged via computer.ai.chat). We must not auto-execute shell code here
-            # or the server can hang before WebSocket 'complete' — unrelated to fish/$SHELL.
-            # custom_instructions steers plain-text replies; _last_assistant_text handles
-            # models that still emit a code block instead of a message.
+            # File turn: check the model's plain-text answer about a file path
+            # (judged via computer.ai.chat). auto_run stays off so no shell code
+            # auto-executes and hangs the server before 'complete'; custom_instructions
+            # steers plain-text replies and _last_assistant_text catches code blocks.
             post_url = _server_http_url("/settings")
             settings = {
                 "custom_instructions": (
@@ -568,7 +550,6 @@ def test_server():
                 "content": "/something.txt",
             }
 
-            # Sending messages via WebSocket
             await websocket.send(json.dumps(user_start))
             print("sent", user_start)
             await websocket.send(json.dumps(file_question))
@@ -604,13 +585,11 @@ def test_server():
 
             #### TEST IMAGES ####
 
-            # The server rejects POST /settings {"messages": []} (messages is a
-            # sensitive setting guarded since PR #96), so we cannot reset the
-            # conversation that way. Start a fresh, separate server for an isolated
-            # vision turn and reconnect on a new WebSocket, mirroring main's
-            # image-turn setup. We keep the original `process` for the file/math/go
-            # turns (its single assignment keeps ruff's F823 check quiet) and track
-            # the vision server in `vision_process` so it can be stopped on its own.
+            # POST /settings rejects {"messages": []} (messages is guarded as a
+            # sensitive setting since PR #96), so the conversation cannot be reset
+            # that way. Start a fresh, separate server for an isolated vision turn
+            # and reconnect on a new WebSocket; `vision_process` tracks that server
+            # so it can be stopped in a finally block even if a step below raises.
             await websocket.close()
             _stop_server_subprocess(process)
             vision_process = _start_server_subprocess(run_server)
@@ -621,7 +600,6 @@ def test_server():
             async with websockets.connect(_server_ws_url()) as image_websocket:
                 await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
-                # Sending messages via WebSocket
                 await image_websocket.send(json.dumps({"role": "user", "start": True}))
                 await image_websocket.send(
                     json.dumps(
@@ -648,21 +626,9 @@ def test_server():
                         }
                     )
                 )
-                # await image_websocket.send(
-                #     json.dumps(
-                #         {
-                #             "role": "user",
-                #             "type": "image",
-                #             "format": "path",
-                #             "content": "/Users/killianlucas/Documents/GitHub/open-interpreter/screen.png",
-                #         }
-                #     )
-                # )
-
                 await image_websocket.send(json.dumps({"role": "user", "end": True}))
                 print("WebSocket chunks sent")
 
-                # Wait for response
                 accumulated_content = await _wait_for_websocket_complete(
                     image_websocket, phase="vision_mcq", server_process=vision_process
                 )
@@ -674,8 +640,9 @@ def test_server():
                 r"\bB\b", vision_reply, re.IGNORECASE
             ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
-            # Sending POST request to /run endpoint with code to kill a thread in Python
-            # actually wait i dont think this will work..? will just kill the python interpreter
+            # Exercise the /run endpoint: the payload signals the vision server's
+            # Python process with SIGINT so it shuts down, and the finally block
+            # below stops the subprocess regardless of how this turn ends.
             post_url = _server_http_url("/run")
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
