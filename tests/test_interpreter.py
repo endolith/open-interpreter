@@ -403,22 +403,16 @@ def test_server():
             # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
-            # Sending POST request
+            # POST /settings rejects messages, system_message, and auto_run as
+            # sensitive settings (SENSITIVE_SERVER_SETTINGS in async_core.py), so
+            # only non-sensitive keys are sent here. The subprocess's default
+            # auto_run=False already satisfies the math turn's no-execute intent.
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
-                "messages": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "The secret word is 'crunk'.",
-                    },
-                    {"role": "assistant", "type": "message", "content": "Understood."},
-                ],
-                "custom_instructions": "",
-                "auto_run": True,
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
@@ -448,18 +442,9 @@ def test_server():
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
-                "messages": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "The secret word is 'barloney'.",
-                    },
-                    {"role": "assistant", "type": "message", "content": "Understood."},
-                ],
-                "custom_instructions": "",
-                "auto_run": True,
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
@@ -488,12 +473,11 @@ def test_server():
             # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "messages": [],
                 "custom_instructions": "",
-                "auto_run": False,
                 "verbose": False,
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
@@ -563,13 +547,12 @@ def test_server():
             # models that still emit a code block instead of a message.
             post_url = _server_http_url("/settings")
             settings = {
-                "messages": [],
-                "auto_run": False,
                 "custom_instructions": (
                     "Answer in plain text only. Do not write or run code."
                 ),
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
 
             user_start = {"role": "user", "start": True}
