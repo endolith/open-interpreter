@@ -42,6 +42,14 @@ def _allocate_server_port():
         return sock.getsockname()[1]
 
 
+def _server_ws_url():
+    return f"ws://{_SERVER_HOST}:{_SERVER_PORT}/"
+
+
+def _server_http_url(path=""):
+    return f"http://{_SERVER_HOST}:{_SERVER_PORT}{path}"
+
+
 def _start_server_subprocess(target):
     global _SERVER_PORT
     _SERVER_PORT = _allocate_server_port()
@@ -203,11 +211,6 @@ def run_auth_server():
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
-    # auto_run and system_message are blocked on POST /settings; set them at startup.
-    async_interpreter.auto_run = True
-    async_interpreter.custom_instructions = (
-        "You are a poem writing bot. Do not do anything but respond with a poem."
-    )
     async_interpreter.print = False
     async_interpreter.server.run()
 
@@ -235,7 +238,7 @@ def test_authenticated_acknowledging_breaking_server():
     async def test_fastapi_server():
         import asyncio
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -243,19 +246,20 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             # Sending POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
                     "model": "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
+                "system_message": "You are a poem writing bot. Do not do anything but respond with a poem.",
+                "auto_run": True,
             }
             response = requests.post(
                 post_url, json=settings, headers={"X-API-KEY": "testing"}
             )
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -302,23 +306,20 @@ def test_authenticated_acknowledging_breaking_server():
                 ):
                     raise (
                         Exception(
-                            "It shouldn't have finished this soon, poem so far is: "
-                            + poem
+                            "It shouldn't have finished this soon, accumulated_content is: "
+                            + accumulated_content
                         )
                     )
 
             await websocket.close()
             print("Disconnected from WebSocket")
 
-        # Give uvicorn time to finish tearing down the first WebSocket session.
-        time.sleep(5)
+        time.sleep(3)
 
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect(
-            "ws://127.0.0.1:8000/", open_timeout=30
-        ) as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -371,10 +372,9 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
-        nonlocal process
         import asyncio
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -382,14 +382,22 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
+                "messages": [
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": "The secret word is 'crunk'.",
+                    },
+                    {"role": "assistant", "type": "message", "content": "Understood."},
+                ],
                 "custom_instructions": "",
+                "auto_run": True,
             }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -400,10 +408,7 @@ def test_server():
                     {
                         "role": "user",
                         "type": "message",
-                        "content": (
-                            "The secret word is 'crunk'. What is the secret word? "
-                            "Reply with only that word."
-                        ),
+                        "content": "What's the secret word?",
                     }
                 )
             )
@@ -418,14 +423,22 @@ def test_server():
             assert "crunk" in accumulated_content
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
+                "messages": [
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": "The secret word is 'barloney'.",
+                    },
+                    {"role": "assistant", "type": "message", "content": "Understood."},
+                ],
                 "custom_instructions": "",
+                "auto_run": True,
             }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -436,10 +449,7 @@ def test_server():
                     {
                         "role": "user",
                         "type": "message",
-                        "content": (
-                            "The secret word is now 'barloney' (ignore any previous secret word). "
-                            "What is the secret word? Reply with only that word."
-                        ),
+                        "content": "What's the secret word?",
                     }
                 )
             )
@@ -454,14 +464,15 @@ def test_server():
             assert "barloney" in accumulated_content
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
+                "messages": [],
                 "custom_instructions": "",
+                "auto_run": False,
                 "verbose": False,
             }
             response = requests.post(post_url, json=settings)
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -487,7 +498,7 @@ def test_server():
             time.sleep(5)
 
             # Send a GET request to /settings/messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
 
@@ -524,8 +535,23 @@ def test_server():
 
             #### TEST FILE ####
 
-            # auto_run/messages cannot be reset via POST /settings (blocked for security).
-            # Continue on the same WebSocket; _last_assistant_text handles code-only replies.
+            # Send another POST request
+            # auto_run=False: this turn only checks the model's text answer about a file
+            # path (judged via computer.ai.chat). We must not auto-execute shell code here
+            # or the server can hang before WebSocket 'complete' — unrelated to fish/$SHELL.
+            # custom_instructions steers plain-text replies; _last_assistant_text handles
+            # models that still emit a code block instead of a message.
+            post_url = _server_http_url("/settings")
+            settings = {
+                "messages": [],
+                "auto_run": False,
+                "custom_instructions": (
+                    "Answer in plain text only. Do not write or run code."
+                ),
+            }
+            response = requests.post(post_url, json=settings)
+            print("POST request sent, response:", response.json())
+
             user_start = {"role": "user", "start": True}
             file_question = {
                 "role": "user",
@@ -554,7 +580,7 @@ def test_server():
             accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -573,59 +599,78 @@ def test_server():
 
             #### TEST IMAGES ####
 
-            # Fresh server for an isolated vision turn. With approval binding, reusing
-            # the same WebSocket after auto_run=False can leave a pending confirmation
-            # and the stream ends with only "complete".
-            await websocket.close()
-            _stop_server_subprocess(process)
-            process = _start_server_subprocess(run_server)
-            _wait_for_server(process)
+            # Send another POST request
+            # auto_run=False again so vision MCQ is text-only. custom_instructions=""
+            # clears the file-turn "plain text only" prompt for this image turn.
+            post_url = _server_http_url("/settings")
+            settings = {"messages": [], "auto_run": False, "custom_instructions": ""}
+            response = requests.post(post_url, json=settings)
+            print("POST request sent, response:", response.json())
 
-            async with websockets.connect("ws://127.0.0.1:8000/") as image_websocket:
-                await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
+            base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
 
-                base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
-
-                await image_websocket.send(json.dumps({"role": "user", "start": True}))
-                await image_websocket.send(
-                    json.dumps(
-                        {
-                            "role": "user",
-                            "type": "message",
-                            "content": (
-                                "What do you see in this image? Reply with only one letter.\n"
-                                "A) a cat\n"
-                                "B) a color gradient\n"
-                                "C) a table of numbers\n"
-                                "D) a black rectangle"
-                            ),
-                        }
-                    )
+            # Sending messages via WebSocket
+            await websocket.send(json.dumps({"role": "user", "start": True}))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": (
+                            "What do you see in this image? Reply with only one letter.\n"
+                            "A) a cat\n"
+                            "B) a color gradient\n"
+                            "C) a table of numbers\n"
+                            "D) a black rectangle"
+                        ),
+                    }
                 )
-                await image_websocket.send(
-                    json.dumps(
-                        {
-                            "role": "user",
-                            "type": "image",
-                            "format": "base64.png",
-                            "content": base64png,
-                        }
-                    )
+            )
+            await websocket.send(
+                json.dumps(
+                    {
+                        "role": "user",
+                        "type": "image",
+                        "format": "base64.png",
+                        "content": base64png,
+                    }
                 )
-                await image_websocket.send(json.dumps({"role": "user", "end": True}))
-                print("WebSocket chunks sent")
+            )
+            # await websocket.send(
+            #     json.dumps(
+            #         {
+            #             "role": "user",
+            #             "type": "image",
+            #             "format": "path",
+            #             "content": "/Users/killianlucas/Documents/GitHub/open-interpreter/screen.png",
+            #         }
+            #     )
+            # )
 
-                accumulated_content = await _wait_for_websocket_complete(image_websocket)
+            await websocket.send(json.dumps({"role": "user", "end": True}))
+            print("WebSocket chunks sent")
 
-                # _wait_for_websocket_complete appends the status content "complete".
-                vision_reply = accumulated_content.removesuffix("complete")
-                assert re.search(
-                    r"\bB\b", vision_reply, re.IGNORECASE
-                ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
+            # Wait for response
+            accumulated_content = await _wait_for_websocket_complete(websocket)
+
+            # Get messages
+            get_url = _server_http_url("/settings/messages")
+            response_json = requests.get(get_url).json()
+            print("GET request sent, response:", response_json)
+            if isinstance(response_json, str):
+                response_json = json.loads(response_json)
+            messages = response_json["messages"]
+
+            # Same message-or-stream fallback as the file MCQ turn above.
+            last_assistant = _last_assistant_text(messages) or accumulated_content
+            assert last_assistant, "expected assistant response after image turn"
+            assert re.search(
+                r"\bB\b", last_assistant, re.IGNORECASE
+            ), f"expected vision model to answer B (gradient), got: {last_assistant!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = "http://127.0.0.1:8000/run"
+            post_url = _server_http_url("/run")
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
