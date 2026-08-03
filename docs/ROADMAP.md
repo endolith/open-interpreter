@@ -23,20 +23,46 @@ Automation so that pull requests can be reviewed and merged with confidence. Muc
 
 ### Phase 2: Port features from `classic/develop` into `main`
 
-`classic/develop` is the maintainer's daily driver: it contains most recent features and is what most users should install for now. Its features are scattered across one long linear history, so each one is ported to `main` as its own isolated PR. As features land, `main` gradually becomes the better (and eventually the recommended) install for everyone:
+`classic/develop` is the maintainer's daily driver: it contains most recent features and is what most users should install for now. Its features are scattered across one long linear history, so each one is ported to `main` as its own isolated PR. As features land, `main` gradually becomes the better (and eventually the recommended) install for everyone.
 
-- [ ] File-edit tools (sed, gawk, jq, yq, comby, patch) with dry-run previews
-- [ ] Tool-calling instruction refactor and generated tool schemas
-- [ ] PowerShell prompt detection, profile loading, and shell improvements
-- [ ] `reasoning_content` streaming
-- [ ] Web toolbox (`web.search` / `web.fetch` / `web.answer`) with pluggable backends
-- [ ] Conversation title generation, `%rename`, and atomic conversation saving
-- [ ] `view_image` tool with user approval flow
+Ports are prioritized: proven daily-use features first, uncertain or shaky ones last.
+
+**Priority 1 — LLM API quality (definitely want):**
+
+- [ ] `reasoning_content` streaming with cyan "Thinking" panels, plus `include_reasoning` / `reasoning_effort` and OpenRouter `extra_body` reasoning support
+- [ ] DeepSeek API support (`--model deepseek/deepseek-v4-flash`, `DEEPSEEK_API_KEY`, optional `DEEPSEEK_API_BASE`)
+- [ ] Split the ambiguous `shell` language into explicit `bash` and `cmd` languages, and clarify REPL semantics in the tool schema
+- [ ] OpenRouter support (`--model openrouter/...` with `OPENROUTER_API_KEY`)
+- [ ] DashScope / Qwen support with vision for Qwen 3.5 models
+- [ ] Mistral compatibility fixes (tool ID length, image role mapping)
+- [ ] API error handling: styled error panels, retry prompts, auto-retry on temporary provider errors, clean exits
+- [ ] `%usage` command with token statistics
+
+**Priority 2 — Proven daily tools:**
+
+- [ ] `view_image` tool with approval flow (working well)
+- [ ] Web tools (`web.search` / `web.answer` / `web.fetch`) with multi-backend fallbacks and result classes (working well)
+
+**Priority 3 — General improvements:**
+
+- [ ] Conversation improvements: auto-title files + `%rename`, atomic saving, user-message timestamps, "New Conversation" menu option
+- [ ] Cache-aware truncation (`truncation_step`) to cut token costs by reusing KV/prefix caches
+- [ ] Secret redaction so passwords and API keys aren't sent to the LLM
+- [ ] Incremental markdown rendering to avoid screen flickering, with streaming permanent output for large code blocks
+- [ ] Python REPL state output (variables, modules, CWD, restart alerts)
+- [ ] Better terminal size detection and reflow on window resize
+- [ ] Windows support improvements (Downloads folder detection, UTF-8 code page, `bat` highlighting, editor fallbacks)
 - [ ] Tri-state `auto_run` with allowlist
-- [ ] Profile validation and telemetry opt-out
-- [ ] Provider error retry logic and improved error rendering
+- [ ] Profile validation with warnings for invalid config attributes
 - [ ] Conversation undo improvements
-- [ ] … and the other feature clusters in `classic/develop`
+
+**Priority 4 — Uncertain, merge later:**
+
+- [ ] File-edit tools (sed, gawk, jq, yq, comby, patch) with dry-run previews — works inconsistently
+- [ ] `ai2` module for task delegation — rarely used, needs explicit prompting
+- [ ] `computer` → `toolbox` rename — breaking API change, uncertain benefit
+- [ ] Telemetry removal / opt-out — undecided
+- [ ] `TextFileReader` convenience class — unverified
 
 ### Phase 3: Pythonic refactor
 
