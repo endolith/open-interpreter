@@ -593,67 +593,70 @@ def test_server():
             await websocket.close()
             _stop_server_subprocess(process)
             vision_process = _start_server_subprocess(run_server)
-            _wait_for_server(vision_process)
+            try:
+                _wait_for_server(vision_process)
 
-            base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
+                base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
 
-            async with websockets.connect(_server_ws_url()) as image_websocket:
-                await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
+                async with websockets.connect(_server_ws_url()) as image_websocket:
+                    await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
-                await image_websocket.send(json.dumps({"role": "user", "start": True}))
-                await image_websocket.send(
-                    json.dumps(
-                        {
-                            "role": "user",
-                            "type": "message",
-                            "content": (
-                                "What do you see in this image? Reply with only one letter.\n"
-                                "A) a cat\n"
-                                "B) a color gradient\n"
-                                "C) a table of numbers\n"
-                                "D) a black rectangle"
-                            ),
-                        }
+                    await image_websocket.send(json.dumps({"role": "user", "start": True}))
+                    await image_websocket.send(
+                        json.dumps(
+                            {
+                                "role": "user",
+                                "type": "message",
+                                "content": (
+                                    "What do you see in this image? Reply with only one letter.\n"
+                                    "A) a cat\n"
+                                    "B) a color gradient\n"
+                                    "C) a table of numbers\n"
+                                    "D) a black rectangle"
+                                ),
+                            }
+                        )
                     )
-                )
-                await image_websocket.send(
-                    json.dumps(
-                        {
-                            "role": "user",
-                            "type": "image",
-                            "format": "base64.png",
-                            "content": base64png,
-                        }
+                    await image_websocket.send(
+                        json.dumps(
+                            {
+                                "role": "user",
+                                "type": "image",
+                                "format": "base64.png",
+                                "content": base64png,
+                            }
+                        )
                     )
-                )
-                await image_websocket.send(json.dumps({"role": "user", "end": True}))
-                print("WebSocket chunks sent")
+                    await image_websocket.send(json.dumps({"role": "user", "end": True}))
+                    print("WebSocket chunks sent")
 
-                accumulated_content = await _wait_for_websocket_complete(
-                    image_websocket, phase="vision_mcq", server_process=vision_process
-                )
+                    accumulated_content = await _wait_for_websocket_complete(
+                        image_websocket, phase="vision_mcq", server_process=vision_process
+                    )
 
-            # _wait_for_websocket_complete appends the status content "complete".
-            vision_reply = accumulated_content.removesuffix("complete")
-            assert vision_reply, "expected assistant response after image turn"
-            assert re.search(
-                r"\bB\b", vision_reply, re.IGNORECASE
-            ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
+                # _wait_for_websocket_complete appends the status content "complete".
+                vision_reply = accumulated_content.removesuffix("complete")
+                assert vision_reply, "expected assistant response after image turn"
+                assert re.search(
+                    r"\bB\b", vision_reply, re.IGNORECASE
+                ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
-            # Exercise the /run endpoint: the payload signals the vision server's
-            # Python process with SIGINT so it shuts down, and the finally block
-            # below stops the subprocess regardless of how this turn ends.
-            post_url = _server_http_url("/run")
-            code_data = {
-                "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
-                "language": "python",
-            }
-            response = requests.post(post_url, json=code_data, timeout=30)
-            print("POST request sent, response:", response.json())
+                # Exercise the /run endpoint: the payload signals the vision server's
+                # Python process with SIGINT so it shuts down, and the finally block
+                # below stops the subprocess regardless of how this turn ends.
+                post_url = _server_http_url("/run")
+                code_data = {
+                    "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
+                    "language": "python",
+                }
+                response = requests.post(post_url, json=code_data, timeout=30)
+                print("POST request sent, response:", response.json())
 
-            # Stop the vision server we started for this isolated turn; the outer
-            # finally still stops the original `process` used by the earlier turns.
-            _stop_server_subprocess(vision_process)
+            finally:
+                # The /run payload sends SIGINT to the vision server, but this
+                # finally still stops the subprocess on any exit path (assertions,
+                # WebSocket timeouts, and the /run request itself).
+                _stop_server_subprocess(vision_process)
 
     # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
     # is no current event loop (e.g. pytest has not set one up). asyncio.run()
