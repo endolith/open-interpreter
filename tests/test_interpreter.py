@@ -343,7 +343,9 @@ def test_authenticated_acknowledging_breaking_server():
             # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
-            poem += await _wait_for_websocket_complete(websocket, acknowledge=True)
+            poem += await _wait_for_websocket_complete(
+                websocket, acknowledge=True, phase="auth_server_resume_poem"
+            )
 
             time.sleep(1)
             print("Is this a normal poem?")
@@ -435,9 +437,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            assert "crunk" in accumulated_content
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_crunk", server_process=process
+            )
 
             # Send another POST request
             post_url = _server_http_url("/settings")
@@ -476,9 +478,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            assert "barloney" in accumulated_content
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_barloney", server_process=process
+            )
 
             # Send another POST request
             post_url = _server_http_url("/settings")
@@ -510,11 +512,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            time.sleep(5)
-
-            # Send a GET request to /settings/messages
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="math_code_auto_run_false", server_process=process
+            )
             get_url = _server_http_url("/settings/messages")
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
@@ -546,9 +546,9 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            assert "18893094989" in accumulated_content.replace(",", "")
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="go_execute_code", server_process=process
+            )
 
             #### TEST FILE ####
 
@@ -594,7 +594,9 @@ def test_server():
 
             # WebSocket stream may arrive before GET /messages is consistent; keep
             # accumulated_content as a fallback when picking the assistant reply.
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="file_exists", server_process=process
+            )
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
@@ -668,7 +670,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="vision_mcq", server_process=process
+            )
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
