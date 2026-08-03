@@ -324,7 +324,7 @@ def test_authenticated_acknowledging_breaking_server():
                     raise (
                         Exception(
                             "It shouldn't have finished this soon, accumulated_content is: "
-                            + accumulated_content
+                            + poem
                         )
                     )
 
@@ -344,7 +344,10 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             poem += await _wait_for_websocket_complete(
-                websocket, acknowledge=True, phase="auth_server_resume_poem"
+                websocket,
+                acknowledge=True,
+                phase="auth_server_resume_poem",
+                server_process=process,
             )
 
             time.sleep(1)
