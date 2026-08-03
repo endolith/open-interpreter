@@ -418,7 +418,7 @@ def test_server():
                 "custom_instructions": "",
                 "auto_run": True,
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
@@ -459,7 +459,7 @@ def test_server():
                 "custom_instructions": "",
                 "auto_run": True,
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
@@ -493,7 +493,7 @@ def test_server():
                 "auto_run": False,
                 "verbose": False,
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
@@ -569,7 +569,7 @@ def test_server():
                     "Answer in plain text only. Do not write or run code."
                 ),
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
 
             user_start = {"role": "user", "start": True}
