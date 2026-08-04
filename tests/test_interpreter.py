@@ -494,7 +494,8 @@ def test_server():
                 websocket, phase="math_code_auto_run_false", server_process=process
             )
             get_url = _server_http_url("/settings/messages")
-            response = requests.get(get_url)
+            response = requests.get(get_url, timeout=30)
+            response.raise_for_status()
             print("GET request sent, response:", response.json())
 
             # Assert that the last message has a type of 'code'
@@ -572,7 +573,9 @@ def test_server():
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
-            response_json = requests.get(get_url).json()
+            response = requests.get(get_url, timeout=30)
+            response.raise_for_status()
+            response_json = response.json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
                 response_json = json.loads(response_json)
