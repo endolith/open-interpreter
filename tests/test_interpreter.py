@@ -37,6 +37,9 @@ _SERVER_PORT = 8000
 
 
 def _allocate_server_port():
+    # Bind to port 0 so the kernel picks a free TCP port, then close the socket.
+    # The port is released here and rebound by the child subprocess, which leaves
+    # a small race: another process could take the port in between. See issue #165.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((_SERVER_HOST, 0))
         return sock.getsockname()[1]
@@ -60,6 +63,11 @@ def _start_server_subprocess(target):
 
 
 def _wait_for_server(process, timeout=120):
+    # If the port-race from issue #165 bites, the child uvicorn process fails to
+    # bind and exits with an OSError. The check below turns that into a fast,
+    # diagnosable failure (exit code) instead of a hang until the timeout. This
+    # deliberately does not rely on AsyncInterpreter's `retries` parameter, which
+    # is not active (its retry loop in async_core.py is commented out).
     import urllib.error
     import urllib.request
 
@@ -101,6 +109,11 @@ async def _wait_for_websocket_complete(
 
     The old while True loops hung forever when 'complete' never arrived (for example
     on auth failure). Bound both message count and per-recv wait time.
+
+    The `server_process` health check layers on top of _wait_for_server: if the
+    child crashes mid-turn (including a port-race socket bind failure from
+    issue #165), this raises immediately with the exit code instead of blocking
+    until the recv timeout expires.
     """
 
     import asyncio
