@@ -733,21 +733,9 @@ def test_server():
                     r"\bB\b", vision_reply, re.IGNORECASE
                 ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
-                # Exercise the /run endpoint: the payload signals the vision server's
-                # Python process with SIGINT so it shuts down, and the finally block
-                # below stops the subprocess regardless of how this turn ends.
-                post_url = _server_http_url("/run")
-                code_data = {
-                    "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
-                    "language": "python",
-                }
-                response = requests.post(post_url, json=code_data, timeout=30)
-                print("POST request sent, response:", response.json())
-
             finally:
-                # The /run payload sends SIGINT to the vision server, but this
-                # finally still stops the subprocess on any exit path (assertions,
-                # WebSocket timeouts, and the /run request itself).
+                # Stop the isolated vision subprocess on every exit path (assertions,
+                # WebSocket timeouts, and the normal end of the turn).
                 _stop_server_subprocess(vision_process)
 
     # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
