@@ -457,11 +457,14 @@ def run_server():
 @pytest.mark.integration
 @pytest.mark.timeout(900)
 def test_server():
-    """FastAPI/WebSocket server accepts settings, streams chat, and completes cleanly.
+    """Exercise secret-word, math, file-existence, and vision turns over the WebSocket API.
 
     Spins up AsyncInterpreter in a subprocess (spawn context), posts settings,
-    sends a user message over WebSocket, and verifies poem-style responses
-    arrive without authentication when INTERPRETER_REQUIRE_ACKNOWLEDGE is off."""
+    streams each user turn over WebSocket, and verifies the response flow: the
+    math turn writes code without auto-executing it, the file turn answers in
+    plain text, and the isolated vision turn identifies the gradient image as
+    'B'. The waits are phase-labeled so a stuck turn fails with a diagnosable
+    message instead of hanging until the workflow timeout."""
 
     process = _start_server_subprocess(run_server)
 
