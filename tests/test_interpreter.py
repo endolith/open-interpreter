@@ -229,6 +229,12 @@ def run_auth_server():
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
     async_interpreter.print = False
+    # POST /settings rejects system_message and auto_run as sensitive settings,
+    # so configure them on the interpreter before the server starts.
+    async_interpreter.system_message = (
+        "You are a poem writing bot. Do not do anything but respond with a poem."
+    )
+    async_interpreter.auto_run = True
     async_interpreter.server.run()
 
 
@@ -267,12 +273,11 @@ def test_authenticated_acknowledging_breaking_server():
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
-                "system_message": "You are a poem writing bot. Do not do anything but respond with a poem.",
-                "auto_run": True,
             }
             response = requests.post(
-                post_url, json=settings, headers={"X-API-KEY": "testing"}
+                post_url, json=settings, headers={"X-API-KEY": "testing"}, timeout=30
             )
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
 
             await websocket.send(
