@@ -171,6 +171,10 @@ def test_bash_session_run_when_process_exited_requires_restart():
     assert "restarted" in result.system
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="asyncio.timeout requires Python 3.11+",
+)
 def test_bash_session_run_timeout_marks_session_stale():
     """_BashSession.run flags the session as timed out and raises ToolError when the sentinel never arrives."""
     session = _bash._BashSession()
@@ -183,6 +187,10 @@ def test_bash_session_run_timeout_marks_session_stale():
     assert session._timed_out is True
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="asyncio.timeout requires Python 3.11+",
+)
 def test_bash_session_run_strips_sentinel_and_trailing_newline():
     """_BashSession.run returns the output up to the sentinel, without the trailing newline, and clears buffers."""
     session = _bash._BashSession()
