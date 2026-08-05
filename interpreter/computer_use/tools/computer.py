@@ -7,7 +7,12 @@ import shlex
 import shutil
 import tempfile
 import time
-from enum import StrEnum
+
+try:
+    from enum import StrEnum
+except ImportError:  # 3.10 compatibility
+    from enum import Enum as StrEnum
+
 from pathlib import Path
 from typing import Literal, TypedDict
 from uuid import uuid4
