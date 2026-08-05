@@ -36,10 +36,10 @@ easyocr = { version = "^1.7.1", optional = true }
 janus = { version = "^1.0.0", optional = true }
 
 # Optional [dev] dependencies (also in [tool.poetry.group.dev.dependencies] for Poetry)
-black = { version = "^23.10.1", optional = true }
+black = { version = ">=23.10.1,<27.0.0", optional = true }
 isort = { version = "^5.12.0", optional = true }
 pre-commit = { version = "^3.5.0", optional = true }
-pytest = { version = ">=7.4,<9.0", optional = true }
+pytest = { version = ">=7.4,<10.0", optional = true }
 pytest-cov = { version = "^4.1.0", optional = true }
 pytest-timeout = { version = "^2.3.1", optional = true }
 requests = { version = "^2.31.0", optional = true }
@@ -92,10 +92,10 @@ server = ["fastapi", "janus", "uvicorn"]
 dev = ["black", "isort", "pre-commit", "pytest", "pytest-cov", "pytest-timeout", "requests", "sniffio", "websockets"]
 
 [tool.poetry.group.dev.dependencies]
-black = "^23.10.1"
+black = ">=23.10.1,<27.0.0"
 isort = "^5.12.0"
 pre-commit = "^3.5.0"
-pytest = ">=7.4,<9.0"
+pytest = ">=7.4,<10.0"
 pytest-cov = "^4.1.0"
 pytest-timeout = "^2.3.1"
 requests = "^2.31.0"
