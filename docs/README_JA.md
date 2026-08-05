@@ -39,11 +39,12 @@
 
 Open Interpreter は他の多くの AI コーディングツールよりも先に登場しており、類似点と相違点があります:
 
+- Web チャットボットの Code Interpreter 機能（[OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter)、[Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter)、[Grok](https://docs.x.ai/developers/tools/code-execution)、[Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution) など）は、クローズドソースで制限のあるリモートのサンドボックス環境でコードを実行します。ファイルは個別にアップロードし、結果をダウンロードする必要があります。実行されたコードは一般にインターネットにアクセスできず、プリインストールされたパッケージのセットに限定され、コンテナは非アクティブ後に期限切れとなり、進捗やデータが失われます。Open Interpreter はローカル環境で実行することでこれらの制限を克服します。インターネットにフルアクセスでき、時間やファイルサイズの制限を受けず、任意のパッケージやライブラリを使用でき、タスクに有用なライブラリを自らインストールすることもできます。
 - コードを書いたりシェルコマンドを実行したりできる点では、[Claude Code](https://claude.ai/code)、[Cursor](https://cursor.sh)、[Devin](https://www.devin.ai) などのコーディングエージェントと似ていますが、Open Interpreter はソースコードファイルをパッチしてプロジェクトのコードベースを維持することよりも、永続的で対話型の REPL 的なセッションで単発タスクを完了することに重点を置いています（IDE より Jupyter ノートブックに近い）。
 - [OpenClaw](https://openclaw.ai/)、[Hermes Agent](https://hermes-agent.org/) などとは異なり、通常は自律型エージェントではなく、対話的に使用されます。
 - [Claude Desktop](https://claude.ai/download) のように MCP ツールを通じて世界とやり取りするのではなく、コードスニペットや[シェルコマンドを直接実行](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html)します。
 - [ShellGPT](https://github.com/ther1d/shell_gpt) や [cmd-ai](https://github.com/BrodaNoel/cmd-ai) などの自然言語シェル翻訳ツールに似ていますが、シェルに限定されず、対話型チャットボットインターフェースを使用するため、実行前にコマンドを確認・拒否（`n`）・編集（`e`）でき、モデルに修正を依頼することもできます。
-- Web チャットボットの Code Interpreter 機能（[OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter)、[Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter)、[Grok](https://docs.x.ai/developers/tools/code-execution)、[Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution) など）は、クローズドソースで制限のあるリモートのサンドボックス環境でコードを実行します。ファイルは個別にアップロードし、結果をダウンロードする必要があります。実行されたコードは一般にインターネットにアクセスできず、プリインストールされたパッケージのセットに限定され、コンテナは非アクティブ後に期限切れとなり、進捗やデータが失われます。Open Interpreter はローカル環境で実行することでこれらの制限を克服します。インターネットにフルアクセスでき、時間やファイルサイズの制限を受けず、任意のパッケージやライブラリを使用でき、タスクに有用なライブラリを自らインストールすることもできます。
+- 最も近い代替手段はおそらく [gptme](https://github.com/gptme/gptme) です。コードスニペットでサポートする言語はそれほど多くなく、最近になってようやく部分的な Windows サポートが追加されたばかりです。
 
 ## デモ
 

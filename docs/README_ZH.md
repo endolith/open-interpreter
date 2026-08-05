@@ -39,11 +39,12 @@
 
 Open Interpreter 早于许多其他 AI 编程工具，既有相似之处，也有不同之处：
 
+- 网页聊天机器人中的代码解释器功能（[OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter)、[Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter)、[Grok](https://docs.x.ai/developers/tools/code-execution)、[Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution) 等）在远程沙盒环境中运行代码，该环境为闭源且受限。文件必须单独上传，结果再下载。执行的代码通常无法访问互联网，仅限于预装软件包，容器在不活动后会过期，导致进度和数据丢失。Open Interpreter 通过在本地环境中运行来克服这些限制。它可以完全访问互联网，不受时间或文件大小限制，可以使用任何软件包或库，甚至自行安装对特定任务有用的库。
 - 虽然它可以编写代码并执行 Shell 命令，类似于 [Claude Code](https://claude.ai/code)、[Cursor](https://cursor.sh)、[Devin](https://www.devin.ai) 等编程代理，但 Open Interpreter 的重点不在于通过修补源代码文件来维护项目代码库，而更多是在持久、交互式的 REPL 式会话中完成一次性任务（更接近 Jupyter 笔记本，而非 IDE）。
 - 与 [OpenClaw](https://openclaw.ai/)、[Hermes Agent](https://hermes-agent.org/) 等不同，它通常以交互方式使用，而非作为自主代理。
 - 它不是像 [Claude Desktop](https://claude.ai/download) 那样通过 MCP 工具与世界交互，而是直接运行代码片段或 [Shell 命令](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html)。
 - 它类似于 [ShellGPT](https://github.com/ther1d/shell_gpt) 或 [cmd-ai](https://github.com/BrodaNoel/cmd-ai) 等自然语言 Shell 翻译器，但不局限于 Shell，并使用交互式聊天机器人界面，因此您可以在命令运行前审查、拒绝（`n`）或编辑（`e`），并要求模型修改。
-- 网页聊天机器人中的代码解释器功能（[OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter)、[Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter)、[Grok](https://docs.x.ai/developers/tools/code-execution)、[Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution) 等）在远程沙盒环境中运行代码，该环境为闭源且受限。文件必须单独上传，结果再下载。执行的代码通常无法访问互联网，仅限于预装软件包，容器在不活动后会过期，导致进度和数据丢失。Open Interpreter 通过在本地环境中运行来克服这些限制。它可以完全访问互联网，不受时间或文件大小限制，可以使用任何软件包或库，甚至自行安装对特定任务有用的库。
+- 最接近的替代方案可能是 [gptme](https://github.com/gptme/gptme)。它支持的代码片段语言数量不多，而且最近才添加了部分 Windows 支持。
 
 ## 演示
 
