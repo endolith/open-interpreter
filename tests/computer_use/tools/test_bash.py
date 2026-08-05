@@ -103,6 +103,7 @@ def test_bash_tool_restart_stops_existing_session():
         result = asyncio.run(tool(restart=True))
     old_session.stop.assert_called_once()
     new_session.start.assert_awaited_once()
+    assert tool._session is new_session
     assert "restarted" in result.system
 
 
@@ -110,9 +111,12 @@ def test_bash_session_start_is_noop_when_started():
     """_BashSession.start returns immediately if the session is already started, keeping its process."""
     session = _bash._BashSession()
     session._started = True
-    session._process = mock.Mock()
-    asyncio.run(session.start())
-    assert session._process is not None
+    process = mock.Mock()
+    session._process = process
+    with mock.patch.object(asyncio, "create_subprocess_shell", new_callable=mock.AsyncMock) as create_subprocess_shell:
+        asyncio.run(session.start())
+    create_subprocess_shell.assert_not_awaited()
+    assert session._process is process
 
 
 def test_bash_session_stop_before_start_raises():
