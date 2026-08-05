@@ -81,19 +81,23 @@ class _BashSession:
         await self._process.stdin.drain()
 
         # read output from the process, until the sentinel is found
+        async def _read_until_sentinel():
+            """Read from the process output until the sentinel is found, returning the output before it."""
+            while True:
+                await asyncio.sleep(self._output_delay)
+                # if we read directly from stdout/stderr, it will wait forever for
+                # EOF. use the StreamReader buffer directly instead.
+                output = (
+                    self._process.stdout._buffer.decode()
+                )  # pyright: ignore[reportAttributeAccessIssue]
+                if self._sentinel in output:
+                    # strip the sentinel and return
+                    return output[: output.index(self._sentinel)]
+
         try:
-            async with asyncio.timeout(self._timeout):
-                while True:
-                    await asyncio.sleep(self._output_delay)
-                    # if we read directly from stdout/stderr, it will wait forever for
-                    # EOF. use the StreamReader buffer directly instead.
-                    output = (
-                        self._process.stdout._buffer.decode()
-                    )  # pyright: ignore[reportAttributeAccessIssue]
-                    if self._sentinel in output:
-                        # strip the sentinel and break
-                        output = output[: output.index(self._sentinel)]
-                        break
+            output = await asyncio.wait_for(
+                _read_until_sentinel(), timeout=self._timeout
+            )
         except asyncio.TimeoutError:
             self._timed_out = True
             raise ToolError(
