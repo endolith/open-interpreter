@@ -19,8 +19,9 @@ from anthropic.types.beta import (
 from rich.markdown import Markdown
 from rich.rule import Rule
 
-# pyautogui is an [os]-optional dep absent from unit-test CI. Stub before any
-# interpreter.computer_use import (tools/__init__.py pulls in ComputerTool).
+# Importing interpreter.computer_use (tools/__init__.py pulls in ComputerTool)
+# imports pyautogui, which this environment does not provide. These tests mock
+# tool execution, so a stub module satisfies the import without a screen.
 _stub = types.ModuleType("pyautogui")
 sys.modules["pyautogui"] = _stub
 
@@ -51,7 +52,7 @@ finally:
 
 
 def _run_async(coro):
-    """Run a coroutine on a fresh event loop, ignoring the closed-loop default."""
+    """Run a coroutine to completion: asyncio.run creates a fresh event loop, runs the coroutine, and closes the loop."""
     asyncio.run(coro)
 
 
