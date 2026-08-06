@@ -20,6 +20,7 @@ Automation so that pull requests can be reviewed and merged with confidence. Muc
 - [x] [CodeRabbit](https://github.com/apps/coderabbitai) AI code review on pull requests
 - [x] Hundreds of unit tests across `interpreter/` — coverage rose significantly over recent commits
 - [ ] Close the remaining coverage gaps (see [#141](https://github.com/endolith/open-interpreter/issues/141)) and keep every new feature test-backed
+- [ ] Modernize dependencies and bump the Python floor (drop 3.10 — EOL October 2026) — only *after* tests confirm current behavior across the matrix, so the floor change isn't conflated with dependency churn
 
 ### Phase 2: Port features from `classic/develop` into `main`
 
