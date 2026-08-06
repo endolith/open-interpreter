@@ -8,6 +8,8 @@ on all platforms (notably Windows).
 import os
 import platform
 import shutil
+import sys
+import types
 
 import pytest
 
@@ -113,3 +115,71 @@ def patch_expanduser(monkeypatch, module, home):
         "expanduser",
         lambda path: str(home) if path == "~" else path,
     )
+
+
+def install_point_heavy_deps(monkeypatch):
+    """Make ``interpreter.core.computer.display.point.point`` importable in CI.
+
+    ``point.py`` imports torch, sentence_transformers, timm, nltk and cv2
+    unconditionally at module level. Those are [computer]-optional deps that are
+    never installed in unit-test CI (and their absence crashes ``lazy_import``),
+    so tests that only exercise ``point``'s dispatch/geometry logic install bare
+    stub modules for them before the module is first imported. The stubs are
+    removed again by pytest's monkeypatch teardown.
+    """
+
+    from types import SimpleNamespace
+
+    def _mod(name):
+        return types.ModuleType(name)
+
+    nltk_words = _mod("nltk.corpus.words")
+    nltk_words.words = lambda: []
+    nltk_corpus = _mod("nltk.corpus")
+    nltk_corpus.words = nltk_words
+    nltk = _mod("nltk")
+    nltk.corpus = nltk_corpus
+    nltk.download = lambda *a, **k: None
+
+    torch = _mod("torch")
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    torch.backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False))
+    torch.device = lambda name: "cpu"
+    torch.stack = lambda *a, **k: None
+    torch.cat = lambda *a, **k: None
+
+    class _StubSentenceTransformer:
+        def __init__(self, *a, **k):
+            pass
+
+        def to(self, device):
+            return self
+
+        def encode(self, *a, **k):
+            return []
+
+    sentence_transformers = _mod("sentence_transformers")
+    sentence_transformers.SentenceTransformer = _StubSentenceTransformer
+    sentence_transformers.util = SimpleNamespace(
+        semantic_search=lambda *a, **k: []
+    )
+
+    timm = _mod("timm")
+    timm.create_model = lambda *a, **k: None
+    timm.data = SimpleNamespace(
+        resolve_model_data_config=lambda *a, **k: {},
+        create_transform=lambda *a, **k: None,
+    )
+
+    cv2 = _mod("cv2")
+
+    for name, module in (
+        ("nltk", nltk),
+        ("nltk.corpus", nltk_corpus),
+        ("nltk.corpus.words", nltk_words),
+        ("torch", torch),
+        ("sentence_transformers", sentence_transformers),
+        ("timm", timm),
+        ("cv2", cv2),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
