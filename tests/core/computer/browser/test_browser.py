@@ -62,22 +62,26 @@ def test_search_queries_browser_api():
 
 def test_fast_search_parallelizes_api_call_and_google():
     """Browser.fast_search() runs the API request and the Google search
-    concurrently: the request must still be in flight when search_google runs."""
+    concurrently: the request must still be in flight when search_google runs,
+    so a sequential implementation (which would let the request finish first)
+    fails."""
     import threading
 
     browser = _make_browser()
     request_started = threading.Event()
     let_request_finish = threading.Event()
+    request_released_by_google = threading.Event()
     response = SimpleNamespace(json=lambda: {"result": "the answer"})
 
     def fake_get(*args, **kwargs):
         request_started.set()
-        let_request_finish.wait(timeout=5)
+        # Only record a release when the Google search let us finish before the
+        # timeout; a sequential implementation would time out here.
+        if let_request_finish.wait(timeout=5):
+            request_released_by_google.set()
         return response
 
     def fake_search_google(query, delays=False):
-        # If the API request already completed before the Google search ran,
-        # the two steps were not executed concurrently.
         assert request_started.wait(timeout=5)
         assert not let_request_finish.is_set()
         let_request_finish.set()
@@ -87,6 +91,7 @@ def test_fast_search_parallelizes_api_call_and_google():
             result = browser.fast_search("q")
 
     google.assert_called_once_with("q", delays=False)
+    assert request_released_by_google.is_set()
     assert result == "the answer"
 
 
@@ -156,7 +161,7 @@ def test_search_google_types_query_into_perplexity():
     body.send_keys.assert_called_once_with(browser_mod.Keys.COMMAND + "k")
     active.send_keys.assert_any_call("hello")
     active.send_keys.assert_any_call(browser_mod.Keys.RETURN)
-    assert sleep.call_count == 1  # 0.5s for the keyboard shortcut
+    sleep.assert_called_once_with(0.5)
 
 
 def test_analyze_page_queries_ai_and_restores_model():

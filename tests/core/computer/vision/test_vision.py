@@ -1,7 +1,7 @@
 """Characterization tests for ``computer.vision``.
 
-easyocr and the moondream transformers models are mocked or stubbed in
-``sys.modules`` so no real vision models are loaded or downloaded.
+EasyOCR and the Moondream transformers dependencies are mocked or stubbed so
+no real vision models are loaded or downloaded.
 """
 
 import base64
