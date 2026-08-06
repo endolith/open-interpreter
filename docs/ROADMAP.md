@@ -21,6 +21,9 @@ Automation so that pull requests can be reviewed and merged with confidence. Muc
 - [x] Hundreds of unit tests across `interpreter/` — coverage rose significantly over recent commits
 - [ ] Close the remaining coverage gaps (see [#141](https://github.com/endolith/open-interpreter/issues/141)) and keep every new feature test-backed
 - [ ] Modernize dependencies and bump the Python floor (drop 3.10 — EOL October 2026) — only *after* tests confirm current behavior across the matrix, so the floor change isn't conflated with dependency churn
+- [ ] Delete dead subsystems (verify no production callers first): `interpreter/core/computer/docs/docs.py` (depends on the abandoned `aifs` package, no production callers), `interpreter/core/archived_server_1.py`, `interpreter/core/archived_server_2.py`, `interpreter/computer_use/unused_markdown.py`, `interpreter/core/computer/browser/browser_next.py`
+- [ ] Fix `interpreter/core/computer/ai/ai.py` `query_reduce_chunks`: its `while` loop never reassigns `responses`, so it loops forever for 2+ responses and raises `NameError` for a single response
+- [ ] Resolve the open Dependabot security alerts (17 on the dependency track, https://github.com/endolith/open-interpreter/security/dependabot) — dependency bumps first, then remove any flagged package that turns out to be unused
 
 ### Phase 2: Port features from `classic/develop` into `main`
 
