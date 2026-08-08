@@ -7,6 +7,17 @@ from interpreter import OpenInterpreter
 from interpreter.core.llm.llm import Llm, SuppressDebugFilter
 from tests.helpers import TEST_LLM_MODEL
 
+
+@pytest.fixture(autouse=True)
+def _isolate_litellm_drop_params():
+    """fixed_litellm_completions mutates the process-global litellm.drop_params;
+    restore it after each test so it can't leak between tests."""
+    import litellm
+
+    original = getattr(litellm, "drop_params", None)
+    yield
+    litellm.drop_params = original
+
 _MESSAGES = [
     {"role": "system", "type": "message", "content": "system"},
     {"role": "user", "type": "message", "content": "hello"},
@@ -99,3 +110,358 @@ def test_llm_run_requires_system_first():
     llm = Llm(interpreter)
     with pytest.raises(AssertionError, match="system"):
         list(llm.run([{"role": "user", "type": "message", "content": "hi"}]))
+
+
+def _interp(**attrs):
+    interp = SimpleNamespace(
+        shrink_images=True,
+        os=False,
+        verbose=False,
+        debug=False,
+        display_message=mock.Mock(),
+        computer=SimpleNamespace(
+            vision=SimpleNamespace(
+                query=mock.Mock(return_value="description"),
+                ocr=mock.Mock(return_value="ocr text"),
+            ),
+            import_computer_api=True,
+        ),
+    )
+    for name, value in attrs.items():
+        setattr(interp, name, value)
+    return interp
+
+
+def _run_capture(llm, messages, function_calling=True):
+    """Run llm.run() with the LLM plumbing stubbed out and return a dict whose
+    "params" key holds the params that would be sent to the underlying runner."""
+    target = "run_tool_calling_llm" if function_calling else "run_text_llm"
+    captured = {}
+
+    def fake_run(llm_obj, params):
+        captured["params"] = params
+        return iter(())
+
+    with mock.patch(f"interpreter.core.llm.llm.{target}", side_effect=fake_run):
+        with mock.patch(
+            "interpreter.core.llm.llm.convert_to_openai_messages",
+            side_effect=lambda msgs, **kwargs: msgs,
+        ):
+            with mock.patch(
+                "interpreter.core.llm.llm.tt.trim", side_effect=lambda msgs, **kwargs: msgs
+            ):
+                list(llm.run(messages))
+    return captured
+
+
+def test_run_remaps_claude_35_model():
+    """llm.run rewrites legacy claude-3.5 model names before calling the API."""
+    llm = Llm(_interp())
+    llm.model = "claude-3.5"
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )
+
+    assert captured["params"]["model"] == "claude-sonnet-4-6"
+    assert llm.model == "claude-sonnet-4-6"
+
+
+def test_run_dispatches_to_text_runner_without_functions():
+    """llm.run uses the text runner when the model doesn't support functions."""
+    llm = Llm(_interp())
+    llm._is_loaded = True
+    llm.supports_functions = False
+    llm.supports_vision = False
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+        function_calling=False,
+    )
+
+    assert captured["params"]["stream"] is True
+    assert captured["params"]["messages"][0]["content"] == "hi"
+
+
+def test_run_includes_optional_llm_params():
+    """llm.run forwards api_key/api_base/api_version/max_tokens/temperature and
+    the conversation_id when they're set."""
+    interp = _interp()
+    interp.conversation_id = "conv-1"
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.api_key = "key"
+    llm.api_base = "http://x"
+    llm.api_version = "2024"
+    llm.max_tokens = 100
+    llm.temperature = 0.5
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )
+
+    params = captured["params"]
+    assert params["api_key"] == "key"
+    assert params["api_base"] == "http://x"
+    assert params["api_version"] == "2024"
+    assert params["max_tokens"] == 100
+    assert params["temperature"] == 0.5
+    assert params["conversation_id"] == "conv-1"
+
+
+def test_run_auto_detects_function_support():
+    """llm.run queries litellm to decide function support when unset."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = None
+    llm.supports_vision = False
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.supports_function_calling",
+        return_value=True,
+    ):
+        captured = _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+        )
+
+    assert llm.supports_functions is True
+    assert "messages" in captured["params"]
+
+
+def test_run_trims_images_in_os_mode_to_last_two():
+    """In OS mode llm.run keeps only the last two image messages."""
+    interp = _interp(os=True, verbose=True)
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = True
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        {"role": "user", "type": "image", "content": "0"},
+        {"role": "user", "type": "image", "content": "1"},
+        {"role": "user", "type": "image", "content": "2"},
+    ]
+
+    _run_capture(llm, messages)
+
+    remaining = [m["content"] for m in messages if m["type"] == "image"]
+    assert remaining == ["1", "2"]
+
+
+def test_run_trims_middle_images_outside_os_mode():
+    """llm.run keeps the first and last two image messages, dropping the middle."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = True
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        {"role": "user", "type": "image", "content": "0"},
+        {"role": "user", "type": "image", "content": "1"},
+        {"role": "user", "type": "image", "content": "2"},
+        {"role": "user", "type": "image", "content": "3"},
+        {"role": "user", "type": "image", "content": "4"},
+    ]
+
+    _run_capture(llm, messages)
+
+    remaining = [m["content"] for m in messages if m["type"] == "image"]
+    assert remaining == ["0", "3", "4"]
+
+
+def test_run_renders_path_image_for_non_vision_model():
+    """Without vision support, llm.run replaces a path image with a text
+    description from the vision renderer plus OCR."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    img_msg = {
+        "role": "user",
+        "type": "image",
+        "format": "path",
+        "content": "/tmp/x.png",
+    }
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        img_msg,
+    ]
+
+    _run_capture(llm, messages)
+
+    assert img_msg["format"] == "description"
+    assert "description" in img_msg["content"]
+    assert "ocr text" in img_msg["content"]
+    assert "The image I'm referring to" in img_msg["content"]
+    interp.display_message.assert_any_call("\n  *Viewing image...*\n")
+
+
+def test_run_import_error_on_vision_blanks_image():
+    """llm.run blanks the image content when the vision renderer exists but
+    raises ImportError."""
+    interp = _interp()
+    interp.computer.vision.query.side_effect = ImportError
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    img_msg = {"role": "user", "type": "image", "format": "path", "content": "/tmp/x.png"}
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        img_msg,
+    ]
+
+    _run_capture(llm, messages)
+
+    assert img_msg["format"] == "description"
+    assert img_msg["content"] == ""
+
+
+def test_model_setter_resets_load_state():
+    """Assigning a new model marks the LLM as needing a reload."""
+    llm = Llm(_interp())
+    llm._is_loaded = True
+    llm.model = "gpt-4o"
+    assert llm._is_loaded is False
+
+
+def test_load_fetches_context_window_from_litellm():
+    """llm.load fills in context_window/max_tokens from litellm's model info."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm.model = "gpt-4o"
+    llm.context_window = None
+    llm.max_tokens = None
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.get_model_info",
+        return_value={"max_input_tokens": 8000, "max_output_tokens": 4000},
+    ):
+        llm.load()
+
+    assert llm.context_window == 8000
+    assert llm.max_tokens == 1600
+
+
+def test_load_ollama_downloads_and_pings_model():
+    """llm.load for an ollama model pulls it if missing, reads its context
+    window, and pings it to force a load."""
+    interp = _interp()
+    interp.computer.ai = SimpleNamespace(chat=mock.Mock())
+    llm = Llm(interp)
+    llm.model = "ollama/llama3"
+    llm.api_base = "http://ollama:11434"
+
+    tags_response = mock.Mock()
+    tags_response.ok = True
+    tags_response.json.return_value = {"models": []}  # llama3 not downloaded
+    show_response = mock.Mock()
+    show_response.json.return_value = {"model_info": {"llama3.context_length": 8192}}
+
+    with mock.patch("interpreter.core.llm.llm.requests.get", return_value=tags_response):
+        with mock.patch(
+            "interpreter.core.llm.llm.requests.post",
+            side_effect=[mock.Mock(), show_response],
+        ) as post:
+            llm.load()
+
+    post.assert_any_call(
+        "http://ollama:11434/api/pull", json={"name": "llama3:latest"}
+    )
+    assert llm.context_window == 8192
+    assert llm.max_tokens == 1638
+    interp.computer.ai.chat.assert_called_once_with("ping")
+    interp.display_message.assert_any_call("*Model loaded.*\n")
+
+
+def test_load_ollama_exits_when_ollama_unreachable():
+    """llm.load exits (SystemExit) with a download hint when ollama isn't
+    reachable."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm.model = "ollama/llama3"
+    with mock.patch(
+        "interpreter.core.llm.llm.requests.get", side_effect=Exception("no ollama")
+    ):
+        with mock.patch("builtins.exit", side_effect=SystemExit):
+            with pytest.raises(SystemExit):
+                llm.load()
+
+    assert "Ollama not found" in interp.display_message.call_args[0][0]
+    assert "ollama.com" in interp.display_message.call_args[0][0]
+
+
+def test_fixed_litellm_completions_retries_then_raises_first_error():
+    """fixed_litellm_completions retries all attempts and re-raises the first error."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion",
+        side_effect=[RuntimeError(f"failure {i}") for i in range(4)],
+    ) as completion:
+        with pytest.raises(RuntimeError, match="failure 0"):
+            list(fixed_litellm_completions(model="gpt-4o", messages=[]))
+
+    assert completion.call_count == 4
+
+
+def test_fixed_litellm_completions_uses_dummy_key_on_auth_error():
+    """A missing API key triggers one retry with a dummy key."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    auth_error = type("AuthenticationError", (Exception,), {})
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(params)
+        if len(calls) == 1:
+            raise auth_error("no key")
+        return iter(())
+
+    with mock.patch("interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion):
+        with mock.patch(
+            "interpreter.core.llm.llm.litellm.exceptions.AuthenticationError", auth_error
+        ):
+            list(fixed_litellm_completions(model="gpt-4o", messages=[]))
+
+    assert "api_key" not in calls[0]
+    assert calls[1]["api_key"] == "x"
+    assert len(calls) == 2
+
+
+def test_fixed_litellm_completions_strips_latest_and_sets_stop_for_local():
+    """Local models get stop tokens and :latest suffixes are stripped."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    captured = {}
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion",
+        side_effect=lambda **params: (captured.update(params), iter(()))[1],
+    ):
+        list(fixed_litellm_completions(model="local-llama3:latest", messages=[], stop=None))
+
+    assert captured["model"] == "local-llama3"
+    assert captured["stop"] == ["<|assistant|>", "<|end|>", "<|eot_id|>"]
