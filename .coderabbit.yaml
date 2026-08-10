@@ -1,0 +1,15 @@
+# CodeRabbit review configuration
+# Docs: https://docs.coderabbit.ai/reference/configuration
+language: "en-US"
+
+reviews:
+  profile: "assertive"        # more thorough feedback (may feel nitpicky)
+  request_changes_workflow: true  # post comments as Request changes; auto-approve once resolved
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+
+chat:
+  auto_reply: true
