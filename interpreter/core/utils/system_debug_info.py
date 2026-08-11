@@ -2,16 +2,16 @@ import platform
 import subprocess
 
 from importlib.metadata import version, PackageNotFoundError
-from importlib.metadata import distributions
 import psutil
-import toml
 
 
 def get_python_version():
+    """Return the version string of the running Python interpreter."""
     return platform.python_version()
 
 
 def get_pip_version():
+    """Return the installed pip version, or the error message if it fails."""
     try:
         pip_version = subprocess.check_output(["pip", "--version"]).decode().split()[1]
     except Exception as e:
@@ -20,6 +20,8 @@ def get_pip_version():
 
 
 def get_oi_version():
+    """Return the Open Interpreter version from `interpreter --version` and the
+    installed package metadata as a (cmd_output, pkg_version) tuple."""
     try:
         oi_version_cmd = subprocess.check_output(
             ["interpreter", "--version"], text=True
@@ -35,14 +37,17 @@ def get_oi_version():
 
 
 def get_os_version():
+    """Return a human-readable OS name and version string."""
     return platform.platform()
 
 
 def get_cpu_info():
+    """Return the CPU model name reported by the platform."""
     return platform.processor()
 
 
 def get_ram_info():
+    """Return a human-readable summary of total, used, and free RAM in GB."""
     vm = psutil.virtual_memory()
     used_ram_gb = vm.used / (1024**3)
     free_ram_gb = vm.free / (1024**3)
@@ -50,35 +55,8 @@ def get_ram_info():
     return f"{total_ram_gb:.2f} GB, used: {used_ram_gb:.2f}, free: {free_ram_gb:.2f}"
 
 
-def get_package_mismatches(file_path="pyproject.toml"):
-    with open(file_path, "r") as file:
-        pyproject = toml.load(file)
-    dependencies = pyproject["tool"]["poetry"]["dependencies"]
-    dev_dependencies = pyproject["tool"]["poetry"]["group"]["dev"]["dependencies"]
-    dependencies.update(dev_dependencies)
-
-    installed_packages = {
-        dist.metadata["Name"].lower(): dist.version
-        for dist in distributions()
-    }
-    mismatches = []
-    for package, version_info in dependencies.items():
-        if isinstance(version_info, dict):
-            version_info = version_info["version"]
-        installed_version = installed_packages.get(package)
-        if installed_version and version_info.startswith("^"):
-            expected_version = version_info[1:]
-            if not installed_version.startswith(expected_version):
-                mismatches.append(
-                    f"\t  {package}: Mismatch, pyproject.toml={expected_version}, pip={installed_version}"
-                )
-        else:
-            mismatches.append(f"\t  {package}: Not found in pip list")
-
-    return "\n" + "\n".join(mismatches)
-
-
 def interpreter_info(interpreter):
+    """Render a debug summary of the interpreter's settings and messages."""
     try:
         if interpreter.offline and interpreter.llm.api_base:
             try:
@@ -127,6 +105,7 @@ def interpreter_info(interpreter):
 
 
 def system_info(interpreter):
+    """Print a debug report of the environment and the given interpreter."""
     oi_version = get_oi_version()
     print(
         f"""
@@ -139,8 +118,3 @@ def system_info(interpreter):
         {interpreter_info(interpreter)}
     """
     )
-
-    # Removed the following, as it causes `FileNotFoundError: [Errno 2] No such file or directory: 'pyproject.toml'`` on prod
-    # (i think it works on dev, but on prod the pyproject.toml will not be in the cwd. might not be accessible at all)
-    # Package Version Mismatches:
-    # {get_package_mismatches()}
