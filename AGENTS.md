@@ -65,6 +65,15 @@ When changing code, update **all** relevant documentation:
 - Check if there are any Issues related to the change you are making, and if so, mention it in the PR and write `Fixes #…` in the relevant commit message, so that the Issue will be auto-closed on merge.
 - **PR descriptions** should stand alone for a reviewer who has not read the issue or agent chat. Use short sections: **Background** (what should work), **Problem** (what is wrong), **Visible symptoms** (what users or CI observe), **What this PR changes** (scope and non-goals), **Tests** (what was added or updated). Add **Related work** only when stacked PRs or merge order matter. Split unrelated fixes into separate PRs; cross-link siblings when you do.
 
+#### CodeRabbit review workflow
+
+CodeRabbit auto-reviews on every push and posts a new review each round. It re-reviews each commit, so expect a fresh "Actionable comments posted" summary after every force-push; older review threads stay open even after they're superseded.
+
+- **Verify each finding against the current code before acting.** Some comments are stale (superseded by a later push) or out of scope (e.g. a comment pointing at code that belongs to a different open PR — fix it there, not in the PR under review).
+- **When a thread is addressed, resolve it WITH an explanatory reply** stating why it's resolved — don't just mark it resolved silently. (The exact `gh`/API commands are environment tooling, not project rules.)
+- Each round only surfaces new or still-unresolved findings, and may re-flag a finding as a "duplicate" when it iterates on its own earlier suggestion.
+- CodeRabbit's "🪄 Autofix" checkboxes and "🤖 Prompt for AI agents" sections are optional conveniences; the `🤖 Prompt for AI agents` block is a machine-readable list of the findings to verify/fix.
+
 ### Done checklist
 
 - [ ] Local tests pass (`pytest -m "not integration"`)
