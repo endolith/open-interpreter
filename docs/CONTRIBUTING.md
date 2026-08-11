@@ -46,14 +46,16 @@ We will review PRs when possible and work with you to integrate your contributio
 
 ## Running Your Local Fork
 
-**Note: for anyone testing the new `--local`, `--os`, and `--local --os` modes: When you run `poetry install` you aren't installing the optional dependencies and it'll throw errors. To test `--local` mode, run `poetry install -E local`. To test `--os` mode, run `poetry install -E os`. To test `--local --os` mode, run `poetry install -E local -E os`. You can edit the system messages for these modes in `interpreter/terminal_interface/profiles/defaults`.**
+**Note: for anyone testing the new `--local`, `--os`, and `--local --os` modes: a plain `pip install -e .` installs only the base dependencies, so executing those modes can fail when they import an omitted optional dependency. Install the extras for the modes you test with `pip install -e ".[local]"`, `pip install -e ".[os]"`, or `pip install -e ".[local,os]"`. You can edit the system messages for these modes in `interpreter/terminal_interface/profiles/defaults`.**
 
 Once you've forked the code and created a new branch for your work, you can run the fork in CLI mode by following these steps:
 
 1. CD into the project folder by running `cd open-interpreter`.
-2. Install `poetry` [according to their documentation](https://python-poetry.org/docs/#installing-with-pipx), which will create a virtual environment for development + handle dependencies.
-3. Install dependencies by running `poetry install`.
-4. Run the program with `poetry run interpreter`. Run tests with `poetry run pytest -s -x`.
+2. Create a virtual environment with `python -m venv .venv` and activate it (`source .venv/bin/activate` on Linux/macOS, `.venv\Scripts\activate` on Windows).
+3. Install dependencies by running `pip install -e ".[dev]"`.
+4. Run the program with `interpreter`. Run tests with `pytest -s -x`.
+
+Prefer conda? Create an env with `conda create -n open-interpreter python=3.12` and activate it, then run the same `pip install -e ".[dev]"`. Conda also lets you scope API keys to the env so they only exist while it's activated (`conda env config vars set OPENAI_API_KEY=...`).
 
 ### Integration tests locally
 
@@ -90,19 +92,11 @@ Jobs, Python versions, and pytest commands: `.github/workflows/python-package.ym
 
 ### Installing New Dependencies
 
-If you wish to install new dependencies into the project, please use `poetry add package-name`.
+If you wish to install new dependencies into the project, add them to the `dependencies` array under the `[project]` table in `pyproject.toml`, then run `pip install -e .`.
 
 ### Installing Developer Dependencies
 
-If you need to install dependencies specific to development, like testing tools, formatting tools, etc. please use `poetry add package-name --group dev`. Also add the package to the `dev` extra in `[tool.poetry.extras]` and as an optional dependency so `pip install -e ".[dev]"` stays in sync.
-
-### Known Issues
-
-For some, `poetry install` might hang on some dependencies. As a first step, try to run the following command in your terminal:
-
-`export PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring`
-
-Then run `poetry install` again. If this doesn't work, please join our [Discord community](https://discord.gg/6p3fD6rBVm) for help.
+If you need to install dependencies specific to development, like testing tools, formatting tools, etc., add them to the `dev` entry of the `[project.optional-dependencies]` table in `pyproject.toml`, then run `pip install -e ".[dev]"`.
 
 ## Code Formatting and Linting
 

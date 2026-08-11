@@ -62,11 +62,7 @@ def test_system_info_runs_without_error(capsys):
         auto_run=True,
         computer=SimpleNamespace(import_computer_api=False),
     )
-    with mock.patch(
-        "interpreter.core.utils.system_debug_info.get_package_mismatches",
-        return_value="",
-    ):
-        system_debug_info.system_info(interpreter)
+    system_debug_info.system_info(interpreter)
     captured = capsys.readouterr().out
     assert "Python Version" in captured
     assert TEST_LLM_MODEL in captured

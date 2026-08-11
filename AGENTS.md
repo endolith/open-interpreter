@@ -16,7 +16,7 @@ This repo (`endolith/open-interpreter`) is the community-maintained home of OI C
 
 See `docs/CONTRIBUTING.md` for setup instructions. CI workflow in `.github/workflows/python-package.yml` is the source of truth for how to install, lint, and test.
 
-The build backend is Poetry, but CI installs via pip. The package manager may change (e.g. to uv) — always check `pyproject.toml` and CI for the current approach.
+The build backend is hatchling with PEP 621 metadata (`[project]` in `pyproject.toml`); there is no lock file — CI installs via pip. The package manager may change — always check `pyproject.toml` and CI for the current approach.
 
 ## Code change guidelines
 
