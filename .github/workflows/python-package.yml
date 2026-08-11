@@ -45,6 +45,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install language runtimes for e2e smokes
         run: |
           sudo apt-get update
@@ -55,8 +59,7 @@ jobs:
         run: command -v google-chrome || command -v google-chrome-stable
       - name: Install and test
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev]"
           if [ "${{ matrix.python-version }}" = "3.14" ]; then
             pytest -m "not integration and not windows_ci and not darwin_ci" \
               --cov=interpreter \
@@ -83,11 +86,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install and run Windows-only tests
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev]"
           pytest -m windows_ci -v
 
   test-macos:
@@ -99,10 +105,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install and run macOS-only tests
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev]"
           pytest -m darwin_ci -v
 
   codecov:
@@ -177,11 +186,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
       - name: Run integration tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OI_RUN_INTEGRATION: "1"
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev]"
           pytest -m integration -rs -sv --timeout=300
