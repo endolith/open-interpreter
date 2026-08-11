@@ -70,7 +70,7 @@ When changing code, update **all** relevant documentation:
 CodeRabbit auto-reviews on every push and posts a new review each round. It re-reviews each commit, so expect a fresh "Actionable comments posted" summary after every force-push; older review threads stay open even after they're superseded.
 
 - **Verify each finding against the current code before acting.** Some comments are stale (superseded by a later push) or out of scope (e.g. a comment pointing at code that belongs to a different open PR — fix it there, not in the PR under review).
-- **When a thread is addressed, resolve it WITH an explanatory reply** stating why it's resolved — don't just mark it resolved silently. (The exact `gh`/API commands are environment tooling, not project rules.)
+- **When a thread is addressed, resolve it WITH an explanatory reply** stating why it's resolved — don't just mark it resolved silently.
 - Each round only surfaces new or still-unresolved findings, and may re-flag a finding as a "duplicate" when it iterates on its own earlier suggestion.
 - CodeRabbit's "🪄 Autofix" checkboxes and "🤖 Prompt for AI agents" sections are optional conveniences; the `🤖 Prompt for AI agents` block is a machine-readable list of the findings to verify/fix.
 
