@@ -319,7 +319,7 @@ llm:
 
 ### OS Mode
 
-Enables profile-based OS control (Python `computer.*` module, vision, `auto_run`) via the `os` profile. See [OS Mode](/guides/os-mode).
+`os: true` sets `interpreter.os = True`, enabling the provider-agnostic desktop-control path (Python `computer.*` module, vision, `auto_run`) — this is what the `os` profile does. See [OS Mode](/guides/os-mode).
 
 <CodeGroup>
 
@@ -333,7 +333,7 @@ os: true
 
 </CodeGroup>
 
-Note: `interpreter --os` is **not** equivalent to `os: true`. The `--os` flag runs a separate legacy Anthropic computer-use demo (broken with current models); the `os` profile setting is what enables the provider-agnostic desktop control above.
+Note: `interpreter --os` is **not** equivalent to `os: true`. The `--os` flag runs a separate deprecated Anthropic computer-use demo (broken with current models); `os: true` is the profile setting that enables the provider-agnostic desktop control above.
 
 ### Version
 

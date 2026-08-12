@@ -53,7 +53,7 @@ We will review PRs when possible and work with you to integrate your contributio
 Classic has two desktop-control paths—see [OS Mode](guides/os-mode.mdx) for full detail:
 
 - **`interpreter --profile os`** (recommended): normal Classic loop; `execute` tool + Python `computer.*` + terminal `Shell` for bash/cmd. Works with LiteLLM providers.
-- **`interpreter --os`**: separate entry in `interpreter/__init__.py` → `interpreter/computer_use/loop.py`; Anthropic SDK only, legacy beta `computer-use-2024-10-22` / `computer_20241022`. Likely broken on current Claude models until updated.
+- **`interpreter --os`**: separate entry in `interpreter/__init__.py` → `interpreter/computer_use/loop.py`; Anthropic SDK only, deprecated beta `computer-use-2024-10-22` / `computer_20241022`. Broken with current Claude models until updated.
 
 Once you've forked the code and created a new branch for your work, you can run the fork in CLI mode by following these steps:
 
