@@ -360,7 +360,7 @@ class OpenInterpreter:
                         last_flag_base = None
 
                     if self.auto_run == False:
-                        yield chunk
+                        yield chunk.copy()
 
                     # We want to append this now, so even if content is never filled, we know that the execution didn't produce output.
                     # ... rethink this though.
@@ -402,7 +402,7 @@ class OpenInterpreter:
                                 for property in ["role", "type", "format"]
                             ]
                         ):
-                            self.messages.append(chunk)
+                            self.messages.append(chunk.copy())
                         else:
                             self.messages[-1]["content"] += chunk["content"]
                 else:
@@ -420,10 +420,11 @@ class OpenInterpreter:
 
                     # Add the chunk as a new message
                     if not is_ephemeral(chunk):
-                        self.messages.append(chunk)
+                        self.messages.append(chunk.copy())
 
-                # Yield the chunk itself
-                yield chunk
+                # Yield a copy so consumers keep incremental deltas; self.messages
+                # accumulates content on its own dicts (see issue #73).
+                yield chunk.copy()
 
                 # Truncate output if it's console output
                 if chunk["type"] == "console" and chunk["format"] == "output":

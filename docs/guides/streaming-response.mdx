@@ -125,6 +125,8 @@ You'll then receive its output, if it produces any:
 {"role": "computer", "type": "console", "format": "output", "content": "1.4166666666666667\n"}
 ```
 
+Each `output` chunk is an incremental delta (for shell commands, typically one line at a time). Append each chunk's `content` to build the full output. Do not re-read `interpreter.messages[-1]` on every chunk while streaming—that list holds the accumulated history, not per-chunk snapshots.
+
 When the code is **finished** executing, this flag will be sent:
 
 ```
