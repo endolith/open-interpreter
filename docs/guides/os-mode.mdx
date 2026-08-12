@@ -2,7 +2,7 @@
 title: OS Mode
 ---
 
-Open Interpreter on Classic (`main`) has **two separate ways** to control the desktop. They use different code and APIs.
+Open Interpreter (the Python edition) has **two separate ways** to control the desktop. They use different code and APIs.
 
 ## Recommended: profile-based OS control
 
@@ -18,7 +18,7 @@ This is the normal Classic interpreter loop (`respond.py`):
 - GUI actions use the Python **`computer.*` module** (PyAutoGUI, screenshots, etc.), as described in `interpreter/terminal_interface/profiles/defaults/os.py`.
 - Shell commands run through **`interpreter/core/computer/terminal/`** (a persistent `Shell` subprocess). This is the same execution path as everyday Classic use—not Anthropic's computer-use beta API.
 
-This path works with LiteLLM-supported models (tool calling or markdown code blocks). Profiles set `interpreter.os = True` and `auto_run = True`.
+This path works with any model LiteLLM supports — OpenAI, Anthropic, local, and others — using tool calling or markdown code blocks. Profiles set `interpreter.os = True` and `auto_run = True`.
 
 ## Experimental: `interpreter --os` (Anthropic computer-use demo)
 
@@ -36,7 +36,7 @@ This path:
 
 ### Legacy API status
 
-The `2024-10-22` beta stack is **legacy**. Current Anthropic models expect newer beta headers (for example `computer-use-2025-01-24` or `computer-use-2025-11-24`) and matching tool types (`computer_20250124`, `bash_20250124`, etc.). **`interpreter --os` may fail or behave unpredictably with current Claude models** until this code is updated.
+The `2024-10-22` beta stack is **legacy**: it is still shipped in this repo, but Anthropic has deprecated it. Current Anthropic models expect newer beta headers (for example `computer-use-2025-01-24` or `computer-use-2025-11-24`) and matching tool types (`computer_20250124`, `bash_20250124`, etc.). **`interpreter --os` may fail or behave unpredictably with current Claude models** until this code is updated.
 
 See [Anthropic's computer use documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) for supported beta headers and tool types.
 
