@@ -242,7 +242,7 @@ def start_terminal_interface(interpreter):
         {
             "name": "os",
             "nickname": "os",
-            "help_text": "experimentally let Open Interpreter control your mouse and keyboard (shortcut for `interpreter --profile os`)",
+            "help_text": "deprecated Anthropic computer-use demo (broken with current models); use `interpreter --profile os` for desktop control",
             "type": bool,
         },
         # Special commands
