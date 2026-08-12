@@ -40,6 +40,19 @@ The `2024-10-22` beta stack is **legacy**: it is still shipped in this repo, but
 
 See [Anthropic's computer use documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) for supported beta headers and tool types.
 
+### `--os` vs `--profile os` (naming collision)
+
+Both desktop-control paths share the "os" name, and the CLI makes it worse: the help text for `--os` describes it as a *shortcut for `--profile os`*, but `--os` is intercepted in `interpreter/__init__.py` **before** the CLI runs and routes to the Anthropic loop instead. So `--os` and `--profile os` are different commands:
+
+- `interpreter --os` → Anthropic computer-use demo (broken with current models).
+- `interpreter --profile os` → provider-agnostic OS control via LiteLLM + the `computer.*` module.
+
+Historically, "OS mode" referred to the Anthropic `--os` path; the provider-agnostic `--profile os` is the maintained one.
+
+### Future direction
+
+The Anthropic-specific `--os` path is slated for removal. Desktop control should stay provider-agnostic via `--profile os`; the underlying automation stack (currently PyAutoGUI pixel-matching) is a candidate for revisiting with OS-native accessibility/UI-tree automation.
+
 ### Requirements
 
 Screen recording permissions must be enabled for your terminal application. Neither path currently supports multiple displays.
