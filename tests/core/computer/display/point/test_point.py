@@ -10,6 +10,7 @@ module is first imported.
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
 from PIL import Image
 
 from tests.helpers import install_point_heavy_deps
@@ -164,9 +165,11 @@ def test_find_icon_combines_overlapping_boxes(monkeypatch):
     assert result == [(0.1, 0.2)]
 
 
+@pytest.mark.darwin_ci
 def test_take_screenshot_to_pil_captures_and_cleans_up(monkeypatch, tmp_path):
-    """point's take_screenshot_to_pil() runs `screencapture -x`, loads the PNG it
-    produced, and removes the temporary file afterwards."""
+    """point's take_screenshot_to_pil() runs `screencapture -x` (a macOS-only
+    command), loads the PNG it produced, and removes the temporary file. The
+    command contract is macOS-specific, so the test runs in the macOS CI lane."""
     point_mod = _import_point(monkeypatch)
 
     filename = str(tmp_path / "temp_screenshot.png")
