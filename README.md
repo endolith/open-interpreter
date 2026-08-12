@@ -173,7 +173,7 @@ print(interpreter.system_message)
 
 ### OS control (experimental)
 
-To control the desktop (mouse, keyboard, screenshots), use **`interpreter --profile os`**—the maintained Classic path (`execute` tool + Python `computer.*` module). The separate **`interpreter --os`** flag runs an older Anthropic computer-use demo with a legacy beta API; see [`docs/guides/os-mode.mdx`](docs/guides/os-mode.mdx).
+Use **`interpreter --profile os`** for desktop control (provider-agnostic, LiteLLM + `computer.*`); the separate `interpreter --os` flag runs a deprecated Anthropic demo. See [OS Mode](docs/guides/os-mode.mdx) for both paths.
 
 ### Change your Language Model
 

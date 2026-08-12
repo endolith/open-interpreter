@@ -43,25 +43,11 @@ vision: true
 
 #### `--os` or `-o`
 
-Starts the **Anthropic computer-use demo** in `interpreter/computer_use/` (legacy beta API; requires an Anthropic API key). This is **not** the same as profile-based OS control.
+Runs the deprecated **Anthropic computer-use demo** (`interpreter/computer_use/`; requires an Anthropic API key) — **not** the same as profile-based OS control. For the maintained provider-agnostic path, use `--profile os`. See [OS Mode](/guides/os-mode).
 
-For the maintained Classic path (LiteLLM, `execute` tool, Python `computer.*` module), use **`--profile os`** instead. See [OS Mode](/guides/os-mode).
-
-<CodeGroup>
-
-    ```bash Terminal
-    interpreter --os
-    ```
-
-    ```yaml Config
-    os: true
-    ```
-
-</CodeGroup>
-
-<Info>
-Setting `os: true` in a YAML profile enables the **profile-based** OS loop, not the `--os` Anthropic demo. The `--os` CLI flag is intercepted in `interpreter/__init__.py` before the normal CLI runs.
-</Info>
+```bash Terminal
+interpreter --os
+```
 
 ---
 
