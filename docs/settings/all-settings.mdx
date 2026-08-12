@@ -319,12 +319,12 @@ llm:
 
 ### OS Mode
 
-Enables profile-based OS control (Python `computer.*` module, vision, `auto_run`). For the separate Anthropic computer-use demo, use the `--os` CLI flag instead. See [OS Mode](/guides/os-mode).
+Enables profile-based OS control (Python `computer.*` module, vision, `auto_run`) via the `os` profile. See [OS Mode](/guides/os-mode).
 
 <CodeGroup>
 
 ```bash Terminal
-interpreter --os
+interpreter --profile os
 ```
 
 ```yaml Profile
@@ -332,6 +332,8 @@ os: true
 ```
 
 </CodeGroup>
+
+Note: `interpreter --os` is **not** equivalent to `os: true`. The `--os` flag runs a separate legacy Anthropic computer-use demo (broken with current models); the `os` profile setting is what enables the provider-agnostic desktop control above.
 
 ### Version
 
