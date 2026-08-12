@@ -36,7 +36,7 @@ This path:
 
 ### Legacy API status
 
-The `2024-10-22` beta stack is **legacy**: it is still shipped in this repo, but Anthropic has deprecated it. Current Anthropic models expect newer beta headers (for example `computer-use-2025-01-24` or `computer-use-2025-11-24`) and matching tool types (`computer_20250124`, `bash_20250124`, etc.). **`interpreter --os` may fail or behave unpredictably with current Claude models** until this code is updated.
+The `2024-10-22` beta stack is **legacy**: it is still shipped in this repo, but Anthropic no longer accepts it. Their [current docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) list only `computer-use-2025-01-24` and `computer-use-2025-11-24` beta headers (with matching `computer_20250124`/`computer_20251124` tool types); the `2024-10-22` beta and `computer_20241022` tool type are gone. Sending them with a current model is rejected by the API, so **`interpreter --os` fails with current Claude models** until this code is updated to a supported beta.
 
 See [Anthropic's computer use documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) for supported beta headers and tool types.
 
