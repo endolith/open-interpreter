@@ -74,7 +74,7 @@ Once the develop features are in, refactor the codebase to be more Pythonic and 
 
 ### Phase 4: Mine the abandoned OI 1.0 rewrite (maybe)
 
-The `development` branch (and its continuation `develop_1.0`) was meant to become Open Interpreter 1.0, but depends on Anthropic computer-use APIs that are now obsolete and was never feature-complete. After the earlier phases, consider cherry-picking any worthwhile ideas from it.
+The `development` branch (and its continuation `develop_1.0`) was meant to become Open Interpreter 1.0. Its desktop-automation core is Anthropic-specific — it hardcodes the now-removed `computer-use-2024-10-22` beta and the `BetaToolComputerUse20241022Param` SDK type, so that part cannot work with current models. But not everything in it is Anthropic-bound: worth cherry-picking after the earlier phases are anything that is provider-agnostic (e.g. ideas from its `tools/` design, command handling, or profiles), not the computer-use integration. See also the desktop-automation item below.
 
 ## Documentation
 
@@ -107,6 +107,8 @@ The `development` branch (and its continuation `develop_1.0`) was meant to becom
 - [ ] Expand "safe mode" to have proper, simple Docker support, or maybe Cosmopolitan LibC
 - [ ] Make it so core can be run elsewhere from terminal package — perhaps split over HTTP (this would make docker easier too)
 - [ ] For OS mode, experiment with screenshot just returning active window, experiment with it just showing the changes, or showing changes in addition to the whole thing, etc. GAIA should be your guide
+- [ ] Drop the Anthropic-specific `interpreter --os` path (`computer_use/loop.py` — tied to the removed `computer-use-2024-10-22` beta) and keep desktop control provider-agnostic via `--profile os`
+- [ ] Revisit the desktop-automation stack: the current PyAutoGUI screenshot/pixel-matching approach is flaky and token-heavy. The 2026 state of the art is accessibility/UI-tree-based automation — cross-platform libraries like ATOM (Windows UIA, macOS AX, Linux AT-SPI), xa11y, or OS-native UI Automation — which expose a machine-readable UI tree for the LLM to act on, still fully provider-agnostic
 
 ## Future-proofing
 
