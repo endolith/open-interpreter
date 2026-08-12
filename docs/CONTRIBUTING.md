@@ -48,6 +48,10 @@ We will review PRs when possible and work with you to integrate your contributio
 
 **Note: for anyone testing the new `--local`, `--os`, and `--local --os` modes: a plain `pip install -e .` installs only the base dependencies, so executing those modes can fail when they import an omitted optional dependency. Install the extras for the modes you test with `pip install -e ".[local]"`, `pip install -e ".[os]"`, or `pip install -e ".[local,os]"`. You can edit the system messages for these modes in `interpreter/terminal_interface/profiles/defaults`.**
 
+### OS control
+
+Two desktop-control paths exist — see [OS Mode](guides/os-mode.mdx) for full detail: `interpreter --profile os` (maintained, provider-agnostic) and `interpreter --os` (separate deprecated Anthropic demo).
+
 Once you've forked the code and created a new branch for your work, you can run the fork in CLI mode by following these steps:
 
 1. CD into the project folder by running `cd open-interpreter`.

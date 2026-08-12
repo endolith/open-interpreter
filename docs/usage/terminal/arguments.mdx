@@ -43,19 +43,11 @@ vision: true
 
 #### `--os` or `-o`
 
-Enables OS mode for multimodal models. Defaults to GPT-4-turbo.
+Runs the deprecated **Anthropic computer-use demo** (`interpreter/computer_use/`; requires an Anthropic API key) — **not** the same as profile-based OS control. For the maintained provider-agnostic path, use `--profile os`. See [OS Mode](/guides/os-mode).
 
-<CodeGroup>
-
-    ```bash Terminal
-    interpreter --os
-    ```
-
-    ```yaml Config
-    os: true
-    ```
-
-</CodeGroup>
+```bash Terminal
+interpreter --os
+```
 
 ---
 

@@ -171,6 +171,10 @@ Run shell commands with -y so the user doesn't have to confirm them.
 print(interpreter.system_message)
 ```
 
+### OS control (experimental)
+
+Use **`interpreter --profile os`** for desktop control (provider-agnostic, LiteLLM + `computer.*`); the separate `interpreter --os` flag runs a deprecated Anthropic demo. See [OS Mode](docs/guides/os-mode.mdx) for both paths.
+
 ### Change your Language Model
 
 Open Interpreter uses [LiteLLM](https://docs.litellm.ai/docs/providers/) to connect to hosted language models.
