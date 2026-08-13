@@ -1,10 +1,10 @@
 """Characterization tests for ``computer.display.point``.
 
-The upcoming ``computer/* -> toolbox/*`` port renames this module; these tests
-trip when the import path or the dispatch/geometry behavior changes.
-``point.py`` imports torch/sentence_transformers/timm/nltk/cv2 at module level,
-so every test installs bare stubs via ``install_point_heavy_deps`` before the
-module is first imported.
+These tests pin the current import path and dispatch/geometry behavior so any
+rename or refactor trips loudly on drift. ``point.py`` imports
+torch/sentence_transformers/timm/nltk/cv2 at module level, so every test
+installs bare stubs via ``install_point_heavy_deps`` before the module is first
+imported.
 """
 
 from types import SimpleNamespace

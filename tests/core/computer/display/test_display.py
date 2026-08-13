@@ -1,8 +1,8 @@
 """Characterization tests for ``computer.display``.
 
 These mock pyautogui/pywinctl/screeninfo/requests so the tests run headless in
-CI. They exist to trip loudly when the ``computer/* -> toolbox/*`` port renames
-or reworks the display subsystem.
+CI. They pin the current display API so any rename or rework trips loudly on
+drift.
 """
 
 from types import SimpleNamespace

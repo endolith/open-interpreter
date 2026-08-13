@@ -1,8 +1,7 @@
 """Characterization tests for ``computer.keyboard``.
 
-These mock pyautogui and the clipboard so they run headless in CI. They trip
-when the ``computer/* -> toolbox/*`` port renames or reworks the keyboard
-subsystem.
+These mock pyautogui and the clipboard so they run headless in CI. They pin the
+current keyboard API so any rename or rework trips loudly on drift.
 """
 
 from types import SimpleNamespace
