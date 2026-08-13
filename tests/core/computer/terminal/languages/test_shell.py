@@ -145,10 +145,10 @@ def test_detect_end_of_execution_recognises_the_sentinel():
 
 
 def test_shell_start_cmd_defaults_to_bash_when_shell_unset():
-    """With no SHELL env var on Unix, Shell defaults to "bash"."""
+    """With no SHELL env var on Unix, Shell still invokes bash safely."""
     if platform.system() == "Windows":
         pytest.skip("SHELL default only applies to Unix")
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("SHELL", None)
         shell = Shell()
-    assert shell.start_cmd == ["bash"]
+    assert shell.start_cmd == ["bash", "--norc", "--noprofile"]
