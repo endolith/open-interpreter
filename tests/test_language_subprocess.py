@@ -82,7 +82,6 @@ def test_javascript_subprocess_smoke(interpreter):
 @pytest.mark.timeout(30)
 def test_shell_bash_echo_smoke(interpreter):
     """Shell language runs a basic echo through bash subprocess on Unix."""
-    require_bash_compatible_shell()
     chunks = list(interpreter.computer.run("shell", "echo shell_ok"))
     assert "shell_ok" in console_output_text(chunks)
 

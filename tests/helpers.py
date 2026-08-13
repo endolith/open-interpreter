@@ -55,7 +55,7 @@ _BASH_COMPATIBLE_SHELL_NAMES = frozenset(
 
 
 def require_bash_compatible_shell():
-    """Fail fast when $SHELL is fish (or other non-bash) on Unix integration tests.
+    """Skip when $SHELL is fish (or other non-bash) on Unix integration tests.
 
     Shell language execution now always invokes bash, but some tests still
     document the old $SHELL mismatch (#91) or run bash-syntax snippets directly.
@@ -65,7 +65,7 @@ def require_bash_compatible_shell():
     shell = os.environ.get("SHELL", "bash")
     shell_name = os.path.basename(shell).lower()
     if shell_name not in _BASH_COMPATIBLE_SHELL_NAMES:
-        pytest.fail(
+        pytest.skip(
             f"SHELL={shell!r} is not bash-compatible. Export SHELL=/bin/bash for "
             f"integration tests, or rely on Shell using bash directly (see #91)."
         )
