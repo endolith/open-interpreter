@@ -50,11 +50,41 @@ def conversation_navigator(interpreter):
         readable_names_and_filenames[name] = filename
 
     # Add the option to open the folder or start a new conversation. These don't map to filenames, we'll catch them
-    readable_names_and_filenames_list = list(readable_names_and_filenames.keys())
-    readable_names_and_filenames_list = [
+    all_names_list = list(readable_names_and_filenames.keys())
+    all_names_list = [
         "New Conversation →",
         "Open Folder →",
-    ] + readable_names_and_filenames_list
+    ] + all_names_list
+
+    # Let the user type a search term to filter the conversation list.
+    # An empty search shows the full list, exactly as before.
+    while True:
+        search_questions = [
+            inquirer.Text(
+                "search",
+                message="Search conversations (Enter to list all):",
+            ),
+        ]
+        search_answer = inquirer.prompt(search_questions)
+
+        # User chose to exit
+        if not search_answer:
+            return
+
+        search_term = search_answer["search"].strip()
+        if not search_term:
+            readable_names_and_filenames_list = all_names_list
+            break
+
+        readable_names_and_filenames_list = [
+            name
+            for name in all_names_list
+            if search_term.lower() in name.lower()
+        ]
+        if readable_names_and_filenames_list:
+            break
+
+        print(f'No conversations match "{search_term}". Try again.')
 
     # Use inquirer to let the user select a file
     questions = [
