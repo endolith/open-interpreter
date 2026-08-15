@@ -202,7 +202,11 @@ class Llm:
                 if litellm.supports_vision(model):
                     self.supports_vision = True
                 else:
-                    self.supports_vision = False
+                    # LiteLLM's registry can lag behind provider releases (e.g.
+                    # openrouter/qwen/qwen3.7-plus is not listed yet). OpenRouter's
+                    # model list is authoritative for modalities, so consult it
+                    # before concluding the model can't receive images.
+                    self.supports_vision = self._openrouter_supports_vision(model)
             except:
                 self.supports_vision = False
 
@@ -538,6 +542,38 @@ Continuing...
     def model(self, value):
         self._model = value
         self._is_loaded = False
+
+    def _openrouter_supports_vision(self, model):
+        """
+        OpenRouter proxies any provider's models, so LiteLLM's registry often
+        doesn't list new ones (e.g. openrouter/qwen/qwen3.7-plus). OpenRouter's
+        /api/v1/models is authoritative for input modalities, so consult it when
+        LiteLLM can't confirm vision support. Returns True/False, and falls back
+        to False if the model list can't be fetched.
+        """
+        if not model.lower().startswith("openrouter/"):
+            return False
+        slug = model.split("openrouter/", 1)[-1]
+        try:
+            response = requests.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={
+                    "HTTP-Referer": os.environ.get("OR_SITE_URL", ""),
+                    "X-Title": os.environ.get("OR_APP_NAME", "Open Interpreter"),
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            for entry in response.json().get("data", []):
+                if entry.get("id") == slug:
+                    modalities = (entry.get("architecture") or {}).get(
+                        "input_modalities"
+                    ) or []
+                    return "image" in modalities
+        except Exception as e:
+            if self.interpreter.verbose:
+                print(f"Could not determine vision support from OpenRouter: {e}")
+        return False
 
     def load(self):
         if self._is_loaded:
