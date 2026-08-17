@@ -429,12 +429,12 @@ def run_auth_server():
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
+    async_interpreter.print = False
     # auto_run and system_message are blocked on POST /settings; set them at startup.
-    async_interpreter.auto_run = True
-    async_interpreter.custom_instructions = (
+    async_interpreter.system_message = (
         "You are a poem writing bot. Do not do anything but respond with a poem."
     )
-    async_interpreter.print = False
+    async_interpreter.auto_run = True
     async_interpreter.server.run()
 
 
@@ -480,8 +480,8 @@ def test_authenticated_acknowledging_breaking_server():
             response = requests.post(
                 post_url, json=settings, headers={"X-API-KEY": "testing"}, timeout=30
             )
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -609,14 +609,17 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
+            # POST /settings rejects messages, system_message, and auto_run as
+            # sensitive settings (SENSITIVE_SERVER_SETTINGS in async_core.py), so
+            # only non-sensitive keys are sent here. The subprocess's default
+            # auto_run=False already satisfies the math turn's no-execute intent.
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
-                "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -648,11 +651,10 @@ def test_server():
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
-                "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
@@ -687,8 +689,8 @@ def test_server():
                 "verbose": False,
             }
             response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
             print("POST request sent, response:", response.json())
-            assert response.status_code == 200
 
             # Sending messages via WebSocket
             await websocket.send(
