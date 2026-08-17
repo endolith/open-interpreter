@@ -1,15 +1,22 @@
-def export_to_markdown(messages: list[dict], export_path: str):
-    markdown = messages_to_markdown(messages)
+def export_to_markdown(messages: list[dict], export_path: str, include_reasoning=True):
+    markdown = messages_to_markdown(messages, include_reasoning=include_reasoning)
     with open(export_path, 'w', encoding='utf-8') as f:
         f.write(markdown)
     print(f"Exported current conversation to {export_path}")
 
 
-def messages_to_markdown(messages: list[dict]) -> str:
+def messages_to_markdown(messages: list[dict], include_reasoning=True) -> str:
     # Convert interpreter.messages to Markdown text
     markdown_content = ""
     previous_role = None
     for chunk in messages:
+        # Skip reasoning blocks entirely when they aren't wanted, before the
+        # role-header logic runs, so a skipped reasoning message doesn't steal
+        # the "## assistant" header from the actual response that follows it.
+        if not include_reasoning and chunk.get("format") == "reasoning":
+            continue
+
+        current_role = chunk["role"]
         current_role = chunk["role"]
         if current_role == previous_role:
             rendered_chunk = ""
