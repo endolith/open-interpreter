@@ -589,12 +589,14 @@ def run_server():
 @pytest.mark.integration
 @pytest.mark.timeout(900)
 def test_server():
-    """Exercise secret-word, math, and file-existence turns over the WebSocket API.
+    """Exercise secret-word, math, file-existence, and vision turns over the WebSocket API.
 
     Spins up AsyncInterpreter in a subprocess (spawn context), posts settings,
     streams each user turn over WebSocket, and verifies the response flow: the
-    math turn writes code without auto-executing it, and the file turn answers
-    in plain text."""
+    math turn writes code without auto-executing it, the file turn answers in
+    plain text, and the isolated vision turn identifies the gradient image as
+    'B'. The waits are phase-labeled so a stuck turn fails with a diagnosable
+    message instead of hanging until the workflow timeout."""
 
     process = _start_server_subprocess(run_server)
 
@@ -607,7 +609,9 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
-        nonlocal process
+        """Multi-turn server flow: apply /settings (non-sensitive keys only),
+        stream secret-word, math, code-exec, and file turns, then an image turn
+        that needs a vision-capable model (skipped when no LLM API key is set)."""
         import asyncio
 
         async with websockets.connect(_server_ws_url()) as websocket:
@@ -652,7 +656,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_crunk", server_process=process
+            )
 
             assert "crunk" in accumulated_content
 
@@ -687,7 +693,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_barloney", server_process=process
+            )
 
             assert "barloney" in accumulated_content
 
@@ -720,9 +728,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
-
-            time.sleep(5)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="math_code_auto_run_false", server_process=process
+            )
 
             # Send a GET request to /settings/messages
             get_url = _server_http_url("/settings/messages")
@@ -756,7 +764,9 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="go_execute_code", server_process=process
+            )
 
             assert "18893094989" in accumulated_content.replace(",", "")
 
