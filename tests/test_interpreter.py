@@ -837,65 +837,71 @@ def test_server():
 
             #### TEST IMAGES ####
 
-            # Fresh server for an isolated vision turn. With approval binding, reusing
-            # the same WebSocket after auto_run=False can leave a pending confirmation
-            # and the stream ends with only "complete".
+            # The vision turn needs a reachable vision-capable LLM; skip it
+            # rather than failing when no API key is configured.
+            if not os.environ.get("OPENAI_API_KEY"):
+                pytest.skip("vision turn requires an LLM API key (OPENAI_API_KEY)")
+
+            # POST /settings rejects {"messages": []} (messages is guarded as a
+            # sensitive setting since PR #96), so the conversation cannot be reset
+            # that way. Start a fresh, separate server for an isolated vision turn
+            # and reconnect on a new WebSocket; `vision_process` tracks that server
+            # so it can be stopped in a finally block even if a step below raises.
             await websocket.close()
             _stop_server_subprocess(process)
-            process = _start_server_subprocess(run_server)
-            _wait_for_server(process)
-
-            async with websockets.connect(_server_ws_url()) as image_websocket:
-                await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
+            vision_process = _start_server_subprocess(run_server)
+            try:
+                _wait_for_server(vision_process)
 
                 base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
 
-                await image_websocket.send(json.dumps({"role": "user", "start": True}))
-                await image_websocket.send(
-                    json.dumps(
-                        {
-                            "role": "user",
-                            "type": "message",
-                            "content": (
-                                "What do you see in this image? Reply with only one letter.\n"
-                                "A) a cat\n"
-                                "B) a color gradient\n"
-                                "C) a table of numbers\n"
-                                "D) a black rectangle"
-                            ),
-                        }
-                    )
-                )
-                await image_websocket.send(
-                    json.dumps(
-                        {
-                            "role": "user",
-                            "type": "image",
-                            "format": "base64.png",
-                            "content": base64png,
-                        }
-                    )
-                )
-                await image_websocket.send(json.dumps({"role": "user", "end": True}))
-                print("WebSocket chunks sent")
+                async with websockets.connect(_server_ws_url()) as image_websocket:
+                    await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
-                accumulated_content = await _wait_for_websocket_complete(image_websocket)
+                    await image_websocket.send(json.dumps({"role": "user", "start": True}))
+                    await image_websocket.send(
+                        json.dumps(
+                            {
+                                "role": "user",
+                                "type": "message",
+                                "content": (
+                                    "What do you see in this image? Reply with only one letter.\n"
+                                    "A) a cat\n"
+                                    "B) a color gradient\n"
+                                    "C) a table of numbers\n"
+                                    "D) a black rectangle"
+                                ),
+                            }
+                        )
+                    )
+                    await image_websocket.send(
+                        json.dumps(
+                            {
+                                "role": "user",
+                                "type": "image",
+                                "format": "base64.png",
+                                "content": base64png,
+                            }
+                        )
+                    )
+                    await image_websocket.send(json.dumps({"role": "user", "end": True}))
+                    print("WebSocket chunks sent")
+
+                    accumulated_content = await _wait_for_websocket_complete(
+                        image_websocket, phase="vision_mcq", server_process=vision_process
+                    )
 
                 # _wait_for_websocket_complete appends the status content "complete".
                 vision_reply = accumulated_content.removesuffix("complete")
+                assert vision_reply, "expected assistant response after image turn"
                 assert re.search(
                     r"\bB\b", vision_reply, re.IGNORECASE
                 ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
-            # Sending POST request to /run endpoint with code to kill a thread in Python
-            # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = _server_http_url("/run")
-            code_data = {
-                "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
-                "language": "python",
-            }
-            response = requests.post(post_url, json=code_data, timeout=30)
-            print("POST request sent, response:", response.json())
+            finally:
+                # Stop the isolated vision subprocess on every exit path (assertions,
+                # WebSocket timeouts, and the normal end of the turn).
+                _stop_server_subprocess(vision_process)
 
     # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
     # is no current event loop (e.g. pytest has not set one up). asyncio.run()
