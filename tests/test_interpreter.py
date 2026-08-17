@@ -478,7 +478,7 @@ def test_authenticated_acknowledging_breaking_server():
                 },
             }
             response = requests.post(
-                post_url, json=settings, headers={"X-API-KEY": "testing"}
+                post_url, json=settings, headers={"X-API-KEY": "testing"}, timeout=30
             )
             print("POST request sent, response:", response.json())
             assert response.status_code == 200
@@ -614,7 +614,7 @@ def test_server():
                 "llm": {"model": "gpt-4o-mini"},
                 "custom_instructions": "",
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
             assert response.status_code == 200
 
@@ -650,7 +650,7 @@ def test_server():
                 "llm": {"model": "gpt-4o-mini"},
                 "custom_instructions": "",
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
             assert response.status_code == 200
 
@@ -686,7 +686,7 @@ def test_server():
                 "custom_instructions": "",
                 "verbose": False,
             }
-            response = requests.post(post_url, json=settings)
+            response = requests.post(post_url, json=settings, timeout=30)
             print("POST request sent, response:", response.json())
             assert response.status_code == 200
 
@@ -715,7 +715,7 @@ def test_server():
 
             # Send a GET request to /settings/messages
             get_url = _server_http_url("/settings/messages")
-            response = requests.get(get_url)
+            response = requests.get(get_url, timeout=30)
             print("GET request sent, response:", response.json())
 
             # Assert that the last message has a type of 'code'
@@ -782,7 +782,7 @@ def test_server():
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
-            response_json = requests.get(get_url).json()
+            response_json = requests.get(get_url, timeout=30).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
                 response_json = json.loads(response_json)
