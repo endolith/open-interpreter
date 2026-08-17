@@ -393,11 +393,12 @@ def run_server():
 @pytest.mark.integration
 @pytest.mark.timeout(900)
 def test_server():
-    """FastAPI/WebSocket server accepts settings, streams chat, and completes cleanly.
+    """Exercise secret-word, math, and file-existence turns over the WebSocket API.
 
     Spins up AsyncInterpreter in a subprocess (spawn context), posts settings,
-    sends a user message over WebSocket, and verifies poem-style responses
-    arrive without authentication when INTERPRETER_REQUIRE_ACKNOWLEDGE is off."""
+    streams each user turn over WebSocket, and verifies the response flow: the
+    math turn writes code without auto-executing it, and the file turn answers
+    in plain text."""
 
     process = _start_server_subprocess(run_server)
 
