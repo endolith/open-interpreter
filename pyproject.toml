@@ -31,7 +31,9 @@ dependencies = [
     "pyperclip>=1.9.0,<2.0.0",
     "yaspin>=3.0.2,<4.0.0",
     "shortuuid>=1.0.13,<2.0.0",
-    "litellm>=1.41.26,<2.0.0",
+    # litellm 1.97.0 crashes on Python 3.10 (`Message` is not fully defined,
+    # BerriAI/litellm#36384); pin below it until upstream fixes the type forward refs.
+    "litellm>=1.41.26,<1.97.0",
     "orjson>=3.9.0,<4.0.0",
     "starlette>=0.37.2,<0.38.0",
     "html2text>=2024.2.26,<2025.0.0",
