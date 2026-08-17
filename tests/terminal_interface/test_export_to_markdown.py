@@ -47,3 +47,51 @@ def test_normal_message_unchanged():
     markdown = messages_to_markdown(messages)
     assert "## user\n\nHi" in markdown
     assert "## assistant\n\nHello!" in markdown
+
+
+def test_include_reasoning_false_omits_reasoning_blocks():
+    """With include_reasoning=False (the %markdown_final path), reasoning
+    messages must be dropped entirely from the export so only the final answers
+    and code remain. The reason block is stripped along with its content, and
+    the assistant response that follows still gets its own header."""
+    messages = [
+        {"role": "user", "type": "message", "content": "What's the weather?"},
+        {
+            "role": "assistant",
+            "type": "message",
+            "format": "reasoning",
+            "content": "The user is asking about the weather.\nI should check a forecast.",
+        },
+        {"role": "assistant", "type": "message", "content": "Checking now."},
+    ]
+    markdown = messages_to_markdown(messages, include_reasoning=False)
+    assert "The user is asking" not in markdown
+    assert "check a forecast" not in markdown
+    assert "> The user is asking" not in markdown
+    assert "Checking now." in markdown
+
+
+def test_include_reasoning_false_keeps_assistant_header():
+    """When reasoning is omitted, the header for the assistant section must be
+    emitted by the real response that follows, not swallowed by the skipped
+    reasoning block. This prevents an answer from appearing without its
+    '## assistant' header."""
+    messages = [
+        {"role": "user", "type": "message", "content": "Hi"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "Thinking..."},
+        {"role": "assistant", "type": "message", "content": "The answer."},
+    ]
+    markdown = messages_to_markdown(messages, include_reasoning=False)
+    assert "## assistant\n\nThe answer." in markdown
+
+
+def test_include_reasoning_true_default_keeps_reasoning():
+    """The default (include_reasoning=True) must keep exporting reasoning as
+    blockquotes, matching %markdown behavior; the option only kicks in when
+    explicitly disabled."""
+    messages = [
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "Thought."},
+        {"role": "assistant", "type": "message", "content": "Answer."},
+    ]
+    markdown = messages_to_markdown(messages)
+    assert "> Thought." in markdown
