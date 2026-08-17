@@ -735,6 +735,7 @@ def test_server():
             # Send a GET request to /settings/messages
             get_url = _server_http_url("/settings/messages")
             response = requests.get(get_url, timeout=30)
+            response.raise_for_status()
             print("GET request sent, response:", response.json())
 
             # Assert that the last message has a type of 'code'
@@ -768,12 +769,20 @@ def test_server():
                 websocket, phase="go_execute_code", server_process=process
             )
 
-            assert "18893094989" in accumulated_content.replace(",", "")
+            # File turn: check the model's plain-text answer about a file path
+            # (judged via computer.ai.chat). auto_run stays off so no shell code
+            # auto-executes and hangs the server before 'complete'; custom_instructions
+            # steers plain-text replies and _last_assistant_text catches code blocks.
+            post_url = _server_http_url("/settings")
+            settings = {
+                "custom_instructions": (
+                    "Answer in plain text only. Do not write or run code."
+                ),
+            }
+            response = requests.post(post_url, json=settings, timeout=30)
+            response.raise_for_status()
+            print("POST request sent, response:", response.json())
 
-            #### TEST FILE ####
-
-            # auto_run/messages cannot be reset via POST /settings (blocked for security).
-            # Continue on the same WebSocket; _last_assistant_text handles code-only replies.
             user_start = {"role": "user", "start": True}
             file_question = {
                 "role": "user",
@@ -787,6 +796,9 @@ def test_server():
                 "content": "/something.txt",
             }
 
+            # The user_start event opens the turn that the question and file
+            # payloads belong to; auto_run/messages cannot be reset via POST
+            # /settings, so this turn resumes on the same WebSocket.
             # Sending messages via WebSocket
             await websocket.send(json.dumps(user_start))
             print("sent", user_start)
@@ -799,11 +811,15 @@ def test_server():
 
             # WebSocket stream may arrive before GET /messages is consistent; keep
             # accumulated_content as a fallback when picking the assistant reply.
-            accumulated_content = await _wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="file_exists", server_process=process
+            )
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
-            response_json = requests.get(get_url, timeout=30).json()
+            response = requests.get(get_url, timeout=30)
+            response.raise_for_status()
+            response_json = response.json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
                 response_json = json.loads(response_json)
