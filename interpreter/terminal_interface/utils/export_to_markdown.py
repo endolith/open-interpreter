@@ -26,7 +26,10 @@ def messages_to_markdown(messages: list[dict]) -> str:
 
         # Message
         if chunk["type"] == "message":
-            rendered_chunk += chunk["content"] + "\n\n"
+            if chunk.get("format") == "reasoning":
+                rendered_chunk += _reasoning_to_blockquote(chunk["content"])
+            else:
+                rendered_chunk += chunk["content"] + "\n\n"
 
         # Code
         if chunk["type"] == "code" or chunk["type"] == "console":
@@ -36,3 +39,13 @@ def messages_to_markdown(messages: list[dict]) -> str:
         markdown_content += rendered_chunk
 
     return markdown_content
+
+
+def _reasoning_to_blockquote(content: str) -> str:
+    # Prefix every line with "> " so the model's thoughts render as a blockquote.
+    # The trailing newlines that the reasoning chunks are yielded with (e.g.
+    # "\n\n") are handled by the loop's own separator, so strip them here and
+    # re-add exactly one to keep the markdown tidy.
+    lines = content.rstrip("\n").split("\n")
+    quoted = "\n".join(f"> {line}" for line in lines)
+    return quoted + "\n\n"
