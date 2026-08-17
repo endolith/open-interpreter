@@ -98,25 +98,64 @@ def _stop_server_subprocess(process):
 
 
 async def _wait_for_websocket_complete(
-    websocket, max_messages=500, recv_timeout=300.0, acknowledge=False
+    websocket,
+    max_messages=500,
+    recv_timeout=300.0,
+    acknowledge=False,
+    phase="unknown",
+    server_process=None,
 ):
     """Read WebSocket chunks until the server sends a 'complete' status.
 
-    The old while True loops hung forever when 'complete' never arrived (for example
-    on auth failure). Bound both message count and per-recv wait time.
+    Bound the message count and each receive wait so auth failures that never
+    send 'complete' fail deterministically.
+
+    While awaiting a message, `server_process.is_alive()` is polled so a child
+    that crashes mid-turn (including a port-race socket bind failure from issue
+    #165) aborts with its exit code instead of blocking until the recv timeout
+    expires.
     """
 
     import asyncio
     import json
 
     accumulated_content = ""
+    messages_received = 0
     for _ in range(max_messages):
+        loop = asyncio.get_running_loop()
+        recv_task = asyncio.create_task(websocket.recv())
         try:
-            message = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
-        except asyncio.TimeoutError as exc:
-            raise Exception(
-                f"No WebSocket message within {recv_timeout}s waiting for 'complete'"
-            ) from exc
+            deadline = loop.time() + recv_timeout
+            while not recv_task.done():
+                if server_process is not None and not server_process.is_alive():
+                    raise RuntimeError(
+                        f"Server subprocess exited during WebSocket wait (phase: {phase}, "
+                        f"exit code {server_process.exitcode}, port {_SERVER_PORT})"
+                    )
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise Exception(
+                        f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
+                        f"(phase: {phase}, messages received: {messages_received}, "
+                        f"port {_SERVER_PORT})"
+                    )
+                await asyncio.wait({recv_task}, timeout=min(remaining, 0.1))
+            try:
+                message = recv_task.result()
+            except asyncio.TimeoutError as exc:
+                raise Exception(
+                    f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
+                    f"(phase: {phase}, messages received: {messages_received}, "
+                    f"port {_SERVER_PORT})"
+                ) from exc
+        finally:
+            if not recv_task.done():
+                recv_task.cancel()
+                try:
+                    await recv_task
+                except asyncio.CancelledError:
+                    pass
+        messages_received += 1
 
         message_data = json.loads(message)
         if acknowledge and "id" in message_data:
@@ -137,7 +176,129 @@ async def _wait_for_websocket_complete(
             print("Received expected message from server")
             return accumulated_content
 
-    raise Exception(f"Never received 'complete' status after {max_messages} messages")
+    raise Exception(
+        f"Never received 'complete' status after {max_messages} messages "
+        f"(phase: {phase}, port {_SERVER_PORT})"
+    )
+
+
+def test_wait_for_websocket_complete_dead_server():
+    """A dead server subprocess aborts the wait with a phase-labeled diagnostic.
+
+    The health check turns a crashed child into a fast, descriptive failure
+    instead of an opaque hang until the recv timeout.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, Mock
+
+    process = Mock()
+    process.is_alive.return_value = False
+    process.exitcode = 1
+    websocket = Mock()
+    websocket.recv = AsyncMock()
+
+    async def scenario():
+        with pytest.raises(
+            RuntimeError,
+            match=r"Server subprocess exited during WebSocket wait \(phase: dead_process, exit code 1",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, phase="dead_process", server_process=process
+            )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_process_dies_mid_recv():
+    """A server process that dies after the recv starts aborts the wait promptly.
+
+    The poll-while-awaiting loop checks is_alive() during the recv, so a child
+    that crashes mid-turn fails fast with its exit code instead of blocking
+    until the recv timeout expires.
+    """
+    import asyncio
+    from unittest.mock import Mock
+
+    process = Mock()
+    process.is_alive.side_effect = [True, True, False]
+    process.exitcode = 7
+    websocket = Mock()
+
+    async def never_returns():
+        await asyncio.Event().wait()
+
+    websocket.recv = never_returns
+
+    async def scenario():
+        with pytest.raises(
+            RuntimeError,
+            match=r"Server subprocess exited during WebSocket wait \(phase: mid_recv_death, exit code 7",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, phase="mid_recv_death", server_process=process
+            )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_recv_timeout():
+    """A stalled WebSocket recv raises a phase-labeled timeout error.
+
+    The recv_timeout bound guards against a server that stops streaming; the
+    error names the phase and the number of messages already received so CI
+    failures are diagnosable.
+    """
+    import asyncio
+    from unittest.mock import Mock
+
+    websocket = Mock()
+
+    # A recv that never resolves (like a server that stops streaming) drives the
+    # poll loop to the deadline branch, where the per-recv timeout is enforced.
+    async def never_returns():
+        await asyncio.Event().wait()
+
+    websocket.recv = never_returns
+
+    async def scenario():
+        with pytest.raises(
+            Exception,
+            match=r"No WebSocket message within .*waiting for 'complete' \(phase: timeout_phase, messages received: 0",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, recv_timeout=0.01, phase="timeout_phase"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_message_limit():
+    """Exhausting max_messages without 'complete' raises a phase-labeled error.
+
+    The message-count bound replaces the old while-True loop so a server that
+    never sends 'complete' fails fast instead of hanging forever.
+    """
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, Mock
+
+    websocket = Mock()
+    websocket.recv = AsyncMock(
+        side_effect=[
+            json.dumps({"role": "assistant", "type": "message", "content": "hi"})
+        ]
+    )
+
+    async def scenario():
+        with pytest.raises(
+            Exception,
+            match=r"Never received 'complete' status after 1 messages \(phase: exhausted_phase",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, max_messages=1, phase="exhausted_phase"
+            )
+
+    asyncio.run(scenario())
 
 
 def _last_assistant_message(messages):
