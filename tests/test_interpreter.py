@@ -441,9 +441,12 @@ def run_auth_server():
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
 def test_authenticated_acknowledging_breaking_server():
-    """Test the server when we have authentication and acknowledging one.
+    """Verify an authenticated server accepts settings and resumes the turn.
 
-    I know this is bad, just trying to test quickly!"""
+    Connects with an API key, applies /settings over HTTP (which cannot reset
+    the active conversation), then continues the user turn on the same
+    WebSocket, reading the reply back from that socket.
+    """
 
 
     # Start the server in a new process
@@ -459,6 +462,9 @@ def test_authenticated_acknowledging_breaking_server():
     import websockets
 
     async def test_fastapi_server():
+        """Authenticated server flow: apply /settings over HTTP, stream a poem
+        turn over the WebSocket, close the socket, then resume on a second
+        socket."""
         import asyncio
 
         async with websockets.connect(_server_ws_url()) as websocket:
@@ -537,21 +543,24 @@ def test_authenticated_acknowledging_breaking_server():
             print("Disconnected from WebSocket")
 
         # Give uvicorn time to finish tearing down the first WebSocket session.
-        time.sleep(5)
+        time.sleep(3)
 
         # Now let's hilariously keep going
         print("RESUMING")
 
-        async with websockets.connect(
-            _server_ws_url(), open_timeout=30
-        ) as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
             # Sending message via WebSocket
             await websocket.send(json.dumps({"auth": "testing"}))
 
-            poem += await _wait_for_websocket_complete(websocket, acknowledge=True)
+            poem += await _wait_for_websocket_complete(
+                websocket,
+                acknowledge=True,
+                phase="auth_server_resume_poem",
+                server_process=process,
+            )
 
             time.sleep(1)
             print("Is this a normal poem?")
