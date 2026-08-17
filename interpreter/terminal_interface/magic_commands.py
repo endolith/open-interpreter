@@ -109,6 +109,7 @@ def handle_help(self, arguments):
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
         "%markdown [path]": "Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.",
+        "%markdown_final [path]": "Export the conversation to Markdown without the model's reasoning blocks, leaving only the final answers and code. Path behavior is the same as %markdown.",
         "%rename [title]": "Rename the saved conversation JSON on disk. With no title, the model generates one from the full chat (like the automatic title). With text, that string becomes the filename prefix directly.",
         "%width": "Show current terminal width/height and re-detect if needed.",
     }
@@ -413,6 +414,21 @@ def markdown(self, export_path: str):
     export_to_markdown(self.messages, export_path)
 
 
+def markdown_final(self, export_path: str):
+    # Same as %markdown, but skips the model's reasoning/thinking blocks so the
+    # exported conversation contains only the final answers and code.
+    if len(self.messages) == 0:
+        print("No messages to export.")
+        return
+
+    if not export_path:
+        export_path = os.path.join(
+            get_downloads_path(), self.conversation_filename[:-4] + "md"
+        )
+
+    export_to_markdown(self.messages, export_path, include_reasoning=False)
+
+
 def handle_magic_command(self, user_input):
     # Handle shell
     if user_input.startswith("%%"):
@@ -439,6 +455,7 @@ def handle_magic_command(self, user_input):
         "info": handle_info,
         "jupyter": jupyter,
         "markdown": markdown,
+        "markdown_final": markdown_final,
         "rename": handle_rename_conversation,
         "width": handle_width,
     }
