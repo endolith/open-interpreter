@@ -23,17 +23,6 @@ from .languages.augeas import Augeas
 # Languages whose console output is buffered until completion (reduces UI flicker).
 _BUFFERED_CONSOLE_LANGUAGES = frozenset({"cmd", "bash"})
 
-import_toolbox_api_code = """
-import os
-os.environ["INTERPRETER_TOOLBOX_API"] = "False" # To prevent infinite recurring injection of the toolbox API
-
-import time
-import datetime
-from interpreter import interpreter, ai2
-
-toolbox = interpreter.toolbox
-""".strip()
-
 
 def _sync_active_line_detection_env(interpreter):
     """
@@ -98,6 +87,47 @@ class Terminal:
 
         return True
 
+    def _build_import_toolbox_api_code(self):
+        """
+        Build the snippet that imports the Toolbox API into the kernel.
+
+        The kernel's working directory is the directory the CLI was started
+        from, and the kernel puts that directory on its sys.path. If the CLI
+        is launched from inside a *different* open-interpreter checkout (for
+        example the `main` branch repo, whose `interpreter` package has a
+        `computer` object rather than `toolbox` and no `ai2`), the kernel's
+        `from interpreter import interpreter, ai2` would import that wrong
+        copy and the injection would fail, leaving `toolbox` undefined.
+
+        Prepending the parent process's own interpreter package directory to
+        sys.path makes the kernel import the exact same package the CLI is
+        running, regardless of what folder it was started from.
+
+        The trailing print is a sentinel: it lets the caller detect whether
+        the injection actually succeeded before marking it as done.
+        """
+        import importlib
+        interpreter_module = importlib.import_module("interpreter")
+        interpreter_pkg_dir = os.path.dirname(
+            os.path.dirname(interpreter_module.__file__)
+        )
+        return f'''
+import os
+os.environ["INTERPRETER_TOOLBOX_API"] = "False" # To prevent infinite recurring injection of the toolbox API
+import sys
+_pkg_dir = {interpreter_pkg_dir!r}
+# Always re-insert: the package dir may already be on sys.path (e.g. via an
+# editable install's .pth), but the kernel's working directory — or anything
+# else — may precede it, and the FIRST matching entry wins for imports.
+sys.path.insert(0, _pkg_dir)
+import time
+import datetime
+from interpreter import interpreter, ai2
+
+toolbox = interpreter.toolbox
+print("__TOOLBOX_API_IMPORTED__")
+'''.strip()
+
     def get_language(self, language):
         for lang in self.languages:
             if language.lower() == lang.name.lower():
@@ -120,14 +150,27 @@ class Terminal:
                 and ("toolbox" in code or "ai2" in code)
                 and os.getenv("INTERPRETER_TOOLBOX_API", "True") != "False"
             ):
+                # Mark as imported *before* running the injection, so the
+                # injection's own recursive `self.run` (its code contains
+                # "toolbox") doesn't re-trigger itself. If the injection fails
+                # (e.g. the kernel imported the wrong copy of the package),
+                # restore the flag so the next toolbox use retries instead of
+                # silently leaving `toolbox` undefined, which would surface
+                # later as a confusing `NameError: name 'toolbox' is not defined`.
                 self.interpreter.toolbox._has_imported_toolbox_api = True
                 # Give it access to the toolbox via Python
                 time.sleep(0.5)
-                self.run(
+                results = self.run(
                     language="python",
-                    code=import_toolbox_api_code,
+                    code=self._build_import_toolbox_api_code(),
                     display=self.interpreter.toolbox.verbose,
                 )
+                if not any(
+                    "__TOOLBOX_API_IMPORTED__" in chunk.get("content", "")
+                    for chunk in results
+                    if chunk.get("format") == "output"
+                ):
+                    self.interpreter.toolbox._has_imported_toolbox_api = False
 
             if self.interpreter.toolbox.import_skills and not self.interpreter.toolbox._has_imported_skills:
                 self.interpreter.toolbox._has_imported_skills = True
