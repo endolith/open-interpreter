@@ -56,6 +56,12 @@ def convert_to_openai_messages(
     """
     new_messages = []
     pending_assistant_reasoning = None
+    # True when the most recently converted message was a reasoning block.  A
+    # reasoning message only *continues* the pending reasoning when the message
+    # immediately before it is also reasoning (one thought split across chunks);
+    # anything in between — content, code, tool output — means this is a fresh
+    # reasoning block from a new LLM call, which replaces the pending value.
+    prev_was_reasoning = False
     # Track which tool produced the most recent code/edit block so that the
     # following console-output message is attributed to the right function name.
     last_tool_name = "execute"
@@ -90,10 +96,20 @@ def convert_to_openai_messages(
         ):
             reasoning_text = message.get("content")
             if isinstance(reasoning_text, str):
-                if pending_assistant_reasoning is None:
+                if pending_assistant_reasoning is None or not prev_was_reasoning:
                     pending_assistant_reasoning = reasoning_text
                 else:
                     pending_assistant_reasoning += reasoning_text
+                # Reasoning can arrive after the assistant messages it belongs to (e.g. the
+                # code block streamed before the provider sent the thought tokens). Backfill
+                # the current run of assistant messages so the tool-call message is never
+                # sent without reasoning_content — DeepSeek rejects that with a 400.
+                for prev in reversed(new_messages):
+                    if prev.get("role") != "assistant":
+                        break
+                    if "reasoning_content" not in prev:
+                        prev["reasoning_content"] = pending_assistant_reasoning
+                prev_was_reasoning = True
             continue
 
         if message["type"] == "message":
@@ -401,14 +417,18 @@ def convert_to_openai_messages(
                 # if any assistant message in the history is missing reasoning_content.
                 new_message["reasoning_content"] = pending_assistant_reasoning
                 # Do NOT clear here — carry forward to the next assistant message (e.g. tool_calls).
-            else:
-                # Non-assistant message = turn boundary. Reasoning from the previous turn
-                # does not carry over to future turns; the next reasoning will set a new value.
+            elif new_message.get("role") == "user":
+                # Only a user message ends the turn. Function/tool responses must NOT reset
+                # the pending reasoning: a multi-tool-call turn has several assistant tool-call
+                # messages separated by tool output, and every one of them needs the turn's
+                # reasoning_content or DeepSeek returns a 400. A new reasoning block replaces
+                # the pending value anyway (see the capture block above).
                 pending_assistant_reasoning = None
 
         if isinstance(new_message["content"], str):
             new_message["content"] = new_message["content"].strip()
 
+        prev_was_reasoning = False
         new_messages.append(new_message)
 
     if function_calling == False:

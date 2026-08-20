@@ -173,3 +173,129 @@ def test_openrouter_vision_helper_skips_non_openrouter_models(
     _run_one_turn(interpreter)
 
     assert interpreter.llm.supports_vision is False
+
+
+@pytest.fixture
+def capture_deepseek_params(monkeypatch):
+    """Capture the request params passed to litellm.completion for the deepseek pass."""
+
+    def _capture(messages, model="openrouter/deepseek/deepseek-v4-flash"):
+        captured = {}
+
+        def fake_completion(**params):
+            captured["params"] = params
+            return iter([])
+
+        monkeypatch.setattr(litellm, "completion", fake_completion)
+        list(llm_mod.fixed_litellm_completions(model=model, messages=messages))
+        return captured["params"]["messages"]
+
+    return _capture
+
+
+def test_deepseek_reasoning_pads_synthetic_assistant_with_real_reasoning(
+    capture_deepseek_params,
+):
+    """The API-layer fallback propagates the turn's real reasoning, never "" on a thought turn.
+
+    process_messages can inject synthetic assistant tool_calls messages that lack
+    reasoning_content. Patching them with "" (the old behavior) is rejected with a 400
+    when the model actually reasoned that turn, so the fallback must copy the current
+    turn's reasoning instead.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "compute 2+2"},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "Let me compute. \n\n",
+                "function_call": {"name": "execute", "arguments": "{}"},
+            },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    )
+    assert out[2]["reasoning_content"] == "Let me compute. \n\n"
+    assert out[3]["reasoning_content"] == "Let me compute. \n\n"
+
+
+def test_deepseek_reasoning_pads_empty_when_model_did_not_think(
+    capture_deepseek_params,
+):
+    """Turns where the model produced no reasoning still get reasoning_content = "".
+
+    DeepSeek requires the field to exist on every assistant message in thinking mode,
+    but accepts an empty string for turns where the model did not think. The fallback
+    must keep that "" default (it is only wrong on turns that actually reasoned).
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+    )
+    assert out[2]["reasoning_content"] == ""
+
+
+def test_deepseek_reasoning_does_not_leak_across_user_turn(
+    capture_deepseek_params,
+):
+    """The fallback resets its last-seen reasoning at a user boundary.
+
+    A tool-call message in a fresh user turn that happens to lack reasoning_content must
+    not inherit the reasoning from a previous turn — it is a no-thought turn and should
+    be padded with "" instead.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "Hello!", "reasoning_content": "Greet. \n\n"},
+            {"role": "user", "content": "compute 1+1"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    )
+    assert out[2]["reasoning_content"] == "Greet. \n\n"
+    assert out[4]["reasoning_content"] == ""
+
+
+def test_deepseek_reasoning_padding_skipped_for_non_deepseek_models(
+    capture_deepseek_params,
+):
+    """Assistant messages are left untouched for models that do not require the field.
+
+    Only DeepSeek (and DeepSeek-behind-OpenRouter) demand reasoning_content on every
+    assistant message. Other models must not get the field injected, since their APIs
+    may reject unknown keys.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ],
+        model="openrouter/anthropic/claude-sonnet-4-6",
+    )
+    assert "reasoning_content" not in out[2]
