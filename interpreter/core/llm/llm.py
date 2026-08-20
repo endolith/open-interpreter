@@ -751,18 +751,36 @@ def fixed_litellm_completions(**params):
         _model.startswith("openrouter/") and "deepseek" in _model.lower()
     )
     if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
+        # DeepSeek requires a NON-EMPTY reasoning_content on every assistant tool-call
+        # message when the request carries `tools` and thinking mode is enabled. Both an
+        # empty string and a missing field trigger a 400. For turns where the model
+        # genuinely produced no thinking (e.g. trivial "ok" -> execute code), the real
+        # reasoning is unrecoverable, so we must not emit "" — DeepSeek rejects it. We
+        # synthesize a neutral placeholder instead so the request succeeds. A fabricated
+        # thought is semantically wrong but harmless compared to a hard 400; the model
+        # already sees the tool_calls and can reconstruct intent from them.
+        _no_reasoning_placeholder = "Executing the requested command."
         last_reasoning = None
         for msg in params.get("messages", []):
             if msg.get("role") == "assistant":
                 if "reasoning_content" in msg:
                     last_reasoning = msg["reasoning_content"]
+                    # A tool-call message that already carries "" (e.g. attached by
+                    # convert_to_openai_messages) is just as fatal as a missing field —
+                    # DeepSeek 400s on empty reasoning for tool_calls.  Normalize it to a
+                    # placeholder so the request never goes out with "".
+                    if not (msg["reasoning_content"] or "").strip() and msg.get("tool_calls"):
+                        msg["reasoning_content"] = _no_reasoning_placeholder
                 else:
                     # Propagate the turn's real reasoning when the model thought; only fall
-                    # back to "" for turns with no thinking.  Passing "" where the model
-                    # actually reasoned is exactly what triggers the 400 on tool-call turns.
-                    msg["reasoning_content"] = (
-                        last_reasoning if last_reasoning is not None else ""
-                    )
+                    # back to a placeholder for turns with no thinking.  Passing "" where the
+                    # model actually reasoned is exactly what triggers the 400 on tool-call turns.
+                    if last_reasoning:
+                        msg["reasoning_content"] = last_reasoning
+                    elif msg.get("tool_calls"):
+                        msg["reasoning_content"] = _no_reasoning_placeholder
+                    else:
+                        msg["reasoning_content"] = ""
             elif msg.get("role") == "user":
                 last_reasoning = None
 
@@ -775,6 +793,38 @@ def fixed_litellm_completions(**params):
             # current response and return to the prompt, rather than exiting.
             raise
         except Exception as e:
+            # Diagnostic: DeepSeek's "reasoning_content must be passed back" 400 is hard to
+            # reproduce without the exact request, so when it fires, dump a compact view of
+            # the outgoing messages (reasoning status per message) to a file for debugging.
+            if "reasoning_content" in str(e):
+                try:
+                    import os as _os
+                    import datetime as _dt
+                    dump_dir = _os.path.expanduser("~/.config/open-interpreter/logs")
+                    _os.makedirs(dump_dir, exist_ok=True)
+                    dump_path = _os.path.join(
+                        dump_dir, f"reasoning_400_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    )
+                    with open(dump_path, "w") as f:
+                        json.dump(
+                            [
+                                {
+                                    "role": m.get("role"),
+                                    "has_function_call": bool(m.get("function_call")),
+                                    "has_tool_calls": bool(m.get("tool_calls")),
+                                    "reasoning_len": len(m["reasoning_content"])
+                                    if isinstance(m.get("reasoning_content"), str)
+                                    else ("missing" if "reasoning_content" not in m else m.get("reasoning_content")),
+                                    "content": (m.get("content") or "")[:200],
+                                }
+                                for m in params.get("messages", [])
+                            ],
+                            f,
+                            indent=2,
+                        )
+                    print(f"\n[Dump of failing request written to {dump_path}]", flush=True)
+                except Exception:
+                    pass
             # Check if this is a function-calling-not-supported error.
             # Only check for this if we're actually trying to use function calling.
             if "tools" in params:
