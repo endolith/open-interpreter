@@ -249,14 +249,75 @@ def test_deepseek_reasoning_pads_empty_when_model_did_not_think(
     assert out[2]["reasoning_content"] == ""
 
 
+def test_deepseek_reasoning_placeholder_for_empty_tool_call_turn(
+    capture_deepseek_params,
+):
+    """A tool-call message with no recorded reasoning gets a non-empty placeholder.
+
+    DeepSeek rejects BOTH an empty string and a missing reasoning_content on an
+    assistant tool_calls message when the request carries tools and thinking mode is
+    enabled — only a non-empty value is accepted. Turns where the model produced no
+    thinking (e.g. a trivial "ok" -> execute code) have no recoverable reasoning, so
+    the fallback synthesizes a neutral placeholder instead of emitting "".
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "ok"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    )
+    assert out[2]["reasoning_content"] == "Executing the requested command."
+
+
+def test_deepseek_reasoning_placeholder_replaces_prefilled_empty_string(
+    capture_deepseek_params,
+):
+    """A tool-call message carrying "" from the converter is normalized too.
+
+    convert_to_openai_messages can attach reasoning_content="" to a tool-call message
+    directly (not just leave it missing). Both shapes must be normalized to the
+    placeholder, since DeepSeek rejects "" on tool_calls just the same.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "ok"},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    )
+    assert out[2]["reasoning_content"] == "Executing the requested command."
+
+
 def test_deepseek_reasoning_does_not_leak_across_user_turn(
     capture_deepseek_params,
 ):
     """The fallback resets its last-seen reasoning at a user boundary.
 
     A tool-call message in a fresh user turn that happens to lack reasoning_content must
-    not inherit the reasoning from a previous turn — it is a no-thought turn and should
-    be padded with "" instead.
+    not inherit the reasoning from a previous turn — it is a no-thought turn and gets the
+    neutral placeholder instead, since DeepSeek rejects "" on tool_calls messages.
     """
     out = capture_deepseek_params(
         [
@@ -278,7 +339,7 @@ def test_deepseek_reasoning_does_not_leak_across_user_turn(
         ]
     )
     assert out[2]["reasoning_content"] == "Greet. \n\n"
-    assert out[4]["reasoning_content"] == ""
+    assert out[4]["reasoning_content"] == "Executing the requested command."
 
 
 def test_deepseek_reasoning_padding_skipped_for_non_deepseek_models(
