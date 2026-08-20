@@ -50,36 +50,31 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
       - name: Install language runtimes for e2e smokes
-        run: |
-          # azure.archive.ubuntu.com (and occasionally archive.ubuntu.com)
-          # stalls mid-download on larger packages (e.g. the 46.5 MB
-          # openjdk-21-jre-headless) or on the noble-updates InRelease metadata,
-          # hanging the job until it is cancelled. Bound each step with a timeout
-          # and retry a few times so a flaky mirror fails fast instead of
-          # blocking CI. --no-install-recommends keeps the install payload to
-          # what the smokes actually need (irb, R, javac/java); node ships on
-          # the runner image and Chrome is verified separately.
-          install_runtimes() {
-            sudo timeout --kill-after=10s 300 apt-get update \
+        # azure.archive.ubuntu.com (and occasionally archive.ubuntu.com) stalls
+        # mid-download on larger packages (e.g. the 46.5 MB openjdk-21-jre-headless)
+        # or on the noble-updates InRelease metadata. apt-get has no timeout, so an
+        # unbounded install hangs the job until it is cancelled (~30 min). This
+        # action bounds each attempt and retries on failure/timeout (killing the
+        # whole process tree, so apt's child processes die too); the && chains
+        # update to install so a failed update can't install from stale indexes.
+        # --no-install-recommends keeps the payload to what the smokes need
+        # (irb, R, javac/java); node ships on the runner image and Chrome is
+        # verified separately.
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: |
+            sudo apt-get update \
               -o Acquire::Retries=5 \
               -o Acquire::http::Timeout=60 \
-              -o Acquire::https::Timeout=60 || return 1
-            sudo timeout --kill-after=10s 300 apt-get install -y --no-install-recommends \
+              -o Acquire::https::Timeout=60 \
+            && sudo apt-get install -y --no-install-recommends \
               -o Acquire::Retries=5 \
               -o Acquire::http::Timeout=60 \
               -o Acquire::https::Timeout=60 \
               ruby irb r-base default-jdk
-          }
-          for i in 1 2 3; do
-            if install_runtimes; then
-              exit 0
-            fi
-            if [ "$i" -lt 3 ]; then
-              echo "::warning::apt runtime install attempt $i failed, retrying"
-              sleep 10
-            fi
-          done
-          exit 1
       # Google Chrome is pre-installed on ubuntu-latest (actions/runner-images).
       # HTML/React smokes find it via require_chrome_for_html() — no .deb download.
       - name: Verify Chrome for HTML/React smokes
