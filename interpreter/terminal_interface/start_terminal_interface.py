@@ -145,11 +145,11 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter.llm, "attr_name": "max_tokens"},
         },
         {
-            "name": "truncation_step",
-            "nickname": "ts",
-            "help_text": "enable cache-aware truncation: drop history in chunks of this many tokens instead of one turn at a time, keeping the prompt prefix stable so the provider's KV cache stays warm. e.g. --truncation_step 2000",
-            "type": int,
-            "attribute": {"object": interpreter.llm, "attr_name": "truncation_step"},
+            "name": "retention_ratio",
+            "nickname": "rr",
+            "help_text": "enable cache-aware truncation: when the prompt outgrows the context window, drop a variable number of oldest whole turns down to this fraction of the window (e.g. 0.8 keeps 80% of the window and drops the oldest 20% at once), keeping the prefix stable so the provider's KV cache stays warm",
+            "type": float,
+            "attribute": {"object": interpreter.llm, "attr_name": "retention_ratio"},
         },
         {
             "name": "max_budget",

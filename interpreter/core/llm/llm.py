@@ -115,14 +115,16 @@ class Llm:
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
-        # Cache-aware truncation: when set, history is dropped in chunks of this
-        # many tokens instead of one turn at a time.  This keeps the prompt
-        # prefix stable across multiple consecutive turns so the provider's KV
-        # prefix cache stays warm, reducing per-token cost.  Set to e.g. 2000
-        # for a 40k context window.  None (default) falls back to tokentrim's
-        # sliding-window behaviour.
+        # Cache-aware truncation: when the prompt outgrows the context window,
+        # drop a *variable* number of whole turns down to `retention_ratio` of
+        # the budget (0.8 keeps 80% of the window, dropping the oldest 20%).
+        # Because the cut overshoots the limit by the retention margin and lands
+        # on a complete-turn boundary, the prefix stays stable for several
+        # consecutive turns and the provider's KV prefix cache stays warm —
+        # unlike a per-turn sliding window which busts the cache every call.
+        # None (default) falls back to tokentrim's sliding-window behaviour.
         # See: https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
-        self.truncation_step = None
+        self.retention_ratio = None
 
         # Reasoning settings: Use include_reasoning=True to request reasoning tokens
         # (delta.reasoning_content) from OpenRouter/LiteLLM. Use reasoning_effort
@@ -288,18 +290,19 @@ class Llm:
 
         # Trim messages
         try:
-            if self.truncation_step and self.context_window:
-                # Cache-aware truncation: drop history in fixed-size chunks so
-                # the prompt prefix stays stable across multiple turns.  This
-                # keeps the provider's KV prefix cache warm between requests,
-                # unlike a per-turn sliding window which invalidates the cache
-                # on every call once the context fills up.
+            if self.retention_ratio and self.context_window:
+                # Cache-aware truncation: when the prompt outgrows the window,
+                # drop a variable number of whole turns down to `retention_ratio`
+                # of the budget so the prefix stays stable for the next several
+                # turns and the provider's KV prefix cache stays warm — unlike a
+                # per-turn sliding window which invalidates the cache on every
+                # call once the context fills up.
                 token_limit = self.context_window - (self.max_tokens or 0) - 25
                 messages = cache_aware_trim(
                     messages,
                     system_message=system_message,
                     token_limit=token_limit,
-                    truncation_step=self.truncation_step,
+                    retention_ratio=self.retention_ratio,
                     model=model,
                 )
             elif self.context_window and self.max_tokens:
