@@ -725,14 +725,19 @@ def fixed_litellm_completions(**params):
     # where the model chose not to think (empty string is accepted). Without this
     # the API returns 400 "reasoning_content must be passed back to the API".
     #
-    # Primary fix: convert_to_openai_messages propagates reasoning_content to ALL
-    # consecutive assistant messages in a turn (text preamble AND tool_calls message).
-    # SiliconFlow (used as an OpenRouter backend) strictly enforces this — passing ""
-    # on a tool_calls message triggers 400 when the model actually returned reasoning.
+    # Primary fix: convert_to_openai_messages propagates reasoning_content to every
+    # assistant message in a turn — text preamble, every tool-call message, and tool
+    # output turns alike.  It survives tool/function responses in between so that a
+    # multi-tool-call turn never leaves a tool-call message without the reasoning it
+    # actually generated.  SiliconFlow (used as an OpenRouter backend) strictly
+    # enforces this — passing "" on a tool_calls message triggers 400 when the model
+    # actually returned reasoning.
     #
     # This is a secondary/belt-and-suspenders pass that catches any remaining assistant
     # messages that slipped through (e.g. synthetic messages injected by process_messages).
-    # We skip this only when reasoning was explicitly disabled by the caller.
+    # It makes sure every assistant message carries the current turn's reasoning (or ""
+    # for turns where the model did not think), since DeepSeek requires the field to be
+    # present.  We skip this only when reasoning was explicitly disabled by the caller.
     _model = params.get("model", "")
     _extra_body = params.get("extra_body", {})
     _reasoning_explicitly_disabled = (
@@ -743,9 +748,20 @@ def fixed_litellm_completions(**params):
         _model.startswith("openrouter/") and "deepseek" in _model.lower()
     )
     if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
+        last_reasoning = None
         for msg in params.get("messages", []):
-            if msg.get("role") == "assistant" and "reasoning_content" not in msg:
-                msg["reasoning_content"] = ""
+            if msg.get("role") == "assistant":
+                if "reasoning_content" in msg:
+                    last_reasoning = msg["reasoning_content"]
+                else:
+                    # Propagate the turn's real reasoning when the model thought; only fall
+                    # back to "" for turns with no thinking.  Passing "" where the model
+                    # actually reasoned is exactly what triggers the 400 on tool-call turns.
+                    msg["reasoning_content"] = (
+                        last_reasoning if last_reasoning is not None else ""
+                    )
+            elif msg.get("role") == "user":
+                last_reasoning = None
 
     while True:
         try:
