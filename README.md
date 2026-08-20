@@ -32,7 +32,7 @@ Major changes vs the upstream branch (`classic/main`):
   - User message timestamps so it knows the date and how much time has passed
   - "New Conversation" menu option in `--conversations` navigator (in case you change your mind)
   - Atomic file saving (corruption-resistant)
-  - **Cache-aware truncation** (`truncation_step`) for better KV/prefix-cache reuse by dropping multiple messages of old history at once, instead of shifting the boundary every turn, drops average costs over 50% per token.
+  - **Cache-aware truncation** (`retention_ratio`) for better KV/prefix-cache reuse: when the prompt outgrows the context window, a variable number of oldest whole turns is dropped at once down to a retention target (e.g. 0.8 keeps 80% of the window), so the prefix stays stable instead of shifting the boundary every turn — drops average costs over 50% per token.
   - **Auto-title conversation files**: More meaningful LLM-generated conversation filename after a few messages; `%rename` command to manually trigger
 - **Secret redaction**: Try to avoid sending passwords and secrets environment variables to the LLM's server
 - **System message enhancements**: rough geolocation, encourage REPL-like coding, etc.
