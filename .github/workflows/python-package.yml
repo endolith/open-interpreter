@@ -63,19 +63,12 @@ jobs:
         # verified separately.
         uses: nick-fields/retry@v4
         with:
-          timeout_minutes: 5
+          timeout_minutes: 6
           max_attempts: 3
           retry_wait_seconds: 10
           command: |
             timeout --kill-after=10s 300 sudo apt-get update \
-              -o Acquire::Retries=5 \
-              -o Acquire::http::Timeout=60 \
-              -o Acquire::https::Timeout=60 \
-            && timeout --kill-after=10s 300 sudo apt-get install -y --no-install-recommends \
-              -o Acquire::Retries=5 \
-              -o Acquire::http::Timeout=60 \
-              -o Acquire::https::Timeout=60 \
-              ruby irb r-base default-jdk
+            && timeout --kill-after=10s 300 sudo apt-get install -y --no-install-recommends ruby irb r-base default-jdk
       # Google Chrome is pre-installed on ubuntu-latest (actions/runner-images).
       # HTML/React smokes find it via require_chrome_for_html() — no .deb download.
       - name: Verify Chrome for HTML/React smokes
