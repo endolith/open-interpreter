@@ -751,14 +751,30 @@ def fixed_litellm_completions(**params):
         _model.startswith("openrouter/") and "deepseek" in _model.lower()
     )
     if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
-        # DeepSeek requires a NON-EMPTY reasoning_content on every assistant tool-call
-        # message when the request carries `tools` and thinking mode is enabled. Both an
-        # empty string and a missing field trigger a 400. For turns where the model
-        # genuinely produced no thinking (e.g. trivial "ok" -> execute code), the real
-        # reasoning is unrecoverable, so we must not emit "" — DeepSeek rejects it. We
+        # DeepSeek's thinking mode docs require that, for requests carrying `tools`,
+        # every assistant tool_calls message in the history carry `reasoning_content`
+        # back to the API (api-docs.deepseek.com/guides/thinking_mode). The direct
+        # DeepSeek API tolerates an empty string, but the OpenRouter BYOK relay used
+        # here validates strictly: BOTH "" and a missing field on a tool_calls message
+        # trigger a 400 — only a non-empty value is accepted. The model genuinely
+        # produces no reasoning on some trivial tool-call turns (e.g. "ok" -> execute
+        # code) and that reasoning is unrecoverable, so we must not emit "". We
         # synthesize a neutral placeholder instead so the request succeeds. A fabricated
         # thought is semantically wrong but harmless compared to a hard 400; the model
         # already sees the tool_calls and can reconstruct intent from them.
+        #
+        # This is a well-known cross-ecosystem failure mode, not a quirk of this repo:
+        # the same 400 ("The `reasoning_content` in the thinking mode must be passed
+        # back to the API") was reported and worked around in litellm
+        # (github.com/BerriAI/litellm/issues/26395, #28045, #27439 — #27439 documents
+        # that the litellm fix only covers the `deepseek/` prefix and never fires for
+        # `openrouter/` routes), langchain (github.com/langchain-ai/langchain/issues/37174),
+        # Qwen Code (github.com/QwenLM/qwen-code/issues/3579), Spring AI
+        # (github.com/spring-projects/spring-ai/issues/6026), and OpenCode
+        # (github.com/anomalyco/opencode/issues/24722). The ecosystem consensus is to
+        # inject a placeholder when no reasoning was produced; Qwen Code's maintainers
+        # explicitly chose "an empty string or space", but OpenRouter's BYOK relay for
+        # the `~deepseek/...-latest` tilde alias rejects even "" and requires non-empty.
         _no_reasoning_placeholder = "Executing the requested command."
         last_reasoning = None
         for msg in params.get("messages", []):
