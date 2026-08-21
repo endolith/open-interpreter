@@ -265,6 +265,19 @@ def apply_profile(interpreter, profile, profile_path):
         interpreter.max_output = profile["llm"]["max_output"]
         del profile["llm"]["max_output"]
 
+    # Map deprecated llm.truncation_step to llm.retention_ratio. The old knob dropped a
+    # fixed token chunk; the new one keeps a fraction of the context window. There is no
+    # exact conversion, so a profile that asked for truncation is mapped to the standard
+    # retention_ratio default (0.8) rather than being silently ignored — keeping the
+    # cache-aware trimming the user opted into.
+    if (
+        "llm" in profile
+        and isinstance(profile["llm"], dict)
+        and "truncation_step" in profile["llm"]
+    ):
+        del profile["llm"]["truncation_step"]
+        profile["llm"].setdefault("retention_ratio", 0.8)
+
     # Validate profile for common mistakes
     _validate_profile(interpreter, profile)
 
