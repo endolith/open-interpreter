@@ -54,11 +54,12 @@ jobs:
         # mid-download on larger packages (e.g. the 46.5 MB openjdk-21-jre-headless)
         # or on the noble-updates InRelease metadata. apt-get has no timeout, so an
         # unbounded install hangs the job until it is cancelled (~30 min). This
-        # action bounds each attempt and retries on failure/timeout (killing the
-        # whole process tree, so apt's child processes die too); the && chains
-        # update to install so a failed update can't install from stale indexes.
-        # --no-install-recommends keeps the payload to what the smokes need
-        # (irb, R, javac/java); node ships on the runner image and Chrome is
+        # action bounds each attempt and retries on failure/timeout; the inner GNU
+        # timeout adds --kill-after so a non-cooperative apt-get or dpkg is
+        # SIGKILLed before the next attempt rather than leaving a stale lock. The
+        # && chain keeps a failed apt-get update from installing from stale
+        # indexes. --no-install-recommends keeps the payload to what the smokes
+        # need (irb, R, javac/java); node ships on the runner image and Chrome is
         # verified separately.
         uses: nick-fields/retry@v4
         with:
@@ -66,11 +67,11 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 10
           command: |
-            sudo apt-get update \
+            timeout --kill-after=10s 300 sudo apt-get update \
               -o Acquire::Retries=5 \
               -o Acquire::http::Timeout=60 \
               -o Acquire::https::Timeout=60 \
-            && sudo apt-get install -y --no-install-recommends \
+            && timeout --kill-after=10s 300 sudo apt-get install -y --no-install-recommends \
               -o Acquire::Retries=5 \
               -o Acquire::http::Timeout=60 \
               -o Acquire::https::Timeout=60 \
