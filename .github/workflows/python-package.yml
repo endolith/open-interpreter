@@ -64,8 +64,6 @@ jobs:
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 6
-          max_attempts: 3
-          retry_wait_seconds: 10
           command: |
             timeout --kill-after=10s 300 sudo apt-get update \
             && timeout --kill-after=10s 300 sudo apt-get install -y --no-install-recommends ruby irb r-base default-jdk
