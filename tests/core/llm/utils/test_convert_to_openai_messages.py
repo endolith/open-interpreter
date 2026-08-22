@@ -266,3 +266,139 @@ def test_console_output_missing_content_does_not_crash(interpreter):
     assert result[0]["content"] == "No output"
 
 
+def test_console_output_non_string_content_is_coerced(interpreter):
+    """Non-string console output (e.g. an int) is coerced to a string before sending."""
+    interpreter.debug = True
+    messages = [
+        {"role": "computer", "type": "console", "format": "output", "content": 42}
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+    assert result[0]["content"] == "42"
+
+
+def test_code_output_sender_user_applies_template(interpreter):
+    """With code_output_sender='user', non-empty console output is wrapped in the code_output_template."""
+    messages = [
+        {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "result",
+        }
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[0]["role"] == "user"
+    assert result[0]["content"] == "Output:\nresult"
+
+
+def test_code_output_sender_user_uses_empty_template(interpreter):
+    """With code_output_sender='user', empty console output uses the empty_code_output_template."""
+    messages = [
+        {"role": "computer", "type": "console", "format": "output", "content": "  "}
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[0]["content"] == "(no output)"
+
+
+def test_base64_image_without_dot_defaults_to_png(interpreter):
+    """A base64 image format without a file extension is encoded as PNG."""
+    import base64
+
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64", "content": png}
+    ]
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=False, interpreter=interpreter
+    )
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
+
+
+def test_unrecognized_image_format_raises(interpreter):
+    """An image with a non-base64, non-path format raises a descriptive error."""
+    with pytest.raises(Exception, match="Unrecognized image format"):
+        convert_to_openai_messages(
+            [{"role": "user", "type": "image", "format": "weird", "content": "x"}],
+            vision=True,
+            interpreter=interpreter,
+        )
+
+
+def test_large_image_is_shrunk_below_5mb(interpreter):
+    """Images larger than 5MB are resized down until the data URI fits the 5MB budget."""
+    import base64
+    import io
+    import os
+
+    from PIL import Image
+
+    noise = os.urandom(2000 * 2000 * 3)
+    img = Image.frombytes("RGB", (2000, 2000), noise)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+
+    result = convert_to_openai_messages(
+        [{"role": "user", "type": "image", "format": "base64.png", "content": b64}],
+        vision=True,
+        shrink_images=True,
+        interpreter=interpreter,
+    )
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert len(url) < 5 * 1024 * 1024
+
+
+def test_computer_path_image_appends_path_to_existing_text(tmp_path, interpreter):
+    """A computer image loaded from a path appends the path note to the existing tool-output text."""
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01")
+    messages = [
+        {"role": "computer", "type": "image", "format": "path", "content": str(img)}
+    ]
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=False, interpreter=interpreter
+    )
+    text_parts = [c["text"] for c in result[0]["content"] if c.get("type") == "text"]
+    assert len(text_parts) == 1
+    assert "last tool output" in text_parts[0]
+    assert "at this path" in text_parts[0]
+    assert str(img) in text_parts[0]
+
+
+def test_merge_flushes_on_role_change(interpreter):
+    """Without function calling, a role change flushes the accumulated same-role messages."""
+    messages = [
+        {"role": "assistant", "type": "message", "content": "part one"},
+        {"role": "user", "type": "message", "content": "question"},
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert [m["role"] for m in result] == ["assistant", "user"]
+    assert result[0]["content"] == "part one"
+    assert result[1]["content"] == "User: question"
+
+
+def test_merge_flushes_on_non_string_content(interpreter):
+    """A non-string message (e.g. an image) interrupts and flushes pending text messages."""
+    import base64
+
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    messages = [
+        {"role": "assistant", "type": "message", "content": "text before"},
+        {"role": "user", "type": "image", "format": "base64.png", "content": png},
+        {"role": "assistant", "type": "message", "content": "text after"},
+    ]
+    result = convert_to_openai_messages(
+        messages, vision=True, function_calling=False, interpreter=interpreter
+    )
+    assert [m["role"] for m in result] == ["assistant", "user", "assistant"]
+    assert result[0]["content"] == "text before"
+    assert result[1]["content"][0]["type"] == "image_url"
