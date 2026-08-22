@@ -82,7 +82,10 @@ def convert_to_openai_messages(
                 new_message["role"] = "function"
                 new_message["name"] = "execute"
                 if "content" not in message:
-                    print("What is this??", content)
+                    # Some console outputs arrive without a content key; default it
+                    # to an empty string so the flow below treats it as "No output".
+                    print("What is this??", message)
+                    message["content"] = ""
                 if type(message["content"]) != str:
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
@@ -121,7 +124,7 @@ def convert_to_openai_messages(
                     # If no vision, we only support the format of "description"
                     continue
 
-                if "base64" in message["format"]:
+                if "base64" in message.get("format", ""):
                     # Extract the extension from the format, default to 'png' if not specified
                     if "." in message["format"]:
                         extension = message["format"].split(".")[-1]
@@ -130,7 +133,7 @@ def convert_to_openai_messages(
 
                     encoded_string = message["content"]
 
-                elif message["format"] == "path":
+                elif message.get("format") == "path":
                     # Convert to base64
                     image_path = message["content"]
                     extension = image_path.split(".")[-1]

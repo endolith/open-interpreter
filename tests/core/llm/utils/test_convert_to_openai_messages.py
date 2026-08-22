@@ -248,9 +248,21 @@ def test_function_calling_false_merges_same_role(interpreter):
 
 def test_image_missing_format_raises(interpreter):
     """Image messages without a format field raise because the encoder cannot choose an encoding."""
-    with pytest.raises(Exception, match="format"):
+    with pytest.raises(Exception, match="Format of the image is not specified"):
         convert_to_openai_messages(
             [{"role": "user", "type": "image", "content": "data"}],
             vision=True,
             interpreter=interpreter,
         )
+
+
+def test_console_output_missing_content_does_not_crash(interpreter):
+    """Console output with no content key is treated as 'No output' instead of raising."""
+    messages = [{"role": "computer", "type": "console", "format": "output"}]
+    result = convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+    assert result[0]["role"] == "function"
+    assert result[0]["content"] == "No output"
+
+
