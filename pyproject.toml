@@ -112,7 +112,13 @@ include_trailing_comma = true
 [tool.coverage.run]
 # The Anthropic computer-use demo is deprecated and slated for removal
 # (docs/ROADMAP.md); exclude it from coverage until it's deleted.
-omit = ["interpreter/computer_use/*"]
+# Test files are also excluded: test code is not shipped and inflates the
+# report (test modules often show ~100% and skew the source-only picture).
+omit = [
+    "interpreter/computer_use/*",
+    "tests/*",
+    "*/tests/*",
+]
 
 [tool.ruff]
 line-length = 120
