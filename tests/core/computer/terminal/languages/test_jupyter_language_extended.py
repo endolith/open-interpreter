@@ -163,6 +163,7 @@ def _drain_listener(lang):
     message_queue = queue.Queue()
     lang._execute_code("print(1)", message_queue)
     lang.listener_thread.join(timeout=5)
+    assert not lang.listener_thread.is_alive(), "listener did not stop after status/idle"
     outputs = []
     while not message_queue.empty():
         outputs.append(message_queue.get())
@@ -321,14 +322,18 @@ def test_run_yields_captured_output():
     lang.computer = SimpleNamespace(
         interpreter=SimpleNamespace(stop_event=threading.Event())
     )
-    lang.preprocess_code = lambda code: code
-    lang._execute_code = lambda code, mq: None
-    lang._capture_output = lambda mq: iter(
-        [{"type": "console", "format": "output", "content": "ran"}]
+    lang.preprocess_code = mock.Mock(return_value="processed")
+    lang._execute_code = mock.Mock()
+    lang._capture_output = mock.Mock(
+        return_value=iter(
+            [{"type": "console", "format": "output", "content": "ran"}]
+        )
     )
     assert list(lang.run("print(1)")) == [
         {"type": "console", "format": "output", "content": "ran"}
     ]
+    lang.preprocess_code.assert_called_once_with("print(1)")
+    lang._execute_code.assert_called_once_with("processed", mock.ANY)
 
 
 def test_run_yields_error_content_on_execution_failure():
