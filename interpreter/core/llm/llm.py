@@ -800,6 +800,42 @@ def fixed_litellm_completions(**params):
             elif msg.get("role") == "user":
                 last_reasoning = None
 
+    # Debug: dump the exact outgoing request params (model, messages, tools,
+    # extra_body, stream_options) to a JSONL file before litellm sends them.
+    # Opt-in via OI_LOG_LITELLM_REQUESTS=1; the literal dict handed to
+    # litellm.completion() is what becomes the wire request, so this captures
+    # what the provider actually receives (modulo litellm's internal transforms).
+    # Each line is one request: {"ts": ..., "model": ..., "messages": [...], ...}.
+    if os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1":
+        try:
+            import datetime as _dt
+            dump_dir = os.path.expanduser("~/.config/open-interpreter/logs")
+            os.makedirs(dump_dir, exist_ok=True)
+            dump_path = os.path.join(
+                dump_dir, "litellm_requests.jsonl"
+            )
+            with open(dump_path, "a") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "ts": _dt.datetime.now().isoformat(timespec="seconds"),
+                            "model": params.get("model"),
+                            "messages": params.get("messages"),
+                            "tools": params.get("tools"),
+                            "extra_body": params.get("extra_body"),
+                            "stream_options": params.get("stream_options"),
+                            "include_reasoning": params.get("include_reasoning"),
+                            "temperature": params.get("temperature"),
+                            "max_tokens": params.get("max_tokens"),
+                        },
+                        default=str,
+                    )
+                    + "\n"
+                )
+            print(f"\n[Dumped outgoing request to {dump_path}]", flush=True)
+        except Exception:
+            pass
+
     while True:
         try:
             yield from litellm.completion(**params)
