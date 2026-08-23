@@ -775,26 +775,54 @@ def fixed_litellm_completions(**params):
         # inject a placeholder when no reasoning was produced; Qwen Code's maintainers
         # explicitly chose "an empty string or space", but OpenRouter's BYOK relay for
         # the `~deepseek/...-latest` tilde alias rejects even "" and requires non-empty.
-        _no_reasoning_placeholder = "Executing the requested command."
+        # Semantically inert placeholder: the API only requires a non-empty value on
+        # tool_calls messages, but the text is fed back to the model as its own prior
+        # reasoning (DeepSeek's interleaved thinking mode). A phrase like the previous
+        # "Executing the requested command." reads as a completed action and gets echoed
+        # back as real reasoning — which taught the model that narrating an action without
+        # executing it is acceptable. A lone period has no content the model can imitate.
+        _no_reasoning_placeholder = "."
+        # Pre-change placeholder that may still be stored in old conversations. Treat it as
+        # "no reasoning" too so contaminated history heals itself on the next request.
+        _legacy_no_reasoning_placeholder = "Executing the requested command."
         last_reasoning = None
         for msg in params.get("messages", []):
             if msg.get("role") == "assistant":
                 if "reasoning_content" in msg:
-                    last_reasoning = msg["reasoning_content"]
-                    # A tool-call message that already carries "" (e.g. attached by
-                    # convert_to_openai_messages) is just as fatal as a missing field —
-                    # DeepSeek 400s on empty reasoning for tool_calls.  Normalize it to a
-                    # placeholder so the request never goes out with "".
-                    if not (msg["reasoning_content"] or "").strip() and msg.get("tool_calls"):
-                        msg["reasoning_content"] = _no_reasoning_placeholder
+                    rc = msg.get("reasoning_content")
+                    if (rc or "").strip() in (
+                        _no_reasoning_placeholder,
+                        _legacy_no_reasoning_placeholder,
+                    ):
+                        # No real reasoning on this turn (either a legacy placeholder echoed
+                        # into the stored conversation, or the inert marker from a previous
+                        # request). Reset the propagation chain — a placeholder must never be
+                        # forwarded onto later messages as if the model had thought it.
+                        last_reasoning = None
+                        # Only tool_calls messages need a non-empty value (DeepSeek 400s on
+                        # "" there); plain assistant messages accept "".
+                        if msg.get("tool_calls"):
+                            msg["reasoning_content"] = _no_reasoning_placeholder
+                        else:
+                            msg["reasoning_content"] = ""
+                    else:
+                        last_reasoning = rc
+                        # A tool-call message that already carries "" (e.g. attached by
+                        # convert_to_openai_messages) is just as fatal as a missing field —
+                        # DeepSeek 400s on empty reasoning for tool_calls.  Normalize it to a
+                        # placeholder so the request never goes out with "".
+                        if not (rc or "").strip() and msg.get("tool_calls"):
+                            msg["reasoning_content"] = _no_reasoning_placeholder
                 else:
                     # Propagate the turn's real reasoning when the model thought; only fall
                     # back to a placeholder for turns with no thinking.  Passing "" where the
                     # model actually reasoned is exactly what triggers the 400 on tool-call turns.
-                    if last_reasoning:
-                        msg["reasoning_content"] = last_reasoning
-                    elif msg.get("tool_calls"):
-                        msg["reasoning_content"] = _no_reasoning_placeholder
+                    if msg.get("tool_calls"):
+                        msg["reasoning_content"] = (
+                            last_reasoning
+                            if last_reasoning
+                            else _no_reasoning_placeholder
+                        )
                     else:
                         msg["reasoning_content"] = ""
             elif msg.get("role") == "user":
