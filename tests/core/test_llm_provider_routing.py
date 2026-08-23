@@ -277,7 +277,7 @@ def test_deepseek_reasoning_placeholder_for_empty_tool_call_turn(
             },
         ]
     )
-    assert out[2]["reasoning_content"] == "Executing the requested command."
+    assert out[2]["reasoning_content"] == "."
 
 
 def test_deepseek_reasoning_placeholder_replaces_prefilled_empty_string(
@@ -307,7 +307,7 @@ def test_deepseek_reasoning_placeholder_replaces_prefilled_empty_string(
             },
         ]
     )
-    assert out[2]["reasoning_content"] == "Executing the requested command."
+    assert out[2]["reasoning_content"] == "."
 
 
 def test_deepseek_reasoning_does_not_leak_across_user_turn(
@@ -339,7 +339,7 @@ def test_deepseek_reasoning_does_not_leak_across_user_turn(
         ]
     )
     assert out[2]["reasoning_content"] == "Greet. \n\n"
-    assert out[4]["reasoning_content"] == "Executing the requested command."
+    assert out[4]["reasoning_content"] == "."
 
 
 def test_deepseek_reasoning_padding_skipped_for_non_deepseek_models(
@@ -360,3 +360,75 @@ def test_deepseek_reasoning_padding_skipped_for_non_deepseek_models(
         model="openrouter/anthropic/claude-sonnet-4-6",
     )
     assert "reasoning_content" not in out[2]
+
+
+def test_deepseek_reasoning_legacy_placeholder_not_propagated(
+    capture_deepseek_params,
+):
+    """A stored legacy placeholder is treated as "no reasoning" and never forwarded.
+
+    The old placeholder text ("Executing the requested command.") was injected into
+    outgoing requests as the model's own prior reasoning. DeepSeek's interleaved
+    thinking mode echoed it back and it got persisted into conversations as real
+    reasoning, teaching the model to narrate an action without executing it. When that
+    contamination is already in stored history, the fallback must (a) recognize the
+    legacy string as a placeholder, not real thinking, and (b) refuse to propagate it
+    onto later assistant messages as if the model had thought it.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "ok"},
+            {
+                "role": "assistant",
+                "content": "Executing.",
+                "reasoning_content": "Executing the requested command.\n\n",
+            },
+            # A later tool-call in the same turn must NOT inherit the placeholder as
+            # reasoning — it is a no-thought turn, so it gets the inert placeholder.
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    )
+    assert out[2]["reasoning_content"] == ""
+    assert out[3]["reasoning_content"] == "."
+
+
+def test_deepseek_reasoning_placeholder_is_semantically_inert(
+    capture_deepseek_params,
+):
+    """The no-thinking placeholder must not read as an action already performed.
+
+    The previous placeholder "Executing the requested command." was sent to the API as
+    the model's own prior reasoning, and DeepSeek echoed it back as real reasoning,
+    which taught the model that announcing an action without executing it is fine. The
+    replacement must be a lone period: non-empty (so the API accepts it on tool_calls)
+    but with no content for the model to imitate or echo.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "ok"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    )
+    assert out[2]["reasoning_content"] == "."
