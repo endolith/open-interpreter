@@ -215,3 +215,95 @@ def test_query_returns_empty_when_load_fails():
     vision = _make_vision()
     with mock.patch.object(vision, "load", return_value=False):
         assert vision.query(pil_image=Image.new("RGB", (4, 4))) == ""
+
+
+def test_ocr_accepts_pil_image():
+    """Vision.ocr(pil_image=...) saves the PIL image to a temp file for easyocr."""
+    vision = _make_vision()
+    vision.easyocr = _easyocr_mock()
+
+    read_path = None
+    try:
+        result = vision.ocr(pil_image=Image.new("RGB", (4, 4)))
+        read_path = vision.easyocr.readtext.call_args[0][0]
+        assert result == "hello world"
+        assert read_path.endswith(".png")
+        assert os.path.exists(read_path)
+    finally:
+        if read_path:
+            os.remove(read_path)
+
+
+def test_query_accepts_lmc_base64():
+    """Vision.query(lmc={'format': 'base64'}) decodes the LMC content and asks."""
+    vision = _make_vision()
+    model = mock.Mock()
+    model.encode_image.return_value = "enc"
+    model.answer_question.return_value = "answer"
+    vision.model = model
+    vision.tokenizer = mock.Mock()
+
+    result = vision.query(lmc={"format": "base64", "content": _png_base64()})
+
+    assert result == "answer"
+    assert model.encode_image.call_args[0][0].size == (4, 4)
+
+
+def test_query_accepts_lmc_path(tmp_path):
+    """Vision.query(lmc={'format': 'path'}) opens the path as the image."""
+    vision = _make_vision()
+    model = mock.Mock()
+    model.encode_image.return_value = "enc"
+    model.answer_question.return_value = "answer"
+    vision.model = model
+    vision.tokenizer = mock.Mock()
+
+    path = tmp_path / "query.png"
+    Image.new("RGB", (4, 4)).save(path, format="PNG")
+    result = vision.query(lmc={"format": "path", "content": str(path)})
+    assert result == "answer"
+    assert model.encode_image.call_args[0][0].size == (4, 4)
+
+
+def test_query_accepts_file_path(tmp_path):
+    """Vision.query(path=...) opens the image file directly."""
+    vision = _make_vision()
+    model = mock.Mock()
+    model.encode_image.return_value = "enc"
+    model.answer_question.return_value = "answer"
+    vision.model = model
+    vision.tokenizer = mock.Mock()
+
+    path = tmp_path / "query_path.png"
+    Image.new("RGB", (4, 4)).save(path, format="PNG")
+    result = vision.query(path=str(path))
+    assert result == "answer"
+    assert model.encode_image.call_args[0][0].size == (4, 4)
+
+
+def test_load_debug_prints_moondream_hints():
+    """Vision.load() prints Moondream hints when computer.debug is set.
+
+    The prints inside load() are redirected to os.devnull, but mocking
+    builtins.print captures the calls anyway, so this asserts the exact hint
+    text is emitted in addition to the model still loading successfully.
+    """
+    vision = Vision(SimpleNamespace(debug=True))
+    transformers = mock.Mock()
+    transformers.AutoModelForCausalLM.from_pretrained.return_value = "model"
+    transformers.AutoTokenizer.from_pretrained.return_value = "tokenizer"
+    print_mock = mock.Mock()
+    with mock.patch.dict("sys.modules", {"transformers": transformers}), mock.patch(
+        "builtins.print", print_mock
+    ):
+        result = vision.load(load_easyocr=False)
+
+    assert result is True
+    assert vision.model == "model"
+    print_mock.assert_any_call(
+        "Open Interpreter will use Moondream (tiny vision model) to describe images to the language model. Set `interpreter.llm.vision_renderer = None` to disable this behavior."
+    )
+    print_mock.assert_any_call(
+        "Alternatively, you can use a vision-supporting LLM and set `interpreter.llm.supports_vision = True`."
+    )
+
