@@ -64,3 +64,53 @@ def test_count_messages_tokens_empty_returns_zero():
     """count_messages_tokens returns (0, 0) for an empty message list."""
     with mock.patch.object(ct, "token_cost", return_value=0.0):
         assert ct.count_messages_tokens(messages=[]) == (0, 0.0)
+
+
+def test_count_tokens_returns_zero_when_encoder_fails():
+    """count_tokens returns 0 when encoding raises, keeping tokenization non-essential."""
+    mock_encoder = mock.Mock()
+    mock_encoder.encode.side_effect = RuntimeError("encode failed")
+    with mock.patch.object(ct, "tiktoken") as mock_tiktoken:
+        mock_tiktoken.encoding_for_model.return_value = mock_encoder
+        assert ct.count_tokens("hello") == 0
+
+
+def test_token_cost_returns_zero_on_failure():
+    """token_cost returns 0 when cost_per_token raises, keeping cost non-essential."""
+    with mock.patch.object(ct, "cost_per_token", side_effect=RuntimeError("boom")):
+        assert ct.token_cost(tokens=100, model="gpt-4") == 0
+
+
+def test_count_messages_tokens_returns_zero_on_bad_message():
+    """count_messages_tokens returns (0, 0) when a message is not a string or dict."""
+    with mock.patch.object(ct, "token_cost", return_value=0.0):
+        assert ct.count_messages_tokens(messages=[42]) == (0, 0.0)
+
+
+def test_module_imports_tolerate_missing_optional_deps(monkeypatch):
+    """The module imports successfully (and functions degrade to 0) when tiktoken
+    or litellm are unavailable."""
+    import builtins
+    import importlib
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name in ("tiktoken", "litellm"):
+            raise ImportError(f"No module named {name}")
+        return real_import(name, *args, **kwargs)
+
+    try:
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        monkeypatch.delattr(ct, "tiktoken")
+        monkeypatch.delattr(ct, "cost_per_token")
+        reloaded = importlib.reload(ct)
+
+        assert reloaded.count_tokens("hello") == 0
+        assert reloaded.token_cost(tokens=10) == 0
+        assert reloaded.count_messages_tokens(messages=["hi"]) == (0, 0)
+    finally:
+        # Restore the real import hook first so the reload below actually
+        # rebinds the real tiktoken and cost_per_token imports, then reload.
+        builtins.__import__ = real_import
+        importlib.reload(ct)
