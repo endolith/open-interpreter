@@ -428,6 +428,25 @@ def convert_to_openai_messages(
         if isinstance(new_message["content"], str):
             new_message["content"] = new_message["content"].strip()
 
+        # DeepSeek (and OpenRouter's BYOK relay for it) rejects an assistant message
+        # that has neither non-empty content nor tool_calls with a 400
+        # ("Invalid assistant message: content or tool_calls must be set"). A
+        # whitespace-only assistant message — most commonly the loop-mode "\n\n"
+        # separator that respond() stores in history, or whitespace-padded content
+        # left over from a partial stream — would otherwise be emitted as `content: ""`
+        # with no tool_calls. It carries no information to the model, so drop it rather
+        # than send a malformed request. Messages with tool_calls (e.g. the synthetic
+        # view_image_call reconstruction) or non-empty content are always kept.
+        if (
+            new_message.get("role") == "assistant"
+            and not new_message.get("tool_calls")
+            and not new_message.get("function_call")
+            and not str(new_message.get("content", "") or "").strip()
+        ):
+            # Do not clear pending_assistant_reasoning here: the next assistant
+            # message still belongs to the same turn and needs this reasoning.
+            continue
+
         prev_was_reasoning = False
         new_messages.append(new_message)
 
