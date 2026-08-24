@@ -150,6 +150,54 @@ def test_post_stream_reasoning_backfills_earlier_assistant_messages():
     assert function_calls[0]["reasoning_content"] == "Computed 2+2. \n\n"
 
 
+def test_whitespace_only_assistant_separator_is_dropped():
+    """A stored loop-mode separator must never reach the API as an empty assistant message.
+
+    respond() stores an assistant message containing only "\\n\\n" as a visual separator
+    between turns when loop mode auto-continues. convert_to_openai_messages strips it to
+    an empty string, yielding an assistant message with neither content nor tool_calls.
+    DeepSeek (and OpenRouter's BYOK relay for it) rejects such a message with a 400
+    ("Invalid assistant message: content or tool_calls must be set"). The separator
+    carries no information to the model, so it must be dropped from the request.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "hi"},
+        {"role": "assistant", "type": "message", "content": "Let me do that."},
+        {"role": "assistant", "type": "message", "content": "\n\n"},
+        {"role": "user", "type": "message", "content": "Proceed."},
+    ]
+    out = convert_to_openai_messages(
+        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
+    )
+    for m in out:
+        if m["role"] == "assistant":
+            assert m.get("tool_calls") or str(m.get("content", "")).strip(), (
+                f"assistant message with neither content nor tool_calls leaked: {m!r}"
+            )
+    assert len(out) == 3
+
+
+def test_whitespace_separator_does_not_break_reasoning_propagation():
+    """Dropping a whitespace separator must not sever the turn's reasoning_content chain.
+
+    The loop separator can be stored between a reasoning block and the assistant message
+    it belongs to. Even though the separator is dropped, the following tool-call message
+    must still receive the turn's reasoning_content or DeepSeek returns a 400.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "do A"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "Plan. \n\n"},
+        {"role": "assistant", "type": "message", "content": "\n\n"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+    ]
+    out = convert_to_openai_messages(
+        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
+    )
+    function_calls = [m for m in out if "function_call" in m]
+    assert len(function_calls) == 1
+    assert function_calls[0]["reasoning_content"] == "Plan. \n\n"
+
+
 def test_user_message_boundary_resets_pending_reasoning():
     """A new user turn must not inherit the previous turn's reasoning_content.
 
