@@ -391,3 +391,163 @@ def test_merge_flushes_on_non_string_content(interpreter):
     assert [m["role"] for m in result] == ["assistant", "user", "assistant"]
     assert result[0]["content"] == "text before"
     assert result[1]["content"][0]["type"] == "image_url"
+
+
+def test_empty_message_list_returns_empty(interpreter):
+    """An empty input list yields an empty OpenAI payload rather than raising.
+
+    Callers that build messages incrementally may hit this function before any
+    message is appended; it must be a safe no-op."""
+    result = convert_to_openai_messages([], interpreter=interpreter)
+    assert result == []
+
+
+def test_middle_user_message_is_not_templated(interpreter):
+    """Only the last user message gets the template when always_apply is off.
+
+    The template is meant to tag the latest user request, so earlier user
+    messages must pass through verbatim."""
+    messages = [
+        {"role": "user", "type": "message", "content": "first"},
+        {"role": "user", "type": "message", "content": "second"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [
+        {"role": "user", "content": "first"},
+        {"role": "user", "content": "User: second"},
+    ]
+
+
+def test_recipient_assistant_explicitly_kept(interpreter):
+    """A message explicitly addressed to the assistant is kept in the payload.
+
+    The recipient filter only drops non-assistant recipients, so an explicit
+    'assistant' recipient must survive conversion."""
+    messages = [
+        {
+            "role": "user",
+            "type": "message",
+            "content": "for you",
+            "recipient": "assistant",
+        }
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "user", "content": "User: for you"}]
+
+
+def test_whitespace_around_text_content_is_stripped(interpreter):
+    """Leading and trailing whitespace is stripped from string content.
+
+    Models are sensitive to stray whitespace in the payload; every string
+    content is normalized before it is sent."""
+    messages = [
+        {"role": "assistant", "type": "message", "content": "  Hello world  "}
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "assistant", "content": "Hello world"}]
+
+
+def test_merge_joins_same_role_messages_with_newline(interpreter):
+    """Without function calling, a flushed same-role group joins with newlines.
+
+    The role-change flush joins accumulated messages with a newline (the final
+    flush uses a space), so a two-message assistant group becomes one block."""
+    messages = [
+        {"role": "assistant", "type": "message", "content": "part one"},
+        {"role": "assistant", "type": "message", "content": "part two"},
+        {"role": "user", "type": "message", "content": "question"},
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert len(result) == 2
+    assert [m["role"] for m in result] == ["assistant", "user"]
+    assert result[0]["content"] == "part one\npart two"
+    assert result[1]["content"] == "User: question"
+
+
+def test_console_message_with_non_output_format_raises(interpreter):
+    """A console message whose format is not 'output' is un-convertible.
+
+    The function only knows how to encode console 'output'; any other format
+    falls through to the unknown-type branch and raises."""
+    with pytest.raises(Exception, match="Unable to convert"):
+        convert_to_openai_messages(
+            [
+                {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "error",
+                    "content": "boom",
+                }
+            ],
+            interpreter=interpreter,
+        )
+
+
+def test_code_function_call_content_is_empty_string(interpreter):
+    """A code message in function-calling mode carries an empty content field.
+
+    OpenAI/Azure reject assistant messages with a function_call but no content
+    key, so the converter must set content to an empty string."""
+    messages = [
+        {"role": "assistant", "type": "code", "format": "python", "content": "1+1"}
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+    assert result[0]["content"] == ""
+    assert result[0]["function_call"]["name"] == "execute"
+
+
+def test_base64_image_with_dot_extension_uses_that_extension(interpreter):
+    """A base64 image format with a dotted extension is encoded with it.
+
+    The MIME type is derived from the extension in the format string (e.g.
+    'base64.jpeg' -> image/jpeg), not hardcoded to png."""
+    import base64
+
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.jpeg", "content": png}
+    ]
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=False, interpreter=interpreter
+    )
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/jpeg;base64,")
+
+
+def test_image_description_passes_through_with_vision_enabled(interpreter):
+    """Description images pass through unchanged even when vision is on.
+
+    A description is already text, so enabling vision must not route it through
+    the base64/path image encoding."""
+    messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "description",
+            "content": "A gradient image",
+        }
+    ]
+    result = convert_to_openai_messages(messages, vision=True, interpreter=interpreter)
+    assert result == [{"role": "user", "content": "A gradient image"}]
+
+
+def test_image_description_normalizes_computer_role(interpreter):
+    """A description image is emitted as a user message, not with a 'computer' role.
+
+    The source message role can be 'computer' (screenshot tool output), but
+    'computer' is not a valid OpenAI Chat Completions role, so the description
+    branch normalizes it to 'user'."""
+    messages = [
+        {
+            "role": "computer",
+            "type": "image",
+            "format": "description",
+            "content": "tool output described",
+        }
+    ]
+    result = convert_to_openai_messages(messages, vision=True, interpreter=interpreter)
+    assert result == [{"role": "user", "content": "tool output described"}]

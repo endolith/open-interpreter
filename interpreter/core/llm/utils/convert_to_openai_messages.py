@@ -114,7 +114,10 @@ def convert_to_openai_messages(
 
         elif message["type"] == "image":
             if message.get("format") == "description":
-                new_message["role"] = message["role"]
+                # A description is plain text describing an image; emit it as a
+                # user message. The source role is often 'computer' (screenshot
+                # tool output), which is not a valid OpenAI Chat Completions role.
+                new_message["role"] = "user"
                 new_message["content"] = message["content"]
             else:
                 if vision == False:
