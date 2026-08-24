@@ -465,3 +465,440 @@ def test_fixed_litellm_completions_strips_latest_and_sets_stop_for_local():
 
     assert captured["model"] == "local-llama3"
     assert captured["stop"] == ["<|assistant|>", "<|end|>", "<|eot_id|>"]
+
+
+def test_run_model_i_sets_open_interpreter_endpoint():
+    """llm.run remaps model `i` to openai/i and configures the Open Interpreter endpoint."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.model = "i"
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )
+
+    assert captured["params"]["model"] == "openai/i"
+    assert llm.context_window == 7000
+    assert llm.api_key == "x"
+    assert llm.max_tokens == 1000
+    assert llm.api_base == "https://api.openinterpreter.com/v0"
+
+
+def test_run_auto_detects_vision_support_true():
+    """llm.run queries litellm to decide vision support when unset (true)."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = None
+
+    with mock.patch("interpreter.core.llm.llm.litellm.supports_vision", return_value=True):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+        )
+
+    assert llm.supports_vision is True
+
+
+def test_run_auto_detects_vision_support_false():
+    """llm.run queries litellm to decide vision support when unset (false)."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = None
+
+    with mock.patch("interpreter.core.llm.llm.litellm.supports_vision", return_value=False):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+        )
+
+    assert llm.supports_vision is False
+
+
+def test_run_auto_detect_vision_falls_back_on_error():
+    """llm.run defaults supports_vision to False when litellm's check raises."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = None
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.supports_vision", side_effect=Exception
+    ):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+        )
+
+    assert llm.supports_vision is False
+
+
+def test_run_auto_detect_function_support_falls_back_on_error():
+    """llm.run defaults supports_functions to False when litellm's check raises."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = None
+    llm.supports_vision = False
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.supports_function_calling", side_effect=Exception
+    ):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+            function_calling=False,
+        )
+
+    assert llm.supports_functions is False
+
+
+def test_run_auto_detect_function_support_false():
+    """llm.run sets supports_functions False when litellm says the model can't."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = None
+    llm.supports_vision = False
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.supports_function_calling", return_value=False
+    ):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+            function_calling=False,
+        )
+
+    assert llm.supports_functions is False
+
+
+def test_run_trims_to_context_window_when_max_tokens_unset():
+    """With max_tokens unset, llm.run trims to the full context window."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.context_window = 2000
+    llm.max_tokens = None
+
+    trim_kwargs = {}
+    with mock.patch(
+        "interpreter.core.llm.llm.tt.trim",
+        side_effect=lambda msgs, **kwargs: (trim_kwargs.update(kwargs), msgs)[1],
+    ):
+        with mock.patch(
+            "interpreter.core.llm.llm.run_tool_calling_llm", return_value=iter(())
+        ):
+            with mock.patch(
+                "interpreter.core.llm.llm.convert_to_openai_messages",
+                side_effect=lambda msgs, **kwargs: msgs,
+            ):
+                list(
+                    llm.run(
+                        [
+                            {"role": "system", "type": "message", "content": "s"},
+                            {"role": "user", "type": "message", "content": "hi"},
+                        ]
+                    )
+                )
+
+    assert trim_kwargs["max_tokens"] == 2000
+
+
+def test_run_shows_terminal_hint_when_trim_unknown_model():
+    """llm.run falls back to 8000 tokens and shows a hint when the model is unknown."""
+    interp = _interp(in_terminal_interface=True)
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.context_window = None
+    llm.max_tokens = None
+
+    trim_calls = {"count": 0}
+
+    def failing_trim(*args, **kwargs):
+        trim_calls["count"] += 1
+        if trim_calls["count"] == 1:
+            raise Exception("unknown model")
+        return [{"role": "user", "content": "hi"}]
+
+    captured = {}
+    with mock.patch(
+        "interpreter.core.llm.llm.run_tool_calling_llm",
+        side_effect=lambda llm_obj, params: (captured.update({"params": params}), iter(()))[1],
+    ):
+        with mock.patch(
+            "interpreter.core.llm.llm.convert_to_openai_messages",
+            side_effect=lambda msgs, **kwargs: msgs,
+        ):
+            with mock.patch("interpreter.core.llm.llm.tt.trim", side_effect=failing_trim):
+                list(
+                    llm.run(
+                        [
+                            {"role": "system", "type": "message", "content": "s"},
+                            {"role": "user", "type": "message", "content": "hi"},
+                        ]
+                    )
+                )
+
+    assert "We were unable to determine the context window" in interp.display_message.call_args[0][0]
+    assert "interpreter --context_window" in interp.display_message.call_args[0][0]
+
+
+def test_run_shows_python_hint_when_trim_unknown_model_not_terminal():
+    """The non-terminal fallback hint mentions self.context_window instead."""
+    interp = _interp(in_terminal_interface=False)
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.context_window = None
+    llm.max_tokens = None
+
+    trim_calls = {"count": 0}
+
+    def failing_trim(*args, **kwargs):
+        trim_calls["count"] += 1
+        if trim_calls["count"] == 1:
+            raise Exception("unknown model")
+        return [{"role": "user", "content": "hi"}]
+
+    with mock.patch(
+        "interpreter.core.llm.llm.run_tool_calling_llm",
+        return_value=iter(()),
+    ):
+        with mock.patch(
+            "interpreter.core.llm.llm.convert_to_openai_messages",
+            side_effect=lambda msgs, **kwargs: msgs,
+        ):
+            with mock.patch("interpreter.core.llm.llm.tt.trim", side_effect=failing_trim):
+                list(
+                    llm.run(
+                        [
+                            {"role": "system", "type": "message", "content": "s"},
+                            {"role": "user", "type": "message", "content": "hi"},
+                        ]
+                    )
+                )
+
+    assert "We were unable to determine the context window" in interp.display_message.call_args[0][0]
+    assert "self.context_window" in interp.display_message.call_args[0][0]
+
+
+def test_run_reunites_system_message_when_trim_always_fails():
+    """When all trimming fails, llm.run reunites the system message with the messages."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.context_window = 2000
+    llm.max_tokens = 1000
+
+    def always_fail(*args, **kwargs):
+        raise Exception("trim always fails")
+
+    captured = {}
+    with mock.patch(
+        "interpreter.core.llm.llm.run_tool_calling_llm",
+        side_effect=lambda llm_obj, params: (captured.update({"params": params}), iter(()))[1],
+    ):
+        with mock.patch(
+            "interpreter.core.llm.llm.convert_to_openai_messages",
+            side_effect=lambda msgs, **kwargs: msgs,
+        ):
+            with mock.patch("interpreter.core.llm.llm.tt.trim", side_effect=always_fail):
+                list(
+                    llm.run(
+                        [
+                            {"role": "system", "type": "message", "content": "s"},
+                            {"role": "user", "type": "message", "content": "hi"},
+                        ]
+                    )
+                )
+
+    assert captured["params"]["messages"][0] == {"role": "system", "content": "s"}
+
+
+def test_run_sets_litellm_max_budget():
+    """llm.run forwards max_budget to the litellm global budget manager."""
+    import interpreter.core.llm.llm as llm_mod
+
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.max_budget = 10.0
+
+    with mock.patch.object(llm_mod.litellm, "max_budget", None):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+        )
+        assert llm_mod.litellm.max_budget == 10.0
+
+
+def test_load_returns_early_when_already_loaded():
+    """llm.load is a no-op when the model is already loaded."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.load()
+    assert llm._is_loaded is True
+
+
+def test_load_swallows_get_model_info_error():
+    """llm.load leaves context_window None when litellm can't identify the model."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm.model = "unknown-model"
+    llm.context_window = None
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.get_model_info", side_effect=Exception
+    ):
+        llm.load()
+    assert llm.context_window is None
+
+
+def test_fixed_litellm_completions_keeps_drop_params_for_i():
+    """For the `i` model with a conversation_id, litellm.drop_params must stay False."""
+    import interpreter.core.llm.llm as llm_mod
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    with mock.patch.object(
+        llm_mod.litellm, "completion", side_effect=lambda **params: iter(())
+    ):
+        list(fixed_litellm_completions(model="i", conversation_id="c1", messages=[]))
+    assert llm_mod.litellm.drop_params is False
+
+
+def test_fixed_litellm_completions_exits_on_keyboard_interrupt():
+    """A KeyboardInterrupt during completion calls sys.exit(0)."""
+    import interpreter.core.llm.llm as llm_mod
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    with mock.patch.object(llm_mod.litellm, "completion", side_effect=KeyboardInterrupt):
+        with mock.patch.object(
+            llm_mod.sys, "exit", side_effect=SystemExit
+        ) as exit_mock:
+            with pytest.raises(SystemExit):
+                list(fixed_litellm_completions(model="gpt-4o", messages=[]))
+    # The first KeyboardInterrupt terminates the generator via sys.exit(0);
+    # assert it was called exactly once, so retries don't continue silently.
+    exit_mock.assert_called_once_with(0)
+
+
+def test_run_verbose_logs_image_removal():
+    """In verbose mode llm.run logs each removed middle image."""
+    interp = _interp(verbose=True)
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = True
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        {"role": "user", "type": "image", "content": "0"},
+        {"role": "user", "type": "image", "content": "1"},
+        {"role": "user", "type": "image", "content": "2"},
+        {"role": "user", "type": "image", "content": "3"},
+    ]
+
+    with mock.patch("interpreter.core.llm.llm.print") as print_mock:
+        _run_capture(llm, messages)
+
+    print_mock.assert_any_call("Removing image message!")
+
+
+def test_run_path_image_without_import_api_has_no_postcursor():
+    """Without the computer API, a path image gets no vision-query postcursor."""
+    interp = _interp()
+    interp.computer.import_computer_api = False
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    img_msg = {"role": "user", "type": "image", "format": "path", "content": "/tmp/x.png"}
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        img_msg,
+    ]
+
+    _run_capture(llm, messages)
+
+    assert img_msg["format"] == "description"
+    assert "The image I'm referring to" in img_msg["content"]
+    assert "computer.vision.query" not in img_msg["content"]
+
+
+def test_run_base64_image_uses_imagine_precursor():
+    """Non-path images get the 'Imagine...' precursor when vision isn't supported."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    img_msg = {
+        "role": "user",
+        "type": "image",
+        "format": "base64",
+        "content": "data:image/png;base64,xxx",
+    }
+    messages = [
+        {"role": "system", "type": "message", "content": "s"},
+        img_msg,
+    ]
+
+    _run_capture(llm, messages)
+
+    assert "Imagine I have just shown you an image" in img_msg["content"]
+
+
+def test_run_prepends_empty_system_message():
+    """llm.run re-adds an empty system message to keep the system role first."""
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    messages = [
+        {"role": "system", "type": "message", "content": ""},
+        {"role": "user", "type": "message", "content": "hi"},
+    ]
+
+    captured = _run_capture(llm, messages)
+
+    assert captured["params"]["messages"][0]["role"] == "system"
+    assert captured["params"]["messages"][0]["content"] == ""
