@@ -866,6 +866,12 @@ def test_server():
 
             #### TEST IMAGES ####
 
+            # The vision turn needs a vision-capable LLM reachable with an API
+            # key; skip it (with a clear reason) rather than failing when no key
+            # is configured, so the rest of the test still runs locally.
+            if not os.environ.get("OPENAI_API_KEY"):
+                pytest.skip("vision turn requires an LLM API key (OPENAI_API_KEY)")
+
             # Fresh server for an isolated vision turn. With approval binding, reusing
             # the same WebSocket after auto_run=False can leave a pending confirmation
             # and the stream ends with only "complete".
