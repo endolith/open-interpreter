@@ -478,8 +478,11 @@ def run_auth_server():
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
     # auto_run and system_message are blocked on POST /settings; set them at startup.
+    # custom_instructions would be appended to OI's default system message,
+    # diluting the directive; system_message replaces it, so the model follows
+    # the poem-bot persona strictly.
     async_interpreter.auto_run = True
-    async_interpreter.custom_instructions = (
+    async_interpreter.system_message = (
         "You are a poem writing bot. Do not do anything but respond with a poem."
     )
     async_interpreter.print = False
