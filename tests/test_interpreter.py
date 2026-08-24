@@ -32,20 +32,66 @@ from websocket import create_connection
 # unsafe on Linux and can leave the child uvicorn process unable to accept connections.
 _MP_SPAWN = multiprocessing.get_context("spawn")
 _SERVER_HOST = "127.0.0.1"
-_SERVER_PORT = 8000
+# Mutable global set by _start_server_subprocess to the port allocated for the
+# current server; the tests and _wait_for_server read it to build the server's
+# URLs. Starts as None because no server has been started yet.
+_server_port = None
+
+
+def _allocate_server_port():
+    """Pick a free TCP port for a server subprocess.
+
+    Binding to port 0 lets the OS assign a free port. The socket is closed
+    before the subprocess starts, so another process could in theory grab the
+    port in between; this is an accepted race (see issue #165)."""
+
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_SERVER_HOST, 0))
+        return sock.getsockname()[1]
+
+
+def _server_ws_url():
+    """WebSocket URL of the running test server."""
+
+    return f"ws://{_SERVER_HOST}:{_server_port}/"
+
+
+def _server_http_url(path):
+    """HTTP URL of the running test server for the given path."""
+
+    return f"http://{_SERVER_HOST}:{_server_port}{path}"
 
 
 def _start_server_subprocess(target):
-    process = _MP_SPAWN.Process(target=target)
-    process.start()
-    return process
+    # The old code always bound port 8000, which collided when parallel CI runs
+    # (or a stray process) tried to use it; a failed bind then surfaced as an
+    # opaque 120s timeout in _wait_for_server. Pick a free port per subprocess
+    # and hand it to uvicorn via INTERPRETER_PORT, which spawn children inherit
+    # from the parent's environment.
+    global _server_port
+    _server_port = _allocate_server_port()
+    prior_port = os.environ.get("INTERPRETER_PORT")
+    os.environ["INTERPRETER_PORT"] = str(_server_port)
+    try:
+        process = _MP_SPAWN.Process(target=target)
+        process.start()
+        return process
+    finally:
+        # Spawn children read the env var at start; restore the parent's value
+        # so the test run is not left with a stale INTERPRETER_PORT set.
+        if prior_port is None:
+            os.environ.pop("INTERPRETER_PORT", None)
+        else:
+            os.environ["INTERPRETER_PORT"] = prior_port
 
 
 def _wait_for_server(process, timeout=120):
     import urllib.error
     import urllib.request
 
-    url = f"http://{_SERVER_HOST}:{_SERVER_PORT}/heartbeat"
+    url = f"http://{_SERVER_HOST}:{_server_port}/heartbeat"
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not process.is_alive():
@@ -58,7 +104,7 @@ def _wait_for_server(process, timeout=120):
         except urllib.error.URLError:
             time.sleep(0.5)
     raise TimeoutError(
-        f"Server at {_SERVER_HOST}:{_SERVER_PORT} did not respond within {timeout}s"
+        f"Server at {_SERVER_HOST}:{_server_port} did not respond within {timeout}s"
     )
 
 
@@ -238,6 +284,34 @@ def test_streaming_output_chunks_are_incremental():
         interpreter.messages = original_messages
 
 
+def test_server_url_helpers():
+    """The port/URL helpers produce a free port and URLs that target it.
+
+    _allocate_server_port() must return a currently free TCP port so a server
+    subprocess can bind it, and the URL helpers must build URLs from the
+    configured _server_port so tests talk to the same server instance."""
+
+    port = _allocate_server_port()
+    assert isinstance(port, int) and 1 <= port <= 65535
+
+    # The returned port must still be bindable (the helper's socket was closed).
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_SERVER_HOST, port))
+        assert sock.getsockname()[1] == port
+
+    # Point the helpers at the allocated port and confirm the URLs use it.
+    global _server_port
+    prior_port = _server_port
+    try:
+        _server_port = port
+        assert _server_ws_url() == f"ws://{_SERVER_HOST}:{port}/"
+        assert _server_http_url("/settings") == f"http://{_SERVER_HOST}:{port}/settings"
+    finally:
+        _server_port = prior_port
+
+
 def run_auth_server():
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
@@ -274,7 +348,7 @@ def test_authenticated_acknowledging_breaking_server():
     async def test_fastapi_server():
         import asyncio
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -282,7 +356,7 @@ def test_authenticated_acknowledging_breaking_server():
             await websocket.send(json.dumps({"auth": "testing"}))
 
             # Sending POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
                     "model": "gpt-4o-mini",
@@ -356,7 +430,7 @@ def test_authenticated_acknowledging_breaking_server():
         print("RESUMING")
 
         async with websockets.connect(
-            "ws://127.0.0.1:8000/", open_timeout=30
+            _server_ws_url(), open_timeout=30
         ) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
@@ -414,7 +488,7 @@ def test_server():
         nonlocal process
         import asyncio
 
-        async with websockets.connect("ws://127.0.0.1:8000/") as websocket:
+        async with websockets.connect(_server_ws_url()) as websocket:
             # Connect to the websocket
             print("Connected to WebSocket")
 
@@ -422,7 +496,7 @@ def test_server():
             await websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
             # Sending POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "custom_instructions": "",
@@ -458,7 +532,7 @@ def test_server():
             assert "crunk" in accumulated_content
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "llm": {"model": "gpt-4o-mini"},
                 "custom_instructions": "",
@@ -494,7 +568,7 @@ def test_server():
             assert "barloney" in accumulated_content
 
             # Send another POST request
-            post_url = "http://127.0.0.1:8000/settings"
+            post_url = _server_http_url("/settings")
             settings = {
                 "custom_instructions": "",
                 "verbose": False,
@@ -527,7 +601,7 @@ def test_server():
             time.sleep(5)
 
             # Send a GET request to /settings/messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response = requests.get(get_url)
             print("GET request sent, response:", response.json())
 
@@ -594,7 +668,7 @@ def test_server():
             accumulated_content = await _wait_for_websocket_complete(websocket)
 
             # Get messages
-            get_url = "http://127.0.0.1:8000/settings/messages"
+            get_url = _server_http_url("/settings/messages")
             response_json = requests.get(get_url).json()
             print("GET request sent, response:", response_json)
             if isinstance(response_json, str):
@@ -621,7 +695,7 @@ def test_server():
             process = _start_server_subprocess(run_server)
             _wait_for_server(process)
 
-            async with websockets.connect("ws://127.0.0.1:8000/") as image_websocket:
+            async with websockets.connect(_server_ws_url()) as image_websocket:
                 await image_websocket.send(json.dumps({"auth": "dummy-api-key"}))
 
                 base64png = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAADMElEQVR4nOzVwQnAIBQFQYXff81RUkQCOyDj1YOPnbXWPmeTRef+/3O/OyBjzh3CD95BfqICMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMK0CMO0TAAD//2Anhf4QtqobAAAAAElFTkSuQmCC"
@@ -665,7 +739,7 @@ def test_server():
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
-            post_url = "http://127.0.0.1:8000/run"
+            post_url = _server_http_url("/run")
             code_data = {
                 "code": "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
                 "language": "python",
