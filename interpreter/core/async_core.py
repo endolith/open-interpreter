@@ -668,6 +668,12 @@ def create_router(async_interpreter):
                     try:
                         # First, try to send any unsent messages
                         while async_interpreter.unsent_messages:
+                            # send_message returns False without awaiting when the
+                            # socket is gone, so a disconnected client with a
+                            # stuck message would otherwise spin this loop forever
+                            # and starve the event loop (blocking new connections).
+                            if websocket.client_state != WebSocketState.CONNECTED:
+                                return
                             output = async_interpreter.unsent_messages[0]
                             if async_interpreter.debug:
                                 print("This was unsent, sending it again:", output)
