@@ -131,3 +131,105 @@ def test_input_message_start_interrupts_active_respond_thread():
 
     mock_thread.join.assert_called_once()
     assert async_i.stop_event.is_set()
+
+
+def test_send_output_does_not_spin_when_client_disconnects_with_unsent_messages():
+    """A disconnected client with a stuck unsent message must not starve the event loop.
+
+    Regression for the resume-connection flake in the authenticated server test:
+    when a client drops mid-turn, send_message returns False without awaiting
+    once the socket reports DISCONNECTED, so the drain loop in send_output used
+    to spin forever (never popping the message, never yielding). That blocked
+    the uvicorn event loop, stalling the next connection's WebSocket handshake
+    until its open timeout fired.
+
+    The fake WebSocket reports CONNECTED until the first send attempt, then
+    flips to DISCONNECTED and raises, reproducing the drop-mid-send race. The
+    endpoint coroutine must return promptly instead of hanging.
+
+    The scenario runs in a subprocess with a hard timeout: the pre-fix spin is
+    a tight GIL-bound loop that blocks the event loop (so an in-process
+    asyncio.wait_for can never fire) and starves sibling threads (so even a
+    thread.join budget is unreliable). A subprocess timeout is enforced by the
+    OS and is immune to both.
+    """
+
+    import subprocess
+    import sys
+
+    script = f"""
+import asyncio
+import os
+from collections import deque
+
+os.environ["INTERPRETER_REQUIRE_AUTH"] = "False"
+
+from interpreter.core.async_core import AsyncInterpreter, Server
+from starlette.routing import WebSocketRoute
+from starlette.websockets import WebSocketState
+from websockets.exceptions import ConnectionClosedOK
+
+
+async def run_endpoint():
+    interpreter = AsyncInterpreter()
+    interpreter.require_acknowledge = False
+    interpreter.unsent_messages = deque(
+        [{{"role": "assistant", "type": "message", "content": "pending"}}]
+    )
+
+    server = Server(interpreter)
+    endpoint = next(
+        r.endpoint
+        for r in server.app.routes
+        if isinstance(r, WebSocketRoute) and r.path == "/"
+    )
+
+    class DroppingWebSocket:
+        \"\"\"Fake WebSocket that drops the connection on the first send.\"\"\"
+
+        def __init__(self):
+            self.headers = {{}}
+            self.client_state = WebSocketState.CONNECTED
+
+        async def accept(self):
+            pass
+
+        async def receive(self):
+            return {{"type": "websocket.disconnect"}}
+
+        async def send_text(self, data):
+            self.client_state = WebSocketState.DISCONNECTED
+            raise ConnectionClosedOK(None, None)
+
+        async def send_bytes(self, data):
+            self.client_state = WebSocketState.DISCONNECTED
+            raise ConnectionClosedOK(None, None)
+
+    await endpoint(DroppingWebSocket())
+
+
+asyncio.run(run_endpoint())
+print("COMPLETED")
+"""
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        raise AssertionError(
+            "send_output spun the event loop on a disconnected client with "
+            "unsent messages instead of returning"
+        )
+
+    assert result.returncode == 0, (
+        f"endpoint subprocess failed: rc={result.returncode} "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "COMPLETED" in result.stdout, (
+        "endpoint subprocess did not report completion "
+        f"(stdout={result.stdout!r} stderr={result.stderr!r})"
+    )
