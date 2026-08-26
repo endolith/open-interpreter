@@ -15,15 +15,32 @@ def server_pair():
 
 
 @pytest.fixture
+def interpreter():
+    """A fresh AsyncInterpreter for building ad-hoc test servers."""
+    return AsyncInterpreter()
+
+
+@pytest.fixture
 def client(server_pair):
     return server_pair[0]
 
 
 @pytest.fixture
-def client_no_raise(server_pair):
+def client_no_raise(interpreter):
     """TestClient that converts endpoint exceptions into 500 responses."""
-    interpreter = server_pair[1]
     return TestClient(Server(interpreter).app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def insecure_pair(monkeypatch):
+    """(TestClient, AsyncInterpreter) pair with the insecure routes registered.
+
+    create_router() reads INTERPRETER_INSECURE_ROUTES at router build time, so
+    the env var must be set before Server() is constructed.
+    """
+    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
+    interpreter = AsyncInterpreter()
+    return TestClient(Server(interpreter).app), interpreter
 
 
 def test_heartbeat_endpoint(client):
@@ -305,51 +322,46 @@ def test_chat_completion_stream_message_via_chat(client, server_pair):
     assert "hi" in response.text
 
 
-def test_insecure_routes_not_registered_by_default(client):
+def test_insecure_routes_not_registered_by_default(monkeypatch):
     """The /run route is absent unless INTERPRETER_INSECURE_ROUTES is enabled."""
+    monkeypatch.delenv("INTERPRETER_INSECURE_ROUTES", raising=False)
+    interpreter = AsyncInterpreter()
+    client = TestClient(Server(interpreter).app)
     response = client.post("/run", json={"language": "python", "code": "1+1"})
     assert response.status_code == 404
 
 
-def test_insecure_run_route(monkeypatch):
+def test_insecure_run_route(insecure_pair):
     """With INTERPRETER_INSECURE_ROUTES=true, /run executes code via the computer."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
+    client, interpreter = insecure_pair
     interpreter.computer.run = mock.MagicMock(return_value="42")
-    client = TestClient(Server(interpreter).app)
 
     response = client.post("/run", json={"language": "python", "code": "1+1"})
     assert response.status_code == 200
     assert response.json() == {"output": "42"}
 
 
-def test_insecure_run_route_requires_language_and_code(monkeypatch):
+def test_insecure_run_route_requires_language_and_code(insecure_pair):
     """The /run route rejects requests missing language or code."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
-    client = TestClient(Server(interpreter).app)
+    client, _ = insecure_pair
 
     response = client.post("/run", json={"language": "python"})
     assert response.status_code == 400
 
 
-def test_insecure_run_route_propagates_error(monkeypatch):
+def test_insecure_run_route_propagates_error(insecure_pair):
     """The /run route returns a 500 when computer.run raises."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
+    client, interpreter = insecure_pair
     interpreter.computer.run = mock.MagicMock(side_effect=RuntimeError("oops"))
-    client = TestClient(Server(interpreter).app)
 
     response = client.post("/run", json={"language": "python", "code": "1+1"})
     assert response.status_code == 500
     assert response.json() == {"error": "oops"}
 
 
-def test_insecure_upload_route(monkeypatch, tmp_path):
+def test_insecure_upload_route(insecure_pair, tmp_path):
     """The /upload route writes the uploaded file to the requested path."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
-    client = TestClient(Server(interpreter).app)
+    client, _ = insecure_pair
     target = tmp_path / "out.txt"
 
     response = client.post(
@@ -361,11 +373,9 @@ def test_insecure_upload_route(monkeypatch, tmp_path):
     assert target.read_text() == "payload"
 
 
-def test_insecure_upload_route_propagates_error(monkeypatch):
+def test_insecure_upload_route_propagates_error(insecure_pair):
     """The /upload route returns a 500 when it cannot write the file."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
-    client = TestClient(Server(interpreter).app)
+    client, _ = insecure_pair
 
     response = client.post(
         "/upload",
@@ -375,11 +385,9 @@ def test_insecure_upload_route_propagates_error(monkeypatch):
     assert response.status_code == 500
 
 
-def test_insecure_download_route(monkeypatch, tmp_path):
+def test_insecure_download_route(insecure_pair, tmp_path):
     """The /download route streams the requested file."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
-    client = TestClient(Server(interpreter).app)
+    client, _ = insecure_pair
     source = tmp_path / "file.bin"
     source.write_bytes(b"xyz")
 
@@ -388,11 +396,9 @@ def test_insecure_download_route(monkeypatch, tmp_path):
     assert response.content == b"xyz"
 
 
-def test_insecure_download_route_missing_file(monkeypatch):
+def test_insecure_download_route_missing_file(insecure_pair):
     """The /download route returns a 500 for a missing file."""
-    monkeypatch.setenv("INTERPRETER_INSECURE_ROUTES", "true")
-    interpreter = AsyncInterpreter()
-    client = TestClient(Server(interpreter).app)
+    client, _ = insecure_pair
 
     response = client.get("/download/no/such/file.bin")
     assert response.status_code == 500
