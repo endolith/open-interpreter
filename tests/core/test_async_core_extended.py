@@ -77,3 +77,84 @@ def test_input_end_chunk_with_queued_stop_command_joins_response_thread():
     assert async_i.stop_event.is_set()
     thread_cls.assert_not_called()
     assert async_i.messages == []
+
+
+def test_accumulate_accepts_bytes_content():
+    """accumulate() stores bytes content on the current message as bytes."""
+    async_i = AsyncInterpreter()
+    async_i.messages = [{"role": "user", "type": "message", "content": ""}]
+    async_i.accumulate(b"\x00\x01")
+    assert async_i.messages[-1]["content"] == b"\x00\x01"
+
+
+def test_accumulate_appends_bytes_to_bytes_content():
+    """accumulate() concatenates bytes onto an existing bytes message."""
+    async_i = AsyncInterpreter()
+    async_i.messages = [{"role": "user", "type": "message", "content": b"\x00"}]
+    async_i.accumulate(b"\x01")
+    assert async_i.messages[-1]["content"] == b"\x00\x01"
+
+
+def test_respond_emits_error_message_when_generator_raises():
+    """respond() must surface generator exceptions as an error chunk on the output queue."""
+    async_i = AsyncInterpreter()
+    mock_q = mock.MagicMock()
+    async_i.output_queue = mock.MagicMock(sync_q=mock_q)
+
+    def failing_generator():
+        raise RuntimeError("kaboom")
+        yield  # pragma: no cover
+
+    with mock.patch.object(async_i, "_respond_and_store", failing_generator):
+        async_i.respond()
+
+    error_chunks = [
+        call.args[0] for call in mock_q.put.call_args_list if call.args[0]["type"] == "error"
+    ]
+    assert len(error_chunks) == 1
+    assert "kaboom" in error_chunks[0]["content"]
+
+
+def test_respond_retries_when_generator_is_empty():
+    """respond() must retry when the generator yields nothing and then raise a final error."""
+    async_i = AsyncInterpreter()
+    mock_q = mock.MagicMock()
+    async_i.output_queue = mock.MagicMock(sync_q=mock_q)
+    async_i.auto_run = True
+
+    def empty_generator():
+        if False:
+            yield  # pragma: no cover
+
+    with mock.patch.object(async_i, "_respond_and_store", empty_generator):
+        with mock.patch("interpreter.core.async_core.time.sleep"):
+            with pytest.raises(Exception, match="No chunks sent"):
+                async_i.respond()
+
+    error_chunks = [
+        call.args[0]
+        for call in mock_q.put.call_args_list
+        if call.args[0]["type"] == "error"
+    ]
+    assert len(error_chunks) >= 1
+
+
+def test_respond_emits_error_when_no_generator_defined():
+    """respond() must put an error message when the interpreter has no messages to respond to."""
+    async_i = AsyncInterpreter()
+    mock_q = mock.MagicMock()
+    async_i.output_queue = mock.MagicMock(sync_q=mock_q)
+    async_i.auto_run = True
+    async_i.messages = []
+
+    with mock.patch.object(async_i, "_respond_and_store", return_value=[]):
+        with mock.patch("interpreter.core.async_core.time.sleep"):
+            with pytest.raises(Exception, match="No chunks sent"):
+                async_i.respond()
+
+    error_chunks = [
+        call.args[0]
+        for call in mock_q.put.call_args_list
+        if call.args[0]["type"] == "error"
+    ]
+    assert len(error_chunks) >= 1
