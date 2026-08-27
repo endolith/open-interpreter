@@ -182,3 +182,204 @@ def test_take_screenshot_to_pil_captures_and_cleans_up(monkeypatch, tmp_path):
     run.assert_called_once_with(["screencapture", "-x", filename], check=True)
     remove.assert_called_once_with(filename)
     assert result.size == (50, 50)
+
+
+def _fake_embed():
+    """A tensor-ish fake with the .to/.unsqueeze surface image_search touches."""
+
+    def _to(device):
+        return _fake_embed()
+
+    def _unsqueeze(_dim):
+        return _fake_embed()
+
+    e = SimpleNamespace(label="embed")
+    e.to = _to
+    e.unsqueeze = _unsqueeze
+    return e
+
+
+class _FakeBatch:
+    """Mimics the tensor surface model.encode exposes: [0], [1:] and .to()."""
+
+    def __init__(self, items):
+        self._items = items
+
+    def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            return _FakeBatch(self._items[idx])
+        return self._items[idx]
+
+    def to(self, device):
+        return self
+
+
+def test_image_search_embeds_unhashed_and_filters_by_score(monkeypatch):
+    """image_search embeds query + uncached icons, caches hashes, and returns
+    only icons whose semantic score exceeds 90."""
+    point_mod = _import_point(monkeypatch)
+
+    icons = [
+        {"hash": "new1", "data": "img1"},
+        {"hash": "cached", "data": "img2"},
+    ]
+    hashes = {"cached": _fake_embed()}
+
+    query = _fake_embed()
+    model = mock.Mock()
+    model.encode.return_value = _FakeBatch([query, _fake_embed()])
+    monkeypatch.setattr(point_mod, "model", model)
+    monkeypatch.setattr(
+        point_mod.torch,
+        "cat",
+        lambda *_a, **_k: [_fake_embed(), hashes["cached"]],
+    )
+    monkeypatch.setattr(
+        point_mod.util,
+        "semantic_search",
+        lambda *_a, **_k: [
+            [
+                {"corpus_id": 0, "score": 99.0},
+                {"corpus_id": 1, "score": 95.0},
+            ]
+        ],
+    )
+
+    result = point_mod.image_search(query, icons, hashes, False)
+
+    encoded = model.encode.call_args[0][0]
+    assert encoded[0] is query
+    assert encoded[1:] == ["img1"]
+    assert "new1" in hashes
+    assert [i["hash"] for i in result] == ["new1", "cached"]
+
+
+def test_image_search_forces_top_hit_into_results(monkeypatch):
+    """A low-scoring top hit is still included ahead of the qualifying ones."""
+    point_mod = _import_point(monkeypatch)
+
+    icons = [
+        {"hash": "new1", "data": "img1"},
+        {"hash": "new2", "data": "img2"},
+    ]
+    hashes = {}
+    query = _fake_embed()
+    model = mock.Mock()
+    model.encode.return_value = _FakeBatch([query, _fake_embed(), _fake_embed()])
+    monkeypatch.setattr(point_mod, "model", model)
+    monkeypatch.setattr(
+        point_mod.torch,
+        "cat",
+        lambda *_a, **_k: [_fake_embed(), _fake_embed()],
+    )
+    monkeypatch.setattr(
+        point_mod.util,
+        "semantic_search",
+        lambda *_a, **_k: [
+            [
+                {"corpus_id": 0, "score": 50.0},
+                {"corpus_id": 1, "score": 99.0},
+            ]
+        ],
+    )
+
+    result = point_mod.image_search(query, icons, hashes, False)
+
+    assert [i["hash"] for i in result] == ["new1", "new2"]
+
+
+def test_image_search_slow_model_uses_embed_images(monkeypatch):
+    """When fast_model is False, embedding goes through embed_images()."""
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setattr(point_mod, "fast_model", False)
+
+    icons = [{"hash": "new1", "data": "img1"}]
+    hashes = {}
+    embeds = _FakeBatch([_fake_embed(), _fake_embed()])
+    monkeypatch.setattr(
+        point_mod, "embed_images", mock.Mock(return_value=embeds), raising=False
+    )
+    monkeypatch.setattr(point_mod, "transforms", None, raising=False)
+    monkeypatch.setattr(point_mod.torch, "cat", lambda *_a, **_k: [_fake_embed()])
+    monkeypatch.setattr(
+        point_mod.util,
+        "semantic_search",
+        lambda *_a, **_k: [[{"corpus_id": 0, "score": 100.0}]],
+    )
+
+    result = point_mod.image_search("folder", icons, hashes, False)
+
+    assert [i["hash"] for i in result] == ["new1"]
+
+
+def test_get_element_boxes_builds_boxes_from_contours(monkeypatch):
+    """get_element_boxes runs the cv2 pipeline and returns boundingRect boxes."""
+    point_mod = _import_point(monkeypatch)
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2, "adaptiveThreshold", lambda *_a, **_k: "binary", raising=False
+    )
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}, {"contour": 2}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "boundingRect",
+        lambda contour: {"contour": 1} == contour and (5, 10, 20, 30) or (15, 25, 10, 5),
+        raising=False,
+    )
+    # process_image's default args reference these at definition time.
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_MEAN_C", 0, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY_INV", 1, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_RGB2BGR", 4, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_BGR2GRAY", 5, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "RETR_LIST", 6, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "CHAIN_APPROX_NONE", 7, raising=False)
+
+    boxes = point_mod.get_element_boxes(screenshot, False)
+
+    assert boxes == [
+        {"x": 5, "y": 10, "width": 20, "height": 30},
+        {"x": 15, "y": 25, "width": 10, "height": 5},
+    ]
+
+
+def test_get_element_boxes_permutates_when_env_set(monkeypatch):
+    """OI_POINT_PERMUTATE=True runs process_image with randomized parameters."""
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2, "adaptiveThreshold", lambda *_a, **_k: "binary", raising=False
+    )
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "boundingRect", lambda _c: (1, 2, 3, 4), raising=False)
+    # process_image's default args reference these at definition time.
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_MEAN_C", 0, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY_INV", 1, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_GAUSSIAN_C", 2, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY", 3, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_RGB2BGR", 4, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_BGR2GRAY", 5, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "RETR_LIST", 6, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "CHAIN_APPROX_NONE", 7, raising=False)
+
+    boxes = point_mod.get_element_boxes(screenshot, False)
+
+    assert boxes == [{"x": 1, "y": 2, "width": 3, "height": 4}]
