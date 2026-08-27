@@ -147,3 +147,161 @@ def test_local_setup_low_ram_uses_smaller_context_window(monkeypatch):
 
     assert interpreter.llm.context_window == 3000
     assert interpreter.llm.max_tokens == 1000
+
+
+def _mock_psutil(monkeypatch, ram_gb, disk_free_gb=50):
+    """Pin RAM and free disk so download_model's filtering is deterministic."""
+
+    class _Memory:
+        total = ram_gb * 1024**3
+
+    class _Disk:
+        free = disk_free_gb * 1024**3
+
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.psutil.virtual_memory",
+        lambda: _Memory(),
+    )
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.psutil.disk_usage",
+        lambda _path: _Disk(),
+    )
+
+
+def test_local_setup_llamafile_launches_existing_model(monkeypatch):
+    """Selecting an already-downloaded llamafile runs it with server flags."""
+    interpreter = _make_interpreter()
+    _mock_ram_gb(monkeypatch, 16)
+    interpreter.get_oi_dir.return_value = "/tmp/oi"
+    monkeypatch.setattr("os.path.exists", lambda _p: True)
+    monkeypatch.setattr("os.listdir", lambda _d: ["tiny.llamafile"])
+
+    process = mock.Mock()
+    process.stdout = iter(["llama server listening at http://localhost:8080\n"])
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.subprocess.Popen",
+        lambda *_a, **_k: process,
+    )
+    monkeypatch.setattr(
+        inquirer,
+        "prompt",
+        mock.Mock(
+            side_effect=[
+                {"model": "Llamafile"},
+                {"model": "tiny.llamafile"},
+            ]
+        ),
+    )
+
+    result = local_setup(interpreter)
+
+    assert result is interpreter
+    assert interpreter.llm.model == "openai/local"
+    assert interpreter.llm.api_base == "http://localhost:8080/v1"
+    assert interpreter.llm.supports_functions is False
+    assert interpreter.llm.api_key == "dummy"
+    assert interpreter.llm.temperature == 0
+    assert interpreter.llm.context_window == 8000
+    process.stdout  # exercised the read-loop until server-ready line
+
+
+def test_local_setup_llamafile_downloads_new_model(monkeypatch):
+    """Choosing 'Download new model' downloads and chmods a selected model."""
+    interpreter = _make_interpreter()
+    _mock_psutil(monkeypatch, 16, disk_free_gb=50)
+    interpreter.get_oi_dir.return_value = "/tmp/oi"
+    monkeypatch.setattr("os.path.exists", lambda _p: True)
+    monkeypatch.setattr("os.listdir", lambda _d: [])
+
+    # No models present -> straight to download_model, which prompts once.
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.wget.download",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.subprocess.run",
+        lambda *_a, **_k: None,
+    )
+
+    # inquirer.prompt used for the initial provider then model selection
+    monkeypatch.setattr(
+        inquirer,
+        "prompt",
+        mock.Mock(
+            side_effect=[
+                {"model": "Llamafile"},
+                {"model": "Phi-3-mini (2.42GB)"},
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.platform.system",
+        lambda: "Linux",
+    )
+
+    result = local_setup(interpreter)
+
+    assert result is interpreter
+    # The downloaded Phi-3 model path was assigned and server launched
+    assert interpreter.llm.model == "openai/local"
+    assert interpreter.llm.api_base == "http://localhost:8080/v1"
+
+
+def test_local_setup_ollama_download_new_model(monkeypatch):
+    """Ollama '↓ Download llama3.1' triggers ollama pull for that model."""
+    interpreter = _make_interpreter()
+    _mock_ram_gb(monkeypatch, 16)
+
+    def _run(*args, **kwargs):
+        # First call is `ollama list`; second is `ollama pull`
+        if args[0][1] == "list":
+            return mock.Mock(stdout="NAME\n", returncode=0)
+        return mock.Mock(returncode=0)
+
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.subprocess.run",
+        _run,
+    )
+    monkeypatch.setattr(
+        inquirer,
+        "prompt",
+        mock.Mock(
+            side_effect=[
+                {"model": "Ollama"},
+                {"name": "↓ Download llama3.1"},
+            ]
+        ),
+    )
+
+    local_setup(interpreter)
+
+    assert interpreter.llm.model == "ollama/llama3.1"
+
+
+def test_local_setup_jan_custom_model_id(monkeypatch):
+    """Choosing the custom-model-id entry prompts for the raw id."""
+    interpreter = _make_interpreter()
+    _mock_ram_gb(monkeypatch, 16)
+
+    class _Response:
+        def json(self):
+            return {"data": [{"id": "jan-model-1"}]}
+
+    monkeypatch.setattr(
+        inquirer,
+        "prompt",
+        mock.Mock(
+            side_effect=[
+                {"model": "Jan"},
+                {"jan_model_name": ">> Type Custom Model ID"},
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.requests.get",
+        lambda *args, **kwargs: _Response(),
+    )
+    with mock.patch("builtins.input", return_value="my-custom-model"):
+        local_setup(interpreter)
+
+    assert interpreter.llm.model == "my-custom-model"
