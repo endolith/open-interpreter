@@ -1,3 +1,4 @@
+import os
 from unittest import mock
 
 import pytest
@@ -21,6 +22,7 @@ def _make_interpreter():
     interpreter.verbose = False
     interpreter.multi_line = False
     interpreter.max_output = 2000
+    interpreter.debug = False
     interpreter.llm.supports_vision = False
     interpreter.llm.vision_renderer = None
     return interpreter
@@ -252,3 +254,284 @@ def test_terminal_interface_os_mode_notifies_on_message_end():
 
     # The markdown list line and the line above it are stripped before notifying.
     interpreter.computer.os.notify.assert_called_once_with("line two")
+
+
+def test_terminal_interface_pip_upgrade_hint(capsys):
+    """terminal_interface points `pip install --upgrade` users back to the CLI."""
+    interpreter = _intro_interpreter()
+    with mock.patch(
+        "builtins.input",
+        side_effect=["pip install --upgrade open-interpreter", KeyboardInterrupt()],
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert "Please exit this conversation" in capsys.readouterr().out
+    interpreter.chat.assert_not_called()
+
+
+def test_terminal_interface_confirming_code_builds_code_block():
+    """Answering y to a confirmation starts a code block with the right payload."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.auto_run = False
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
+        yield {
+            "type": "confirmation",
+            "role": "assistant",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "CodeBlock") as block:
+        with mock.patch("builtins.input", return_value="y"):
+            list(terminal_interface(interpreter, "run code"))
+
+    # The code-start chunk builds a first block; the confirmation builds the
+    # runnable one with the interpreter. Assert the latter.
+    block.assert_called_with(interpreter)
+    assert block.return_value.language == "python"
+    assert block.return_value.code == "print(1)"
+
+
+def test_terminal_interface_safe_mode_auto_scans_code_before_run():
+    """safe_mode auto automatically requests a semgrep scan of pending code."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.auto_run = False
+    interpreter.safe_mode = "auto"
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
+        yield {
+            "type": "confirmation",
+            "role": "assistant",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "CodeBlock"):
+        with mock.patch.object(ti, "check_for_package", return_value=True):
+            with mock.patch.object(ti, "scan_code") as scan:
+                with mock.patch("builtins.input", return_value="y"):
+                    list(terminal_interface(interpreter, "run code"))
+
+    scan.assert_called_once_with("print(1)", "python", interpreter)
+
+
+def test_terminal_interface_safe_mode_ask_scans_when_user_consents():
+    """safe_mode ask scans only if the user opts in, then still asks to run."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.auto_run = False
+    interpreter.safe_mode = "ask"
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
+        yield {
+            "type": "confirmation",
+            "role": "assistant",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "CodeBlock"):
+        with mock.patch.object(ti, "scan_code") as scan:
+            with mock.patch("builtins.input", side_effect=["y", "y"]):
+                list(terminal_interface(interpreter, "run code"))
+
+    scan.assert_called_once_with("print(1)", "python", interpreter)
+
+
+def test_terminal_interface_edit_code_uses_editor_and_updates_message():
+    """Answering e to a confirmation opens $EDITOR and feeds edits back to the LLM."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.auto_run = False
+    interpreter.messages = [{"role": "user", "type": "message", "content": "run code"}]
+
+    def fake_editor(command):
+        # The editor rewrites the temp file; simulate that here.
+        with open(command[1], "w") as handle:
+            handle.write("edited = 2\n")
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
+        yield {
+            "type": "confirmation",
+            "role": "assistant",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "CodeBlock"):
+        with mock.patch.object(ti.subprocess, "call", side_effect=fake_editor) as call:
+            with mock.patch.dict(os.environ, {"EDITOR": "vim"}):
+                with mock.patch("builtins.input", return_value="e"):
+                    list(terminal_interface(interpreter, "run code"))
+
+    call.assert_called_once()
+    assert "edited = 2" in interpreter.messages[-1]["content"]
+
+
+def test_terminal_interface_computer_visual_chunk_appends_console_output():
+    """Computer image chunks produce console output that is stored on messages."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.messages = [
+        {"role": "user", "type": "message", "content": "look at this"}
+    ]
+
+    def chat(message, display=False, stream=True):
+        yield {"role": "computer", "type": "image", "format": "path", "content": "/x.png"}
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "display_output", return_value="alt text") as display:
+        list(terminal_interface(interpreter, "look"))
+
+    display.assert_called_once_with(
+        {"role": "computer", "type": "image", "format": "path", "content": "/x.png"}
+    )
+    assert interpreter.messages[-1] == {
+        "role": "computer",
+        "type": "console",
+        "format": "output",
+        "content": "alt text",
+    }
+
+
+def test_terminal_interface_computer_visual_skipped_in_quiet_os_mode():
+    """In OS control mode the visual chunks are hidden from the user by default."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.os = True
+    interpreter.verbose = False
+
+    def chat(message, display=False, stream=True):
+        yield {"role": "computer", "type": "image", "format": "path", "content": "/x.png"}
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "display_output") as display:
+        list(terminal_interface(interpreter, "look"))
+
+    display.assert_not_called()
+
+
+def test_terminal_interface_active_line_shows_os_action_notification():
+    """OS mode announces computer actions described on the active line."""
+    interpreter = _make_interpreter()
+    interpreter.os = True
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
+        yield {
+            "type": "code",
+            "role": "assistant",
+            "content": 'computer.keyboard.write("hi")\n',
+        }
+        yield {"type": "console", "role": "computer", "format": "active_line", "content": 0}
+
+    interpreter.chat = chat
+    list(terminal_interface(interpreter, "type"))
+
+    interpreter.computer.os.notify.assert_called_once_with('Typing "hi".')
+
+
+def test_terminal_interface_uses_injected_message_in_interactive_mode():
+    """A preloaded single message (i {command}) is used without asking for input."""
+    interpreter = _intro_interpreter()
+    interpreter.messages = [
+        {"role": "user", "type": "message", "content": "injected command"}
+    ]
+    chat = mock.Mock(return_value=iter([]))
+    interpreter.chat = chat
+
+    # After the injected message runs, the loop returns to the prompt; Ctrl-C exits.
+    with mock.patch(
+        "builtins.input",
+        side_effect=[KeyboardInterrupt()],
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert interpreter.messages == []
+    chat.assert_called_once_with("injected command", display=False, stream=True)
+
+
+def test_terminal_interface_multi_line_uses_cli_input():
+    """multi_line mode prompts through cli_input instead of builtins.input."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _intro_interpreter()
+    interpreter.multi_line = True
+
+    with mock.patch.object(
+        ti, "cli_input", side_effect=["hi", KeyboardInterrupt()]
+    ) as prompt:
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    prompt.assert_any_call("> ")
+    interpreter.chat.assert_called_once_with("hi", display=False, stream=True)
+
+
+def test_terminal_interface_skips_rendering_chunks_for_other_recipients():
+    """Chunks addressed to a non-user recipient are not rendered."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        yield {
+            "type": "message",
+            "role": "assistant",
+            "content": "hidden",
+            "recipient": "assistant",
+        }
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "MessageBlock") as block:
+        list(terminal_interface(interpreter, "hi"))
+
+    block.assert_not_called()
+
+
+def test_terminal_interface_verbose_prints_each_chunk(capsys):
+    """verbose mode echoes every chunk flowing through the interface."""
+    interpreter = _make_interpreter()
+    interpreter.verbose = True
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "message", "role": "assistant", "start": True}
+        yield {"type": "message", "role": "assistant", "content": "hi"}
+        yield {"type": "message", "role": "assistant", "end": True}
+
+    interpreter.chat = chat
+    list(terminal_interface(interpreter, "hi"))
+
+    assert "Chunk in `terminal_interface`" in capsys.readouterr().out
+
+
+def test_terminal_interface_message_content_without_start_crashes():
+    """A message content chunk with no preceding start chunk raises AttributeError.
+
+    KNOWN BUG: active_block is None until a start chunk arrives, so a content
+    chunk alone dereferences None and crashes the interface. Well-behaved LLM
+    streams always send start first; documenting current behavior.
+    """
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "message", "role": "assistant", "content": "orphan"}
+
+    interpreter.chat = chat
+    with pytest.raises(AttributeError):
+        list(terminal_interface(interpreter, "hi"))
