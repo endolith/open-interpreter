@@ -35,7 +35,8 @@ def interpreter():
 
 
 @pytest.fixture
-def client(interpreter):
+def client(interpreter, monkeypatch):
+    monkeypatch.delenv("INTERPRETER_API_KEY", raising=False)
     return TestClient(Server(interpreter).app)
 
 
@@ -162,6 +163,7 @@ def test_payload_before_authentication_is_discarded_not_processed(ws_pair):
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
         ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
     assert inp.await_count == 0
 
 
