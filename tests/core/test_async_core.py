@@ -63,14 +63,17 @@ class TestServerConstruction(TestCase):
 
 class TestWebSocketOriginPolicy(TestCase):
     def test_missing_origin_allowed_for_local_clients(self):
+        """None and empty origins are accepted for non-browser local clients."""
         self.assertTrue(is_websocket_origin_allowed(None))
         self.assertTrue(is_websocket_origin_allowed(""))
 
     def test_localhost_origins_allowed(self):
+        """http origins resolving to localhost are permitted."""
         self.assertTrue(is_websocket_origin_allowed("http://127.0.0.1:8000"))
         self.assertTrue(is_websocket_origin_allowed("http://localhost:8000"))
 
     def test_remote_origins_rejected(self):
+        """Origins outside the local network are rejected."""
         self.assertFalse(is_websocket_origin_allowed("https://evil.example"))
 
     def test_null_origin_allowed_for_non_browser_clients(self):
@@ -90,6 +93,7 @@ class TestSettingsEndpointGuards(TestCase):
         self.client = TestClient(Server(AsyncInterpreter()).app)
 
     def _assert_settings_blocked(self, payload, error_substring):
+        """POST the given settings payload and assert it is rejected with 403."""
         response = self.client.post("/settings", json=payload)
         self.assertEqual(response.status_code, 403)
         self.assertIn(error_substring, response.json()["error"])
@@ -119,6 +123,7 @@ class TestAsyncApprovalBinding(TestCase):
         self.interpreter.auto_run = False
 
     def test_confirmation_digest_is_stable(self):
+        """The same confirmation payload always produces the same digest."""
         payload = {"type": "code", "format": "python", "content": "print('hi')"}
         self.assertEqual(
             confirmation_digest(payload),
@@ -126,9 +131,11 @@ class TestAsyncApprovalBinding(TestCase):
         )
 
     def test_approve_pending_confirmation_requires_pending_state(self):
+        """Approval is refused when no confirmation is currently pending."""
         self.assertFalse(self.interpreter._approve_pending_confirmation())
 
     def test_approve_pending_confirmation_accepts_matching_digest(self):
+        """Approval succeeds when the provided digest matches the pending one."""
         payload = {"type": "code", "format": "python", "content": "print(1)"}
         self.interpreter.pending_confirmation = payload
         self.interpreter.pending_confirmation_digest = confirmation_digest(payload)
@@ -138,6 +145,7 @@ class TestAsyncApprovalBinding(TestCase):
         self.assertTrue(self.interpreter._approval_granted)
 
     def test_approve_pending_confirmation_rejects_wrong_digest(self):
+        """Approval is refused when the provided digest does not match."""
         payload = {"type": "code", "format": "python", "content": "print(1)"}
         self.interpreter.pending_confirmation = payload
         self.interpreter.pending_confirmation_digest = confirmation_digest(payload)
@@ -155,6 +163,7 @@ class TestAsyncInputCommandHandling(TestCase):
         self.interpreter.respond_thread.is_alive.return_value = True
 
     def _run_go_command(self, command="go"):
+        """Feed a complete user command chunk sequence through interpreter.input."""
         import asyncio
 
         async def run():
@@ -171,6 +180,7 @@ class TestAsyncInputCommandHandling(TestCase):
         asyncio.run(run())
 
     def _error_messages(self):
+        """Return the error chunk contents put onto the sync output queue."""
         return [
             call.args[0].get("content", "")
             for call in self.interpreter.output_queue.sync_q.put.call_args_list
@@ -178,6 +188,7 @@ class TestAsyncInputCommandHandling(TestCase):
         ]
 
     def test_command_start_does_not_require_join(self):
+        """A command start chunk must not join the respond thread."""
         import asyncio
 
         async def run():
@@ -236,9 +247,11 @@ class TestAsyncRespondApproval(TestCase):
         self.interpreter.output_queue = mock.MagicMock(sync_q=self.mock_q)
 
     def _confirmation_payload(self):
+        """The code payload used by the respond-approval tests."""
         return {"format": "python", "content": "print(1)"}
 
     def _run_respond_with_chunks(self, chunks, approve=True):
+        """Run respond() in a thread over the given chunks, then grant or deny approval."""
         import threading
         import time
 

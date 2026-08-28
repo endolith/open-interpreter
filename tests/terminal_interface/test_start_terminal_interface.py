@@ -27,6 +27,7 @@ class _Obj:
 
 
 def _obj():
+    """Build an interpreter stub whose llm is its own nested object."""
     obj = _Obj()
     obj.llm = _Obj()
     return obj

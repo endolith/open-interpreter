@@ -9,6 +9,7 @@ from tests.helpers import TEST_LLM_MODEL
 
 
 def _interpreter(**kwargs):
+    """Build a SimpleNamespace interpreter stub, overriding defaults with kwargs."""
     base = {
         "messages": [],
         "system_message": "sys",

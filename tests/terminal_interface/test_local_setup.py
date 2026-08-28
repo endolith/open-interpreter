@@ -85,6 +85,7 @@ def test_local_setup_ollama_selects_model_and_pings(monkeypatch):
     _mock_ram_gb(monkeypatch, 16)
 
     def _ollama_list(*args, **kwargs):
+        """Assert the ollama list invocation and return a fake installed-model listing."""
         assert args[0] == ["ollama", "list"]
         return mock.Mock(
             stdout="NAME\nllama3.1:latest\n",

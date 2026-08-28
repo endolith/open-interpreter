@@ -19,6 +19,7 @@ from tests.helpers import install_point_heavy_deps
 
 
 def _import_point(monkeypatch):
+    """Install heavy deps then import the point module for testing."""
     install_point_heavy_deps(monkeypatch)
     import interpreter.core.computer.display.point.point as point_mod
 
@@ -190,9 +191,11 @@ def _fake_embed():
     """A tensor-ish fake with the .to/.unsqueeze surface image_search touches."""
 
     def _to(device):
+        """Return a fresh fake embed (device transfer is a no-op)."""
         return _fake_embed()
 
     def _unsqueeze(_dim):
+        """Return a fresh fake embed (dimension expansion is a no-op)."""
         return _fake_embed()
 
     e = SimpleNamespace(label="embed")
@@ -205,9 +208,11 @@ class _FakeBatch:
     """Mimics the tensor surface model.encode exposes: [0], [1:] and .to()."""
 
     def __init__(self, items):
+        """Store the underlying item list for slicing/indexing."""
         self._items = items
 
     def __getitem__(self, idx):
+        """Return an item, or a nested fake batch when indexed with a slice."""
         if isinstance(idx, slice):
             return _FakeBatch(self._items[idx])
         return self._items[idx]
@@ -395,6 +400,7 @@ def test_get_element_boxes_permutates_when_env_set(monkeypatch):
     choice_state = {}
 
     def _rotate(options):
+        """Return each supplied option in turn, wrapping around to the first."""
         key = tuple(options)
         index = choice_state.get(key, 0)
         choice_state[key] = index + 1
