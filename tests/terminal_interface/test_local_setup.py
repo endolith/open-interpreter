@@ -2,6 +2,7 @@ from unittest import mock
 
 import inquirer
 import pytest
+import subprocess
 
 from interpreter.terminal_interface.local_setup import local_setup
 
@@ -178,9 +179,9 @@ def test_local_setup_llamafile_launches_existing_model(monkeypatch):
 
     process = mock.Mock()
     process.stdout = iter(["llama server listening at http://localhost:8080\n"])
+    popen = mock.Mock(return_value=process)
     monkeypatch.setattr(
-        "interpreter.terminal_interface.local_setup.subprocess.Popen",
-        lambda *_a, **_k: process,
+        "interpreter.terminal_interface.local_setup.subprocess.Popen", popen
     )
     monkeypatch.setattr(
         inquirer,
@@ -202,34 +203,41 @@ def test_local_setup_llamafile_launches_existing_model(monkeypatch):
     assert interpreter.llm.api_key == "dummy"
     assert interpreter.llm.temperature == 0
     assert interpreter.llm.context_window == 8000
-    process.stdout  # exercised the read-loop until server-ready line
+    # The selected llamafile path is launched with the server flags.
+    popen.assert_called_once_with(
+        '"/tmp/oi/models/tiny.llamafile" --nobrowser -ngl 9999',
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
 
 
 def test_local_setup_llamafile_downloads_new_model(monkeypatch):
-    """Choosing 'Download new model' downloads and chmods a selected model."""
+    """Choosing 'Download new model' downloads, chmods, then launches a model."""
     interpreter = _make_interpreter()
     _mock_psutil(monkeypatch, 16, disk_free_gb=50)
     interpreter.get_oi_dir.return_value = "/tmp/oi"
     monkeypatch.setattr("os.path.exists", lambda _p: True)
-    monkeypatch.setattr("os.listdir", lambda _d: [])
+    monkeypatch.setattr("os.listdir", lambda _d: ["tiny.llamafile"])
 
-    # No models present -> straight to download_model, which prompts once.
+    # An existing model is present, so this exercises the "Download new model"
+    # option rather than the empty-directory path.
+    download = mock.Mock()
     monkeypatch.setattr(
-        "interpreter.terminal_interface.local_setup.wget.download",
-        lambda *_a, **_k: None,
+        "interpreter.terminal_interface.local_setup.wget.download", download
     )
-    monkeypatch.setattr(
-        "interpreter.terminal_interface.local_setup.subprocess.run",
-        lambda *_a, **_k: None,
-    )
+    run = mock.Mock()
+    monkeypatch.setattr("interpreter.terminal_interface.local_setup.subprocess.run", run)
 
-    # inquirer.prompt used for the initial provider then model selection
+    # inquirer.prompt: provider, existing-model selection, then model download.
     monkeypatch.setattr(
         inquirer,
         "prompt",
         mock.Mock(
             side_effect=[
                 {"model": "Llamafile"},
+                {"model": "↓ Download new model"},
                 {"model": "Phi-3-mini (2.42GB)"},
             ]
         ),
@@ -242,9 +250,16 @@ def test_local_setup_llamafile_downloads_new_model(monkeypatch):
     result = local_setup(interpreter)
 
     assert result is interpreter
-    # The downloaded Phi-3 model path was assigned and server launched
     assert interpreter.llm.model == "openai/local"
     assert interpreter.llm.api_base == "http://localhost:8080/v1"
+    model_path = "/tmp/oi/models/Phi-3-mini-4k-instruct.Q4_K_M.llamafile"
+    # wget downloads the selected model's URL to the models directory.
+    download.assert_called_once_with(
+        "https://huggingface.co/Mozilla/Phi-3-mini-4k-instruct-llamafile/resolve/main/Phi-3-mini-4k-instruct.Q4_K_M.llamafile?download=true",
+        model_path,
+    )
+    # The downloaded file is made executable.
+    run.assert_called_once_with(["chmod", "+x", model_path], check=True)
 
 
 def test_local_setup_ollama_download_new_model(monkeypatch):
@@ -252,15 +267,14 @@ def test_local_setup_ollama_download_new_model(monkeypatch):
     interpreter = _make_interpreter()
     _mock_ram_gb(monkeypatch, 16)
 
-    def _run(*args, **kwargs):
-        # First call is `ollama list`; second is `ollama pull`
-        if args[0][1] == "list":
-            return mock.Mock(stdout="NAME\n", returncode=0)
-        return mock.Mock(returncode=0)
-
+    run = mock.Mock(
+        side_effect=[
+            mock.Mock(stdout="NAME\n", returncode=0),  # ollama list
+            mock.Mock(returncode=0),  # ollama pull
+        ]
+    )
     monkeypatch.setattr(
-        "interpreter.terminal_interface.local_setup.subprocess.run",
-        _run,
+        "interpreter.terminal_interface.local_setup.subprocess.run", run
     )
     monkeypatch.setattr(
         inquirer,
@@ -276,6 +290,10 @@ def test_local_setup_ollama_download_new_model(monkeypatch):
     local_setup(interpreter)
 
     assert interpreter.llm.model == "ollama/llama3.1"
+    assert run.call_count == 2
+    assert run.call_args_list[0][0] == (["ollama", "list"],)
+    assert run.call_args_list[1][0] == (["ollama", "pull", "llama3.1"],)
+    assert run.call_args_list[1].kwargs["check"] is True
 
 
 def test_local_setup_jan_custom_model_id(monkeypatch):

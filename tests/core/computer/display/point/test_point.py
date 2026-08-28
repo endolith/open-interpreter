@@ -13,6 +13,8 @@ from unittest import mock
 import pytest
 from PIL import Image
 
+import sys
+
 from tests.helpers import install_point_heavy_deps
 
 
@@ -240,7 +242,7 @@ def test_image_search_embeds_unhashed_and_filters_by_score(monkeypatch):
         lambda *_a, **_k: [
             [
                 {"corpus_id": 0, "score": 99.0},
-                {"corpus_id": 1, "score": 95.0},
+                {"corpus_id": 1, "score": 90.0},
             ]
         ],
     )
@@ -251,7 +253,8 @@ def test_image_search_embeds_unhashed_and_filters_by_score(monkeypatch):
     assert encoded[0] is query
     assert encoded[1:] == ["img1"]
     assert "new1" in hashes
-    assert [i["hash"] for i in result] == ["new1", "cached"]
+    # Only the strictly->90 hit survives; the 90.0 boundary is filtered out.
+    assert [i["hash"] for i in result] == ["new1"]
 
 
 def test_image_search_forces_top_hit_into_results(monkeypatch):
@@ -352,16 +355,17 @@ def test_get_element_boxes_builds_boxes_from_contours(monkeypatch):
 
 
 def test_get_element_boxes_permutates_when_env_set(monkeypatch):
-    """OI_POINT_PERMUTATE=True runs process_image with randomized parameters."""
+    """OI_POINT_PERMUTATE=True varies threshold parameters across iterations."""
+    import types
+
     point_mod = _import_point(monkeypatch)
     monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
 
     screenshot = Image.new("RGB", (100, 100), "white")
 
     monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
-    monkeypatch.setattr(
-        point_mod.cv2, "adaptiveThreshold", lambda *_a, **_k: "binary", raising=False
-    )
+    adaptive = mock.Mock(return_value="binary")
+    monkeypatch.setattr(point_mod.cv2, "adaptiveThreshold", adaptive, raising=False)
     monkeypatch.setattr(
         point_mod.cv2,
         "findContours",
@@ -380,6 +384,24 @@ def test_get_element_boxes_permutates_when_env_set(monkeypatch):
     monkeypatch.setattr(point_mod.cv2, "RETR_LIST", 6, raising=False)
     monkeypatch.setattr(point_mod.cv2, "CHAIN_APPROX_NONE", 7, raising=False)
 
+    # get_element_boxes does `import random` locally, so stub sys.modules.
+    random_stub = types.ModuleType("random")
+    random_stub.uniform = mock.Mock(
+        side_effect=[float(n) for n in range(1, 11)]
+    )
+    random_stub.choice = mock.Mock(
+        side_effect=[0, 3, 2, 1] * 8  # blockSize, adaptiveMethod, thresholdType
+    )
+    random_stub.randint = mock.Mock(side_effect=[-5, 5] * 5)
+    monkeypatch.setitem(sys.modules, "random", random_stub)
+
     boxes = point_mod.get_element_boxes(screenshot, False)
 
     assert boxes == [{"x": 1, "y": 2, "width": 3, "height": 4}]
+    assert adaptive.call_count == 10
+    param_sets = {
+        (c.kwargs["adaptiveMethod"], c.kwargs["thresholdType"], c.kwargs["C"])
+        for c in adaptive.call_args_list
+    }
+    # The random draws must have actually changed the threshold parameters.
+    assert len(param_sets) > 1
