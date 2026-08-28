@@ -151,7 +151,7 @@ def test_local_setup_low_ram_uses_smaller_context_window(monkeypatch):
 
 
 def _mock_psutil(monkeypatch, ram_gb, disk_free_gb=50):
-    """Pin RAM and free disk so download_model's filtering is deterministic."""
+    """Pin resource values so download_model's guidance and disk filtering are deterministic."""
 
     class _Memory:
         total = ram_gb * 1024**3
