@@ -229,6 +229,15 @@ def test_local_setup_llamafile_downloads_new_model(monkeypatch):
     )
     run = mock.Mock()
     monkeypatch.setattr("interpreter.terminal_interface.local_setup.subprocess.run", run)
+    # The freshly downloaded model is launched as a server; mock Popen with a
+    # ready-line iterator so the launch is exercised rather than a real shell
+    # "not found" that vacuously passes.
+    process = mock.Mock()
+    process.stdout = iter(["llama server listening at http://localhost:8080\n"])
+    popen = mock.Mock(return_value=process)
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.subprocess.Popen", popen
+    )
 
     # inquirer.prompt: provider, existing-model selection, then model download.
     monkeypatch.setattr(
@@ -260,6 +269,15 @@ def test_local_setup_llamafile_downloads_new_model(monkeypatch):
     )
     # The downloaded file is made executable.
     run.assert_called_once_with(["chmod", "+x", model_path], check=True)
+    # The downloaded model is launched with the server flags and its stdout is
+    # polled until the ready signal.
+    popen.assert_called_once_with(
+        f'"{model_path}" --nobrowser -ngl 9999',
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
 
 
 def test_local_setup_ollama_download_new_model(monkeypatch):

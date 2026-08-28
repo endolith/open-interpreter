@@ -332,11 +332,19 @@ class TestServerRunAndSetters(TestCase):
         # Set host directly on config (bypasses the property setter which recreates uvicorn).
         s.config.host = "0.0.0.0"
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            s.run()
+        # The 0.0.0.0 branch probes the LAN IP via a UDP socket; mock it so the
+        # test never makes a real network call.
+        fake_socket = mock.Mock()
+        fake_socket.getsockname.return_value = ("192.168.1.50", 12345)
+        with mock.patch(
+            "interpreter.core.async_core.socket.socket", return_value=fake_socket
+        ):
+            with contextlib.redirect_stdout(buf):
+                s.run()
         out = buf.getvalue()
         self.assertIn("Warning", out)
         self.assertIn("0.0.0.0", out)
+        self.assertIn("192.168.1.50", out)
         s.uvicorn_server.run.assert_called_once_with()
 
     def test_run_with_explicit_host_and_port(self):
@@ -345,16 +353,20 @@ class TestServerRunAndSetters(TestCase):
         import io
 
         s = Server(AsyncInterpreter())
-        s.uvicorn_server.run = mock.Mock()
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            with mock.patch("interpreter.core.async_core.uvicorn.Server"):
+            # Both setters rebuild the uvicorn server from the config, so capture
+            # the replacement instance and assert THAT one is started.
+            with mock.patch(
+                "interpreter.core.async_core.uvicorn.Server"
+            ) as uvicorn_server_cls:
                 s.run(host="127.0.0.1", port=8080)
         self.assertEqual(s.host, "127.0.0.1")
         self.assertEqual(s.port, 8080)
         out = buf.getvalue()
         self.assertIn("127.0.0.1", out)
         self.assertIn("8080", out)
+        uvicorn_server_cls.return_value.run.assert_called_once_with()
 
 
 class TestServerAuthMiddleware(TestCase):
