@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import pytest
+import sys
 
 from interpreter.terminal_interface import magic_commands
 from tests.helpers import TEST_LLM_MODEL
@@ -292,3 +293,157 @@ def test_install_and_import_returns_existing_module():
     with mock.patch.dict("sys.modules", {"already_there": fake}):
         result = magic_commands.install_and_import("already_there")
     assert result is fake
+
+
+def test_install_and_import_installs_via_pip_then_imports():
+    """Missing packages are pip-installed, then re-imported and returned."""
+    fake = object()
+    with mock.patch(
+        "builtins.__import__",
+        side_effect=[ImportError("missing"), fake],
+    ):
+        with mock.patch.object(
+            magic_commands.subprocess, "check_call"
+        ) as check_call:
+            result = magic_commands.install_and_import("somedummy")
+
+    check_call.assert_called_once_with(
+        [sys.executable, "-m", "pip", "install", "somedummy"],
+        stdout=magic_commands.subprocess.DEVNULL,
+        stderr=magic_commands.subprocess.DEVNULL,
+    )
+    assert result is fake
+
+
+def test_install_and_import_pip_failure_unbound_module_known_bug():
+    """KNOWN BUG: when pip fails and pip3 also fails, install_and_import
+    raises UnboundLocalError instead of returning None. The function's
+    finally block references `module`, which is never bound on the failure
+    paths. Documenting current behavior."""
+    with mock.patch(
+        "builtins.__import__", side_effect=ImportError("missing")
+    ):
+        with mock.patch.object(
+            magic_commands.subprocess,
+            "check_call",
+            side_effect=[
+                magic_commands.subprocess.CalledProcessError(1, "pip"),
+                magic_commands.subprocess.CalledProcessError(1, "pip3"),
+            ],
+        ):
+            with pytest.raises(UnboundLocalError):
+                magic_commands.install_and_import("somedummy")
+
+
+def test_handle_undo_previews_removed_message_content():
+    """%undo prints a preview of each removed message's content."""
+    interpreter = _interpreter(
+        messages=[
+            {"role": "user", "content": "first"},
+            {"role": "user", "content": "run it"},
+            {"role": "assistant", "content": "this is the reply"},
+        ]
+    )
+    magic_commands.handle_undo(interpreter, "")
+    assert interpreter.messages == [{"role": "user", "content": "first"}]
+    preview = interpreter.display_message.call_args[0][0]
+    assert "Removed message" in preview
+    assert "this is the reply" in preview
+
+
+def test_handle_verbose_truncates_inline_images(capsys):
+    """%verbose truncates non-path inline image content before printing."""
+    interpreter = _interpreter(
+        messages=[
+            {
+                "role": "user",
+                "type": "image",
+                "format": "base64",
+                "content": "A" * 100,
+            }
+        ]
+    )
+    magic_commands.handle_verbose(interpreter, "true")
+    assert interpreter.verbose is True
+    printed = capsys.readouterr().out
+    assert "..." in printed
+    assert "A" * 100 not in printed  # the inline content was truncated
+
+
+def test_handle_debug_truncates_inline_images(capsys):
+    """%debug truncates non-path inline image content before printing."""
+    interpreter = _interpreter(
+        messages=[
+            {
+                "role": "user",
+                "type": "image",
+                "format": "data-url",
+                "content": "B" * 100,
+            }
+        ]
+    )
+    magic_commands.handle_debug(interpreter, "true")
+    assert interpreter.debug is True
+    printed = capsys.readouterr().out
+    assert "..." in printed
+
+
+def test_markdown_default_path_uses_downloads(monkeypatch, tmp_path):
+    """%markdown without a path exports to Downloads using conversation name."""
+    interpreter = _interpreter(
+        messages=[{"role": "user", "content": "hi"}],
+        conversation_filename="chat.json",
+    )
+    monkeypatch.setattr(
+        magic_commands, "get_downloads_path", lambda: str(tmp_path)
+    )
+    with mock.patch(
+        "interpreter.terminal_interface.magic_commands.export_to_markdown"
+    ) as export:
+        magic_commands.markdown(interpreter, "")
+
+    export.assert_called_once_with(
+        interpreter.messages, f"{tmp_path}/chat.md"
+    )
+
+
+def test_jupyter_handles_assistant_markdown_and_default_language(tmp_path):
+    """%jupyter renders assistant messages as markdown and defaults code
+    cells without a format to python."""
+    import types
+
+    interpreter = _interpreter(
+        messages=[
+            {"role": "assistant", "type": "message", "content": "assistant note"},
+            {"role": "assistant", "type": "code", "content": "print(2)"},
+        ]
+    )
+    captured = {}
+
+    v4_module = types.ModuleType("nbformat.v4")
+    v4_module.new_markdown_cell = lambda content: {
+        "cell_type": "markdown",
+        "source": content,
+    }
+    v4_module.new_code_cell = lambda content: mock.Mock(metadata={}, source=content)
+    v4_module.new_notebook = lambda: captured.setdefault("nb", {"cells": []})
+
+    nbformat_module = types.ModuleType("nbformat")
+    nbformat_module.write = mock.Mock()
+    nbformat_module.v4 = v4_module
+
+    with mock.patch.object(
+        magic_commands, "install_and_import", return_value=nbformat_module
+    ):
+        with mock.patch.object(
+            magic_commands, "get_downloads_path", return_value=str(tmp_path)
+        ):
+            with mock.patch.dict(
+                "sys.modules",
+                {"nbformat": nbformat_module, "nbformat.v4": v4_module},
+            ):
+                magic_commands.jupyter(interpreter, "")
+
+    cells = captured["nb"]["cells"]
+    assert cells[0] == {"cell_type": "markdown", "source": "assistant note"}
+    assert cells[1].metadata == {"language": "python"}
