@@ -346,9 +346,11 @@ def test_handle_undo_previews_removed_message_content():
     )
     magic_commands.handle_undo(interpreter, "")
     assert interpreter.messages == [{"role": "user", "content": "first"}]
-    preview = interpreter.display_message.call_args[0][0]
-    assert "Removed message" in preview
-    assert "this is the reply" in preview
+    # One preview per removed message, in order.
+    assert interpreter.display_message.call_count == 2
+    previews = [c[0][0] for c in interpreter.display_message.call_args_list]
+    assert "run it" in previews[0]
+    assert "this is the reply" in previews[1]
 
 
 def test_handle_verbose_truncates_inline_images(capsys):
@@ -386,6 +388,7 @@ def test_handle_debug_truncates_inline_images(capsys):
     assert interpreter.debug is True
     printed = capsys.readouterr().out
     assert "..." in printed
+    assert "B" * 100 not in printed  # the inline content was truncated
 
 
 def test_markdown_default_path_uses_downloads(monkeypatch, tmp_path):

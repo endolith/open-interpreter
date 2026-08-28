@@ -389,8 +389,11 @@ def test_get_element_boxes_permutates_when_env_set(monkeypatch):
     random_stub.uniform = mock.Mock(
         side_effect=[float(n) for n in range(1, 11)]
     )
+    # Select from real production candidate sets: blockSize (odd 1..9),
+    # adaptiveMethod, thresholdType. Repeat the sequence so all 10 iterations
+    # are covered; each iteration still varies which candidate is picked.
     random_stub.choice = mock.Mock(
-        side_effect=[0, 3, 2, 1] * 8  # blockSize, adaptiveMethod, thresholdType
+        side_effect=[1, 0, 3, 5, 2, 1, 9, 0, 3, 1, 2, 1] * 3
     )
     random_stub.randint = mock.Mock(side_effect=[-5, 5] * 5)
     monkeypatch.setitem(sys.modules, "random", random_stub)
