@@ -88,6 +88,7 @@ class TestWebSocketOriginPolicy(TestCase):
 
 class TestSettingsEndpointGuards(TestCase):
     def setUp(self):
+        """Build a TestClient around a fresh server app."""
         from fastapi.testclient import TestClient
 
         self.client = TestClient(Server(AsyncInterpreter()).app)
@@ -119,6 +120,7 @@ class TestSettingsEndpointGuards(TestCase):
 
 class TestAsyncApprovalBinding(TestCase):
     def setUp(self):
+        """An interpreter that pauses at confirmation chunks."""
         self.interpreter = AsyncInterpreter()
         self.interpreter.auto_run = False
 
@@ -155,6 +157,7 @@ class TestAsyncApprovalBinding(TestCase):
 
 class TestAsyncInputCommandHandling(TestCase):
     def setUp(self):
+        """An interpreter with a live respond thread and queued error output."""
         self.interpreter = AsyncInterpreter()
         self.interpreter.auto_run = False
         self.interpreter.output_queue = mock.MagicMock()
@@ -167,6 +170,7 @@ class TestAsyncInputCommandHandling(TestCase):
         import asyncio
 
         async def run():
+            """Feed the start/content/end command chunks to interpreter.input."""
             await self.interpreter.input(
                 {"role": "user", "type": "command", "start": True}
             )
@@ -192,6 +196,7 @@ class TestAsyncInputCommandHandling(TestCase):
         import asyncio
 
         async def run():
+            """Feed a start-only command chunk and check join is never called."""
             await self.interpreter.input(
                 {"role": "user", "type": "command", "start": True}
             )
@@ -241,6 +246,7 @@ class TestAsyncInputCommandHandling(TestCase):
 
 class TestAsyncRespondApproval(TestCase):
     def setUp(self):
+        """An interpreter whose respond output lands on a mock sync queue."""
         self.interpreter = AsyncInterpreter()
         self.interpreter.auto_run = False
         self.mock_q = mock.MagicMock()
@@ -256,11 +262,13 @@ class TestAsyncRespondApproval(TestCase):
         import time
 
         def fake_store():
+            """Yield the test chunks as the stored response stream."""
             yield from chunks
 
         with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
 
             def respond_thread():
+                """Run respond() to completion on a worker thread."""
                 self.interpreter.respond()
 
             worker = threading.Thread(target=respond_thread)

@@ -31,11 +31,13 @@ async def _hang_output():
 
 @pytest.fixture
 def interpreter():
+    """A fresh AsyncInterpreter for the websocket flow tests."""
     return AsyncInterpreter()
 
 
 @pytest.fixture
 def client(interpreter, monkeypatch):
+    """A TestClient bound to the interpreter's server app with auth open."""
     monkeypatch.delenv("INTERPRETER_API_KEY", raising=False)
     return TestClient(Server(interpreter).app)
 

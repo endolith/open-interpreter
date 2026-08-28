@@ -54,6 +54,7 @@ def test_local_setup_jan_sets_model_from_api(monkeypatch):
 
     class _Response:
         def json(self):
+            """Return the Jan /models payload this test drives."""
             return {"data": [{"id": "jan-model-1"}]}
 
     monkeypatch.setattr(
@@ -322,6 +323,7 @@ def test_local_setup_jan_custom_model_id(monkeypatch):
 
     class _Response:
         def json(self):
+            """Return the Jan /models payload this test drives."""
             return {"data": [{"id": "jan-model-1"}]}
 
     monkeypatch.setattr(

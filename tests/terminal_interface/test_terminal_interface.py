@@ -33,6 +33,7 @@ def test_terminal_interface_yields_chunks_and_renders_message_block():
     interpreter = _make_interpreter()
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a plain assistant message stream."""
         yield {"type": "message", "role": "assistant", "start": True}
         yield {"type": "message", "role": "assistant", "content": "hello"}
         yield {"type": "message", "role": "assistant", "end": True}
@@ -53,6 +54,7 @@ def test_terminal_interface_yields_chunks_and_renders_code_block():
     interpreter = _make_interpreter()
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a python code block stream."""
         yield {"type": "code", "role": "assistant", "start": True, "format": "python"}
         yield {"type": "code", "role": "assistant", "content": "x = 1\n"}
         yield {"type": "code", "role": "assistant", "end": True}
@@ -178,6 +180,7 @@ def test_terminal_interface_plain_text_renders_code_fences(capsys):
     interpreter.plain_text_display = True
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a python code block for plain-text rendering."""
         yield {"type": "code", "role": "assistant", "format": "python", "start": True}
         yield {"type": "code", "role": "assistant", "content": "print(1)"}
         yield {"type": "code", "role": "assistant", "format": "python", "end": True}
@@ -223,6 +226,7 @@ def test_terminal_interface_declined_code_is_recorded():
     interpreter.auto_run = False
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a single confirmation chunk."""
         yield {
             "type": "confirmation",
             "content": {"format": "python", "content": "print(1)"},
@@ -244,6 +248,7 @@ def test_terminal_interface_os_mode_notifies_on_message_end():
     interpreter.messages = [{"role": "assistant", "content": "- item one\nline two"}]
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with an assistant message for the OS notification."""
         yield {"type": "message", "role": "assistant", "start": True}
         yield {"type": "message", "role": "assistant", "content": "hello"}
         yield {"type": "message", "role": "assistant", "end": True}
@@ -278,6 +283,7 @@ def test_terminal_interface_confirming_code_builds_code_block():
     interpreter.auto_run = False
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a code block plus confirmation for CodeBlock rendering."""
         yield {"type": "code", "role": "assistant", "format": "python", "start": True}
         yield {
             "type": "confirmation",
@@ -306,6 +312,7 @@ def test_terminal_interface_safe_mode_auto_scans_code_before_run():
     interpreter.safe_mode = "auto"
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a code block plus confirmation for a safe-mode scan."""
         yield {"type": "code", "role": "assistant", "format": "python", "start": True}
         yield {
             "type": "confirmation",
@@ -332,6 +339,7 @@ def test_terminal_interface_safe_mode_ask_scans_when_user_consents():
     interpreter.safe_mode = "ask"
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a code block plus confirmation for a safe-mode ask."""
         yield {"type": "code", "role": "assistant", "format": "python", "start": True}
         yield {
             "type": "confirmation",
@@ -357,11 +365,13 @@ def test_terminal_interface_edit_code_uses_editor_and_updates_message():
     interpreter.messages = [{"role": "user", "type": "message", "content": "run code"}]
 
     def fake_editor(command):
+        """Simulate the editor rewriting the temp file the shell opens."""
         # The editor rewrites the temp file; simulate that here.
         with open(command[1], "w") as handle:
             handle.write("edited = 2\n")
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a code block plus confirmation for the editor flow."""
         yield {"type": "code", "role": "assistant", "format": "python", "start": True}
         yield {
             "type": "confirmation",
@@ -390,6 +400,7 @@ def test_terminal_interface_computer_visual_chunk_appends_console_output():
     ]
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a computer image chunk."""
         yield {"role": "computer", "type": "image", "format": "path", "content": "/x.png"}
 
     interpreter.chat = chat
@@ -416,6 +427,7 @@ def test_terminal_interface_computer_visual_skipped_in_quiet_os_mode():
     interpreter.verbose = False
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a computer image chunk in quiet OS mode."""
         yield {"role": "computer", "type": "image", "format": "path", "content": "/x.png"}
 
     interpreter.chat = chat
@@ -431,6 +443,7 @@ def test_terminal_interface_active_line_shows_os_action_notification():
     interpreter.os = True
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a code block, keyboard write, and active-line chunk."""
         yield {"type": "code", "role": "assistant", "format": "python", "start": True}
         yield {
             "type": "code",
@@ -490,6 +503,7 @@ def test_terminal_interface_skips_rendering_chunks_for_other_recipients():
     interpreter = _make_interpreter()
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with an assistant-recipient message."""
         yield {
             "type": "message",
             "role": "assistant",
@@ -510,6 +524,7 @@ def test_terminal_interface_verbose_prints_each_chunk(capsys):
     interpreter.verbose = True
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with an assistant message for verbose echo."""
         yield {"type": "message", "role": "assistant", "start": True}
         yield {"type": "message", "role": "assistant", "content": "hi"}
         yield {"type": "message", "role": "assistant", "end": True}
@@ -530,6 +545,7 @@ def test_terminal_interface_message_content_without_start_crashes():
     interpreter = _make_interpreter()
 
     def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a content-only assistant message (orphan chunk)."""
         yield {"type": "message", "role": "assistant", "content": "orphan"}
 
     interpreter.chat = chat

@@ -72,6 +72,7 @@ def test_find_icon_filters_extremes_and_returns_normalized_center(monkeypatch):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the call args and return the first icon for filtering."""
         captured["description"] = description
         captured["icons"] = icons
         return icons[:1]
@@ -105,6 +106,7 @@ def test_find_icon_skips_description_icon_suffix(monkeypatch):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the description and return no matching icons."""
         captured["description"] = description
         return []
 
@@ -156,6 +158,7 @@ def test_find_icon_combines_overlapping_boxes(monkeypatch):
     ]
 
     def fake_image_search(description, icons, hashes, debug):
+        """Return the first icon so find_icon yields its normalized coordinate."""
         return icons[:1]
 
     with mock.patch.object(point_mod, "get_element_boxes", return_value=boxes):
@@ -218,6 +221,7 @@ class _FakeBatch:
         return self._items[idx]
 
     def to(self, device):
+        """Return self; the fake batch ignores device transfer."""
         return self
 
 
