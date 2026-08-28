@@ -73,6 +73,15 @@ class TestWebSocketOriginPolicy(TestCase):
     def test_remote_origins_rejected(self):
         self.assertFalse(is_websocket_origin_allowed("https://evil.example"))
 
+    def test_null_origin_allowed_for_non_browser_clients(self):
+        """The literal 'null' origin is accepted, as some local clients send it."""
+        self.assertTrue(is_websocket_origin_allowed("null"))
+
+    def test_non_http_scheme_rejected_even_for_local_host(self):
+        """Origins with a non-http scheme (e.g. ftp) are never allowed."""
+        self.assertFalse(is_websocket_origin_allowed("ftp://localhost"))
+        self.assertFalse(is_websocket_origin_allowed("file:///etc/passwd"))
+
 
 class TestSettingsEndpointGuards(TestCase):
     def setUp(self):
@@ -292,3 +301,104 @@ class TestAsyncRespondApproval(TestCase):
 
         put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
         self.assertFalse(any(c.get("content") == "ok" for c in put_chunks))
+
+
+class TestServerRunAndSetters(TestCase):
+    def test_host_setter_recreates_uvicorn_server(self):
+        """Assigning Server.host rebuilds the underlying uvicorn.Server."""
+        s = Server(AsyncInterpreter())
+        old_uvicorn = s.uvicorn_server
+        s.host = "0.0.0.0"
+        self.assertEqual(s.host, "0.0.0.0")
+        self.assertIsNot(s.uvicorn_server, old_uvicorn)
+        self.assertEqual(s.uvicorn_server.config.host, "0.0.0.0")
+
+    def test_port_setter_recreates_uvicorn_server(self):
+        """Assigning Server.port rebuilds the underlying uvicorn.Server."""
+        s = Server(AsyncInterpreter())
+        old_uvicorn = s.uvicorn_server
+        s.port = 9999
+        self.assertEqual(s.port, 9999)
+        self.assertIsNot(s.uvicorn_server, old_uvicorn)
+        self.assertEqual(s.uvicorn_server.config.port, 9999)
+
+    def test_run_warns_when_host_is_0_0_0_0(self):
+        """run() with 0.0.0.0 warns about LAN exposure and binds to the public IP."""
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter())
+        s.uvicorn_server.run = mock.Mock()
+        # Set host directly on config (bypasses the property setter which recreates uvicorn).
+        s.config.host = "0.0.0.0"
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            s.run()
+        out = buf.getvalue()
+        self.assertIn("Warning", out)
+        self.assertIn("0.0.0.0", out)
+        s.uvicorn_server.run.assert_called_once_with()
+
+    def test_run_with_explicit_host_and_port(self):
+        """run(host, port) overrides the stored config and binds to that host."""
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter())
+        s.uvicorn_server.run = mock.Mock()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with mock.patch("interpreter.core.async_core.uvicorn.Server"):
+                s.run(host="127.0.0.1", port=8080)
+        self.assertEqual(s.host, "127.0.0.1")
+        self.assertEqual(s.port, 8080)
+        out = buf.getvalue()
+        self.assertIn("127.0.0.1", out)
+        self.assertIn("8080", out)
+
+
+class TestServerAuthMiddleware(TestCase):
+    def test_heartbeat_skips_authentication(self):
+        """The /heartbeat route bypasses API-key auth even when a key is set."""
+        with mock.patch.dict(
+            os.environ, {"INTERPRETER_API_KEY": "supersecret"}
+        ):
+            from fastapi.testclient import TestClient
+
+            client = TestClient(Server(AsyncInterpreter()).app)
+            response = client.get("/heartbeat")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "alive")
+
+    def test_wrong_api_key_returns_403(self):
+        """An incorrect X-API-KEY is rejected with 403 by the auth middleware."""
+        with mock.patch.dict(
+            os.environ, {"INTERPRETER_API_KEY": "supersecret"}
+        ):
+            from fastapi.testclient import TestClient
+
+            client = TestClient(Server(AsyncInterpreter()).app)
+            response = client.post(
+                "/settings",
+                json={"llm": {"model": "gpt-4o-mini"}},
+                headers={"X-API-KEY": "wrong"},
+            )
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(
+                response.json()["detail"], "Authentication failed"
+            )
+
+    def test_correct_api_key_returns_200(self):
+        """The matching X-API-KEY is accepted by the auth middleware."""
+        with mock.patch.dict(
+            os.environ, {"INTERPRETER_API_KEY": "supersecret"}
+        ):
+            from fastapi.testclient import TestClient
+
+            client = TestClient(Server(AsyncInterpreter()).app)
+            response = client.post(
+                "/settings",
+                json={"llm": {"model": "gpt-4o-mini"}},
+                headers={"X-API-KEY": "supersecret"},
+            )
+            self.assertEqual(response.status_code, 200)
