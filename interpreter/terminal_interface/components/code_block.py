@@ -67,6 +67,22 @@ class CodeBlock(BaseBlock):
     def _code_panel_title(self):
         return f" {self.language} " if self.language else " Code "
 
+    def sync_stored_code(self, stored_code):
+        """Update the displayed code to the version that will actually be executed.
+
+        respond() may strip redundant boilerplate (already-imported modules,
+        redundant cd) from the stored assistant code message *after* the block
+        finished streaming but *before* it is finalized and confirmed. Syncing
+        here ensures the finalized panel shows exactly what will run instead of
+        printing the original and then the stripped version twice.
+
+        Returns True if the displayed code changed, False otherwise.
+        """
+        if stored_code is not None and self.code != stored_code:
+            self.code = stored_code
+            return True
+        return False
+
     def end(self):
         self.active_line = None
         self.finalize()
