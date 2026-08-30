@@ -520,6 +520,13 @@ def respond(interpreter):
                 language = code_message["format"].lower().strip()
                 code = code_message["content"]
 
+                # Short messages shown with the confirmation prompt whenever the
+                # code the LLM wrote was rewritten before running — from the
+                # hardcoded fixes below (functions.execute wrapper, stray
+                # tokens, JSON language blocks) or from the redundant-boilerplate
+                # strip. Accumulated so a single prompt can list several.
+                notices = []
+
                 if code.startswith("`\n"):
                     code = code[2:].strip()
                     if interpreter.verbose:
@@ -539,6 +546,10 @@ def respond(interpreter):
                         code_message[
                             "format"
                         ] = language  # So the LLM can see it.
+                        if "code" in code_dict:
+                            notices.append(
+                                "Extracted code from a `functions.execute()` wrapper."
+                            )
                     except:
                         pass
 
@@ -554,6 +565,7 @@ def respond(interpreter):
                         ] = code  # So the LLM can see it.
                     except:
                         pass
+                    notices.append("Removed a stray trailing `executeexecute`.")
 
                 if code.replace("\n", "").replace(" ", "").startswith('{"language":'):
                     try:
@@ -567,6 +579,9 @@ def respond(interpreter):
                             code_message[
                                 "format"
                             ] = language  # So the LLM can see it.
+                            notices.append(
+                                "Extracted code from a JSON `{language: ...}` block."
+                            )
                     except:
                         pass
 
@@ -585,6 +600,9 @@ def respond(interpreter):
                             code_message[
                                 "format"
                             ] = language  # So the LLM can see it.
+                            notices.append(
+                                "Extracted code from a JSON `{language: ...}` block."
+                            )
                     except:
                         pass
 
@@ -636,6 +654,29 @@ def respond(interpreter):
                     # the code message is still empty.
                     break
 
+                # Strip redundant boilerplate (already-imported modules, cd to
+                # the current dir) so the user previews — and the LLM records —
+                # exactly what will run. The short notice travels with the
+                # confirmation chunk and is shown beside the run prompt, not in
+                # the command's terminal output.
+                lang = interpreter.terminal.get_language_instance(language)
+                if lang is not None:
+                    try:
+                        stripped, strip_notice = lang.strip_boilerplate(code)
+                        # Always adopt the stripped version when something was
+                        # removed — even if it reduces the block to nothing (a
+                        # lone redundant cd, or only already-imported modules).
+                        # The preview, the recorded message and the execution
+                        # must all agree: if there's nothing left, nothing runs.
+                        if strip_notice:
+                            code = stripped
+                            interpreter.messages[-1]["content"] = code
+                            notices.append(strip_notice)
+                    except Exception:
+                        pass
+
+                removed_notice = "; ".join(notices) if notices else None
+
                 # Yield a message, such that the user can stop code execution if they want to
                 try:
                     yield {
@@ -646,6 +687,7 @@ def respond(interpreter):
                             "type": "code",
                             "format": language,
                             "content": code,
+                            "removed": removed_notice,
                         },
                     }
                 except GeneratorExit:
