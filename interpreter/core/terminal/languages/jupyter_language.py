@@ -51,6 +51,12 @@ class JupyterLanguage(BaseLanguage):
         self.listener_thread = None
         self.finish_flag = False
 
+        # Modules known to be bound in the kernel's user namespace. Populated
+        # from each block's imports and refreshed from the REPL-state line the
+        # kernel reports after every run, so redundant top-level `import X`
+        # lines can be stripped before execution.
+        self.imported_modules = set()
+
         # Use Inline by default for broad compatibility. Users can opt into a GUI backend
         # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND or MPLBACKEND.
         # INTERPRETER_MPL_BACKEND takes precedence so Open Interpreter can control behavior.
@@ -157,10 +163,14 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                 preprocessed_code = code
             message_queue = queue.Queue()
             self._execute_code(preprocessed_code, message_queue)
-            yield from self._capture_output(message_queue)
+            for output in self._capture_output(message_queue):
+                self._maybe_update_imported_modules(output)
+                yield output
 
             if getattr(self, "kc", None) and self.kc.is_alive():
-                yield from self._get_active_state()
+                for output in self._get_active_state():
+                    self._maybe_update_imported_modules(output)
+                    yield output
         except GeneratorExit:
             raise  # gotta pass this up!
         except KeyboardInterrupt:
@@ -460,8 +470,162 @@ print(__oi_res)
             if output.get("type") == "console" and output.get("format") == "output":
                 yield output
 
+    _STATE_MODULES_RE = re.compile(r"Already imported:\s*([^|\]]*)")
+
+    def _maybe_update_imported_modules(self, output):
+        """Refresh the tracked module set from the kernel's REPL-state line.
+
+        The kernel reports exactly which modules are bound in its user
+        namespace after every run, so when that line appears we adopt it
+        wholesale — this corrects optimistic entries recorded from blocks that
+        failed to execute (e.g. an `import sklearn` that raised).
+        """
+        if not isinstance(output, dict):
+            return
+        content = output.get("content")
+        if not isinstance(content, str):
+            return
+        m = self._STATE_MODULES_RE.search(content)
+        if not m:
+            return
+        modules = [name.strip() for name in m.group(1).split(",") if name.strip()]
+        if modules:
+            self.imported_modules = set(modules)
+
+    def strip_boilerplate(self, code):
+        """Return (stripped_code, notice) after removing redundant top-level imports.
+
+        Removes plain ``import X`` lines for allowlisted boilerplate modules
+        that the kernel has reported as already bound (via ``_get_active_state``
+        after each run). This method deliberately does NOT learn new imports
+        from the code it is handed: recording ``import time`` here would make a
+        second ``strip_boilerplate`` call (e.g. from ``preprocess_code`` during
+        the same execution) strip that import before it ever ran, breaking code
+        that genuinely needs it. Only the kernel's authoritative REPL-state
+        line drives ``imported_modules``.
+        """
+        stripped, removed = strip_redundant_imports(code, self.imported_modules)
+        if removed:
+            distinct = sorted(set(removed))[:4]
+            label = "imports" if len(set(removed)) > 1 else "import"
+            return stripped, f"Removed redundant {label} {', '.join(distinct)} (already imported)."
+        return code, None
+
     def preprocess_code(self, code):
+        code, _ = self.strip_boilerplate(code)
         return preprocess_python(code)
+
+
+# Modules we're willing to drop a redundant top-level `import X` for. Only
+# side-effect-free imports that LLMs habitually repeat at the top of every cell
+# are listed. Deliberately NOT included: modules whose import has side effects
+# (e.g. matplotlib picks a backend), and the near-universal aliased imports
+# (`import numpy as np`, `import pandas as pd`, `import matplotlib.pyplot as plt`)
+# — those have aliases/dots and are never stripped anyway. Stripping also
+# requires the module to already be bound in the kernel, so a first import
+# (with any real side effect) is never affected.
+REMOVABLE_BOILERPLATE_IMPORTS = frozenset(
+    {
+        "os",
+        "sys",
+        "re",
+        "json",
+        "time",
+        "datetime",
+        "random",
+        "math",
+        "subprocess",
+        "glob",
+        "shutil",
+        "pathlib",
+        "string",
+        "typing",
+        "tempfile",
+        "uuid",
+        "hashlib",
+        "base64",
+        "io",
+        "csv",
+        "statistics",
+        "secrets",
+        "pprint",
+        "copy",
+        "warnings",
+        "platform",
+        "textwrap",
+        "collections",
+        "functools",
+        "itertools",
+        "logging",
+        "argparse",
+        "heapq",
+        "bisect",
+        "decimal",
+        "fractions",
+        "operator",
+        "queue",
+        "threading",
+        "struct",
+        "zlib",
+        "gzip",
+        "pickle",
+        "sqlite3",
+        "socket",
+        "requests",
+    }
+)
+
+
+def strip_redundant_imports(code, imported_modules):
+    """Drop top-level ``import X`` lines for boilerplate modules already bound.
+
+    Only plain, single-line, column-0 imports without aliases or dotted names
+    are considered (``import os``, ``import os, sys``), and only while they sit
+    in the *leading* block — before the first executable statement (comments
+    and blank lines may precede them). An ``import`` after any other statement
+    is never stripped: it may re-bind a name that was assigned earlier (e.g.
+    ``os = "string"`` followed by ``import os``) or be an intentional mid-cell
+    import, so removing it could break the code. The module must also be in
+    REMOVABLE_BOILERPLATE_IMPORTS: a deliberately tiny allowlist of
+    side-effect-free stdlib modules that LLMs habitually re-import and that the
+    kernel already binds at startup. Anything else — matplotlib and other
+    imports with side effects, aliased/dotted/``from X import y`` lines, and
+    indented function-scope imports — is always left alone.
+
+    Returns ``(stripped_code, removed_module_names)`` so the caller can notify
+    the user about what was dropped.
+    """
+    removed = []
+    if not imported_modules:
+        return code, removed
+    kept_lines = []
+    in_leading = True
+    for line in code.splitlines():
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            kept_lines.append(line)  # blank/comment — stay in the leading block
+            continue
+        if in_leading:
+            m = re.match(r"^import\s+(.+)$", line)
+            if m:
+                names = [name.split("#")[0].strip() for name in m.group(1).split(",")]
+                if not names or any(" as " in name or "." in name for name in names):
+                    kept_lines.append(line)
+                    continue
+                if all(
+                    name in imported_modules
+                    and name in REMOVABLE_BOILERPLATE_IMPORTS
+                    for name in names
+                ):
+                    removed.extend(names)  # redundant boilerplate — drop the line
+                    continue
+                kept_lines.append(line)
+                continue
+            if re.match(r"^from\s+\S+\s+import\s", line):
+                kept_lines.append(line)  # never stripped, but still part of the leading block
+                continue
+            in_leading = False  # first executable statement ends the leading block
+        kept_lines.append(line)
+    return "\n".join(kept_lines), removed
 
 
 def preprocess_python(code):
