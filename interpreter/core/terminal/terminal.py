@@ -134,6 +134,16 @@ print("__TOOLBOX_API_IMPORTED__")
                 return lang
         return None
 
+    def get_language_instance(self, language):
+        """Return the live language instance for `language`, or None if not created yet.
+
+        Only instances already created by run/_streaming_run are returned.
+        Instantiating here could eagerly boot a Python kernel or probe for an
+        executable, so callers should only inspect (not create) state. There is
+        no tracking state to strip against before a language's first run anyway.
+        """
+        return self._active_languages.get(language)
+
     def run(self, language, code, stream=False, display=False):
         # Check if this is an apt install command
         if language == "bash" and code.strip().startswith("apt install"):

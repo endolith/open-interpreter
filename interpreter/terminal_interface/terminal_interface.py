@@ -317,6 +317,16 @@ def terminal_interface(interpreter, message):
 
                 # Execution notice
                 if chunk["type"] == "confirmation":
+                    # respond() may have stripped redundant boilerplate from the
+                    # code before the confirmation; the code block was already
+                    # updated to the stripped version at its end flag. Only the
+                    # short removal notice travels with this chunk — print it
+                    # with the run prompt, not in the command's terminal output.
+                    removed_notice = None
+                    confirm_content = chunk.get("content")
+                    if isinstance(confirm_content, dict):
+                        removed_notice = confirm_content.get("removed")
+
                     if should_require_execution_confirmation(interpreter, chunk):
                         # OI is about to execute code or apply an edit. The user wants to approve this
 
@@ -404,6 +414,9 @@ def terminal_interface(interpreter, message):
                         # Blank line before approval: leading \n inside input() is often lost after
                         # Rich/console output on Windows (cursor sits on last panel row).
                         print("", flush=True)
+                        if removed_notice:
+                            print(f"  [{removed_notice}]", flush=True)
+                            print("", flush=True)
                         if interpreter.auto_run_mode == "allowlist":
                             run_prompt = (
                                 "Would you like to run this code? (y/n/e = edit / a = add to allowlist)\n\n"
@@ -593,6 +606,15 @@ def terminal_interface(interpreter, message):
                     # by the plain-text or rich-display paths below.
                     continue
 
+                # Auto-run mode (no confirmation prompt required — `auto_run_mode`
+                # is "all" or the code is allowlisted): the code runs immediately,
+                # so this is the only chance to tell the user that redundant
+                # boilerplate was stripped. In the confirmation path above the same
+                # notice is printed right before the run prompt.
+                if removed_notice:
+                    print(f"  [{removed_notice}]", flush=True)
+                    print("", flush=True)
+
                 # Plain text mode
                 if interpreter.plain_text_display:
                     if chunk.get("format") == "reasoning":
@@ -636,6 +658,22 @@ def terminal_interface(interpreter, message):
                     continue
 
                 if "end" in chunk and active_block:
+                    if chunk["type"] == "code" and hasattr(active_block, "code"):
+                        # respond() may have stripped redundant boilerplate
+                        # (already-imported modules, redundant cd) from the
+                        # stored message before emitting this end flag. Sync the
+                        # displayed block so it prints exactly what will run —
+                        # otherwise the original code is finalized here and the
+                        # stripped version is printed again at the confirmation.
+                        stored = interpreter.messages[-1] if interpreter.messages else None
+                        if (
+                            stored
+                            and stored.get("role") == "assistant"
+                            and stored.get("type") == "code"
+                            and isinstance(stored.get("content"), str)
+                        ):
+                            active_block.sync_stored_code(stored["content"])
+
                     if hasattr(active_block, 'finalize'):
                         active_block.finalize()
                     else:

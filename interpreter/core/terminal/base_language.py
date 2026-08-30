@@ -69,3 +69,13 @@ class BaseLanguage:
         Terminates state.
         """
         pass
+
+    def strip_boilerplate(self, code):
+        """Return (stripped_code, notice_or_None) after removing redundant boilerplate.
+
+        Persistent REPL languages override this to drop habitual redundancy the
+        user doesn't want to see (re-imported modules, cd to the current dir).
+        ``notice`` is a short human-readable line shown with the confirmation
+        prompt; None means nothing was removed.
+        """
+        return code, None
