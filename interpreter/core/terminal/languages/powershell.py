@@ -1,23 +1,35 @@
 import os
 import re
 
+from .cwd_tracking import CwdTrackingMixin
 from .resolve_powershell import powershell_startup_args, resolve_powershell_executable
 from .subprocess_language import SubprocessLanguage
 
 
-class PowerShell(SubprocessLanguage):
+class PowerShell(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "ps1"
     name = "powershell"
     execute_tool_hint = "PowerShell — $var = value; cmdlet syntax. Requires pwsh on Linux/Mac."
+    cd_commands = ("cd", "Set-Location", "sl")
+    cd_ignore_case = True
 
     def __init__(self):
-        super().__init__()
+        CwdTrackingMixin.__init__(self)
+        # Explicit, not super(): with this MRO super() would resolve to
+        # CwdTrackingMixin again and skip SubprocessLanguage.__init__.
+        SubprocessLanguage.__init__(self)
         self.start_cmd = [resolve_powershell_executable(), *powershell_startup_args()]
 
     def preprocess_code(self, code):
-        return preprocess_powershell(code)
+        code = self._strip_redundant_cd(code)
+        code = preprocess_powershell(code)
+        end_marker = '\nWrite-Output "##end_of_execution##"'
+        return self._insert_cwd_marker(code, end_marker)
 
-    def line_postprocessor(self, line):
+    def _cwd_marker_echo(self):
+        return '\nWrite-Output "##oi_pwd##$($PWD.Path)"'
+
+    def _postprocess_line(self, line):
         # Strip PS prompt lines: "(base) PS C:\Users\...>" or "PS C:\...>"
         # These appear because OI feeds code to a persistent interactive REPL via
         # stdin, so PowerShell echoes each line back with its prompt.
