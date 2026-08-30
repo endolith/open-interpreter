@@ -600,20 +600,21 @@ def terminal_interface(interpreter, message):
                             )
                             break
 
+                    else:
+                        # Auto-run mode — `auto_run_mode` is "all" or the code is
+                        # allowlisted, so no confirmation prompt appears. This is
+                        # the only chance to tell the user that redundant
+                        # boilerplate was stripped; in the confirmation path above
+                        # the same notice is printed right before the run prompt.
+                        if removed_notice:
+                            print(f"  [{removed_notice}]", flush=True)
+                            print("", flush=True)
+
                     # The confirmation chunk has been fully handled above (y/n/e all
                     # either break, continue, or fall into the active_block setup).
                     # Skip the rest of the loop body so the chunk isn't re-processed
                     # by the plain-text or rich-display paths below.
                     continue
-
-                # Auto-run mode (no confirmation prompt required — `auto_run_mode`
-                # is "all" or the code is allowlisted): the code runs immediately,
-                # so this is the only chance to tell the user that redundant
-                # boilerplate was stripped. In the confirmation path above the same
-                # notice is printed right before the run prompt.
-                if removed_notice:
-                    print(f"  [{removed_notice}]", flush=True)
-                    print("", flush=True)
 
                 # Plain text mode
                 if interpreter.plain_text_display:

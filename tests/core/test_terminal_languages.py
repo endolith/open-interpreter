@@ -959,5 +959,85 @@ class TestRespondNotices(unittest.TestCase):
         self.assertIsNone(chunk["content"]["removed"])
 
 
+class TestTerminalInterfaceNotices(unittest.TestCase):
+    """terminal_interface handles removed-notice chunks without crashing."""
+
+    def _drive(self, chunks, auto_run_mode="all"):
+        from interpreter.terminal_interface.terminal_interface import (
+            terminal_interface,
+        )
+
+        class FakeLLM:
+            supports_vision = False
+            vision_renderer = None
+
+        class FakeInterpreter:
+            verbose = False
+            offline = False
+            os = None
+            plain_text_display = True
+            highlight_active_line = False
+
+            def __init__(self, chunks, auto_run_mode):
+                self.auto_run_mode = auto_run_mode
+                self.llm = FakeLLM()
+                self.messages = [{"role": "user", "type": "message", "content": "hi"}]
+
+            def chat(self, message, display=False, stream=True):
+                yield from chunks
+
+            def display_message(self, text):
+                pass
+
+        interp = FakeInterpreter(chunks, auto_run_mode)
+        # A non-empty message makes the loop run exactly one pass (not interactive).
+        return list(terminal_interface(interp, "test message"))
+
+    def test_non_confirmation_chunk_does_not_crash(self):
+        """A message chunk after no confirmation must not raise UnboundLocalError (regression: the removed-notice print was placed outside the confirmation branch and referenced the unbound variable)."""
+        chunks = [{"role": "assistant", "type": "message", "content": "hello"}]
+        out = self._drive(chunks)
+        self.assertEqual(len(out), 1)
+
+    def test_auto_run_notice_printed(self):
+        """In auto-run mode a stripped confirmation prints the notice (no prompt appears)."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        chunk = {
+            "role": "computer",
+            "type": "confirmation",
+            "format": "execution",
+            "content": {
+                "type": "code",
+                "format": "bash",
+                "content": "ls",
+                "removed": "Removed redundant cd /x (already in that directory).",
+            },
+        }
+        with patch("sys.stdout", new_callable=StringIO) as fake_out:
+            self._drive([chunk])
+            self.assertIn("Removed redundant cd /x", fake_out.getvalue())
+
+    def test_auto_run_followed_by_message_chunk_does_not_crash(self):
+        """Auto-run confirmation followed by a plain message chunk must not crash (the removed_notice variable is only read inside the confirmation handler)."""
+        chunks = [
+            {
+                "role": "computer",
+                "type": "confirmation",
+                "format": "execution",
+                "content": {
+                    "type": "code",
+                    "format": "bash",
+                    "content": "ls",
+                    "removed": "Removed redundant cd /x (already in that directory).",
+                },
+            },
+            {"role": "assistant", "type": "message", "content": "done"},
+        ]
+        out = self._drive(chunks)
+        self.assertEqual(len(out), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
