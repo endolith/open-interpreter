@@ -857,6 +857,11 @@ class TestRespondNotices(unittest.TestCase):
 
         class FakeInterpreter:
             verbose = False
+            toolbox = type(
+                "Toolbox",
+                (),
+                {"import_toolbox_api": True},
+            )()
 
         interp = FakeInterpreter()
         interp.messages = messages
@@ -957,6 +962,89 @@ class TestRespondNotices(unittest.TestCase):
             ]
         )
         self.assertIsNone(chunk["content"]["removed"])
+
+    def test_import_toolbox_stripped_with_notice(self):
+        """`import toolbox` is stripped (toolbox is injected into the kernel) and reported — the old guard raised after approval instead (regression)."""
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox\nr = toolbox.web.fetch('http://example.com')",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertEqual(content["format"], "python")
+        self.assertNotIn("import toolbox", content["content"])
+        self.assertIn("r = toolbox.web.fetch('http://example.com')", content["content"])
+        self.assertIn("import toolbox", content["removed"])
+
+    def test_import_toolbox_with_comment_stripped(self):
+        """An `import toolbox  # comment` line is stripped like the plain form."""
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox  # needed\nprint(toolbox)",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertNotIn("import toolbox", content["content"])
+        self.assertIn("print(toolbox)", content["content"])
+
+    def test_import_toolbox_as_kept_for_guard(self):
+        """Aliased `import toolbox as tb` is NOT stripped by the line filter — the post-confirmation guard still handles it."""
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox as tb\nprint(tb)",
+                },
+            ]
+        )
+        self.assertIn("import toolbox as tb", chunk["content"]["content"])
+
+    def test_import_toolbox_not_stripped_when_api_disabled(self):
+        """When the toolbox API isn't injected, `import toolbox` is left alone."""
+        from interpreter.core.respond import respond
+
+        class FakeInterpreter:
+            verbose = False
+            toolbox = type(
+                "Toolbox",
+                (),
+                {"import_toolbox_api": False},
+            )()
+
+        interp = FakeInterpreter()
+        interp.messages = [
+            {"role": "user", "type": "message", "content": "hi"},
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "import toolbox\nprint(toolbox)",
+            },
+        ]
+        interp.terminal = _FakeTerminal()
+        with patch(
+            "interpreter.core.respond.assemble_system_message", return_value=""
+        ):
+            for chunk in respond(interp):
+                if chunk.get("type") == "confirmation":
+                    self.assertIn("import toolbox", chunk["content"]["content"])
+                    return
+        self.fail("respond() never yielded a confirmation chunk")
 
 
 class TestTerminalInterfaceNotices(unittest.TestCase):
