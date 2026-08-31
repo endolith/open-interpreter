@@ -71,6 +71,29 @@ llm:
 
 </CodeGroup>
 
+### Reasoning
+
+Controls how much a reasoning model thinks before answering. Reasoning/thinking models (e.g. `deepseek/`, `z-ai/glm-5.3`, some OpenRouter models) emit separate reasoning tokens before their visible reply; these tokens consume time and `max_tokens` budget, and a model that "thinks endlessly in circles" can be reined in by lowering the effort or disabling reasoning entirely.
+
+- `reasoning_effort`: `"low"`, `"medium"`, or `"high"` (only when the model supports it). Some models only accept a specific subset (e.g. GLM-5.3 accepts `low`/`high`/`max`); an unsupported value is dropped with a note rather than sent.
+- `include_reasoning`: `true` (default for supported models) or `false` to disable reasoning tokens entirely. Setting it to `false` also disables `reasoning_effort`.
+- Some endpoints **mandate reasoning** (e.g. `z-ai/glm-5.3-flash`, reported `reasoning.mandatory` in OpenRouter's model list). Reasoning can't be turned off there — Open Interpreter detects this and ignores `include_reasoning: false` (with a one-time note) instead of sending a request the API rejects with `400 "Reasoning is mandatory"`. Use `reasoning_effort: "low"` as the floor for such models.
+
+<CodeGroup>
+
+```python Python
+interpreter.llm.reasoning_effort = "low"  # or "medium", "high"
+interpreter.llm.include_reasoning = False  # disable thinking tokens
+```
+
+```yaml Profile
+llm:
+  reasoning_effort: "low"
+  # include_reasoning: true  # set false to disable thinking entirely
+```
+
+</CodeGroup>
+
 ### Context Window
 
 Manually set the context window size in tokens for the model. For local models, using a smaller context window will use less RAM, which is more suitable for most devices.

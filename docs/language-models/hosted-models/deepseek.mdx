@@ -54,11 +54,17 @@ Set the following environment variables [(click here to learn how)](https://chat
 
 # Reasoning / thinking mode
 
-Thinking models stream reasoning tokens when supported. Control this on `interpreter.llm`:
+Thinking models stream reasoning tokens when supported. Control this on `interpreter.llm` or in a profile:
 
 ```python
 interpreter.llm.include_reasoning = True  # or False to disable
 interpreter.llm.reasoning_effort = "high"  # low, medium, high (when supported)
+```
+
+```yaml Profile
+llm:
+  reasoning_effort: "low"   # low, medium, high (when supported)
+  # include_reasoning: false  # set false to disable thinking tokens entirely
 ```
 
 Multi-turn chats require prior assistant `reasoning_content` to be sent back to the API; Open Interpreter handles that automatically for `deepseek/` models.
