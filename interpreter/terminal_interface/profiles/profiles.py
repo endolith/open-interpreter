@@ -600,6 +600,9 @@ You are capable of **any** task.""",
     # api_key: ...  # Your API key, if the API requires it
     # api_base: ...  # The URL where an OpenAI-compatible server is running
     # api_version: ...  # The version of the API (this is primarily for Azure)
+    # reasoning_effort: "low"  # "low" | "medium" | "high" — how hard reasoning models think before answering
+    # include_reasoning: true   # false disables reasoning/thinking tokens (also disables reasoning_effort;
+    #   ignored with a note on mandatory-reasoning endpoints like GLM-5.3)
 
 # All options: https://docs.openinterpreter.com/settings
 

@@ -58,6 +58,16 @@ class AccessDeniedError(Exception):
     """Raised when access to a model is denied"""
     pass
 
+# Cache of OpenRouter /api/v1/models entries keyed by model slug. Reasoning
+# contract and modalities are fetched at most once per process; the list rarely
+# changes within a session and a network round-trip per probe is wasteful.
+_openrouter_model_entries = {}
+
+# Models already warned about during this process (mandatory reasoning / an
+# unsupported effort value), so the note is printed once instead of every turn.
+_warned_mandatory_reasoning = set()
+_warned_unsupported_effort = set()
+
 # Create or get the logger
 logger = logging.getLogger("LiteLLM")
 
@@ -421,20 +431,61 @@ Continuing...
 
         # Override reasoning settings if explicitly set on interpreter.llm
         if self.include_reasoning is not None:
-            params["include_reasoning"] = self.include_reasoning
-            stream_options["include_reasoning"] = self.include_reasoning
+            # Some OpenRouter endpoints (e.g. z-ai/glm-5.3-flash) mandate reasoning:
+            # sending reasoning.enabled:false there returns 400 "Reasoning is
+            # mandatory for this endpoint and cannot be disabled". OpenRouter's
+            # model metadata flags this, so refuse to send the disable rather than
+            # fail the request. The model then uses its default effort (max for GLM).
+            _reasoning_mandatory = False
             if model.startswith("openrouter/"):
-                params["extra_body"] = params.get("extra_body", {})
-                params["extra_body"]["include_reasoning"] = self.include_reasoning
-                params["extra_body"]["reasoning"] = {"enabled": self.include_reasoning}
+                _reasoning_mandatory = bool(
+                    ((self._openrouter_model_entry(model) or {}).get("reasoning") or {}).get(
+                        "mandatory"
+                    )
+                )
+            if self.include_reasoning is False and _reasoning_mandatory:
+                if model not in _warned_mandatory_reasoning:
+                    self.interpreter.display_message(
+                        f"> **Note:** `{model}` always reasons and cannot have reasoning "
+                        "disabled, so `include_reasoning: false` is being ignored."
+                    )
+                    _warned_mandatory_reasoning.add(model)
+            else:
+                params["include_reasoning"] = self.include_reasoning
+                stream_options["include_reasoning"] = self.include_reasoning
+                if model.startswith("openrouter/"):
+                    params["extra_body"] = params.get("extra_body", {})
+                    params["extra_body"]["include_reasoning"] = self.include_reasoning
+                    params["extra_body"]["reasoning"] = {"enabled": self.include_reasoning}
 
-        if self.reasoning_effort:
-            params["reasoning_effort"] = self.reasoning_effort
+        # A reasoning_effort only makes sense when reasoning is enabled; sending
+        # one alongside include_reasoning=false is contradictory and some backends
+        # reject it, so skip it whenever the caller disabled reasoning explicitly.
+        if self.reasoning_effort and self.include_reasoning is not False:
+            # Guard against sending an unsupported effort level. GLM 5.3 only
+            # accepts low/high/max and 400s on anything else (including "medium").
+            _effort_ok = True
             if model.startswith("openrouter/"):
-                params["extra_body"] = params.get("extra_body", {})
-                if "reasoning" not in params["extra_body"]:
-                    params["extra_body"]["reasoning"] = {}
-                params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
+                _supported = (
+                    ((self._openrouter_model_entry(model) or {}).get("reasoning") or {}).get(
+                        "supported_efforts"
+                    )
+                )
+                if _supported and self.reasoning_effort not in _supported:
+                    _effort_ok = False
+                    if model not in _warned_unsupported_effort:
+                        self.interpreter.display_message(
+                            f"> **Note:** `{model}` only supports reasoning_effort "
+                            f"{_supported}, so `{self.reasoning_effort}` is being ignored."
+                        )
+                        _warned_unsupported_effort.add(model)
+            if _effort_ok:
+                params["reasoning_effort"] = self.reasoning_effort
+                if model.startswith("openrouter/"):
+                    params["extra_body"] = params.get("extra_body", {})
+                    if "reasoning" not in params["extra_body"]:
+                        params["extra_body"]["reasoning"] = {}
+                    params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
 
         params["stream_options"] = stream_options
 
@@ -546,17 +597,23 @@ Continuing...
         self._model = value
         self._is_loaded = False
 
-    def _openrouter_supports_vision(self, model):
+    def _openrouter_model_entry(self, model):
         """
+        Fetch the OpenRouter /api/v1/models entry for an openrouter model.
+
         OpenRouter proxies any provider's models, so LiteLLM's registry often
         doesn't list new ones (e.g. openrouter/qwen/qwen3.7-plus). OpenRouter's
-        /api/v1/models is authoritative for input modalities, so consult it when
-        LiteLLM can't confirm vision support. Returns True/False, and falls back
-        to False if the model list can't be fetched.
+        model list is authoritative for input modalities AND for the reasoning
+        contract (mandatory reasoning, supported_efforts, default_effort), so a
+        single cached fetch serves both the vision probe and the reasoning
+        param-guarding below. Returns the entry dict, or None if the model is
+        not openrouter/ or the list can't be fetched.
         """
         if not model.lower().startswith("openrouter/"):
-            return False
+            return None
         slug = model.split("openrouter/", 1)[-1]
+        if slug in _openrouter_model_entries:
+            return _openrouter_model_entries[slug]
         try:
             response = requests.get(
                 "https://openrouter.ai/api/v1/models",
@@ -569,14 +626,27 @@ Continuing...
             response.raise_for_status()
             for entry in response.json().get("data", []):
                 if entry.get("id") == slug:
-                    modalities = (entry.get("architecture") or {}).get(
-                        "input_modalities"
-                    ) or []
-                    return "image" in modalities
+                    _openrouter_model_entries[slug] = entry
+                    return entry
         except Exception as e:
             if self.interpreter.verbose:
-                print(f"Could not determine vision support from OpenRouter: {e}")
-        return False
+                print(f"Could not fetch OpenRouter model entry: {e}")
+        _openrouter_model_entries[slug] = None
+        return None
+
+    def _openrouter_supports_vision(self, model):
+        """
+        Returns True if an openrouter model accepts image input.
+
+        Consulted when LiteLLM's registry can't confirm vision support, since the
+        registry often lags provider releases. Falls back to False if the model
+        list can't be fetched.
+        """
+        entry = self._openrouter_model_entry(model)
+        if entry is None:
+            return False
+        modalities = (entry.get("architecture") or {}).get("input_modalities") or []
+        return "image" in modalities
 
     def load(self):
         if self._is_loaded:
@@ -853,6 +923,7 @@ def fixed_litellm_completions(**params):
                             "extra_body": params.get("extra_body"),
                             "stream_options": params.get("stream_options"),
                             "include_reasoning": params.get("include_reasoning"),
+                            "reasoning_effort": params.get("reasoning_effort"),
                             "temperature": params.get("temperature"),
                             "max_tokens": params.get("max_tokens"),
                         },
