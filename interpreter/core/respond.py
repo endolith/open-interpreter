@@ -669,6 +669,27 @@ def respond(interpreter):
                     except Exception:
                         pass
 
+                # `toolbox` is injected into the python kernel as a variable, so
+                # a plain `import toolbox` is always redundant — strip it here
+                # rather than hitting the "cannot import toolbox" guard after the
+                # user already approved. The injected object wins over any import
+                # (which would otherwise shadow it with a real module). Aliased
+                # (`import toolbox as tb`) and `from toolbox import X` forms are
+                # left for the post-confirmation guard to handle.
+                if language == "python" and interpreter.toolbox.import_toolbox_api:
+                    original_lines = code.split("\n")
+                    kept_lines = [
+                        line
+                        for line in original_lines
+                        if not re.match(r"^import\s+toolbox\s*(?:#.*)?$", line)
+                    ]
+                    if len(kept_lines) != len(original_lines):
+                        code = "\n".join(kept_lines)
+                        interpreter.messages[-1]["content"] = code
+                        notices.append(
+                            "Removed redundant `import toolbox` (toolbox is already available)."
+                        )
+
                 removed_notice = "; ".join(notices) if notices else None
 
                 # Yield a message, such that the user can stop code execution if they want to
