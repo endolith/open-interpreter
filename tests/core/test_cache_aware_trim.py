@@ -40,7 +40,7 @@ def test_no_trim_when_under_token_limit():
 def test_trims_to_retention_target_dropping_whole_turns():
     """When the prompt outgrows the budget, a *variable* number of oldest whole
     turns is dropped so the retained tail sits at (or under) retention_ratio of
-    the budget, the cut lands on a user boundary, and the placeholder notes how
+    the budget, the cut lands on a safe boundary, and the placeholder notes how
     many messages were removed."""
     messages = [
         _big_user("2026-08-10 09:00", "first"),
@@ -55,11 +55,13 @@ def test_trims_to_retention_target_dropping_whole_turns():
     assert note is not None
     assert note["role"] == "user"
     assert note["content"] == (
-        "[… 4 messages omitted from 2026-08-10 09:00 "
+        "[… 3 messages omitted from 2026-08-10 09:00 "
         "to 2026-08-11 09:00 to fit context window …]"
     )
     # Whole messages are kept — the retained tail is an exact suffix of the input.
-    assert out[2:] == messages[4:]
+    # The cut lands on the plain-assistant "answer two" (a safe head), so the
+    # model keeps the last assistant reply as well as the current prompt.
+    assert out[2:] == messages[3:]
     assert _count_message_tokens(out[2:], None) <= 300
 
 
@@ -77,7 +79,7 @@ def test_omission_note_count_grows_and_last_timestamp_updates():
     ]
     out1 = cache_aware_trim(base, SYSTEM, token_limit=300)
     note1 = _placeholder(out1)["content"]
-    assert "4 messages omitted from 2026-08-10 09:00 to 2026-08-11 09:00" in note1
+    assert "3 messages omitted from 2026-08-10 09:00 to 2026-08-11 09:00" in note1
 
     grown = base + [
         _big_user("2026-08-13 09:00", "third"),
@@ -152,8 +154,8 @@ def test_retention_ratio_controls_how_aggressively_history_is_dropped():
         messages, SYSTEM, token_limit=500, retention_ratio=0.3
     )
     assert len(out_loose) > len(out_aggressive)
-    assert "4 messages omitted" in _placeholder(out_loose)["content"]
-    assert "6 messages omitted" in _placeholder(out_aggressive)["content"]
+    assert "3 messages omitted" in _placeholder(out_loose)["content"]
+    assert "5 messages omitted" in _placeholder(out_aggressive)["content"]
 
 
 def test_count_message_tokens_counts_reasoning_content():
@@ -191,3 +193,140 @@ def test_placeholder_uses_singular_for_one_message():
     ]
     out = cache_aware_trim(messages, SYSTEM, token_limit=50)
     assert "1 message omitted" in _placeholder(out)["content"]
+
+
+def test_image_tokens_charged_fixed_cost_not_base64_size():
+    """A base64 image must not be counted by its payload length, or a single
+    screenshot (megabytes of characters when base64-encoded) would look larger
+    than the whole context window and trigger a trim that wipes the entire
+    conversation.  Image parts are charged OpenAI's fixed per-image cost, which
+    is what the API actually bills, so the trim ignores the payload size."""
+    tiny = {
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/png;base64," + "A" * 100,
+                    "detail": "low",
+                },
+            }
+        ],
+    }
+    huge = {
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/png;base64," + "A" * 2000000,
+                    "detail": "low",
+                },
+            }
+        ],
+    }
+    assert _count_message_tokens([tiny], None) == _count_message_tokens([huge], None)
+    # Low-detail image is a fixed ~85 tokens plus per-message framing, not
+    # proportional to the payload.  (2M base64 chars would otherwise count as
+    # hundreds of thousands of "tokens".)
+    assert _count_message_tokens([huge], None) < 200
+
+
+def test_image_in_history_does_not_wreck_the_conversation():
+    """Adding an image (e.g. via the view_image tool) mid-conversation must not
+    make the trim drop everything else: before the fix the base64 data URL was
+    counted as text tokens, so a single image overflowed the budget and the
+    whole conversation history was trimmed away."""
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        {"role": "assistant", "content": "answer one"},
+        _big_user("2026-08-11 09:00", "second"),
+        {"role": "assistant", "content": "answer two"},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64," + "A" * 2000000,
+                        "detail": "low",
+                    },
+                }
+            ],
+        },
+        {"role": "assistant", "content": "I can see the image"},
+    ]
+    # token_limit far larger than the conversation + image at fixed cost, so
+    # nothing should be trimmed even with the giant payload in history.
+    out = cache_aware_trim(messages, SYSTEM, token_limit=100000)
+    assert _placeholder(out) is None
+    assert out[1:] == messages
+
+
+def test_cut_lands_on_plain_assistant_boundary_to_keep_full_budget():
+    """A long tail of assistant-reasoning / function / tool messages contains no
+    user boundary, so cutting only on user messages would keep dropping past
+    the point where the tail first fits — discarding nearly the whole
+    conversation and wasting the retention budget.  The cut is allowed on a
+    plain assistant message (no dangling tool call), keeping as much of the
+    budget as possible while the current prompt is still retained."""
+    messages = [
+        {"role": "user", "content": "[2026-08-01 09:00] start"},
+    ]
+    for _ in range(12):
+        messages.append(
+            {"role": "assistant", "content": "ok", "reasoning_content": "r" * 4000}
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "function_call": {"name": "execute", "arguments": "{}"},
+            }
+        )
+        messages.append(
+            {"role": "function", "name": "execute", "content": "output " + "x" * 3000}
+        )
+    messages.append({"role": "user", "content": "[2026-08-02 09:00] current prompt"})
+
+    out = cache_aware_trim(messages, SYSTEM, token_limit=10000, retention_ratio=0.8)
+    note = _placeholder(out)
+    assert note is not None
+    retained = out[2:]
+    # The retained tail actually uses the budget instead of a sliver of it.
+    assert _count_message_tokens(retained, None) > 4000  # > half of the 8000 target
+    assert retained[-1]["role"] == "user"  # current prompt never dropped
+    # The head is a safe boundary — never an orphaned function/tool result.
+    assert retained[0]["role"] in ("user", "assistant")
+    assert not retained[0].get("function_call")
+    assert not retained[0].get("tool_calls")
+
+
+def test_cut_never_orphans_an_assistant_tool_call():
+    """Cutting right before an assistant message that holds tool_calls would
+    orphan the tool call from its result (strict providers 400 on that shape),
+    so the cut must skip past tool-call heads even when they are assistants."""
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "view_image", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "content": "image added"},
+        {"role": "user", "content": "[2026-08-11 09:00] current prompt"},
+    ]
+    out = cache_aware_trim(messages, SYSTEM, token_limit=300)
+    note = _placeholder(out)
+    assert note is not None
+    retained = out[2:]
+    assert retained[0]["role"] == "user"
+    assert not any(m.get("tool_calls") for m in retained)
+    assert not any(m.get("role") == "tool" for m in retained)
+    assert retained == messages[3:]

@@ -21,10 +21,21 @@ def _count_text(obj, encoding):
     counted.  Earlier versions only counted `content`, which massively
     undercounted thinking-model turns: a 20k-character reasoning blob was
     counted as a handful of tokens, so cache-aware trimming never fired.
+
+    Image parts are NOT counted by their base64 payload: a data URL can be
+    megabytes of characters that the tokenizer would inflate into hundreds of
+    thousands of "tokens", making a single screenshot look larger than the
+    whole context window and wiping every other message from the request.  Each
+    image_url part is instead charged the provider's fixed per-image token
+    cost (OpenAI's documented 85 for low detail, up to the 1105 high-detail
+    cap), which is what the API actually bills.
     """
     if isinstance(obj, str):
         return len(encoding.encode(obj))
     if isinstance(obj, dict):
+        if obj.get("type") == "image_url":
+            detail = (obj.get("image_url") or {}).get("detail")
+            return 85 if detail == "low" else 1105
         return sum(_count_text(value, encoding) for value in obj.values())
     if isinstance(obj, list):
         return sum(_count_text(item, encoding) for item in obj)
@@ -36,9 +47,9 @@ def _count_message_tokens(messages, model):
 
     Uses the same per-message overhead as OpenAI's cookbook (3 tokens per
     message for role/structure framing, plus 3 tokens for reply priming at
-    the end of the list).  Image tokens are not counted, so this is an
-    undercount when images are present — which is acceptable since
-    cache-aware truncation is a heuristic anyway.
+    the end of the list).  Image parts are charged the provider's fixed
+    per-image cost (see ``_count_text``), not their base64 payload size, so
+    images count as a small bounded amount rather than a huge text blob.
     """
     encoding = _get_encoding(model)
     total = 3  # reply priming tokens added by the API
@@ -48,17 +59,45 @@ def _count_message_tokens(messages, model):
     return total
 
 
+def _is_safe_cut(message):
+    """A message that can head the retained history without breaking the API.
+
+    The head may be a user message, or an assistant message that carries no
+    dangling tool call — a plain text/reasoning assistant head is valid for
+    chat APIs.  Cutting on a `function`/`tool` result or an assistant message
+    holding `function_call`/`tool_calls` would orphan the tool call from its
+    result, which strict providers reject with a 400.
+    """
+    role = message.get("role")
+    if role == "user":
+        return True
+    if role == "assistant" and not message.get("function_call") and not message.get(
+        "tool_calls"
+    ):
+        return True
+    return False
+
+
 def _find_safe_cut(messages, target_tokens, model):
     """Index of the oldest message to *keep* after dropping the prefix.
 
     Returns `cut` such that dropping `messages[:cut]` brings the retained tail
-    at or below `target_tokens`.  The cut always lands on a `user`-role
-    boundary so a tool-call turn (an assistant message holding
-    `function_call`/`tool_calls`, immediately followed by its
-    `function`/`tool` results) is never split in two, and no orphaned tool
-    result is ever left as the first retained message — strict providers
-    reject both shapes with a 400.  The newest user message (the current
-    prompt) is never dropped, even if it alone exceeds the target.
+    at or below `target_tokens`.  The cut always lands on a boundary that does
+    not orphan a tool result — a `user` message, or a plain `assistant`
+    message with no `function_call`/`tool_calls` — so a tool-call turn (an
+    assistant message holding `function_call`/`tool_calls`, immediately
+    followed by its `function`/`tool` results) is never split in two, and no
+    orphaned tool result is ever left as the first retained message (strict
+    providers reject both shapes with a 400).  The newest user message (the
+    current prompt) is never dropped, even if it alone exceeds the target.
+
+    Restricting the cut to `user` messages alone is too strict: a long run of
+    assistant-reasoning / function / tool messages (a normal agentic
+    debugging session) contains no user boundary, so once the tail first fits
+    the budget the search keeps dropping messages all the way to the next user
+    message — retaining a tiny sliver of the available budget and discarding
+    nearly the whole conversation.  Permitting plain-assistant boundaries lets
+    the trim keep as much of the budget as it can.
     """
     costs = [_count_message_tokens([m], model) for m in messages]
     retained = sum(costs)
@@ -76,7 +115,7 @@ def _find_safe_cut(messages, target_tokens, model):
     for i, cost in enumerate(costs):
         if (
             retained <= target_tokens
-            and messages[i].get("role") == "user"
+            and _is_safe_cut(messages[i])
             and i <= last_user
         ):
             return i
@@ -141,11 +180,14 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
 
     Unlike the older `truncation_step` approach (drop a *fixed* token chunk), a
     *variable* number of whole messages is dropped each time and the cut is
-    aligned to a natural turn boundary: it always falls on a `user` message, so
-    a tool call (assistant `function_call`/`tool_calls`) and its
-    `function`/`tool` results are never separated and no orphaned tool result
-    is left at the head of the retained history (strict providers reject that
-    with a 400).  The newest user message — the current prompt — is always kept.
+    aligned to a safe boundary: it lands on a `user` message or on a plain
+    `assistant` message with no `function_call`/`tool_calls`, so a tool call
+    (assistant `function_call`/`tool_calls`) and its `function`/`tool`
+    results are never separated and no orphaned tool result is left at the
+    head of the retained history (strict providers reject that with a 400).
+    Allowing plain-assistant boundaries (not just `user` ones) stops a long
+    tail of reasoning/function messages from wasting the whole retention
+    budget.  The newest user message — the current prompt — is always kept.
 
     When messages are dropped, a single placeholder `user` message is inserted
     right after the system prompt: "[… N messages omitted from A to B to fit
