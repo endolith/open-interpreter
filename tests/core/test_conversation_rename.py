@@ -77,6 +77,32 @@ def test_conversation_title_transcript_unchanged_under_cap():
     assert _conversation_title_transcript_trim_to_cap(body, 100) == body
 
 
+def test_conversation_title_slug_echo_detected():
+    """A slug that copies a transcript line verbatim must be flagged so the title
+    request can be retried. The model sometimes answers the title request by
+    quoting an assistant line that reads like a summary (observed failure:
+    "Your crest-factor statement is correct and it's the cleanest summary...")."""
+    oi = OpenInterpreter()
+    transcript = (
+        "User: check my audio gain math\n\n"
+        "Assistant: Your crest-factor statement is correct and it's the cleanest "
+        "summary of the whole chain"
+    )
+    slug = oi._sanitize_conversation_title_slug(
+        "Your_crest-factor_statement_is_correct_and_it's_the_cleanest_summary_of_the_whole_chain"
+    )
+    assert oi._conversation_title_slug_is_echo(slug, transcript)
+
+
+def test_conversation_title_slug_not_echo():
+    """A genuine topic heading that is not a transcript quote must not be flagged,
+    so good titles pass through without an unnecessary retry."""
+    oi = OpenInterpreter()
+    transcript = "User: check my audio gain math\n\nAssistant: Your math checks out"
+    slug = oi._sanitize_conversation_title_slug("Audio gain chain verification")
+    assert not oi._conversation_title_slug_is_echo(slug, transcript)
+
+
 def test_rename_with_manual_title(interpreter_with_conversation_file):
     """A user-supplied title becomes the filename prefix (after slug sanitization)."""
     oi = interpreter_with_conversation_file
