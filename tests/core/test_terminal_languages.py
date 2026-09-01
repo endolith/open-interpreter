@@ -1127,5 +1127,255 @@ class TestTerminalInterfaceNotices(unittest.TestCase):
         self.assertEqual(len(out), 2)
 
 
+class TestCwdParsingFuzz(unittest.TestCase):
+    """Property-based (hypothesis) tests for the cd-target parser and stripper.
+
+    These fuzz the tokenizer with arbitrary inputs to catch parsing edge
+    cases a hand-written test table would miss — quoting/escaping
+    interactions, chain operators adjacent to the target, and the split of a
+    target word at every possible character. NOTE: hypothesis is a dev-branch
+    experiment; we're not sure we'll keep it as a dependency when these
+    features are merged into main, so don't build other tests on it.
+    """
+
+    # hypothesis's internal constant-collection scans loaded modules for
+    # constants and tries to import `pynput`, which raises on headless Linux
+    # (no X display) — unrelated to our parser. Block it so the fuzzer can run.
+    try:
+        import sys as _sys
+
+        if "pynput" in _sys.modules:
+            del _sys.modules["pynput"]
+    except Exception:
+        pass
+
+    def setUp(self):
+        # Bash is the one config with backslash-unescaping enabled.
+        self.bash = _StubCwdShell(cd_unescape_backslashes=True)
+        self.bash.cwd = "/fuzz/start"
+
+    # A target word: printable chars, no whitespace, and none of the chars
+    # that terminate/split the target (backslash, ; | &, quotes). Escaped
+    # variants (with backslashes) are generated separately below.
+    safe_word = (
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+    )
+
+    def test_parse_cd_never_raises(self):
+        """_parse_cd never raises and returns a 3-tuple for arbitrary input (including non-cd lines)."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(st.text(max_size=80))
+        @settings(max_examples=300)
+        def run(line):
+            result = self.bash._parse_cd(line)
+            self.assertIsInstance(result, tuple)
+            self.assertEqual(len(result), 3)
+
+        run()
+
+    def test_parse_cd_simple_word_target_is_exact(self):
+        """A plain target word parses exactly, with no chain suffix."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(st.text(alphabet=self.safe_word, min_size=1, max_size=40))
+        @settings(max_examples=300)
+        def run(word):
+            target, after, ok = self.bash._parse_cd(f"cd {word}")
+            self.assertTrue(ok)
+            self.assertEqual(target, word)
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_parse_cd_word_adjacent_to_chain_operator(self):
+        """A chain operator directly adjacent to the target (`cd X;ls`, `cd X&&ls`) splits it off, not into the target."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        operators = st.sampled_from(["&&", "||", ";", "&"])
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=20),
+            operators,
+            st.text(alphabet="ls", min_size=1, max_size=10),
+        )
+        @settings(max_examples=300)
+        def run(word, op, cmd):
+            target, after, ok = self.bash._parse_cd(f"cd {word}{op}{cmd}")
+            self.assertTrue(ok)
+            self.assertEqual(target, word)
+            self.assertTrue(after.startswith(op))
+
+        run()
+
+    def test_parse_cd_word_after_whitespace_chain(self):
+        """A chain operator after whitespace (`cd X && ls`) splits with the operator at the head of `after`."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        operators = st.sampled_from(["&&", "||", ";", "&"])
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=20),
+            operators,
+            st.text(alphabet="ls", min_size=1, max_size=10),
+        )
+        @settings(max_examples=300)
+        def run(word, op, cmd):
+            target, after, ok = self.bash._parse_cd(f"cd {word} {op} {cmd}")
+            self.assertTrue(ok)
+            self.assertEqual(target, word)
+            self.assertTrue(after.startswith(op))
+
+        run()
+
+    def test_parse_cd_single_pipe_or_redirect_unparseable(self):
+        """A bare `|` or redirect after the target makes the line unparseable (a cd piped/redirected isn't a directory change)."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        suffixes = st.sampled_from(["| wc", "> /dev/null", "2>/dev/null"])
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=20),
+            suffixes,
+        )
+        @settings(max_examples=200)
+        def run(word, suffix):
+            target, after, ok = self.bash._parse_cd(f"cd {word} {suffix}")
+            self.assertFalse(ok)
+
+        run()
+
+    def test_parse_cd_quoted_target_preserves_content(self):
+        """A quoted target parses to exactly the quoted content, preserving spaces and punctuation (an empty `""` is a valid no-op target)."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        # Quotable content with NO embedded double-quote (which the naive
+        # first-quote parser can't represent faithfully). Spaces and shell
+        # punctuation are the interesting cases.
+        quoted_safe = self.safe_word + " " + "~`!@#$%^&*()+-=[]{}<>,?'"
+
+        @given(st.text(alphabet=quoted_safe, min_size=0, max_size=30))
+        @settings(max_examples=300)
+        def run(content):
+            target, after, ok = self.bash._parse_cd(f'cd "{content}"')
+            # Even empty (`cd ""`) parses with an empty target.
+            self.assertTrue(ok)
+            self.assertEqual(target, content)
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_parse_cd_escaped_space_stays_in_target(self):
+        """A backslash-escaped space (`My\\ Documents`) stays inside the target word."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=15),
+            st.text(alphabet=self.safe_word, min_size=1, max_size=15),
+        )
+        @settings(max_examples=200)
+        def run(part1, part2):
+            target, after, ok = self.bash._parse_cd(f"cd {part1}\\ {part2}")
+            self.assertTrue(ok)
+            self.assertEqual(target, f"{part1} {part2}")
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_bash_strips_redundant_cd_with_escaped_space(self):
+        """A redundant cd whose path contains a backslash-escaped space is stripped with a notice (the bug that motivated this work)."""
+        b = Bash()
+        b.cwd = "/home/user/documents/My Documents"
+        stripped = b._strip_redundant_cd(
+            "cd /home/user/documents/My\\ Documents/\npdftotext report.pdf 2>/dev/null | grep -c PATTERN"
+        )
+        self.assertEqual(stripped, "pdftotext report.pdf 2>/dev/null | grep -c PATTERN")
+        self.assertEqual(
+            b._pending_notice,
+            "Removed redundant cd /home/user/documents/My Documents/ (already in that directory).",
+        )
+        # The peek must not advance cwd.
+        self.assertEqual(b.cwd, "/home/user/documents/My Documents")
+
+    def test_bash_keeps_cd_with_escaped_space_to_other_dir(self):
+        """A cd to a DIFFERENT dir whose path has an escaped space is kept and tracked correctly."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "sub dir")
+            os.mkdir(sub)
+            esc = sub.replace(" ", "\\ ")
+            b = Bash()
+            b.cwd = d
+            result = b._strip_redundant_cd(f"cd {esc} && ls")
+            self.assertEqual(result, f"cd {esc} && ls")
+            self.assertEqual(b.cwd, sub)
+
+    def test_parse_cd_escaped_char_round_trips(self):
+        """Any `\\X` escape unescapes to `X`, so the target compares equal to the literal path."""
+        from hypothesis import given, settings, HealthCheck
+        from hypothesis import strategies as st
+
+        @given(
+            st.lists(
+                st.tuples(st.sampled_from(self.safe_word), st.sampled_from(self.safe_word)),
+                min_size=1,
+                max_size=10,
+            )
+        )
+        @settings(max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture])
+        def run(pairs):
+            escaped = "".join(f"\\{a}{b}" for a, b in pairs)
+            target, after, ok = self.bash._parse_cd(f"cd {escaped}")
+            self.assertTrue(ok)
+            self.assertEqual(target, escaped.replace("\\", ""))
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_peek_strip_idempotent_on_arbitrary_code(self):
+        """The respond peek (track=False) is idempotent for any multi-line code."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        line = st.text(alphabet=self.safe_word + " ;&|\\", max_size=40)
+
+        @given(st.lists(line, min_size=0, max_size=10))
+        @settings(max_examples=300)
+        def run(lines):
+            code = "\n".join(lines)
+            first = self.bash._strip_redundant_cd(code, track=False)
+            second = self.bash._strip_redundant_cd(first, track=False)
+            self.assertEqual(second, first)
+            # The peek never mutates cwd.
+            self.assertEqual(self.bash.cwd, "/fuzz/start")
+
+        run()
+
+    def test_strip_never_changes_cwd_when_tracking_disabled(self):
+        """track=False (the respond peek) never advances the tracked cwd, for any code."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        line = st.text(alphabet=self.safe_word + " ;&|\\", max_size=40)
+
+        @given(st.lists(line, min_size=0, max_size=10))
+        @settings(max_examples=200)
+        def run(lines):
+            code = "\n".join(lines)
+            before = self.bash.cwd
+            self.bash._strip_redundant_cd(code, track=False)
+            self.assertEqual(self.bash.cwd, before)
+
+        run()
+
+
 if __name__ == "__main__":
     unittest.main()

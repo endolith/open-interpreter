@@ -29,6 +29,11 @@ class CwdTrackingMixin:
     cd_ignore_case = False
     cd_option_prefixes = ()
     cd_chain_operators = ("&&", ";", "&")
+    # POSIX shells escape a space in a path as `\ ` (`My\ Documents`). When
+    # True, the target is unescaped before comparing to the tracked cwd. Only
+    # bash does this; cmd/PowerShell use backslash as a path separator and
+    # quote spaces instead, so they must keep the backslashes.
+    cd_unescape_backslashes = False
 
     def __init__(self):
         self.cwd = os.getcwd()
@@ -47,12 +52,18 @@ class CwdTrackingMixin:
         pattern = "|".join(re.escape(op) for op in self.cd_chain_operators)
         return re.compile(rf"^({pattern})(.*)$")
 
-    # First whitespace-delimited token is the target; a chain operator may
-    # directly follow it (`cd X; cmd`). `||` is split out too so the line can be
-    # recognized as a chain and deliberately kept whole (a failed cd would have
-    # run the fallback). Any other trailing content (`cd X > f`) leaves the
-    # line unparseable and it is left untouched.
-    _CD_TARGET_RE = re.compile(r"^(\S+?)\s*((?:&&|\|\||;|&).*)?$")
+    # First shell word is the target, where a backslash escapes the next char
+    # (`\ ` keeps an escaped space inside the word, so `My\ Documents` is
+    # one path, not two tokens). A chain operator (`&&`, `||`, `;`, `&`) may
+    # directly follow it (`cd X; cmd`) or after whitespace; the operator is a
+    # word terminator, so `cd X;ls` splits as target `X`, chain `;ls`. `||` is
+    # split out too so the line can be recognized as a chain and deliberately
+    # kept whole (a failed cd would have run the fallback). Any other trailing
+    # content (`cd X | wc`, `cd X > f`) leaves the line unparseable and it is
+    # left untouched (and never advances the tracked cwd).
+    _CD_TARGET_RE = re.compile(
+        r"^((?:\\.|[^\s\\;|&])+)(?:\s*((?:&&|\|\||;|&).*))?$"
+    )
 
     def _cwd_marker_echo(self):
         raise NotImplementedError
@@ -170,7 +181,13 @@ class CwdTrackingMixin:
             m2 = self._CD_TARGET_RE.match(rest)
             if not m2:
                 return None, "", False
-            target = m2.group(1)
+            raw_target = m2.group(1)
+            if self.cd_unescape_backslashes:
+                # Unescape `\ ` -> space and `\\` -> `\` so the target compares
+                # against the tracked cwd (which has no shell escapes).
+                target = re.sub(r"\\(.)", r"\1", raw_target)
+            else:
+                target = raw_target
             after = (m2.group(2) or "").strip()
         return target, after, True
 

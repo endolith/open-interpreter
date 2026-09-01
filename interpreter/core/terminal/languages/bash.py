@@ -8,6 +8,8 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "sh"
     name = "bash"
     execute_tool_hint = "GNU bash — export VAR=value; always bash, never the login shell (fish/zsh)"
+    # POSIX escaping: `cd My\ Documents` is one path with a space.
+    cd_unescape_backslashes = True
 
     def __init__(self):
         CwdTrackingMixin.__init__(self)
