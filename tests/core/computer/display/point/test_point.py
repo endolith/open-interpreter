@@ -13,10 +13,13 @@ from unittest import mock
 import pytest
 from PIL import Image
 
+import sys
+
 from tests.helpers import install_point_heavy_deps
 
 
 def _import_point(monkeypatch):
+    """Install heavy deps then import the point module for testing."""
     install_point_heavy_deps(monkeypatch)
     import interpreter.core.computer.display.point.point as point_mod
 
@@ -69,6 +72,7 @@ def test_find_icon_filters_extremes_and_returns_normalized_center(monkeypatch):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the call args and return the first icon for filtering."""
         captured["description"] = description
         captured["icons"] = icons
         return icons[:1]
@@ -102,6 +106,7 @@ def test_find_icon_skips_description_icon_suffix(monkeypatch):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the description and return no matching icons."""
         captured["description"] = description
         return []
 
@@ -153,6 +158,7 @@ def test_find_icon_combines_overlapping_boxes(monkeypatch):
     ]
 
     def fake_image_search(description, icons, hashes, debug):
+        """Return the first icon so find_icon yields its normalized coordinate."""
         return icons[:1]
 
     with mock.patch.object(point_mod, "get_element_boxes", return_value=boxes):
@@ -182,3 +188,239 @@ def test_take_screenshot_to_pil_captures_and_cleans_up(monkeypatch, tmp_path):
     run.assert_called_once_with(["screencapture", "-x", filename], check=True)
     remove.assert_called_once_with(filename)
     assert result.size == (50, 50)
+
+
+def _fake_embed():
+    """A tensor-ish fake with the .to/.unsqueeze surface image_search touches."""
+
+    def _to(device):
+        """Return a fresh fake embed (device transfer is a no-op)."""
+        return _fake_embed()
+
+    def _unsqueeze(_dim):
+        """Return a fresh fake embed (dimension expansion is a no-op)."""
+        return _fake_embed()
+
+    e = SimpleNamespace(label="embed")
+    e.to = _to
+    e.unsqueeze = _unsqueeze
+    return e
+
+
+class _FakeBatch:
+    """Mimics the tensor surface model.encode exposes: [0], [1:] and .to()."""
+
+    def __init__(self, items):
+        """Store the underlying item list for slicing/indexing."""
+        self._items = items
+
+    def __getitem__(self, idx):
+        """Return an item, or a nested fake batch when indexed with a slice."""
+        if isinstance(idx, slice):
+            return _FakeBatch(self._items[idx])
+        return self._items[idx]
+
+    def to(self, device):
+        """Return self; the fake batch ignores device transfer."""
+        return self
+
+
+def test_image_search_embeds_unhashed_and_filters_by_score(monkeypatch):
+    """image_search embeds query + uncached icons, caches hashes, and returns
+    only icons whose semantic score exceeds 90."""
+    point_mod = _import_point(monkeypatch)
+
+    icons = [
+        {"hash": "new1", "data": "img1"},
+        {"hash": "cached", "data": "img2"},
+    ]
+    hashes = {"cached": _fake_embed()}
+
+    query = _fake_embed()
+    model = mock.Mock()
+    model.encode.return_value = _FakeBatch([query, _fake_embed()])
+    monkeypatch.setattr(point_mod, "model", model)
+    monkeypatch.setattr(
+        point_mod.torch,
+        "cat",
+        lambda *_a, **_k: [_fake_embed(), hashes["cached"]],
+    )
+    monkeypatch.setattr(
+        point_mod.util,
+        "semantic_search",
+        lambda *_a, **_k: [
+            [
+                {"corpus_id": 0, "score": 99.0},
+                {"corpus_id": 1, "score": 90.0},
+            ]
+        ],
+    )
+
+    result = point_mod.image_search(query, icons, hashes, False)
+
+    encoded = model.encode.call_args[0][0]
+    assert encoded[0] is query
+    assert encoded[1:] == ["img1"]
+    assert "new1" in hashes
+    # Only the strictly->90 hit survives; the 90.0 boundary is filtered out.
+    assert [i["hash"] for i in result] == ["new1"]
+
+
+def test_image_search_forces_top_hit_into_results(monkeypatch):
+    """A low-scoring top hit is still included ahead of the qualifying ones."""
+    point_mod = _import_point(monkeypatch)
+
+    icons = [
+        {"hash": "new1", "data": "img1"},
+        {"hash": "new2", "data": "img2"},
+    ]
+    hashes = {}
+    query = _fake_embed()
+    model = mock.Mock()
+    model.encode.return_value = _FakeBatch([query, _fake_embed(), _fake_embed()])
+    monkeypatch.setattr(point_mod, "model", model)
+    monkeypatch.setattr(
+        point_mod.torch,
+        "cat",
+        lambda *_a, **_k: [_fake_embed(), _fake_embed()],
+    )
+    monkeypatch.setattr(
+        point_mod.util,
+        "semantic_search",
+        lambda *_a, **_k: [
+            [
+                {"corpus_id": 0, "score": 50.0},
+                {"corpus_id": 1, "score": 99.0},
+            ]
+        ],
+    )
+
+    result = point_mod.image_search(query, icons, hashes, False)
+
+    assert [i["hash"] for i in result] == ["new1", "new2"]
+
+
+def test_image_search_slow_model_uses_embed_images(monkeypatch):
+    """When fast_model is False, embedding goes through embed_images()."""
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setattr(point_mod, "fast_model", False)
+
+    icons = [{"hash": "new1", "data": "img1"}]
+    hashes = {}
+    embeds = _FakeBatch([_fake_embed(), _fake_embed()])
+    monkeypatch.setattr(
+        point_mod, "embed_images", mock.Mock(return_value=embeds), raising=False
+    )
+    monkeypatch.setattr(point_mod, "transforms", None, raising=False)
+    monkeypatch.setattr(point_mod.torch, "cat", lambda *_a, **_k: [_fake_embed()])
+    monkeypatch.setattr(
+        point_mod.util,
+        "semantic_search",
+        lambda *_a, **_k: [[{"corpus_id": 0, "score": 100.0}]],
+    )
+
+    result = point_mod.image_search("folder", icons, hashes, False)
+
+    assert [i["hash"] for i in result] == ["new1"]
+
+
+def test_get_element_boxes_builds_boxes_from_contours(monkeypatch):
+    """get_element_boxes runs the cv2 pipeline and returns boundingRect boxes."""
+    point_mod = _import_point(monkeypatch)
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2, "adaptiveThreshold", lambda *_a, **_k: "binary", raising=False
+    )
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}, {"contour": 2}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "boundingRect",
+        lambda contour: {"contour": 1} == contour and (5, 10, 20, 30) or (15, 25, 10, 5),
+        raising=False,
+    )
+    # process_image's default args reference these at definition time.
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_MEAN_C", 0, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY_INV", 1, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_RGB2BGR", 4, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_BGR2GRAY", 5, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "RETR_LIST", 6, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "CHAIN_APPROX_NONE", 7, raising=False)
+
+    boxes = point_mod.get_element_boxes(screenshot, False)
+
+    assert boxes == [
+        {"x": 5, "y": 10, "width": 20, "height": 30},
+        {"x": 15, "y": 25, "width": 10, "height": 5},
+    ]
+
+
+def test_get_element_boxes_permutates_when_env_set(monkeypatch):
+    """OI_POINT_PERMUTATE=True varies threshold parameters across iterations."""
+    import types
+
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    adaptive = mock.Mock(return_value="binary")
+    monkeypatch.setattr(point_mod.cv2, "adaptiveThreshold", adaptive, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "boundingRect", lambda _c: (1, 2, 3, 4), raising=False)
+    # process_image's default args reference these at definition time.
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_MEAN_C", 0, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY_INV", 1, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_GAUSSIAN_C", 2, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY", 3, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_RGB2BGR", 4, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_BGR2GRAY", 5, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "RETR_LIST", 6, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "CHAIN_APPROX_NONE", 7, raising=False)
+
+    # get_element_boxes does `import random` locally, so stub sys.modules.
+    random_stub = types.ModuleType("random")
+    random_stub.uniform = mock.Mock(
+        side_effect=[float(n) for n in range(1, 11)]
+    )
+    # Return values only ever come from the supplied options (odd block sizes,
+    # adaptive methods, threshold types), while rotating through them so the
+    # threshold parameters actually change across the 10 iterations.
+    choice_state = {}
+
+    def _rotate(options):
+        """Return each supplied option in turn, wrapping around to the first."""
+        key = tuple(options)
+        index = choice_state.get(key, 0)
+        choice_state[key] = index + 1
+        return options[index % len(options)]
+
+    random_stub.choice = mock.Mock(side_effect=_rotate)
+    random_stub.randint = mock.Mock(side_effect=[-5, 5] * 5)
+    monkeypatch.setitem(sys.modules, "random", random_stub)
+
+    boxes = point_mod.get_element_boxes(screenshot, False)
+
+    assert boxes == [{"x": 1, "y": 2, "width": 3, "height": 4}]
+    assert adaptive.call_count == 10
+    param_sets = {
+        (c.kwargs["adaptiveMethod"], c.kwargs["thresholdType"], c.kwargs["C"])
+        for c in adaptive.call_args_list
+    }
+    # The random draws must have actually changed the threshold parameters.
+    assert len(param_sets) > 1

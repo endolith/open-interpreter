@@ -27,6 +27,7 @@ class _Obj:
 
 
 def _obj():
+    """Build an interpreter stub whose llm is its own nested object."""
     obj = _Obj()
     obj.llm = _Obj()
     return obj
@@ -125,6 +126,9 @@ def _patch_module(monkeypatch):
     interpreter.messages = []
     interpreter.disable_telemetry = False
     interpreter.chat = mock.Mock()
+    interpreter.server = mock.Mock()
+    interpreter.computer = mock.Mock()
+    interpreter.computer.vision = mock.Mock()
     # Concrete values so the model/api_base string logic sees real strings.
     interpreter.llm.model = "gpt-4o-mini"
     interpreter.llm.api_base = None
@@ -271,3 +275,143 @@ def test_start_terminal_interface_i_shortcut_prepends_command(monkeypatch, tmp_p
     assert interpreter.messages[0]["content"] == "I make a pomodoro"
     assert interpreter.custom_instructions.startswith("UPDATED INSTRUCTIONS")
     assert sys.argv == ["oi"]
+
+
+def test_start_terminal_interface_conversations_flag(monkeypatch):
+    """`--conversations` runs the conversation navigator and returns early."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--conversations"])
+
+    assert start_terminal_interface(interpreter) is None
+    sti.conversation_navigator.assert_called_once_with(interpreter)
+    interpreter.chat.assert_not_called()
+
+
+def test_start_terminal_interface_server_flag(monkeypatch):
+    """`--server` swaps in an AsyncInterpreter and runs its server."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--server"])
+
+    async_interpreter = mock.Mock()
+    async_interpreter.server = mock.Mock()
+    async_interpreter.llm.model = "gpt-4o-mini"
+    async_interpreter.llm.api_base = None
+    with mock.patch(
+        "interpreter.AsyncInterpreter", return_value=async_interpreter
+    ):
+        result = start_terminal_interface(interpreter)
+
+    assert result is None
+    async_interpreter.server.run.assert_called_once_with()
+
+
+def test_start_terminal_interface_no_highlight_active_line(monkeypatch):
+    """`--no_highlight_active_line` disables active-line highlighting."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--no_highlight_active_line"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.highlight_active_line is False
+
+
+def test_start_terminal_interface_local_vision_loads_moondream(monkeypatch):
+    """`--local --vision` loads the computer vision model."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--local", "--vision"])
+
+    start_terminal_interface(interpreter)
+
+    assert sti.profile.call_args[0][1] == "local.py"
+    interpreter.computer.vision.load.assert_called_once_with()
+
+
+def test_start_terminal_interface_local_os_profile(monkeypatch):
+    """`--local --os` selects the local-os profile."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--local", "--os"])
+
+    start_terminal_interface(interpreter)
+
+    assert sti.profile.call_args[0][1] == "local-os.py"
+
+
+def test_start_terminal_interface_codestral_vision_profile(monkeypatch):
+    """`--codestral --vision` selects the codestral-vision profile."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--codestral", "--vision"])
+
+    start_terminal_interface(interpreter)
+
+    assert sti.profile.call_args[0][1] == "codestral-vision.py"
+
+
+def test_start_terminal_interface_llama3_os_profile(monkeypatch):
+    """`--llama3 --os` selects the llama3-os profile."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--llama3", "--os"])
+
+    start_terminal_interface(interpreter)
+
+    assert sti.profile.call_args[0][1] == "llama3-os.py"
+
+
+def test_start_terminal_interface_assistant_profile(monkeypatch):
+    """`--assistant` selects the assistant.py profile."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--assistant"])
+
+    start_terminal_interface(interpreter)
+
+    assert sti.profile.call_args[0][1] == "assistant.py"
+
+
+def test_start_terminal_interface_groq_profile(monkeypatch):
+    """`--groq` selects the groq.py profile."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--groq"])
+
+    start_terminal_interface(interpreter)
+
+    assert sti.profile.call_args[0][1] == "groq.py"
+
+
+def test_start_terminal_interface_gpt35_turbo_defaults(monkeypatch):
+    """A gpt-3.5-turbo model gets a 16000-token context window."""
+    sti, interpreter = _patch_module(monkeypatch)
+    interpreter.llm.model = "gpt-3.5-turbo"
+    interpreter.llm.context_window = None
+    interpreter.llm.max_tokens = None
+    interpreter.llm.supports_functions = None
+    monkeypatch.setattr(sys, "argv", ["oi"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.llm.context_window == 16000
+    assert interpreter.llm.max_tokens == 4096
+    assert interpreter.llm.supports_functions is True
+
+
+def test_start_terminal_interface_vision_model_disables_functions(monkeypatch):
+    """A vision gpt-4 model gets supports_functions=False."""
+    sti, interpreter = _patch_module(monkeypatch)
+    interpreter.llm.model = "gpt-4-vision-preview"
+    interpreter.llm.context_window = None
+    interpreter.llm.max_tokens = None
+    interpreter.llm.supports_functions = None
+    monkeypatch.setattr(sys, "argv", ["oi"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.llm.supports_functions is False
+
+
+def test_start_terminal_interface_disable_telemetry_env(monkeypatch):
+    """DISABLE_TELEMETRY=true sets disable_telemetry even without the flag."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi"])
+    monkeypatch.setenv("DISABLE_TELEMETRY", "true")
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.disable_telemetry is True
