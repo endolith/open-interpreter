@@ -4,6 +4,7 @@ It's the main file. `from interpreter import interpreter` will import an instanc
 """
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -336,6 +337,37 @@ class OpenInterpreter:
             s = s[:max_len]
         return s.rstrip("._-")
 
+    def _conversation_title_slug_is_echo(self, slug, transcript):
+        """True if the slug copies a transcript line verbatim (model quoted the chat).
+
+        The model sometimes answers the title request by repeating an assistant
+        line that reads like a summary (e.g. "Your crest-factor statement is
+        correct and it's the cleanest summary of the whole..."). Such a slug is
+        useless as a filename, so detect it by checking whether a run of at least
+        six of the slug's words appears inside any transcript line. Six words is
+        long enough that genuine short topic headings are never flagged, while
+        quoted sentences are. The final slug word is ignored because the slug is
+        truncated at 80 characters and may end mid-word.
+        """
+        if not slug:
+            return False
+        slug_words = re.findall(r"[a-z0-9'-]+", slug.lower())[:-1]
+        if len(slug_words) < 6:
+            return False
+        for line in transcript.split("\n\n"):
+            line = line.strip()
+            for prefix in ("User: ", "Assistant: "):
+                if line.startswith(prefix):
+                    line = line[len(prefix):]
+                    break
+            line_words = re.findall(r"[a-z0-9'-]+", line.lower())
+            for i in range(len(slug_words) - 5):
+                run = slug_words[i : i + 6]
+                for j in range(len(line_words) - 5):
+                    if line_words[j : j + 6] == run:
+                        return True
+        return False
+
     def _run_llm_for_conversation_title_slug(self, transcript):
         title_messages = [
             {
@@ -351,7 +383,7 @@ class OpenInterpreter:
         ]
         self.display_message("> Generating a short title for this conversation…")
         retry_count = 0
-        while True:
+        for _ in range(3):
             content = ""
             try:
                 for chunk in self.llm.run(title_messages, auxiliary_title_request=True):
@@ -361,17 +393,34 @@ class OpenInterpreter:
                         continue
                     if "content" in chunk:
                         content += chunk.get("content") or ""
-                break  # success
             except Exception as e:
                 if _is_temporary_provider_error(e):
                     retry_count += 1
                     _render_temporary_retry_status(retry_count)
                     time.sleep(min(2**retry_count, 30))
+                    continue
                 else:
                     return ""
-        if not content:
-            return ""
-        return self._sanitize_conversation_title_slug(content)
+            if not content:
+                return ""
+            slug = self._sanitize_conversation_title_slug(content)
+            if not self._conversation_title_slug_is_echo(slug, transcript):
+                return slug
+            # The model quoted the chat back at us. Push back with a corrective
+            # instruction and try again, so the filename is a topic, not a quote.
+            self.display_message("> That title quoted the chat; retrying for a topic…")
+            title_messages.append(
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": (
+                        "That title was a direct quote from the transcript. "
+                        "Output a topic heading in your own words that does not "
+                        "appear anywhere in the transcript."
+                    ),
+                }
+            )
+        return ""
 
     def rename_conversation_file_from_llm_title(
         self, use_full_transcript=False, manual_title=None
