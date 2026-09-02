@@ -1,3 +1,6 @@
+import base64
+import os
+
 from interpreter.core.llm.utils.convert_to_openai_messages import convert_to_openai_messages
 
 
@@ -219,3 +222,145 @@ def test_user_message_boundary_resets_pending_reasoning():
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert "reasoning_content" not in function_calls[0]
+
+
+def _make_image_bytes(image_format="PNG", color=(10, 20, 30)):
+    """Return the raw bytes of a tiny image saved in the given PIL format."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), color).save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+def _path_image_message(raw_bytes, extension):
+    """Write raw_bytes to a temp file with the given extension and return its path."""
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=f".{extension}")
+    with os.fdopen(fd, "wb") as file:
+        file.write(raw_bytes)
+    return path
+
+
+def _image_url(out):
+    """Extract the data URL from the first image_url content part in converted messages."""
+    for message in out:
+        for part in message.get("content", []):
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                return part["image_url"]["url"]
+    raise AssertionError("no image_url part found in converted messages")
+
+
+def _convert_image_path(path, **kwargs):
+    """Convert a single path-based image message, removing the temp file afterwards."""
+    try:
+        return convert_to_openai_messages(
+            [{"role": "user", "type": "image", "format": "path", "content": path}],
+            function_calling=True,
+            vision=True,
+            shrink_images=False,
+            interpreter=_FakeInterpreter(),
+            **kwargs,
+        )
+    finally:
+        os.remove(path)
+
+
+def test_bmp_path_is_retranscoded_to_png():
+    """A correctly-labeled .bmp must be sent as a decodable PNG data URL.
+
+    No major vision API (OpenAI, Claude, DeepSeek, Gemini) accepts BMP bytes;
+    providers return a 400 "unsupported image" error. The converter sniffs the
+    real format and re-encodes BMP losslessly to PNG so the request reaches the
+    model instead of being rejected.
+    """
+    out = _convert_image_path(_path_image_message(_make_image_bytes("BMP"), "bmp"))
+    url = _image_url(out)
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split("base64,")[1]).startswith(b"\x89PNG")
+
+
+def test_bmp_misnamed_png_is_sent_as_real_png():
+    """A BMP carrying a .png extension must not be sent as image/png holding BMP bytes.
+
+    Regression case behind a real provider 400: the file was a BMP renamed to
+    .png, so the old code built ``data:image/png;base64,<BMP bytes>`` which the
+    API rejected. The bytes are sniffed, the BMP re-encoded to PNG, and the data
+    URL actually decodes as a PNG.
+    """
+    raw = _make_image_bytes("BMP")
+    out = _convert_image_path(_path_image_message(raw, "png"))
+    url = _image_url(out)
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split("base64,")[1]).startswith(b"\x89PNG")
+    assert base64.b64decode(url.split("base64,")[1]) != raw
+
+
+def test_base64_bmp_message_is_retranscoded_to_png():
+    """Inline base64.bmp images get the same normalization as path-based ones.
+
+    base64 image messages (e.g. from the computer/display toolboxes) share the
+    same converter branch, so a BMP payload must also be re-encoded to PNG rather
+    than sent as an unsupported data:image/bmp URL.
+    """
+    out = convert_to_openai_messages(
+        [
+            {
+                "role": "computer",
+                "type": "image",
+                "format": "base64.bmp",
+                "content": base64.b64encode(_make_image_bytes("BMP")).decode(),
+            }
+        ],
+        function_calling=True,
+        vision=True,
+        shrink_images=False,
+        interpreter=_FakeInterpreter(),
+    )
+    url = _image_url(out)
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split("base64,")[1]).startswith(b"\x89PNG")
+
+
+def test_supported_format_paths_pass_through_unchanged():
+    """PNG/JPEG/WebP/GIF bytes must reach the API byte-for-byte unchanged.
+
+    These are the formats every major vision API accepts; re-encoding them would
+    waste tokens and could alter fidelity. The data URL must carry the *real*
+    format in its MIME type, correcting a misleading extension (e.g. a JPEG saved
+    as .png is labeled image/jpeg) while keeping the original bytes.
+    """
+    from PIL import features
+
+    webp_supported = features.check("webp")
+    cases = [
+        ("PNG", "png", "image/png"),
+        ("JPEG", "jpg", "image/jpeg"),
+        ("JPEG", "png", "image/jpeg"),
+        ("GIF", "gif", "image/gif"),
+    ]
+    if webp_supported:
+        cases.append(("WEBP", "webp", "image/webp"))
+    for image_format, extension, mime in cases:
+        raw = _make_image_bytes(image_format)
+        out = _convert_image_path(_path_image_message(raw, extension))
+        url = _image_url(out)
+        assert url.startswith(f"data:{mime};base64,"), (image_format, url[:40])
+        assert url.split("base64,")[1] == base64.b64encode(raw).decode()
+
+
+def test_undecodable_bytes_fall_back_to_declared_format():
+    """Corrupt/non-image data is passed through with its declared format, not crashed.
+
+    Pillow cannot inspect garbage bytes; the converter must not raise. The
+    request then fails at the provider with a clear 400 instead of an opaque
+    local error, and the surrounding path handling can surface the filename for
+    diagnosis.
+    """
+    out = _convert_image_path(_path_image_message(b"this is not an image at all", "png"))
+    url = _image_url(out)
+    assert url.startswith("data:image/png;base64,")
+    assert url.split("base64,")[1] == base64.b64encode(b"this is not an image at all").decode()
