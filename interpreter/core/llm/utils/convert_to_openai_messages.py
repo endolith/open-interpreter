@@ -19,6 +19,44 @@ def image_path_exceeds_shrink_threshold(path: str) -> bool:
     return data_url_exceeds_shrink_threshold(content)
 
 
+# Image formats every major vision API accepts (OpenAI, Anthropic/Claude,
+# DeepSeek, Google Gemini, OpenRouter relays). Formats outside this set — BMP,
+# TIFF, ICO, HEIC, ... — are rejected with a 400 even when the data URL is
+# correctly labeled, so they are re-encoded to PNG before being sent.
+PROVIDER_SAFE_IMAGE_FORMATS = frozenset({"png", "jpeg", "webp", "gif"})
+
+
+def _normalize_image_format(encoded_string: str, declared_extension: str):
+    """Sniff the real image format and return (extension, base64) that a vision API can decode.
+
+    The declared extension can lie (a BMP misnamed ``.png`` gets sent as
+    ``data:image/png`` holding BMP bytes, which providers reject), and some
+    formats are unsupported even when correctly labeled.  The bytes are decoded
+    and inspected with Pillow; when the actual format is one a vision API can
+    decode it is kept as-is (so GIF/WebP pass through untouched), otherwise the
+    image is re-encoded losslessly to PNG.  On undecodable/corrupt data the
+    input is returned unchanged so callers can surface it.
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        image = Image.open(io.BytesIO(base64.b64decode(encoded_string)))
+    except Exception:
+        # Corrupt or non-image data: send it through and let the provider error.
+        return declared_extension, encoded_string
+
+    actual = (image.format or declared_extension).lower()
+    actual = {"jpg": "jpeg"}.get(actual, actual)
+    if actual in PROVIDER_SAFE_IMAGE_FORMATS:
+        return actual, encoded_string
+
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    return "png", base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
 def _lmc_role_to_api_role(role):
     # LMC history uses role "computer" for tool/output chunks; chat APIs only accept
     # system, user, assistant, tool (and provider-specific extras like latest_reminder).
@@ -274,6 +312,14 @@ def convert_to_openai_messages(
                         raise Exception(
                             f"Unrecognized image format: {message['format']}"
                         )
+
+                # Trust the actual image content, not the extension: re-encode
+                # anything a vision API can't decode (BMP, TIFF, ICO, ...) to PNG,
+                # and use the real format in the data URL so a misnamed file (e.g.
+                # a BMP called ".png") isn't sent as undecodable bytes.
+                extension, encoded_string = _normalize_image_format(
+                    encoded_string, extension
+                )
 
                 content = f"data:image/{extension};base64,{encoded_string}"
                 image_was_resized = False
