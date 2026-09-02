@@ -2,9 +2,15 @@
 
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
 These tests cover the core interpreter logic:
 the sync chat loop, message handling, conversation history, and the _respond_and_store
 chunk assembly logic.
+=======
+These tests cover the core interpreter logic that was not covered by PR #246:
+the sync chat loop, message handling, conversation history, and the _respond_and_store
+chunk assembly logic. Tests document current behavior only — no source changes.
+>>>>>>> theirs
 =======
 These tests cover the core interpreter logic that was not covered by PR #246:
 the sync chat loop, message handling, conversation history, and the _respond_and_store

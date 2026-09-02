@@ -4,7 +4,12 @@ Profiles configure the interpreter's LLM, computer, and behavior. These tests
 cover profile resolution, loading from files and URLs, migration, and the
 <<<<<<< ours
 <<<<<<< ours
+<<<<<<< ours
 application of profile settings to interpreter objects.
+=======
+application of profile settings to interpreter objects. Tests document current
+behavior only — no source changes.
+>>>>>>> theirs
 =======
 application of profile settings to interpreter objects. Tests document current
 behavior only — no source changes.
