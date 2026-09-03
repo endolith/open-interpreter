@@ -6,6 +6,7 @@ from interpreter.core.utils.execution_allowlist import (
     should_require_execution_confirmation,
     should_require_execution_confirmation_for_code,
 )
+from interpreter.core.utils.shell_chain import split_shell_chain
 
 
 def _interpreter(**kwargs):
@@ -13,6 +14,48 @@ def _interpreter(**kwargs):
     for key, value in kwargs.items():
         setattr(interpreter, key, value)
     return interpreter
+
+
+def test_split_shell_chain_basic():
+    """`cd /x && ls` splits into its two chained commands on the && operator."""
+    assert split_shell_chain("cd /x && ls") == ["cd /x", "ls"]
+
+
+def test_split_shell_chain_all_operators():
+    """All chain operators (&&, ||, ;, &) split at top level."""
+    assert split_shell_chain("a && b || c; d & e") == ["a", "b", "c", "d", "e"]
+
+
+def test_split_shell_chain_no_space_operator():
+    """An operator directly adjacent to a command (`cd /x;ls`) still splits."""
+    assert split_shell_chain("cd /x;ls") == ["cd /x", "ls"]
+    assert split_shell_chain("cd /x&&ls") == ["cd /x", "ls"]
+
+
+def test_split_shell_chain_quoted_operator_not_split():
+    """An operator inside quotes is part of the command, not a split point."""
+    assert split_shell_chain('echo "a && b"') == ['echo "a && b"']
+
+
+def test_split_shell_chain_escaped_space_not_split():
+    """An escaped space (`\\ `) stays inside one command; a real `&&` still splits."""
+    assert split_shell_chain(r"cd /x\ with\ space && ls") == ["cd /x\\ with\\ space", "ls"]
+
+
+def test_split_shell_chain_pipe_not_split():
+    """A bare pipe is not a chain operator — the whole pipeline stays one command."""
+    assert split_shell_chain("cd /x | wc") == ["cd /x | wc"]
+
+
+def test_split_shell_chain_drops_empty_pieces():
+    """A dangling operator (`cd /x &&`) yields just the real command."""
+    assert split_shell_chain("cd /x &&") == ["cd /x"]
+
+
+def test_split_shell_chain_custom_operators():
+    """The operator set is configurable — cmd has no `||`/`;`, so those don't split."""
+    assert split_shell_chain("a && b; c", operators=("&&", "&")) == ["a", "b; c"]
+    assert split_shell_chain("a && b; c", operators=(";",)) == ["a && b", "c"]
 
 
 def test_normalize_auto_run_mode():
