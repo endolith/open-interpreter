@@ -38,6 +38,7 @@ toolbox:
 # offline: False  # If True, will disable some online features like checking for updates
 # verbose: False  # If True, will print detailed logs
 # max_output: 2500  # The maximum characters of code output visible to the LLM
+# strip_redundant_code: true  # If False, disables all boilerplate stripping (redundant cd/imports, `import toolbox`, identical redefinitions)
 
 # To use a separate model for the `wtf` command:
 # wtf:
