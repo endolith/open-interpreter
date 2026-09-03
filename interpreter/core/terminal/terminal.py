@@ -250,6 +250,12 @@ print("__TOOLBOX_API_IMPORTED__")
                 self._active_languages[language] = lang_class(self.interpreter)
             else:
                 self._active_languages[language] = lang_class()
+            # Subprocess-based languages don't take the interpreter in __init__,
+            # but their run-time preprocessing (e.g. the redundant-cd strip)
+            # consults interpreter.strip_redundant_code. Give the instance a
+            # back-reference so that gate is honored during execution.
+            if not hasattr(self._active_languages[language], "interpreter"):
+                self._active_languages[language].interpreter = self.interpreter
         try:
             buffered_output = ""
 

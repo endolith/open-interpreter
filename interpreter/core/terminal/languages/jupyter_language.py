@@ -4,6 +4,7 @@ Gotta split this out, generalize it, and move all the python additions to python
 """
 
 import ast
+import hashlib
 import logging
 import os
 import queue
@@ -37,6 +38,13 @@ class JupyterLanguage(BaseLanguage):
     file_extension = "py"
     name = "python"
 
+    # Defaults for instances created without __init__ (e.g. in tests that skip
+    # kernel startup). __init__ overrides them.
+    interpreter = None
+    imported_modules = set()
+    function_fingerprints = {}
+    variable_fingerprints = {}
+
     def __init__(self, interpreter):
         self.interpreter = interpreter
 
@@ -56,6 +64,14 @@ class JupyterLanguage(BaseLanguage):
         # kernel reports after every run, so redundant top-level `import X`
         # lines can be stripped before execution.
         self.imported_modules = set()
+
+        # Fingerprints of top-level user definitions already bound in the
+        # kernel, refreshed wholesale from the hidden `##oi_fp##` marker after
+        # every run. Functions are keyed by their normalized-source fingerprint,
+        # scalar variables by their repr fingerprint — so a redundant identical
+        # `def f` / `x = 5` can be stripped before execution.
+        self.function_fingerprints = {}
+        self.variable_fingerprints = {}
 
         # Use Inline by default for broad compatibility. Users can opt into a GUI backend
         # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND or MPLBACKEND.
@@ -459,6 +475,58 @@ if __oi_vars:
 if __oi_funcs:
     __oi_parts.append(f"Functions/Classes: {', '.join(__oi_funcs)}")
 
+# Fingerprint top-level user definitions so the client can strip a
+# re-definition that is byte-for-byte identical (same normalized AST) to one
+# already bound in the kernel. Functions/classes are fingerprinted from their
+# source; scalar variables (immutables the client can literal_eval) from their
+# repr. Anything un-fingerprintable is simply omitted — the client then never
+# strips that name, which is the safe default. Caps bound the cost of running
+# this after every cell.
+import ast as __oi_ast
+import inspect as __oi_inspect
+import hashlib as __oi_hashlib
+__oi_fp_parts = []
+__oi_fn_n = 0
+for __oi_k in __oi_funcs:
+    if __oi_fn_n >= 50:
+        break
+    __oi_o = __oi_globals[__oi_k]
+    try:
+        __oi_src = __oi_inspect.getsource(__oi_o)
+        if len(__oi_src) > 20000:
+            continue
+        # The executed code has `print('##active_lineN##')` markers injected by
+        # the client's preprocessor; they must not be part of the fingerprint
+        # (the client fingerprints the raw definition text).
+        import re as __oi_re
+        __oi_src = __oi_re.sub(
+            r"^\s*print\('##active_line\d+##'\)\s*$", "", __oi_src, flags=__oi_re.M
+        )
+        __oi_fp_parts.append(
+            __oi_k + '=fn:' + __oi_hashlib.sha1(
+                __oi_ast.dump(__oi_ast.parse(__oi_src).body[0]).encode()
+            ).hexdigest()
+        )
+        __oi_fn_n += 1
+    except Exception:
+        pass
+__oi_var_n = 0
+for __oi_k in __oi_vars:
+    if __oi_var_n >= 50:
+        break
+    __oi_v = __oi_globals[__oi_k]
+    if not (__oi_v is None or isinstance(__oi_v, (bool, int, float, complex, str, bytes))):
+        continue
+    __oi_r = repr(__oi_v)
+    if len(__oi_r) > 200:
+        continue
+    __oi_fp_parts.append(
+        __oi_k + '=var:' + __oi_hashlib.sha1(__oi_r.encode()).hexdigest()
+    )
+    __oi_var_n += 1
+if __oi_fp_parts:
+    print('##oi_fp##' + ','.join(__oi_fp_parts))
+
 __oi_res = f"\\n[Python REPL State: {' | '.join(__oi_parts)}]"
 print(__oi_res)
 """
@@ -468,9 +536,40 @@ print(__oi_res)
 
         for output in self._capture_output(message_queue):
             if output.get("type") == "console" and output.get("format") == "output":
-                yield output
+                # The marker and the REPL-state line can arrive in the same
+                # stream chunk, so handle them line by line: parse the hidden
+                # fingerprint marker, show everything else.
+                for line in output.get("content").split("\n"):
+                    if line.startswith("##oi_fp##"):
+                        self._update_fingerprints(line)
+                    elif line:
+                        yield {**output, "content": line}
+                continue
+            yield output
 
     _STATE_MODULES_RE = re.compile(r"Already imported:\s*([^|\]]*)")
+
+    def _update_fingerprints(self, marker):
+        """Parse the hidden ``##oi_fp##`` marker into the tracked fingerprint dicts.
+
+        The kernel emits one marker per run with ``name=fn:<sha1>`` (function
+        source fingerprint) and ``name=var:<sha1>`` (scalar repr fingerprint)
+        entries, comma-separated. Adopted wholesale each run so the client's
+        view is authoritative and always matches the kernel's live namespace —
+        e.g. a later cell that rebinds ``f = other`` updates f's fingerprint
+        and a stale ``def f`` is no longer stripped.
+        """
+        fn_fps, var_fps = {}, {}
+        for token in marker[len("##oi_fp##") :].split(","):
+            name, _, value = token.partition("=")
+            if not name or not value:
+                continue
+            if value.startswith("fn:"):
+                fn_fps[name] = value[len("fn:") :]
+            elif value.startswith("var:"):
+                var_fps[name] = value[len("var:") :]
+        self.function_fingerprints = fn_fps
+        self.variable_fingerprints = var_fps
 
     def _maybe_update_imported_modules(self, output):
         """Refresh the tracked module set from the kernel's REPL-state line.
@@ -493,23 +592,51 @@ print(__oi_res)
             self.imported_modules = set(modules)
 
     def strip_boilerplate(self, code):
-        """Return (stripped_code, notice) after removing redundant top-level imports.
+        """Return (stripped_code, notice) after removing redundant top-level boilerplate.
 
-        Removes plain ``import X`` lines for allowlisted boilerplate modules
-        that the kernel has reported as already bound (via ``_get_active_state``
-        after each run). This method deliberately does NOT learn new imports
-        from the code it is handed: recording ``import time`` here would make a
-        second ``strip_boilerplate`` call (e.g. from ``preprocess_code`` during
-        the same execution) strip that import before it ever ran, breaking code
-        that genuinely needs it. Only the kernel's authoritative REPL-state
-        line drives ``imported_modules``.
+        Two passes:
+        - ``strip_redundant_imports`` drops plain ``import X`` lines for
+          allowlisted boilerplate modules the kernel reports as already bound.
+          It deliberately does NOT learn new imports from the code it is
+          handed: recording ``import time`` here would make a second
+          ``strip_boilerplate`` call (e.g. from ``preprocess_code`` during the
+          same execution) strip that import before it ever ran, breaking code
+          that genuinely needs it. Only the kernel's authoritative REPL-state
+          line drives ``imported_modules``.
+        - ``strip_redundant_definitions_and_assignments`` drops top-level
+          ``def``/``async def`` and scalar assignments (``x = 5``) that
+          re-define, byte-for-byte identical, an object already bound in the
+          kernel (matched by fingerprint). A redefinition with different code
+          is always kept.
         """
+        if not getattr(self.interpreter, "strip_redundant_code", True):
+            return code, None
         stripped, removed = strip_redundant_imports(code, self.imported_modules)
+        notices = []
         if removed:
             distinct = sorted(set(removed))[:4]
             label = "imports" if len(set(removed)) > 1 else "import"
-            return stripped, f"Removed redundant {label} {', '.join(distinct)} (already imported)."
-        return code, None
+            notices.append(
+                f"Removed redundant {label} {', '.join(distinct)} (already imported)."
+            )
+        stripped, defs_removed, vars_removed = strip_redundant_definitions_and_assignments(
+            stripped, self.function_fingerprints, self.variable_fingerprints
+        )
+        if defs_removed:
+            distinct = sorted(set(defs_removed))[:4]
+            label = "definitions of" if len(defs_removed) > 1 else "definition of"
+            notices.append(
+                f"Removed redundant {label} {', '.join(distinct)} (already defined identically)."
+            )
+        if vars_removed:
+            distinct = sorted(set(vars_removed))[:4]
+            label = "assignments to" if len(vars_removed) > 1 else "assignment to"
+            notices.append(
+                f"Removed redundant {label} {', '.join(distinct)} (already set to that value)."
+            )
+        if notices:
+            return stripped, "; ".join(notices)
+        return stripped, None
 
     def preprocess_code(self, code):
         code, _ = self.strip_boilerplate(code)
@@ -626,6 +753,166 @@ def strip_redundant_imports(code, imported_modules):
             in_leading = False  # first executable statement ends the leading block
         kept_lines.append(line)
     return "\n".join(kept_lines), removed
+
+
+def strip_redundant_definitions_and_assignments(code, function_fps, variable_fps):
+    """Drop top-level definitions/scalar assignments already bound identically.
+
+    Removes a top-level ``def``/``async def`` whose normalized source
+    fingerprint matches one the kernel already binds to that name, and a
+    single-name scalar assignment (``x = 5``, ``x = "abc"``, ``x = None``)
+    whose repr fingerprint matches. The fingerprint match means the re-run is a
+    no-op, so removing it cannot change behavior. A redefinition with different
+    code always survives.
+
+    Safety rules:
+    - Only *top-level* statements are considered; anything inside a function/
+      class/block is untouched.
+    - A statement is stripped only if its name is not bound earlier in the
+      cell (``def f`` then a *different* ``def f`` keeps both; ``x = 6`` then
+      ``x = 5`` keeps both — stripping the second would change the result).
+      Kept statements mark the names they bind (assigns, defs, imports,
+      for/with targets, walrus, ``del``), so a later same-name candidate is
+      conservatively kept.
+    - Mutable objects, non-literal RHS (``2 + 3``, ``int("5")``, ``f(x)``) and
+      anything the kernel couldn't fingerprint are never stripped (the kernel
+      only fingerprints immutable scalars, so ``x = [1, 2]`` has no matching
+      entry and is left alone — re-assigning a fresh list isn't a no-op).
+    - The span of each removed statement is re-parsed after removal; if that
+      produces invalid Python (e.g. a shared ``x = 5; y = 6`` line), the
+      statement is kept. Compound statements never share a ``;`` line, so defs
+      have no such seam.
+
+    Returns ``(stripped_code, removed_function_names, removed_var_names)``.
+    """
+    removed_funcs, removed_vars = [], []
+    if not function_fps and not variable_fps:
+        return code, removed_funcs, removed_vars
+
+    work = code
+    bound = set()
+    while True:
+        try:
+            tree = ast.parse(work)
+        except SyntaxError:
+            break  # magics / `!cmd` / incomplete code — never touch it
+        if not tree.body:
+            break
+        for stmt in tree.body:
+            span, kind = _redundant_span(stmt, work, function_fps, variable_fps, bound)
+            if span is None:
+                bound |= _bound_names(stmt)
+                continue
+            # Try the removal; re-parse to verify it doesn't break the cell.
+            candidate = work[: span[0]] + work[span[1] :]
+            try:
+                ast.parse(candidate)
+            except SyntaxError:
+                bound |= _bound_names(stmt)  # unsafe — keep it, treat as bound
+                continue
+            work = candidate
+            if kind == "fn":
+                removed_funcs.append(stmt.name)
+            else:
+                removed_vars.append(stmt.targets[0].id)
+            break  # offsets shifted — restart the walk on the new text
+        else:
+            break  # no candidate removals in this pass
+    return work, removed_funcs, removed_vars
+
+
+def _bound_names(stmt):
+    """Names a top-level statement binds, for in-cell redundancy tracking.
+
+    Conservative: anything assigned anywhere in the statement's subtree counts,
+    even inside nested function bodies — over-marking only suppresses stripping,
+    never causes a wrong strip.
+    """
+    names = set()
+    for node in ast.walk(stmt):
+        # `del x` uses Del ctx (not Store); either way the name's prior
+        # binding no longer holds after the statement, so a later identical
+        # reassign must be kept.
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        names.add(stmt.name)
+    elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+        for alias in stmt.names:
+            names.add(alias.asname or alias.name.split(".")[0])
+    return names
+
+
+def _redundant_span(stmt, source, function_fps, variable_fps, bound):
+    """Return (span, kind) if ``stmt`` is a redundant definition, else (None, None).
+
+    ``span`` is (start_offset, end_offset) into ``source``. ``kind`` is "fn"
+    for functions or "var" for scalar assignments.
+    """
+    start_line = stmt.lineno
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if stmt.name not in function_fps or stmt.name in bound:
+            return None, None
+        try:
+            fp = _function_fingerprint(stmt)
+        except Exception:
+            return None, None
+        if fp != function_fps[stmt.name]:
+            return None, None
+        if stmt.decorator_list:
+            start_line = min(d.lineno for d in stmt.decorator_list)
+        return _span_offsets(source, start_line, 0, stmt.end_lineno, stmt.end_col_offset), "fn"
+
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(
+        stmt.targets[0], ast.Name
+    ):
+        name = stmt.targets[0].id
+        if name not in variable_fps or name in bound:
+            return None, None
+        try:
+            value = ast.literal_eval(stmt.value)
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            return None, None  # not a literal — can't be a no-op re-assign
+        if _value_fingerprint(value) != variable_fps[name]:
+            return None, None
+        start, end = _span_offsets(
+            source, stmt.lineno, stmt.col_offset, stmt.end_lineno, stmt.end_col_offset
+        )
+        # Only strip an assignment that occupies its own line. A shared line
+        # (`x = 5; y = 6`) leaves a dangling `;` or a now-undefined sibling if
+        # one target is removed, and re-parsing can't catch the semantics, so
+        # require nothing non-whitespace before or after the span on its line.
+        line_start = _span_offsets(source, stmt.lineno, 0, stmt.lineno, 0)[0]
+        line_tail = source[end:].split("\n", 1)[0]
+        if source[line_start:start].strip() or line_tail.strip():
+            return None, None
+        return (start, end), "var"
+
+    return None, None
+
+
+def _span_offsets(source, start_line, start_col, end_line, end_col):
+    """Convert line/col positions to absolute string offsets."""
+    offsets = [0]
+    for line in source.split("\n"):
+        offsets.append(offsets[-1] + len(line) + 1)  # +1 for the newline
+    start = offsets[start_line - 1] + start_col
+    end = offsets[end_line - 1] + end_col
+    return start, end
+
+
+def _function_fingerprint(stmt):
+    """Normalized source fingerprint of a FunctionDef/AsyncFunctionDef node.
+
+    Uses ``ast.dump`` of the node (structure only, no line numbers or
+    formatting), matching the kernel's ``ast.dump(ast.parse(src).body[0])``.
+    """
+    return hashlib.sha1(ast.dump(stmt).encode()).hexdigest()
+
+
+def _value_fingerprint(value):
+    """Repr fingerprint of an immutable scalar, matching the kernel's ``var:`` entries."""
+    return hashlib.sha1(repr(value).encode()).hexdigest()
 
 
 def preprocess_python(code):

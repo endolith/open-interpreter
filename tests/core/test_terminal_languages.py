@@ -10,6 +10,8 @@ from interpreter.core.terminal.languages.cwd_tracking import CwdTrackingMixin
 from interpreter.core.terminal.languages.jupyter_language import (
     JupyterLanguage,
     strip_redundant_imports,
+    strip_redundant_definitions_and_assignments,
+    _function_fingerprint,
 )
 from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
 from interpreter.core.terminal.languages.applescript import AppleScript
@@ -459,6 +461,37 @@ class TestTerminalLanguages(unittest.TestCase):
         second, second_notice = jl.strip_boilerplate(first)
         self.assertEqual(second, first)
         self.assertIsNone(second_notice)
+
+    def test_jupyter_strip_boilerplate_respects_gate(self):
+        """strip_redundant_code=false disables ALL python stripping (imports, defs, scalars)."""
+        import ast
+        import hashlib
+
+        jl = object.__new__(JupyterLanguage)
+        jl.imported_modules = {"os"}
+        jl.function_fingerprints = {
+            "f": hashlib.sha1(
+                ast.dump(ast.parse("def f(): return 1").body[0]).encode()
+            ).hexdigest()
+        }
+        jl.variable_fingerprints = {"n": hashlib.sha1(repr(5).encode()).hexdigest()}
+        jl.interpreter = type(
+            "I", (), {"strip_redundant_code": False}
+        )()
+        code = "import os\ndef f(): return 1\nn = 5\nos.getcwd()"
+        stripped, notice = jl.strip_boilerplate(code)
+        self.assertEqual(stripped, code)
+        self.assertIsNone(notice)
+
+    def test_bash_cd_strip_respects_gate(self):
+        """strip_redundant_code=false disables the bash redundant-cd strip, even at run time (preprocess)."""
+        bash = Bash()
+        bash.cwd = "/home/user/project"
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = "cd /home/user/project\nls"
+        self.assertEqual(bash._strip_redundant_cd(code, track=False), code)
+        self.assertEqual(bash._strip_redundant_cd(code, track=True), code)
+        self.assertIsNone(bash._pending_notice)
 
     def test_bash_redundant_cd_stripped(self):
         """A standalone `cd` to the tracked working directory is removed."""
@@ -1410,6 +1443,203 @@ class TestCwdParsingFuzz(unittest.TestCase):
             self.assertEqual(self.bash.cwd, before)
 
         run()
+
+
+class TestStripRedundantDefinitions(unittest.TestCase):
+    """Table tests for the redundant-function/scalar stripper (kernel-free, fake fingerprints).
+
+    These pin down the stripping rules: an identical re-definition is removed,
+    a different one is kept, and the many unsafe cases (mutables, non-literals,
+    rebindings, shared lines, classes) are always preserved.
+    """
+
+    @staticmethod
+    def _fn(src):
+        """Fingerprint of a function as the kernel would compute it."""
+        import ast
+        import hashlib
+
+        return hashlib.sha1(ast.dump(ast.parse(src).body[0]).encode()).hexdigest()
+
+    @staticmethod
+    def _var(value):
+        import hashlib
+
+        return hashlib.sha1(repr(value).encode()).hexdigest()
+
+    def test_identical_function_stripped(self):
+        """A top-level def identical to one already bound is removed, leaving the rest of the cell."""
+        fps = {"f": self._fn("def f(x):\n    return x * 2")}
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "def f(x):\n    return x * 2\nprint(f(1))", fps, {}
+        )
+        self.assertEqual(out, "\nprint(f(1))")
+        self.assertEqual(fn, ["f"])
+        self.assertEqual(var, [])
+
+    def test_different_function_kept(self):
+        """A redefinition with different code is never stripped (only identical code is)."""
+        fps = {"f": self._fn("def f(x):\n    return x * 2")}
+        code = "def f(x):\n    return x * 100\nprint(f(1))"
+        out, fn, var = strip_redundant_definitions_and_assignments(code, fps, {})
+        self.assertEqual(out, code)
+        self.assertEqual(fn, [])
+
+    def test_identical_async_function_stripped(self):
+        """An `async def` identical to one already bound is removed."""
+        fps = {"af": self._fn("async def af():\n    return 3")}
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "async def af():\n    return 3\nprint('x')", fps, {}
+        )
+        self.assertEqual(out, "\nprint('x')")
+        self.assertEqual(fn, ["af"])
+
+    def test_decorated_function_stripped(self):
+        """A decorated def is removed along with its decorator lines when identical."""
+        fps = {"cached": self._fn("@deco\ndef cached(x):\n    return x * 2")}
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "@deco\ndef cached(x):\n    return x * 2\nprint(cached(1))", fps, {}
+        )
+        self.assertEqual(out, "\nprint(cached(1))")
+        self.assertEqual(fn, ["cached"])
+
+    def test_redefinition_after_different_def_kept(self):
+        """After a *different* `def f` in the same cell, a later identical-to-kernel `def f` is kept (the name is rebound by the cell)."""
+        fps = {"f": self._fn("def f(): return 1")}
+        code = "def f(): return 1\ndef f(): return 2\nprint(f())"
+        out, fn, var = strip_redundant_definitions_and_assignments(code, fps, {})
+        # First def matches the kernel -> stripped; second differs -> kept.
+        self.assertEqual(out, "\ndef f(): return 2\nprint(f())")
+        self.assertEqual(fn, ["f"])
+
+    def test_class_never_stripped(self):
+        """A class definition is never stripped (the kernel can't fingerprint classes)."""
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "class F:\n    pass\nprint(F)", {"F": "whatever"}, {}
+        )
+        self.assertEqual(out, "class F:\n    pass\nprint(F)")
+        self.assertEqual(fn, [])
+
+    def test_identical_scalar_stripped(self):
+        """A scalar assignment equal to the bound value is removed."""
+        fps = {"n": self._var(5)}
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "n = 5\nprint(n)", {}, fps
+        )
+        self.assertEqual(out, "\nprint(n)")
+        self.assertEqual(var, ["n"])
+
+    def test_different_scalar_kept(self):
+        """A scalar assignment with a different value is kept."""
+        fps = {"n": self._var(5)}
+        code = "n = 6\nprint(n)"
+        out, fn, var = strip_redundant_definitions_and_assignments(code, {}, fps)
+        self.assertEqual(out, code)
+        self.assertEqual(var, [])
+
+    def test_scalar_type_change_kept(self):
+        """A value of a different type (int vs float vs bool) is kept — repr fingerprints are type-sensitive."""
+        for kernel_val, new_src in [(5, "n = 5.0\nprint(n)"), (5, "n = True\nprint(n)")]:
+            fps = {"n": self._var(kernel_val)}
+            out, _, var = strip_redundant_definitions_and_assignments(new_src, {}, fps)
+            self.assertEqual(out, new_src, f"n = {kernel_val!r} vs {new_src!r}")
+            self.assertEqual(var, [])
+
+    def test_scalar_rebind_earlier_kept(self):
+        """A scalar rebound earlier in the cell (`x = 6` then `x = 5`) keeps both — stripping the second would change the result."""
+        fps = {"x": self._var(5)}
+        code = "x = 6\nx = 5\nprint(x)"
+        out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
+        self.assertEqual(out, code)
+        self.assertEqual(var, [])
+
+    def test_del_then_scalar_kept(self):
+        """A `del x` before a reassign makes the reassign non-redundant (the name no longer exists)."""
+        fps = {"x": self._var(5)}
+        code = "del x\nx = 5\nprint(x)"
+        out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
+        self.assertEqual(out, code)
+        self.assertEqual(var, [])
+
+    def test_shared_line_assignment_kept(self):
+        """An assignment sharing a line (`x = 5; y = 6`) is never stripped — removing one target breaks the line."""
+        fps = {"x": self._var(5), "y": self._var(6)}
+        code = "x = 5; y = 6\nprint(x, y)"
+        out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
+        self.assertEqual(out, code)
+        self.assertEqual(var, [])
+
+    def test_mutable_or_nonliteral_kept(self):
+        """Lists/dicts and non-literal RHS are never stripped (can't be a no-op reassign)."""
+        fps = {"x": self._var(5)}
+        for code in [
+            "x = [1, 2]\nprint(x)",
+            "x = int('5')\nprint(x)",
+            "x = 2 + 3\nprint(x)",
+            "x, y = 5, 6\nprint(x, y)",
+            "x: int = 5\nprint(x)",
+        ]:
+            out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
+            self.assertEqual(out, code, code)
+            self.assertEqual(var, [])
+
+    def test_unparseable_code_untouched(self):
+        """A cell that doesn't parse (magics, `!cmd`, incomplete code) is returned unchanged."""
+        fps = {"f": self._fn("def f(): return 1")}
+        for code in ["%matplotlib inline\ndef f(): return 1", "!ls\ndef f(): return 1"]:
+            out, fn, var = strip_redundant_definitions_and_assignments(code, fps, {})
+            self.assertEqual(out, code)
+            self.assertEqual(fn, [])
+
+    def test_no_fingerprints_is_noop(self):
+        """With empty fingerprint maps nothing can be stripped."""
+        code = "def f(): return 1\nx = 5"
+        out, fn, var = strip_redundant_definitions_and_assignments(code, {}, {})
+        self.assertEqual(out, code)
+        self.assertEqual(fn, [])
+        self.assertEqual(var, [])
+
+    def test_combination_defs_and_scalars(self):
+        """A cell re-defining both an identical function and an identical scalar strips both, in one notice."""
+        fps = {
+            "f": self._fn("def f(x):\n    return x * 2"),
+            "n": self._var(5),
+        }
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "def f(x):\n    return x * 2\nn = 5\nprint(f(n))", {"f": fps["f"]}, {"n": fps["n"]}
+        )
+        self.assertEqual(fn, ["f"])
+        self.assertEqual(var, ["n"])
+        self.assertEqual(out, "\n\nprint(f(n))")
+
+
+class TestFingerprintNormalization(unittest.TestCase):
+    """The kernel↔client fingerprint agreement the whole stripping scheme hinges on."""
+
+    def test_module_unparse_matches_node_unparse(self):
+        """`ast.unparse(ast.parse(src))` of a function equals `ast.unparse(def_node)` from a multi-statement cell — so the kernel (which fingerprints via getsource) and the client (which fingerprints the cell AST) hash identically."""
+        import ast
+
+        kernel_src = "def f(x):\n    return x * 2\n"
+        cell = "def f(x):\n    return x * 2\nn = 5\nprint(f(n))"
+        kernel_fp = self._fn(kernel_src)
+        client_fp = _function_fingerprint(ast.parse(cell).body[0])
+        self.assertEqual(kernel_fp, client_fp)
+
+    def test_comments_and_formatting_ignored(self):
+        """Fingerprints ignore comments and whitespace, so a cosmetic rewrite is still 'identical'."""
+        import ast
+
+        src = "def f(x):\n    # a comment\n    return x * 2\n"
+        cell = "def f( x ):\n    return x*2"
+        self.assertEqual(_function_fingerprint(ast.parse(src).body[0]), self._fn(cell))
+
+    @staticmethod
+    def _fn(src):
+        import ast
+        import hashlib
+
+        return hashlib.sha1(ast.dump(ast.parse(src).body[0]).encode()).hexdigest()
 
 
 if __name__ == "__main__":

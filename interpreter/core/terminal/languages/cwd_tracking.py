@@ -120,6 +120,10 @@ class CwdTrackingMixin:
         ``cd`` commands: pass False when peeking (respond), True during the
         actual run (preprocess_code) so the tracked cwd follows the shell.
         """
+        if not getattr(
+            getattr(self, "interpreter", None), "strip_redundant_code", True
+        ):
+            return code
         removed = []
         self._pending_notice = None
         kept_lines = []

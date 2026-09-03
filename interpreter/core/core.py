@@ -168,6 +168,10 @@ class OpenInterpreter:
         self.debug = debug
         self.max_output = max_output
         self.safe_mode = safe_mode
+        # One switch gates ALL boilerplate stripping (redundant cd, redundant
+        # imports, `import toolbox`, and the redundant-function/scalar stripping).
+        # Profile can turn it off (`strip_redundant_code: false`).
+        self.strip_redundant_code = True
         self.shrink_images = shrink_images
         self.disable_telemetry = disable_telemetry
         self.in_terminal_interface = in_terminal_interface
