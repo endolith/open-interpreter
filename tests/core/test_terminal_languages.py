@@ -999,6 +999,41 @@ class TestRespondNotices(unittest.TestCase):
         self.assertNotIn("import toolbox", content["content"])
         self.assertIn("print(toolbox)", content["content"])
 
+    def test_import_toolbox_with_other_names_rewritten(self):
+        """`import toolbox, traceback` strips just the toolbox token, keeping `import traceback` — the old code only matched toolbox-alone lines, so this fell through to the post-approval ValueError (regression)."""
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox, traceback\nfor x in range(3):\n    print(x)",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertIn("import traceback", content["content"])
+        self.assertNotIn("toolbox", content["content"])
+        self.assertIn("import toolbox", content["removed"])
+
+    def test_import_toolbox_after_other_names_rewritten(self):
+        """Toolbox appearing later in the import list (`import os, toolbox`) is also dropped, keeping `import os`."""
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import os, toolbox\nprint(os.getcwd())",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertIn("import os", content["content"])
+        self.assertNotIn("toolbox", content["content"])
+
     def test_import_toolbox_as_kept_for_guard(self):
         """Aliased `import toolbox as tb` is NOT stripped by the line filter — the post-confirmation guard still handles it."""
         chunk = self._confirmation(

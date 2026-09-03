@@ -654,7 +654,9 @@ def respond(interpreter):
                 # confirmation chunk and is shown beside the run prompt, not in
                 # the command's terminal output.
                 lang = interpreter.terminal.get_language_instance(language)
-                if lang is not None:
+                if lang is not None and getattr(
+                    interpreter, "strip_redundant_code", True
+                ):
                     try:
                         stripped, strip_notice = lang.strip_boilerplate(code)
                         # Always adopt the stripped version when something was
@@ -676,14 +678,38 @@ def respond(interpreter):
                 # (which would otherwise shadow it with a real module). Aliased
                 # (`import toolbox as tb`) and `from toolbox import X` forms are
                 # left for the post-confirmation guard to handle.
-                if language == "python" and interpreter.toolbox.import_toolbox_api:
+                if (
+                    language == "python"
+                    and interpreter.toolbox.import_toolbox_api
+                    and getattr(interpreter, "strip_redundant_code", True)
+                ):
                     original_lines = code.split("\n")
-                    kept_lines = [
-                        line
-                        for line in original_lines
-                        if not re.match(r"^import\s+toolbox\s*(?:#.*)?$", line)
-                    ]
-                    if len(kept_lines) != len(original_lines):
+                    kept_lines = []
+                    removed_toolbox = False
+                    for line in original_lines:
+                        m = re.match(r"^import\s+([^#]*?)(\s*#.*)?$", line)
+                        if m:
+                            names = [name.strip() for name in m.group(1).split(",")]
+                            # A bare `toolbox` name is redundant (the object is
+                            # injected as a variable). Other names on the same
+                            # line are real imports and stay: `import toolbox,
+                            # traceback` becomes `import traceback`. Aliased
+                            # (`import toolbox as tb`) and dotted
+                            # (`import toolbox.thing`) forms are left for the
+                            # post-confirmation guard.
+                            toolbox_present = "toolbox" in names
+                            rest = [name for name in names if name != "toolbox"]
+                            if toolbox_present and rest and all(rest):
+                                removed_toolbox = True
+                                comment = m.group(2) or ""
+                                kept_lines.append("import " + ", ".join(rest) + comment)
+                            elif toolbox_present and not rest:
+                                removed_toolbox = True  # `import toolbox` alone — drop the line
+                            else:
+                                kept_lines.append(line)
+                        else:
+                            kept_lines.append(line)
+                    if removed_toolbox:
                         code = "\n".join(kept_lines)
                         interpreter.messages[-1]["content"] = code
                         notices.append(
