@@ -181,9 +181,11 @@ def test_apply_profile_runs_start_script():
     assert interpreter.auto_run is True
 
 
-@pytest.mark.xfail(reason="KNOWN BUG: apply_profile has `del profile[\"computer.languages\"]` instead of `del profile[\"computer\"][\"languages\"]`")
 def test_apply_profile_filters_languages(monkeypatch):
-    """apply_profile filters computer.languages to those listed in the profile."""
+    """apply_profile filters computer.languages to those listed in the profile.
+
+    Regression test for #225.
+    """
     interpreter = mock.MagicMock()
 
     class FakeLang:
