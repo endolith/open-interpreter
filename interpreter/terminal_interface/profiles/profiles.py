@@ -242,7 +242,7 @@ def migrate_profile(old_path, new_path):
 
     # Reformat the YAML keys with indentation
     reformatted_profile = {}
-    for key, value in profile.items():
+    for key, value in mapped_profile.items():
         keys = key.split(".")
         current_level = reformatted_profile
         # Iterate through parts of the key except the last one
