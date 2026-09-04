@@ -81,8 +81,7 @@ def test_javascript_subprocess_smoke(interpreter):
 
 @pytest.mark.timeout(30)
 def test_shell_bash_echo_smoke(interpreter):
-    """Shell uses $SHELL (must be bash-compatible); a basic echo reaches stdout."""
-    require_bash_compatible_shell()
+    """Shell language runs a basic echo through bash subprocess on Unix."""
     chunks = list(interpreter.computer.run("shell", "echo shell_ok"))
     assert "shell_ok" in console_output_text(chunks)
 
@@ -91,7 +90,8 @@ def test_shell_bash_echo_smoke(interpreter):
 def test_shell_bash_nested_loop_quoting(interpreter):
     """Nested bash loops with variable interpolation pass through subprocess unchanged.
 
-    Regression for fish/non-bash $SHELL hangs (require_bash_compatible_shell).
+    Regression for #91 (fish $SHELL mismatch). Shell now invokes bash directly;
+    require_bash_compatible_shell() still guards the developer environment.
     macOS CI runs the same snippet under darwin_ci in test_platform_ci.py.
     Windows cmd.exe variant is in test_platform_ci.py (windows_ci).
     """
