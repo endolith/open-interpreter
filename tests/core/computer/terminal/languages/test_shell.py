@@ -2,7 +2,7 @@ import platform
 from unittest import mock
 
 import pytest
-from _pytest.outcomes import Failed
+from _pytest.outcomes import Skipped
 
 from interpreter.core.computer.terminal.languages.shell import (
     Shell,
@@ -45,9 +45,9 @@ def test_shell_start_cmd_uses_shell_env():
 
 
 def test_require_bash_compatible_shell_rejects_fish(monkeypatch):
-    """require_bash_compatible_shell() fails when SHELL points to fish on Unix."""
+    """require_bash_compatible_shell() skips when SHELL points to fish on Unix."""
     if platform.system() == "Windows":
         pytest.skip("SHELL guard only applies to Unix")
     monkeypatch.setenv("SHELL", "/usr/bin/fish")
-    with pytest.raises(Failed, match="fish"):
+    with pytest.raises(Skipped, match="fish"):
         require_bash_compatible_shell()

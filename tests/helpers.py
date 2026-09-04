@@ -57,18 +57,19 @@ _BASH_COMPATIBLE_SHELL_NAMES = frozenset(
 
 
 def require_bash_compatible_shell():
-    """Fail immediately if Shell would spawn a non-bash-compatible $SHELL.
+    """Skip unless Shell would spawn a bash-compatible $SHELL.
 
     OI feeds bash-syntax snippets to subprocess_language, which uses
     os.environ["SHELL"] on Unix. Fish and other shells hang waiting for
-    ##end_of_execution## instead of erroring.
+    ##end_of_execution## instead of erroring, so tests requiring bash
+    syntax skip (rather than fail) when the prerequisite is absent.
     """
     if platform.system() == "Windows":
         return
     shell = os.environ.get("SHELL", "bash")
     shell_name = os.path.basename(shell).lower()
     if shell_name not in _BASH_COMPATIBLE_SHELL_NAMES:
-        pytest.fail(
+        pytest.skip(
             f"SHELL={shell!r} cannot run bash-syntax shell code (Shell uses "
             f"os.environ['SHELL']). Use bash or wait for explicit bash in develop."
         )
@@ -98,7 +99,7 @@ def assert_bash_nested_loop_output(output):
 
 
 def run_bash_nested_loop_quoting_smoke(interpreter):
-    """Run nested bash loops through computer.run; fail fast on non-bash $SHELL."""
+    """Run nested bash loops through computer.run; skip on non-bash $SHELL."""
 
     require_bash_compatible_shell()
     chunks = list(
