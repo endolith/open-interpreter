@@ -30,6 +30,24 @@ def _mock_interpreter(server: MockOpenAIServer, *, auto_run: bool = False) -> Op
     return interpreter
 
 
+def _mock_tool_interpreter(server: MockOpenAIServer) -> OpenInterpreter:
+    """OpenInterpreter in function-calling mode against the mock server.
+
+    supports_functions routes llm.run() through run_tool_calling_llm, so the
+    full HTTP request → streaming tool_calls deltas → parse → execute path is
+    exercised. Loading is skipped for determinism (no model-info lookup).
+    """
+    interpreter = OpenInterpreter(disable_telemetry=True)
+    interpreter.auto_run = True
+    interpreter.llm.model = "openai/gpt-4o-mini"
+    interpreter.llm.api_base = server.api_base
+    interpreter.llm.api_key = "mock-key"
+    interpreter.llm.supports_functions = True
+    interpreter.llm.supports_vision = False
+    interpreter.llm._is_loaded = True
+    return interpreter
+
+
 @pytest.mark.timeout(60)
 def test_chat_uses_mock_openai_api(mock_llm_server):
     """chat() completes against a local OpenAI-compatible server without a real API key."""
@@ -81,3 +99,158 @@ def test_mock_llm_write_to_file(mock_llm_server, monkeypatch, tmp_path):
     )
 
     assert "Washington" in messages[-1]["content"]
+
+
+_ERRAND_PROMPT = (
+    "Please run this errand: write step one, then step two, then report back. "
+    "Start now."
+)
+
+
+def _assert_errand_complete(interpreter, tmp_path, messages):
+    """The errand ran python, shell, failing python, fixed python, then talked.
+
+    step2.txt embeds step1.txt's content, proving the shell execution
+    observed the python execution's filesystem state (cross-step, cross-
+    language persistence) rather than each step running isolated. The
+    failing step proves the loop survives execution errors; the fixed step
+    proves it keeps executing afterwards.
+    """
+    assert (tmp_path / "step1.txt").read_text() == "one"
+    assert (tmp_path / "step2.txt").read_text().strip() == "one-two"
+    assert "Errand complete." in messages[-1]["content"]
+    formats = [m.get("format") for m in messages if m.get("type") == "code"]
+    assert formats == ["python", "shell", "python", "python"]
+    console_text = "\n".join(
+        m.get("content", "")
+        for m in messages
+        if m.get("type") == "console" and isinstance(m.get("content"), str)
+    )
+    assert "NameError" in console_text
+    assert "recovered" in console_text
+
+
+@pytest.mark.timeout(180)
+def test_mock_llm_tool_call_errand(mock_llm_server, monkeypatch, tmp_path):
+    """One tool-calling convo executes, fails, recovers, then talks.
+
+    The mock server emits real OpenAI streaming tool_calls deltas (split
+    across chunks); the run executes python, then shell, then a failing
+    python step, then a fixed python step, then ends by talking — all
+    through HTTP with no API key.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    _assert_errand_complete(interpreter, tmp_path, messages)
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_text_errand(mock_llm_server, monkeypatch, tmp_path):
+    """The same errand in code-block mode: fences, two languages, then talking."""
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    messages = interpreter.chat(
+        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    _assert_errand_complete(interpreter, tmp_path, messages)
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_errand_after_prior_chat(mock_llm_server, monkeypatch, tmp_path):
+    """An errand started after an unrelated chat still begins at the python step.
+
+    Turn counting is scoped to messages after the errand prompt; the assistant
+    turn from the earlier hello chat must not shift the errand to turn 1.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    interpreter.chat("Say hello.", display=False, stream=False, blocking=True)
+    messages = interpreter.chat(
+        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    _assert_errand_complete(interpreter, tmp_path, messages)
+
+
+@pytest.mark.timeout(180)
+def test_mock_llm_second_errand_restarts_at_python(mock_llm_server, monkeypatch, tmp_path):
+    """A second errand in one conversation restarts at the python step.
+
+    Turn counting is scoped to the most recent errand prompt; the completed
+    first errand's assistant turns must not shift the second errand past its
+    tool calls into an immediate "Errand complete."
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    interpreter.chat(
+        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+    )
+    messages = interpreter.chat(
+        "Please run this errand again from the top.",
+        display=False,
+        stream=False,
+        blocking=True,
+    )
+
+    _assert_errand_complete(interpreter, tmp_path, messages)
+
+
+@pytest.mark.timeout(180)
+def test_mock_llm_split_persistence_across_chats(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """Session state defined in one chat is usable in the next.
+
+    Two chats share one interpreter (one kernel, one shell process), split by
+    a genuine user message: the first defines a python value and a shell
+    value, the second uses both. Console outputs 42 and hello prove the state
+    survived across chat() calls, not just consecutive loop turns.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    interpreter.chat(
+        "persistence check part one: define a python value and a shell value",
+        display=False,
+        stream=False,
+        blocking=True,
+    )
+    messages = interpreter.chat(
+        "persistence check part two: print both values",
+        display=False,
+        stream=False,
+        blocking=True,
+    )
+
+    console_text = "\n".join(
+        m.get("content", "")
+        for m in messages
+        if m.get("type") == "console" and isinstance(m.get("content"), str)
+    )
+    assert "42" in console_text
+    assert "hello" in console_text
+    assert "values verified." in messages[-1]["content"]
+
+
+@pytest.mark.timeout(60)
+def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
+    """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.
+
+    The auth judge-layer guard only applies when a function call was detected;
+    plain talking must pass through unchanged with enforcement enabled.
+    """
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    interpreter = _mock_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("Say hello.", display=False, stream=False, blocking=True)
+
+    assert messages[-1]["content"] == "Hello, World!"
