@@ -86,6 +86,8 @@ def conversation_navigator(interpreter):
     # Set the interpreter's settings to the loaded messages
     interpreter.messages = messages
     interpreter.conversation_filename = selected_filename
+    # Do not run one-shot LLM rename on resumed logs (filename is already chosen on disk).
+    interpreter._conversation_title_upgraded = True
 
     # Start the chat
     interpreter.chat()
