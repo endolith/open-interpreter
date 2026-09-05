@@ -216,8 +216,11 @@ def run_tool_calling_llm(llm, request_params):
                 # No entry carried a usable function, and the raw tool_calls
                 # list is nothing the merge step can consume (merge_deltas
                 # cannot dict() it), so drop the key and let the chunk pass
-                # through empty rather than crashing.
-                delta = {key: value for key, value in delta.items() if key != "tool_calls"}
+                # through empty rather than crashing. dict() first because
+                # real streaming deltas are objects without .items().
+                stripped = dict(delta)
+                stripped.pop("tool_calls", None)
+                delta = stripped
 
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
