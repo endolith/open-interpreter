@@ -9,6 +9,72 @@ _INTEGRATION_OPT_IN_SKIP = (
 _INTEGRATION_API_KEY_SKIP = "OPENAI_API_KEY not set; skipping integration tests"
 
 
+def _conversations_dir() -> str:
+    """Real conversations log dir, resolved lazily to avoid import cost."""
+    import platformdirs
+
+    return os.path.join(platformdirs.user_config_dir("open-interpreter"), "conversations")
+
+
+_test_created_files: list[str] = []
+
+
+def _install_creation_audit_hook() -> None:
+    """Log files the test process itself creates under the conversations dir.
+
+    sys.addaudithook fires on every open() process-wide; the hook records
+    only paths under the conversations folder opened for writing that did
+    not exist yet. Files created by other processes (e.g. the user chatting
+    mid-run) never trigger our hook, so they can never be mistaken for test
+    artifacts — unlike a before/after directory snapshot.
+    """
+    import sys
+
+    prefix = _conversations_dir() + os.sep
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_APPEND
+
+    def _hook(event: str, args: tuple) -> None:
+        if event != "open":
+            return
+        try:
+            path, _, flags = args[0], args[1], args[2]
+        except (IndexError, TypeError):
+            return
+        if not isinstance(path, str) or not path.startswith(prefix):
+            return
+        if not flags & write_flags:
+            return
+        try:
+            exists = os.path.exists(path)
+        except OSError:
+            return
+        if not exists:
+            _test_created_files.append(path)
+
+    sys.addaudithook(_hook)
+
+
+_install_creation_audit_hook()
+
+
+@pytest.fixture(autouse=True)
+def _clean_test_conversations():
+    """Delete conversation logs the test run writes to the real log folder.
+
+    Tests exercise the real save path (history stays enabled), so chat()
+    writes JSON logs into the user's conversations folder. The audit hook
+    above records exactly the files this pytest process created, and only
+    those are removed afterwards. Behaves identically on CI and locally.
+    """
+    del _test_created_files[:]
+    yield
+    while _test_created_files:
+        try:
+            os.remove(_test_created_files.pop())
+        except OSError:
+            pass
+
+
 def integration_skip_reason() -> str | None:
     """Return a pytest skip reason when integration tests should not run, else None."""
     if os.environ.get("OI_RUN_INTEGRATION") != "1":
