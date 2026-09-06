@@ -500,6 +500,14 @@ Continuing...
             params["max_tokens"] = self.max_tokens
         if self.temperature:
             params["temperature"] = self.temperature
+
+        # Ollama sizes its KV cache from `num_ctx`, which Open Interpreter never
+        # sent, so the model ran at the server's own default context regardless of
+        # `context_window` - while OI trimmed messages to `context_window`. When
+        # `context_window` is the larger of the two the request silently overflows
+        # what the server actually allocated. Send both so they agree.
+        if self.context_window and re.match(r"^ollama(_chat)?/", model or ""):
+            params.setdefault("num_ctx", self.context_window)
         if hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
 
