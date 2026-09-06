@@ -69,6 +69,152 @@ def pick_reply(body: dict) -> str:
     return "Hello, World!"
 
 
+def _user_history_text(messages: list) -> str:
+    """All user message text, for multi-turn scenario detection.
+
+    Follow-up turns (e.g. injected console output) do not repeat the original
+    prompt, so scenarios spanning several turns must look at the whole history,
+    not just the last user message.
+    """
+    return "\n".join(
+        message["content"]
+        for message in messages
+        if message.get("role") == "user"
+        and isinstance(message.get("content"), str)
+    )
+
+
+def _messages_since_errand(messages: list) -> list:
+    """Messages from the errand prompt onward, or [] when there is no errand.
+
+    An interpreter may have chatted about other things before starting the
+    errand; only turns after the errand prompt belong to this scenario.
+    """
+    for i, message in enumerate(messages):
+        if (
+            message.get("role") == "user"
+            and isinstance(message.get("content"), str)
+            and "errand" in message["content"].lower()
+        ):
+            return messages[i:]
+    return []
+
+
+def _assistant_count(messages: list) -> int:
+    """Count assistant messages since the errand prompt (completed errand turns).
+
+    The request body holds OpenAI-format messages, where executed code shows
+    up as assistant tool calls / code content — never as computer console
+    entries — so completed turns are what we count.
+    """
+    return sum(
+        1 for message in _messages_since_errand(messages) if message.get("role") == "assistant"
+    )
+
+
+_ERRAND_PYTHON_CODE = 'with open("step1.txt", "w") as f:\n    f.write("one")'
+_ERRAND_SHELL_CODE = "echo two > step2.txt"
+
+
+def _tool_call_delta(call_id, name, arguments, index=0):
+    """One streaming tool-call delta entry in OpenAI wire shape."""
+    return {
+        "tool_calls": [
+            {
+                "index": index,
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }
+        ]
+    }
+
+
+def merge_tool_calls(deltas: list) -> list:
+    """Merge streaming tool_calls deltas into one OpenAI message list.
+
+    Entries are grouped by index with arguments concatenated, mirroring how
+    clients reassemble a streamed call. Entries without a usable function are
+    skipped.
+    """
+    merged: dict[int, dict] = {}
+    order: list[int] = []
+    for delta in deltas:
+        for entry in delta.get("tool_calls") or []:
+            index = entry.get("index", 0)
+            if index not in merged:
+                merged[index] = {
+                    "index": index,
+                    "id": entry.get("id"),
+                    "type": entry.get("type", "function"),
+                    "function": {"name": None, "arguments": ""},
+                }
+                order.append(index)
+            function = entry.get("function") or {}
+            if function.get("name") is not None:
+                merged[index]["function"]["name"] = function["name"]
+            merged[index]["function"]["arguments"] += function.get("arguments") or ""
+    return [
+        merged[index]
+        for index in order
+        if merged[index]["function"]["name"] is not None
+    ]
+
+
+def _split_tool_call_deltas(call_id, name, arguments):
+    """Split a tool call across two deltas (name + partial args, then rest).
+
+    Mirrors how providers stream large arguments, exercising client-side
+    reassembly of the merged function_call.
+    """
+    cut = len(arguments) // 2
+    return [
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments[:cut]},
+                }
+            ]
+        },
+        {"tool_calls": [{"index": 0, "function": {"arguments": arguments[cut:]}}]},
+    ]
+
+
+def errand_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the multi-turn errand scenario, or None.
+
+    Turn state comes from executed-code count: first a python tool call, then
+    a shell tool call, then plain talking. Returns delta dicts (no envelope).
+    """
+    history = _user_history_text(messages).lower()
+    if "errand" not in history:
+        return None
+    turns = _assistant_count(messages)
+    if turns == 0:
+        arguments = json.dumps({"language": "python", "code": _ERRAND_PYTHON_CODE})
+        return _split_tool_call_deltas("call_step1", "execute", arguments)
+    if turns == 1:
+        arguments = json.dumps({"language": "shell", "code": _ERRAND_SHELL_CODE})
+        return [_tool_call_delta("call_step2", "execute", arguments)]
+    return [{"content": "Errand complete."}]
+
+
+def errand_text_reply(messages: list) -> str | None:
+    """Plain-text reply for the errand scenario in code-block mode, or None."""
+    history = _user_history_text(messages).lower()
+    if "errand" not in history:
+        return None
+    turns = _assistant_count(messages)
+    if turns == 0:
+        return "```python\n" + _ERRAND_PYTHON_CODE + "\n```"
+    if turns == 1:
+        return "```shell\n" + _ERRAND_SHELL_CODE + "\n```"
+    return "Errand complete."
+
+
 def stream_reply_chunks(content: str) -> list[str]:
     """Split assistant text into streaming deltas that run_text_llm can parse.
 
@@ -111,7 +257,60 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length)) if length else {}
         stream = body.get("stream", False)
-        content = pick_reply(body)
+        messages = body.get("messages") or []
+
+        # Tool-call mode (function calling): the request carries a tools
+        # parameter. Serve streaming tool_calls deltas for known scenarios.
+        if body.get("tools"):
+            deltas = errand_tool_deltas(messages)
+            if deltas is None:
+                deltas = [{"content": "Hello, World!"}]
+            if stream:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                for delta in deltas:
+                    chunk = {"choices": [{"delta": delta, "finish_reason": None}]}
+                    self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                done = {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+                self.wfile.write(f"data: {json.dumps(done)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+                return
+            tool_calls = merge_tool_calls(deltas)
+            if tool_calls:
+                message = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": tool_calls,
+                }
+                finish_reason = "tool_calls"
+            else:
+                text = "".join(
+                    delta.get("content", "")
+                    for delta in deltas
+                    if isinstance(delta.get("content"), str)
+                )
+                message = {"role": "assistant", "content": text}
+                finish_reason = "stop"
+            payload = {
+                "choices": [
+                    {
+                        "message": message,
+                        "finish_reason": finish_reason,
+                    }
+                ]
+            }
+            data = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        content = errand_text_reply(messages)
+        if content is None:
+            content = pick_reply(body)
 
         if stream:
             self.send_response(200)
