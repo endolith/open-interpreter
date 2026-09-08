@@ -166,6 +166,13 @@ class OpenInterpreter:
         self.verbose = verbose
         self.debug = debug
         self.max_output = max_output
+        # Untruncated console output is appended here, one block per command,
+        # created lazily only when output actually overflows max_output.
+        self._spill_path = None
+        self._spill_message = None
+        self._spill_buffer = ""
+        self._spill_offset = None
+        self._spill_index = 0
         self.safe_mode = safe_mode
         self.shrink_images = shrink_images
         self.disable_telemetry = disable_telemetry
@@ -809,10 +816,13 @@ class OpenInterpreter:
 
                 # Truncate output if it's console output
                 if chunk["type"] == "console" and chunk["format"] == "output":
+                    spill_note = self._record_full_output(
+                        self.messages[-1], chunk["content"]
+                    )
                     self.messages[-1]["content"] = truncate_output(
                         self.messages[-1]["content"],
                         self.max_output,
-                        add_scrollbars=self.toolbox.import_toolbox_api,  # I consider scrollbars to be a toolbox API thing
+                        spill_note=spill_note,
                     )
 
             # Yield a final end flag
@@ -824,6 +834,71 @@ class OpenInterpreter:
             # Don't yield final end flag when exiting due to sys.exit()
             # This prevents duplicate output when error panel is displayed
             raise
+
+    def _spill_file_path(self):
+        if self._spill_path is None:
+            self._spill_path = os.path.join(
+                tempfile.gettempdir(), f"oi_outputs_{os.getpid()}.log"
+            )
+        return self._spill_path
+
+    def _record_full_output(self, message, chunk_content):
+        """Keep the untruncated console output on disk; return a note naming it.
+
+        truncate_output() rewrites the message content in place, and the next
+        chunk is appended to that already-truncated string. So the accumulated
+        content is NOT the real output once it overflows even once - the middle
+        is already gone by the time anything could read it. The true stream is
+        buffered here instead, chunk by chunk, before truncation touches it.
+
+        Blocks are appended, so earlier commands stay readable for the whole
+        session rather than being overwritten by the next big output. The block
+        for the command still streaming is rewritten in place (seek + truncate)
+        rather than re-appended, otherwise a chunked output would be written
+        again on every single chunk.
+
+        Returns None while the output still fits, so nothing is created in the
+        common case.
+        """
+        if message is not self._spill_message:
+            # New console message: start a new block at the current end of file.
+            self._spill_message = message
+            self._spill_buffer = ""
+            self._spill_offset = None
+            self._spill_index += 1
+        self._spill_buffer += chunk_content or ""
+        if len(self._spill_buffer) <= self.max_output:
+            return None
+
+        path = self._spill_file_path()
+        index = self._spill_index
+        header = f"\n===== OI OUTPUT BLOCK {index} ({len(self._spill_buffer):,} chars) =====\n"
+        footer = f"\n===== END BLOCK {index} =====\n"
+        try:
+            if self._spill_offset is None:
+                self._spill_offset = (
+                    os.path.getsize(path) if os.path.exists(path) else 0
+                )
+            # Binary so the recorded offset stays valid regardless of encoding.
+            with open(path, "r+b" if os.path.exists(path) else "wb") as f:
+                f.seek(self._spill_offset)
+                f.truncate()
+                f.write(
+                    (header + self._spill_buffer + footer).encode(
+                        "utf-8", errors="replace"
+                    )
+                )
+        except OSError:
+            # Read-only or full disk: truncation must still work, just without
+            # the recovery path.
+            return None
+        return (
+            f"The FULL output is saved at {path} as block {index} "
+            f"(earlier blocks from this session are still in that file). "
+            f"Read just this block with "
+            f"`awk '/^===== OI OUTPUT BLOCK {index} /,/^===== END BLOCK {index} /' {path}`, "
+            f"or grep the file for what you need."
+        )
 
     def reset(self):
         self.terminal.terminate()  # Terminates all languages
