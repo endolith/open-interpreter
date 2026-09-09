@@ -170,9 +170,14 @@ class OpenInterpreter:
         # created lazily only when output actually overflows max_output.
         self._spill_path = None
         self._spill_message = None
-        self._spill_buffer = ""
-        self._spill_offset = None
         self._spill_index = 0
+        # Text accumulated but not yet on disk, and the size of the current
+        # block. Only what has not been written yet is held in memory.
+        self._spill_pending = ""
+        self._spill_size = 0
+        # Byte offset where the current block's body ends and its footer starts.
+        # None until the block first overflows and gets a header.
+        self._spill_body_end = None
         self.safe_mode = safe_mode
         self.shrink_images = shrink_images
         self.disable_telemetry = disable_telemetry
@@ -842,20 +847,33 @@ class OpenInterpreter:
             )
         return self._spill_path
 
+    def _open_spill(self, path):
+        """Open the archive for update, creating it private to this user.
+
+        Console output can contain credentials and the file lives in a shared
+        temp directory, so the default 0644 would expose it to every other user
+        on the machine.
+        """
+        if not os.path.exists(path):
+            os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+        return open(path, "r+b")
+
     def _record_full_output(self, message, chunk_content):
-        """Keep the untruncated console output on disk; return a note naming it.
+        """Archive the untruncated console output; return a note naming it.
 
         truncate_output() rewrites the message content in place, and the next
         chunk is appended to that already-truncated string. So the accumulated
         content is NOT the real output once it overflows even once - the middle
         is already gone by the time anything could read it. The true stream is
-        buffered here instead, chunk by chunk, before truncation touches it.
+        recorded here instead, chunk by chunk, before truncation touches it.
 
         Blocks are appended, so earlier commands stay readable for the whole
-        session rather than being overwritten by the next big output. The block
-        for the command still streaming is rewritten in place (seek + truncate)
-        rather than re-appended, otherwise a chunked output would be written
-        again on every single chunk.
+        session rather than being overwritten by the next big output.
+
+        Each chunk appends only the bytes that are new, rewriting nothing but
+        the block's own footer, which is fixed-size. Chunks arrive per line, so
+        re-writing the whole block every time would make a large output cost
+        O(n^2) in disk writes.
 
         Returns None while the output still fits, so nothing is created in the
         common case.
@@ -863,41 +881,52 @@ class OpenInterpreter:
         if message is not self._spill_message:
             # New console message: start a new block at the current end of file.
             self._spill_message = message
-            self._spill_buffer = ""
-            self._spill_offset = None
+            self._spill_pending = ""
+            self._spill_size = 0
+            self._spill_body_end = None
             self._spill_index += 1
-        self._spill_buffer += chunk_content or ""
-        if len(self._spill_buffer) <= self.max_output:
+
+        chunk_content = chunk_content or ""
+        self._spill_pending += chunk_content
+        self._spill_size += len(chunk_content)
+        if self._spill_size <= self.max_output:
+            # Still small enough to read in full; keep holding it in memory.
             return None
 
         path = self._spill_file_path()
         index = self._spill_index
-        header = f"\n===== OI OUTPUT BLOCK {index} ({len(self._spill_buffer):,} chars) =====\n"
-        footer = f"\n===== END BLOCK {index} =====\n"
+        footer = f"\n===== END BLOCK {index} ({self._spill_size:,} chars) =====\n"
         try:
-            if self._spill_offset is None:
-                self._spill_offset = (
-                    os.path.getsize(path) if os.path.exists(path) else 0
-                )
             # Binary so the recorded offset stays valid regardless of encoding.
-            with open(path, "r+b" if os.path.exists(path) else "wb") as f:
-                f.seek(self._spill_offset)
-                f.truncate()
-                f.write(
-                    (header + self._spill_buffer + footer).encode(
-                        "utf-8", errors="replace"
+            with self._open_spill(path) as f:
+                if self._spill_body_end is None:
+                    # First overflow for this block: append a header after
+                    # whatever earlier blocks are already in the file.
+                    f.seek(0, os.SEEK_END)
+                    f.write(
+                        f"\n===== OI OUTPUT BLOCK {index} =====\n".encode(
+                            "utf-8", errors="replace"
+                        )
                     )
-                )
+                else:
+                    # Resume where the body ended, overwriting the old footer.
+                    f.seek(self._spill_body_end)
+                f.write(self._spill_pending.encode("utf-8", errors="replace"))
+                self._spill_body_end = f.tell()
+                f.write(footer.encode("utf-8", errors="replace"))
+                # The footer grows as the character count does; truncate so a
+                # shorter one can never leave a stale tail behind.
+                f.truncate()
         except OSError:
             # Read-only or full disk: truncation must still work, just without
-            # the recovery path.
+            # the archive.
             return None
+        self._spill_pending = ""
         return (
-            f"The FULL output is saved at {path} as block {index} "
-            f"(earlier blocks from this session are still in that file). "
-            f"Read just this block with "
-            f"`awk '/^===== OI OUTPUT BLOCK {index} /,/^===== END BLOCK {index} /' {path}`, "
-            f"or grep the file for what you need."
+            f"If you need the part that was cut, the full output is archived at "
+            f"{path} as block {index} (earlier blocks from this session are still "
+            f"in that file). Grep it for what you need, or read just this block "
+            f"with `awk '/^===== OI OUTPUT BLOCK {index} =/,/^===== END BLOCK {index} /' {path}`."
         )
 
     def reset(self):
