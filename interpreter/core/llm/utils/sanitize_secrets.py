@@ -108,14 +108,20 @@ def sanitize_messages(messages: list, scanner=None, only_code_output: bool = Tru
     Mutate message contents in place, redacting secrets in any text.
     Only text fields are scanned; images and other content are left unchanged.
     If only_code_output is True (default), only messages that are code execution
-    results (role "function" with name "execute") are sanitized. This avoids
+    results (legacy role "function" with name "execute", or modern role "tool")
+    are sanitized. This avoids
     redacting system prompt, user text, or assistant text, which can confuse
     the model when detectors match benign phrases.
     """
     redact = scanner if scanner else _redact_secrets
     for message in messages:
         if only_code_output:
-            if message.get("role") != "function" or message.get("name") != "execute":
+            is_legacy_execute = (
+                message.get("role") == "function"
+                and message.get("name") == "execute"
+            )
+            is_tool_result = message.get("role") == "tool"
+            if not (is_legacy_execute or is_tool_result):
                 continue
         content = message.get("content")
         if content is None:
