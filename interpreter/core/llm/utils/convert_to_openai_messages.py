@@ -82,6 +82,26 @@ def _user_ts(message, messages, *, _now=None):
     return None
 
 
+def _use_modern_tool_calls(interpreter) -> bool:
+    """Whether to emit modern tool_calls/tool messages instead of legacy function_call/function.
+
+    Strict validators (DeepSeek, especially via OpenRouter's relay) reject an
+    assistant message that carries the deprecated ``function_call`` field with
+    empty content and no ``tool_calls`` key ("Invalid assistant message:
+    content or tool_calls must be set", 400). OpenAI still accepts the legacy
+    shape, so only strict DeepSeek routes get the modern format; everything
+    else keeps the legacy output unchanged.
+    """
+    try:
+        model = getattr(getattr(interpreter, "llm", None), "model", "") or ""
+    except Exception:
+        return False
+    m = model.lower()
+    return m.startswith("deepseek/") or (
+        m.startswith("openrouter/") and "deepseek" in m
+    )
+
+
 def convert_to_openai_messages(
     messages,
     function_calling=True,
@@ -103,6 +123,38 @@ def convert_to_openai_messages(
     # Track which tool produced the most recent code/edit block so that the
     # following console-output message is attributed to the right function name.
     last_tool_name = "execute"
+    # Modern tool_calls need stable ids shared between a call and its outputs
+    # (deterministic per-request so prefix caching stays effective).
+    _modern_tools = _use_modern_tool_calls(interpreter)
+    _tool_call_counter = 0
+    last_tool_call_id = None
+    # A synthetic tool call must actually be followed by its tool output:
+    # strict validators reject a call id with no later matching output, and
+    # history routinely contains code that never executed (interrupted loops,
+    # invalidated calls, code superseded by a user edit). Precompute which
+    # code/edit messages have a console output following them (mirroring the
+    # recipient filter of the main loop); unpaired ones fall back to plain
+    # text blocks, exactly like text mode.
+    _paired_call_idx = set()
+    if _modern_tools and function_calling:
+        for _pi, _pm in enumerate(messages):
+            if (
+                _pm.get('type') in ('code', 'edit')
+                and _pm.get('role') == 'assistant'
+                and not (
+                    "recipient" in _pm and _pm["recipient"] != "assistant"
+                )
+            ):
+                for _pj in range(_pi + 1, len(messages)):
+                    _nx = messages[_pj]
+                    if "recipient" in _nx and _nx["recipient"] != "assistant":
+                        continue
+                    if (
+                        _nx.get('type') == 'console'
+                        and _nx.get('format') == 'output'
+                    ):
+                        _paired_call_idx.add(_pi)
+                    break
 
     # if function_calling == False:
     #     prev_message = None
@@ -117,7 +169,7 @@ def convert_to_openai_messages(
 
     #     messages = [message for message in messages if message.get("type") != "code"]
 
-    for message in messages:
+    for _mi, message in enumerate(messages):
         # Is this for thine eyes?
         if "recipient" in message and message["recipient"] != "assistant":
             continue
@@ -178,21 +230,52 @@ def convert_to_openai_messages(
             last_tool_name = "execute"
             new_message["role"] = "assistant"
             if function_calling:
-                new_message["function_call"] = {
-                    "name": "execute",
-                    "arguments": json.dumps(
-                        {"language": message["format"], "code": message["content"]}
-                    ),
-                    # parsed_arguments isn't actually an OpenAI thing, it's an OI thing.
-                    # but it's soo useful!
-                    # "parsed_arguments": {
-                    #     "language": message["format"],
-                    #     "code": message["content"],
-                    # },
-                }
-                # Add empty content to avoid error "openai.error.InvalidRequestError: 'content' is a required property - 'messages.*'"
-                # especially for the OpenAI service hosted on Azure
-                new_message["content"] = ""
+                if _modern_tools and _mi in _paired_call_idx:
+                    _tool_call_counter += 1
+                    last_tool_call_id = f"oi-call-{_tool_call_counter}"
+                    new_message["tool_calls"] = [
+                        {
+                            "id": last_tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": "execute",
+                                "arguments": json.dumps(
+                                    {
+                                        "language": message["format"],
+                                        "code": message["content"],
+                                    }
+                                ),
+                            },
+                        }
+                    ]
+                    # Empty content is valid alongside tool_calls (same shape
+                    # real model turns already have); strict providers only
+                    # reject messages with NEITHER content NOR tool_calls.
+                    new_message["content"] = ""
+                elif _modern_tools:
+                    # No console output follows this code (interrupted loop,
+                    # invalidated call, superseded edit): a bare tool_calls
+                    # would have no matching output, so send it as text like
+                    # text mode does.
+                    new_message[
+                        "content"
+                    ] = f"""```{message["format"]}\n{message["content"]}\n```"""
+                else:
+                    new_message["function_call"] = {
+                        "name": "execute",
+                        "arguments": json.dumps(
+                            {"language": message["format"], "code": message["content"]}
+                        ),
+                        # parsed_arguments isn't actually an OpenAI thing, it's an OI thing.
+                        # but it's soo useful!
+                        # "parsed_arguments": {
+                        #     "language": message["format"],
+                        #     "code": message["content"],
+                        # },
+                    }
+                    # Add empty content to avoid error "openai.error.InvalidRequestError: 'content' is a required property - 'messages.*'"
+                    # especially for the OpenAI service hosted on Azure
+                    new_message["content"] = ""
             else:
                 new_message[
                     "content"
@@ -202,15 +285,39 @@ def convert_to_openai_messages(
             last_tool_name = "edit"
             new_message["role"] = "assistant"
             if function_calling:
-                new_message["function_call"] = {
-                    "name": "edit",
-                    "arguments": json.dumps({
-                        "language": message["format"],
-                        "code": message["content"],
-                        "target": message["target"],
-                    }),
-                }
-                new_message["content"] = ""
+                if _modern_tools and _mi in _paired_call_idx:
+                    _tool_call_counter += 1
+                    last_tool_call_id = f"oi-call-{_tool_call_counter}"
+                    new_message["tool_calls"] = [
+                        {
+                            "id": last_tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": "edit",
+                                "arguments": json.dumps({
+                                    "language": message["format"],
+                                    "code": message["content"],
+                                    "target": message["target"],
+                                }),
+                            },
+                        }
+                    ]
+                    new_message["content"] = ""
+                elif _modern_tools:
+                    new_message["content"] = (
+                        f"edit({message['format']}, {message['target']!r}):\n"
+                        f"```{message['format']}\n{message['content']}\n```"
+                    )
+                else:
+                    new_message["function_call"] = {
+                        "name": "edit",
+                        "arguments": json.dumps({
+                            "language": message["format"],
+                            "code": message["content"],
+                            "target": message["target"],
+                        }),
+                    }
+                    new_message["content"] = ""
             else:
                 new_message["content"] = (
                     f"edit({message['format']}, {message['target']!r}):\n"
@@ -219,8 +326,6 @@ def convert_to_openai_messages(
 
         elif message["type"] == "console" and message["format"] == "output":
             if function_calling:
-                new_message["role"] = "function"
-                new_message["name"] = last_tool_name
                 if "content" not in message:
                     print("What is this??", content)
                 if type(message["content"]) != str:
@@ -228,11 +333,21 @@ def convert_to_openai_messages(
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
                     message["content"] = str(message["content"])
                 if message["content"].strip() == "":
-                    new_message[
-                        "content"
-                    ] = "No output"  # I think it's best to be explicit, but we should test this.
+                    output_content = "No output"  # I think it's best to be explicit, but we should test this.
                 else:
-                    new_message["content"] = message["content"]
+                    output_content = message["content"]
+                if _modern_tools and last_tool_call_id is not None:
+                    # Modern tool response paired with the call above; the
+                    # official tool schema has no `name` field, so omit it.
+                    new_message["role"] = "tool"
+                    new_message["tool_call_id"] = last_tool_call_id
+                    new_message["content"] = output_content
+                else:
+                    new_message["role"] = "function"
+                    new_message["name"] = last_tool_name
+                    if "content" not in message:
+                        print("What is this??", content)
+                    new_message["content"] = output_content
 
             else:
                 # This should be experimented with.
@@ -482,7 +597,8 @@ def convert_to_openai_messages(
         # left over from a partial stream — would otherwise be emitted as `content: ""`
         # with no tool_calls. It carries no information to the model, so drop it rather
         # than send a malformed request. Messages with tool_calls (e.g. the synthetic
-        # view_image_call reconstruction) or non-empty content are always kept.
+        # view_image_call reconstruction, or modern tool_calls emitted for strict
+        # routes instead of legacy function_call) or non-empty content are always kept.
         if (
             new_message.get("role") == "assistant"
             and not new_message.get("tool_calls")

@@ -364,3 +364,115 @@ def test_undecodable_bytes_fall_back_to_declared_format():
     url = _image_url(out)
     assert url.startswith("data:image/png;base64,")
     assert url.split("base64,")[1] == base64.b64encode(b"this is not an image at all").decode()
+
+
+class _FakeStrictDeepSeekInterpreter(_FakeInterpreter):
+    """Same stand-in, but routed through a strict DeepSeek-via-OpenRouter model."""
+
+    class llm:
+        model = "openrouter/~deepseek/deepseek-v4-flash-latest"
+
+
+def test_strict_deepseek_route_uses_modern_tool_calls():
+    """Strict DeepSeek routes must never see legacy function_call or function roles.
+
+    With supports_functions enabled, code/edit turns convert to assistant
+    messages with empty content plus a call payload, and console outputs to
+    result messages. The legacy function_call/function shape is rejected by
+    DeepSeek's strict validators (OpenRouter BYOK relay) with a 400
+    ("Invalid assistant message: content or tool_calls must be set"), so for
+    DeepSeek routes the converter must emit modern tool_calls and pair every
+    tool output to its call via tool_call_id. Other models keep the legacy
+    shape untouched.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('B')"},
+        {"role": "computer", "type": "console", "format": "output", "content": ""},
+    ]
+    out = convert_to_openai_messages(
+        messages,
+        function_calling=True,
+        vision=False,
+        interpreter=_FakeStrictDeepSeekInterpreter(),
+    )
+    assert not any("function_call" in m for m in out)
+    assert not any(m.get("role") == "function" for m in out)
+    calls = [m for m in out if m.get("tool_calls")]
+    assert len(calls) == 2
+    assert all(m["role"] == "assistant" for m in calls)
+    call_ids = [tc["id"] for m in calls for tc in m["tool_calls"]]
+    assert all(tc["type"] == "function" for m in calls for tc in m["tool_calls"])
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(outputs) == 2
+    assert all(m.get("tool_call_id") in call_ids for m in outputs)
+    # Empty code output still gets the explicit placeholder, now on a tool message.
+    assert outputs[1]["content"] == "No output"
+    # No assistant message goes out with neither content nor tool calls.
+    for m in out:
+        if m.get("role") == "assistant" and not m.get("tool_calls"):
+            assert str(m.get("content", "") or "").strip()
+
+
+def test_strict_route_unpaired_code_falls_back_to_text():
+    """A strict-route code turn with no following output must not become a bare call.
+
+    History routinely holds code that never executed (interrupted loops,
+    invalidated calls, code superseded by a user edit before running). Emitting
+    it as tool_calls would leave a call id with no later matching tool output,
+    which strict validators reject ("must be followed by tool messages ...").
+    Such code falls back to a plain text block, exactly like text mode, so the
+    request stays valid while keeping the code visible to the model.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('B')"},
+        {"role": "user", "type": "message", "content": "actually never mind that"},
+    ]
+    out = convert_to_openai_messages(
+        messages,
+        function_calling=True,
+        vision=False,
+        interpreter=_FakeStrictDeepSeekInterpreter(),
+    )
+    calls = [m for m in out if m.get("tool_calls")]
+    assert len(calls) == 1
+    call_ids = [tc["id"] for m in calls for tc in m["tool_calls"]]
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(outputs) == 1
+    assert outputs[0]["tool_call_id"] in call_ids
+    texts = [
+        m
+        for m in out
+        if m.get("role") == "assistant"
+        and not m.get("tool_calls")
+        and "print('B')" in str(m.get("content", ""))
+    ]
+    assert len(texts) == 1
+    assert "```python" in texts[0]["content"]
+
+
+def test_non_deepseek_route_keeps_legacy_function_call():
+    """The modern tool_calls emission must not change other models' requests.
+
+    Only strict DeepSeek routes get the new shape; every other model keeps
+    the legacy function_call/function output so OpenAI, Azure, and local
+    providers see byte-identical requests to before.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+    ]
+    out = convert_to_openai_messages(
+        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
+    )
+    assert sum("function_call" in m for m in out) == 1
+    assert not any(m.get("tool_calls") for m in out)
+    assert any(
+        m.get("role") == "function" and m.get("name") == "execute" for m in out
+    )
