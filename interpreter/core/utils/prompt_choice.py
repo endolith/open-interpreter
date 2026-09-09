@@ -3,6 +3,33 @@ import sys
 from rich import print as rich_print
 
 
+class NoInteractiveInput(Exception):
+    """
+    Raised when a choice is needed but there is no terminal to read it from.
+
+    prompt_choice deliberately does not pick an answer of its own. Only the
+    caller knows what "nobody can answer this" should mean: skipping a code run
+    lets the model try something else, while skipping the profile migration
+    silently throws the user's whole profile away. Each call site handles this.
+    """
+
+    def __init__(self, prompt, choices):
+        self.prompt = prompt
+        self.choices = choices
+        super().__init__(
+            "No interactive terminal is available to answer: "
+            f"{' '.join(prompt.split())} ({'/'.join(choices)})"
+        )
+
+
+def stdin_is_interactive():
+    """False for uvicorn workers, containers, pytest, and other environments with no real TTY."""
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def prompt_choice(prompt, choices):
     """
     Prompt until the user enters one of the given single-character choices.
@@ -10,6 +37,9 @@ def prompt_choice(prompt, choices):
 
     The full prompt is shown once. On invalid input, only the hint is printed
     (with Rich so choices appear in bold) and a minimal reprompt, no extra newlines.
+
+    Raises NoInteractiveInput when there is no TTY to read from, rather than
+    crashing with EOFError or guessing a choice.
     """
     choices = tuple(c.lower() for c in choices)
     if len(choices) <= 1:
@@ -20,16 +50,15 @@ def prompt_choice(prompt, choices):
         hint = "Please press " + ", ".join(f"[bold]{c}[/bold]" for c in choices[:-1]) + ", or [bold]" + choices[-1] + "[/bold]."
     reprompt = "  "
     current_prompt = prompt
-    # Non-interactive (server/headless) mode: no TTY to read from. Rather than
-    # crash with EOFError, take the last choice, which is the safe/decline option
-    # by convention here ('n' in y/n, 'n' in y/a/n).
-    if not (sys.stdin and sys.stdin.isatty()):
-        return choices[-1]
+    # Non-interactive (server/container/headless): there is no one to ask.
+    if not stdin_is_interactive():
+        raise NoInteractiveInput(prompt, choices)
     while True:
         try:
             response = input(current_prompt).strip().lower()
         except EOFError:
-            return choices[-1]
+            # stdin closed mid-session, after isatty() was true at entry.
+            raise NoInteractiveInput(prompt, choices) from None
         response = response[:1] if response else ""
         if response in choices:
             print("")

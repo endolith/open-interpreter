@@ -6,6 +6,7 @@ import platform
 import shutil
 import string
 import subprocess
+import sys
 import time
 
 import platformdirs
@@ -13,7 +14,7 @@ import requests
 import send2trash
 import yaml
 
-from ...core.utils.prompt_choice import prompt_choice
+from ...core.utils.prompt_choice import NoInteractiveInput, prompt_choice
 from ..utils.oi_dir import oi_dir
 from .historical_profiles import historical_profiles
 
@@ -204,7 +205,25 @@ def apply_profile(interpreter, profile, profile_path):
             "We have updated our profile file format. Would you like to migrate your profile file to the new format? No data will be lost."
         )
         print("")
-        message = prompt_choice("(y/n) ", ("y", "n"))
+        try:
+            message = prompt_choice("(y/n) ", ("y", "n"))
+        except NoInteractiveInput:
+            # Declining here does not just skip the migration, it returns without
+            # loading the profile at all. Guessing "no" would silently drop every
+            # setting the user configured — including the model and auto_run — and
+            # the run would look fine until it behaved nothing like the profile
+            # says. There is no safe assumption, so stop and say what to do.
+            print("")
+            print(
+                f"Cannot start: {profile_path} uses an older profile format and\n"
+                f"migrating it needs a yes/no answer, but there is no interactive\n"
+                f"terminal to ask.\n\n"
+                f"Either run `interpreter` once in a terminal to migrate it, or add\n"
+                f"this line to the profile to keep the current format and skip the\n"
+                f"prompt:\n\n"
+                f"    version: {OI_VERSION}  # Profile version (do not modify)\n"
+            )
+            sys.exit(1)
         if message == "y":
             migrate_user_app_directory()
             print("Migration complete.")
@@ -739,10 +758,19 @@ def reset_profile(specific_default_profile=None):
             with open(target_file, "r") as file:
                 current_profile = file.read()
             if current_profile not in historical_profiles:
-                user_input = prompt_choice(
-                    f"Would you like to reset/update {filename}? (y/n) ",
-                    ("y", "n"),
-                )
+                try:
+                    user_input = prompt_choice(
+                        f"Would you like to reset/update {filename}? (y/n) ",
+                        ("y", "n"),
+                    )
+                except NoInteractiveInput:
+                    # Leaving the file alone is the status quo, so this one can
+                    # be skipped without losing anything.
+                    print(
+                        f"Leaving {filename} as it is (no terminal to ask). "
+                        f"Run `interpreter --reset_profile` to reset it."
+                    )
+                    user_input = "n"
                 if user_input == "y":
                     send2trash.send2trash(
                         target_file
