@@ -122,6 +122,7 @@ def contribute_past_and_future_logic(
 # The bool is True if the file does not already exist, False if it does.
 def get_contribute_cache_contents() -> ContributionCache:
     if not os.path.exists(contribute_cache_path):
+        os.makedirs(os.path.dirname(contribute_cache_path), exist_ok=True)
         default_dict: ContributionCache = {
             "asked_to_contribute_past": False,
             "displayed_contribution_message": False,
@@ -131,9 +132,19 @@ def get_contribute_cache_contents() -> ContributionCache:
             file.write(json.dumps(default_dict))
         return default_dict
     else:
-        with open(contribute_cache_path, "r") as file:
-            contribute_cache = json.load(file)
-            return contribute_cache
+        try:
+            with open(contribute_cache_path, "r") as file:
+                contribute_cache = json.load(file)
+        except (json.JSONDecodeError, ValueError):
+            # A corrupt cache file must never crash startup; start fresh.
+            contribute_cache = {}
+        # Older cache files predate some keys; fill in defaults so the
+        # lookups in contribute_conversation_launch_logic and
+        # contribute_past_and_future_logic never raise KeyError.
+        contribute_cache.setdefault("displayed_contribution_message", False)
+        contribute_cache.setdefault("asked_to_contribute_past", False)
+        contribute_cache.setdefault("asked_to_contribute_future", False)
+        return contribute_cache
 
 
 # Takes in a {"asked_to_run_contribute": bool, "asked_to_contribute_past": bool}
