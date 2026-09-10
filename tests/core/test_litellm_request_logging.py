@@ -4,6 +4,8 @@ import os
 import litellm
 
 import interpreter.core.llm.llm as llm_mod
+from interpreter.core.core import OpenInterpreter
+from interpreter.terminal_interface.profiles.profiles import apply_profile_to_object
 
 
 class _FakeChunk:
@@ -85,3 +87,46 @@ def test_logging_is_silent_when_disabled(monkeypatch, tmp_path):
     logs = tmp_path / ".config" / "open-interpreter" / "logs"
     assert not (logs / "litellm_requests.jsonl").exists()
     assert not (logs / "litellm_responses.jsonl").exists()
+
+
+def test_param_flag_enables_dumping_without_env_var(monkeypatch, tmp_path):
+    """The params flag (from llm.log_litellm_requests) enables dumping with no env var.
+
+    The profile setting must work on its own for users who never touch the
+    environment; fixed_litellm_completions reads the forwarded flag and strips it
+    so it never reaches the provider.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("OI_LOG_LITELLM_REQUESTS", raising=False)
+
+    def fake_completion(**params):
+        yield _FakeChunk({"choices": [{"delta": {"content": "hi"}, "finish_reason": "stop"}]})
+
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+
+    list(
+        llm_mod.fixed_litellm_completions(
+            model="deepseek/deepseek-v4-flash",
+            messages=[{"role": "user", "content": "hi"}],
+            _oi_log_requests=True,
+        )
+    )
+
+    logs = tmp_path / ".config" / "open-interpreter" / "logs"
+    assert (logs / "litellm_requests.jsonl").exists()
+    assert (logs / "litellm_responses.jsonl").exists()
+
+
+def test_profile_sets_log_litellm_requests():
+    """`llm.log_litellm_requests` is a real, profile-settable attribute defaulting off.
+
+    Profiles are applied by attribute assignment, so the setting only works if the
+    Llm object actually defines it. This locks the name and default so a profile
+    key like `llm: {log_litellm_requests: true}` takes effect.
+    """
+    interpreter = OpenInterpreter()
+    assert interpreter.llm.log_litellm_requests is False
+
+    apply_profile_to_object(interpreter, {"llm": {"log_litellm_requests": True}})
+    assert interpreter.llm.log_litellm_requests is True
+
