@@ -1068,7 +1068,13 @@ class TestTerminalLanguages(unittest.TestCase):
         out = bash.preprocess_code("echo hi")
         self.assertLess(
             out.index('echo "##oi_cwd##$PWD"'),
-            out.index('echo "##end_of_execution##"'),
+            out.index('echo "##end_of_execution##'),
+        )
+        # $? has to be captured before the cwd echo, which would otherwise be
+        # the command whose status the end marker reports.
+        self.assertLess(
+            out.index("__oi_exit_code=$?"),
+            out.index('echo "##oi_cwd##$PWD"'),
         )
 
 
