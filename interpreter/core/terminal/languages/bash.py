@@ -26,10 +26,12 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
     def preprocess_code(self, code):
         code = self._strip_redundant_cd(code)
         code = preprocess_shell(code)
-        # Save $? the instant the user's code finishes. The cwd echo that
-        # _insert_cwd_marker adds below runs before the end marker, so reading
-        # $? in the marker itself would report that echo's status (always 0)
-        # rather than the user's.
+        # Save $? the instant the user's code finishes, before anything this
+        # method appends can overwrite it. The cwd echo that _insert_cwd_marker
+        # adds below runs before the end marker, so reading $? in the marker
+        # itself would report that echo's status (always 0) rather than the
+        # user's. add_active_line_prints skips lines that run nothing for the
+        # same reason: a marker echo after the last real command would set $?.
         code = code.replace(
             '\necho "##end_of_execution##"',
             '\n__oi_exit_code=$?\necho "##end_of_execution##$__oi_exit_code"',
