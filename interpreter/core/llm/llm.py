@@ -123,6 +123,11 @@ class Llm:
         # "auto" = sanitize for remote models, skip for local (ollama/local/jan). "on"/"off" override.
         self.sanitize_secrets = "auto"
 
+        # Debug: when True, append the outgoing request params and the streamed
+        # response to JSONL files under the logs dir for inspection. Settable via
+        # the profile (llm.log_litellm_requests: true) or OI_LOG_LITELLM_REQUESTS=1.
+        self.log_litellm_requests = False
+
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
@@ -404,6 +409,11 @@ Continuing...
             "messages": messages,
             "stream": True,
         }
+
+        # Forward the debug-logging preference to fixed_litellm_completions, which
+        # is a module-level function without access to this Llm instance. It pops
+        # this key before handing params to litellm, so it never reaches the wire.
+        params["_oi_log_requests"] = bool(self.log_litellm_requests)
 
         # OpenAI-compatible: final stream chunk may include usage (prompt/completion/cached breakdown).
         stream_options = {"include_usage": True}
@@ -975,7 +985,9 @@ def fixed_litellm_completions(**params):
     # litellm.completion() is what becomes the wire request, so this captures
     # what the provider actually receives (modulo litellm's internal transforms).
     # Each line is one request: {"ts": ..., "model": ..., "messages": [...], ...}.
-    debug_dump = os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1"
+    debug_dump = bool(params.pop("_oi_log_requests", False)) or (
+        os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1"
+    )
     debug_request_id = str(uuid.uuid4()) if debug_dump else None
 
     if debug_dump:
