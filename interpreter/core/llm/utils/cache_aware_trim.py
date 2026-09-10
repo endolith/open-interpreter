@@ -78,7 +78,7 @@ def _is_safe_cut(message):
     return False
 
 
-def _find_safe_cut(messages, target_tokens, model):
+def _find_safe_cut(messages, target_tokens, model, costs=None):
     """Index of the oldest message to *keep* after dropping the prefix.
 
     Returns `cut` such that dropping `messages[:cut]` brings the retained tail
@@ -98,8 +98,13 @@ def _find_safe_cut(messages, target_tokens, model):
     message — retaining a tiny sliver of the available budget and discarding
     nearly the whole conversation.  Permitting plain-assistant boundaries lets
     the trim keep as much of the budget as it can.
+
+    `costs` optionally supplies precomputed per-message token counts (one per
+    message, same order) so callers that already counted — e.g. an incremental
+    conversion cache — are not charged a second full pass.
     """
-    costs = [_count_message_tokens([m], model) for m in messages]
+    if costs is None:
+        costs = [_count_message_tokens([m], model) for m in messages]
     retained = sum(costs)
 
     last_user = -1
@@ -167,7 +172,7 @@ def _omission_note(messages, cut):
     return f"[… {count} {noun} omitted to fit context window …]"
 
 
-def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8, model=None):
+def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8, model=None, message_costs=None):
     """Cache-aware truncation (Character.AI / prompt-poet algorithm).
 
     Instead of dropping the oldest single turn each call — which moves the
@@ -203,6 +208,11 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
     as `system_message`).  Returns the full message list with the system
     message prepended, matching the contract of tokentrim.trim.
 
+    `message_costs` optionally supplies precomputed per-message token counts
+    for `messages` (same order), avoiding a second full counting pass for
+    callers that already counted — e.g. an incremental conversion cache that
+    stashed costs from the previous turn.
+
     References:
     - https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
     - DeepSeek prompt-cache guidance: a retention ratio of 0.8 truncates 20% of
@@ -215,13 +225,15 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
 
     system_dict = {"role": "system", "content": system_message}
     system_tokens = _count_message_tokens([system_dict], model)
-    total = system_tokens + _count_message_tokens(messages, model)
+    if message_costs is None:
+        message_costs = [_count_message_tokens([m], model) for m in messages]
+    total = system_tokens + sum(message_costs)
 
     if total <= token_limit:
         return [system_dict] + messages
 
     target_tokens = token_limit * retention_ratio
-    cut = _find_safe_cut(messages, target_tokens, model)
+    cut = _find_safe_cut(messages, target_tokens, model, costs=message_costs)
 
     trimmed = [system_dict] + messages[cut:]
     if cut > 0:
