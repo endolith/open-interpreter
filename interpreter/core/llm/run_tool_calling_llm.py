@@ -154,6 +154,61 @@ def _inline_user_image_in_turn_after_last_assistant_text(messages):
     return False
 
 
+def merge_consecutive_assistant_messages(messages):
+    """Collapse runs of consecutive ``assistant`` messages into single turns.
+
+    A tool-calling turn is stored internally as two assistant messages: a
+    content-only preamble (the model narrating its plan) and a separate message
+    carrying ``tool_calls`` with empty content and a copy of the reasoning. That
+    split shape is not canonical for OpenAI-compatible providers and is actively
+    harmful on DeepSeek V4: its chat template emits the ``<|Assistant|>``
+    transition token only after user/developer turns, so a second consecutive
+    assistant renders with orphaned thinking content and unbalanced think tags.
+    The corrupted encoding accumulates across tool rounds and makes the model
+    spill paraphrased inner-monologue into the content channel (the repeated
+    "Let me do X ... Go ... Write" padding) before it finally emits a tool call.
+
+    Merging restores the canonical single-turn shape the model was trained on:
+    ``reasoning_content`` + ``content`` + ``tool_calls`` under one assistant
+    message. Content and reasoning are joined with a blank line, and identical
+    adjacent reasoning (from our own propagation) is de-duplicated; tool calls
+    are concatenated in order.
+    """
+    merged = []
+    for message in messages:
+        prev = merged[-1] if merged else None
+        if (
+            message.get("role") == "assistant"
+            and prev is not None
+            and prev.get("role") == "assistant"
+        ):
+            # content: join the non-empty parts, preserving order
+            parts = [
+                p
+                for p in (prev.get("content"), message.get("content"))
+                if isinstance(p, str) and p.strip()
+            ]
+            if parts:
+                prev["content"] = "\n\n".join(parts)
+
+            # reasoning: join distinct parts, dropping the duplicate that our
+            # propagation copies onto the tool_calls message
+            rparts = []
+            for r in (prev.get("reasoning_content"), message.get("reasoning_content")):
+                if isinstance(r, str) and r.strip() and (not rparts or rparts[-1] != r):
+                    rparts.append(r)
+            if rparts:
+                prev["reasoning_content"] = "\n\n".join(rparts)
+
+            # tool_calls: concatenate in order
+            if message.get("tool_calls"):
+                prev["tool_calls"] = (prev.get("tool_calls") or []) + message["tool_calls"]
+
+            continue
+        merged.append(dict(message))
+    return merged
+
+
 def process_messages(messages, model=None):
     processed_messages = []
     last_tool_id = 0
@@ -255,7 +310,7 @@ def process_messages(messages, model=None):
 
         i += 1
 
-    return processed_messages
+    return merge_consecutive_assistant_messages(processed_messages)
 
 
 def build_request_tools(interpreter, messages=None):
