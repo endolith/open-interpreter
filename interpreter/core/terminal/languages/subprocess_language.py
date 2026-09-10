@@ -42,6 +42,14 @@ class SubprocessLanguage(BaseLanguage):
             return None
         return int(match.group(1))
 
+    def detect_exit_code(self, line):
+        """Exit status encoded in the end-of-execution marker, or None.
+
+        Only subclasses whose marker carries the status (currently Bash)
+        override this; the default keeps every other language unchanged.
+        """
+        return None
+
     def detect_end_of_execution(self, line):
         return None
 
@@ -251,14 +259,27 @@ class SubprocessLanguage(BaseLanguage):
                             {"type": "console", "format": "output", "content": line}
                         )
                 elif self.detect_end_of_execution(line):
+                    exit_code = self.detect_exit_code(line)
                     # Both markers end the block, so both must be stripped. An
                     # error marker that reaches the user verbatim reads as
                     # protocol noise rather than the error itself.
-                    line = _END_OF_EXECUTION_RE.sub("", line)
+                    # \d* also consumes the exit status when the marker carries
+                    # one (see Bash.detect_exit_code).
+                    line = re.sub(r"##end_of_execution##\d*", "", line)
                     line = _EXECUTION_ERROR_RE.sub("", line).strip()
                     if line:
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
+                        )
+                    # Only report failures: a successful command stays silent and
+                    # costs the model nothing.
+                    if exit_code:
+                        self.output_queue.put(
+                            {
+                                "type": "console",
+                                "format": "output",
+                                "content": f"[exited with code {exit_code}]",
+                            }
                         )
                     self.done.set()
                 elif is_error_stream and "KeyboardInterrupt" in line:
