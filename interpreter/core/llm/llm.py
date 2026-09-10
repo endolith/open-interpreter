@@ -22,6 +22,7 @@ from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from ...terminal_interface.utils.local_storage_path import get_storage_path
 from .run_text_llm import run_text_llm
 
 # Appended to the system message in tool-calling mode. Tool names, parameters, languages,
@@ -805,7 +806,7 @@ def _dump_litellm_response(request_id, model, chunks):
     try:
         import datetime as _dt
 
-        dump_dir = os.path.expanduser("~/.config/open-interpreter/logs")
+        dump_dir = get_storage_path("logs")
         os.makedirs(dump_dir, exist_ok=True)
         dump_path = os.path.join(dump_dir, "litellm_responses.jsonl")
 
@@ -993,7 +994,7 @@ def fixed_litellm_completions(**params):
     if debug_dump:
         try:
             import datetime as _dt
-            dump_dir = os.path.expanduser("~/.config/open-interpreter/logs")
+            dump_dir = get_storage_path("logs")
             os.makedirs(dump_dir, exist_ok=True)
             dump_path = os.path.join(
                 dump_dir, "litellm_requests.jsonl"
@@ -1047,7 +1048,7 @@ def fixed_litellm_completions(**params):
                 try:
                     import os as _os
                     import datetime as _dt
-                    dump_dir = _os.path.expanduser("~/.config/open-interpreter/logs")
+                    dump_dir = get_storage_path("logs")
                     _os.makedirs(dump_dir, exist_ok=True)
                     dump_path = _os.path.join(
                         dump_dir, f"reasoning_400_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
