@@ -31,7 +31,7 @@ def test_request_and_response_dumps_correlate_by_request_id(monkeypatch, tmp_pat
     and the raw model output (to see whether it emitted a tool call or just
     narrated). The two JSONL files must therefore share a request_id.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(llm_mod, "get_storage_path", lambda sub=None: str(tmp_path / (sub or "")))
     monkeypatch.setenv("OI_LOG_LITELLM_REQUESTS", "1")
 
     def fake_completion(**params):
@@ -48,7 +48,7 @@ def test_request_and_response_dumps_correlate_by_request_id(monkeypatch, tmp_pat
         )
     )
 
-    logs = tmp_path / ".config" / "open-interpreter" / "logs"
+    logs = tmp_path / "logs"
     requests = _read_jsonl(logs / "litellm_requests.jsonl")
     responses = _read_jsonl(logs / "litellm_responses.jsonl")
 
@@ -69,7 +69,7 @@ def test_logging_is_silent_when_disabled(monkeypatch, tmp_path):
     Logging must be strictly opt-in so normal runs neither pay the cost nor leak
     prompt contents to disk.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(llm_mod, "get_storage_path", lambda sub=None: str(tmp_path / (sub or "")))
     monkeypatch.delenv("OI_LOG_LITELLM_REQUESTS", raising=False)
 
     def fake_completion(**params):
@@ -84,7 +84,7 @@ def test_logging_is_silent_when_disabled(monkeypatch, tmp_path):
         )
     )
 
-    logs = tmp_path / ".config" / "open-interpreter" / "logs"
+    logs = tmp_path / "logs"
     assert not (logs / "litellm_requests.jsonl").exists()
     assert not (logs / "litellm_responses.jsonl").exists()
 
@@ -96,7 +96,7 @@ def test_param_flag_enables_dumping_without_env_var(monkeypatch, tmp_path):
     environment; fixed_litellm_completions reads the forwarded flag and strips it
     so it never reaches the provider.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(llm_mod, "get_storage_path", lambda sub=None: str(tmp_path / (sub or "")))
     monkeypatch.delenv("OI_LOG_LITELLM_REQUESTS", raising=False)
 
     def fake_completion(**params):
@@ -112,7 +112,7 @@ def test_param_flag_enables_dumping_without_env_var(monkeypatch, tmp_path):
         )
     )
 
-    logs = tmp_path / ".config" / "open-interpreter" / "logs"
+    logs = tmp_path / "logs"
     assert (logs / "litellm_requests.jsonl").exists()
     assert (logs / "litellm_responses.jsonl").exists()
 
@@ -129,4 +129,36 @@ def test_profile_sets_log_litellm_requests():
 
     apply_profile_to_object(interpreter, {"llm": {"log_litellm_requests": True}})
     assert interpreter.llm.log_litellm_requests is True
+
+
+def test_logs_use_platform_config_dir_not_dot_config(monkeypatch, tmp_path):
+    """Logs land in the platform config dir, not `~/.config/open-interpreter`.
+
+    On Windows the OI config dir is under `%LOCALAPPDATA%`, which is not
+    `~/.config/open-interpreter`. Hardcoding the latter sent debug logs to a
+    different tree than profiles/ and conversations/. Logs must resolve through
+    the same storage path so all OSes agree.
+    """
+    home = tmp_path / "home"
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(llm_mod, "get_storage_path", lambda sub=None: str(storage / (sub or "")))
+    monkeypatch.setenv("OI_LOG_LITELLM_REQUESTS", "1")
+
+    def fake_completion(**params):
+        yield _FakeChunk({"choices": [{"delta": {"content": "hi"}, "finish_reason": "stop"}]})
+
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+
+    list(
+        llm_mod.fixed_litellm_completions(
+            model="deepseek/deepseek-v4-flash",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+    )
+
+    assert (storage / "logs" / "litellm_requests.jsonl").exists()
+    assert (storage / "logs" / "litellm_responses.jsonl").exists()
+    assert not (home / ".config" / "open-interpreter" / "logs").exists()
+
 
