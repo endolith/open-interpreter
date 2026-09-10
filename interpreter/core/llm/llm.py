@@ -40,6 +40,7 @@ _TOOL_CALLING_INSTRUCTIONS = (
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
+from .utils.conversion_cache import cached_convert_and_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
 
@@ -145,6 +146,11 @@ class Llm:
         # Filled from the final streaming chunk when the API sends usage (see stream_usage.record_stream_chunk_usage).
         self.last_completion_usage = None
 
+        # Incremental conversion cache (see conversion_cache.py): stashes the
+        # full converted history + token costs between calls so unchanged
+        # prefixes are not reconverted or recounted. In-memory only.
+        self._conversion_cache = None
+
     def run(self, messages, *, auxiliary_title_request=False):
         """
         We're responsible for formatting the call into the llm.completions object,
@@ -222,25 +228,15 @@ class Llm:
             except:
                 self.supports_vision = False
 
-        # Trim image messages if they're there
+        # Render images to descriptions for non-vision models up front. This
+        # mutates stored image dicts in place, but idempotently: already
+        # rendered images are skipped, so later calls are a no-op scan. It
+        # runs on every call (including cache-aware fast paths) so the
+        # incremental conversion cache always sees settled content.
+        # (Middle-image culling lives in conversion_cache's full path and is
+        # skipped on fast paths, where the culled set provably cannot change.)
         image_messages = [msg for msg in messages if msg["type"] == "image"]
-        if self.supports_vision:
-            if self.interpreter.os:
-                # Keep only the last two images if the interpreter is running in OS mode
-                if len(image_messages) > 1:
-                    for img_msg in image_messages[:-2]:
-                        messages.remove(img_msg)
-                        if self.interpreter.verbose:
-                            print("Removing image message!")
-            else:
-                # Delete all the middle ones (leave only the first and last 2 images) from messages_for_llm
-                if len(image_messages) > 3:
-                    for img_msg in image_messages[1:-2]:
-                        messages.remove(img_msg)
-                        if self.interpreter.verbose:
-                            print("Removing image message!")
-                # Idea: we could set detail: low for the middle messages, instead of deleting them
-        elif self.supports_vision == False and self.vision_renderer:
+        if self.supports_vision == False and self.vision_renderer:
             for img_msg in image_messages:
                 if img_msg["format"] != "description":
                     self.interpreter.display_message("\n  *Viewing image...*\n")
@@ -286,35 +282,54 @@ class Llm:
                             img_msg["format"] = "description"
                             img_msg["content"] = ""
 
-        # Convert to OpenAI messages format
-        messages = convert_to_openai_messages(
-            messages,
-            function_calling=self.supports_functions,
-            vision=self.supports_vision,
-            shrink_images=self.interpreter.shrink_images,
-            interpreter=self.interpreter,
+        # Cache-aware branch converts (incrementally) inside the trim step
+        # below; every other branch converts here exactly as before.
+        cache_aware = (
+            bool(self.retention_ratio and self.context_window)
+            and not auxiliary_title_request
         )
+        if not cache_aware:
+            # Convert to OpenAI messages format
+            messages = convert_to_openai_messages(
+                messages,
+                function_calling=self.supports_functions,
+                vision=self.supports_vision,
+                shrink_images=self.interpreter.shrink_images,
+                interpreter=self.interpreter,
+            )
 
-        system_message = messages[0]["content"]
-        messages = messages[1:]
+            system_message = messages[0]["content"]
+            messages = messages[1:]
+        else:
+            # The helper below converts (incrementally) and trims. Seed
+            # system_message from the derived head so the trim-except fallback
+            # further down is well-formed even if conversion raises; the
+            # helper's own output overwrites it on success.
+            raw_head = messages[0]["content"]
+            system_message = (
+                raw_head.strip() if isinstance(raw_head, str) else raw_head
+            )
 
         # Trim messages
         try:
-            if self.retention_ratio and self.context_window:
+            if cache_aware:
                 # Cache-aware truncation: when the prompt outgrows the window,
                 # drop a variable number of whole turns down to `retention_ratio`
                 # of the budget so the prefix stays stable for the next several
                 # turns and the provider's KV prefix cache stays warm — unlike a
                 # per-turn sliding window which invalidates the cache on every
-                # call once the context fills up.
+                # call once the context fills up. cached_convert_and_trim also
+                # performs the conversion, reusing the stashed conversion and
+                # token costs for the unchanged history prefix.
                 token_limit = self.context_window - (self.max_tokens or 0) - 25
-                messages = cache_aware_trim(
-                    messages,
-                    system_message=system_message,
-                    token_limit=token_limit,
-                    retention_ratio=self.retention_ratio,
-                    model=model,
+                # Like every other trim branch, this returns the trimmed list
+                # WITH the system message re-prepended (cache_aware_trim's
+                # contract); do not strip it again or the request goes out
+                # without a system prompt.
+                messages = cached_convert_and_trim(
+                    self, messages, token_limit, model
                 )
+                system_message = messages[0]["content"]
             elif self.context_window and self.max_tokens:
                 trim_to_be_this_many_tokens = (
                     self.context_window - self.max_tokens - 25

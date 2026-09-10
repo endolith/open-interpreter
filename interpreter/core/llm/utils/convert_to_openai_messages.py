@@ -108,26 +108,42 @@ def convert_to_openai_messages(
     vision=False,
     shrink_images=True,
     interpreter=None,
+    stored_offset=0,
+    resume_state=None,
+    end_state=None,
 ):
     """
-    Converts LMC messages into OpenAI messages
+    Converts LMC messages into OpenAI messages.
+
+    `stored_offset` is the absolute stored-history index of `messages[0]`
+    (0 for a full conversion). Synthetic tool-call ids are derived from it
+    (`oi-call-{absolute index}`) instead of a per-call running counter, so an
+    incremental conversion of a history suffix assigns the exact same ids as
+    a full rebuild — keeping request prefixes byte-identical for the
+    provider's KV cache.
+
+    `resume_state` seeds the cross-message loop state when converting a
+    suffix (keys: pending_reasoning, prev_was_reasoning, last_tool_name,
+    last_tool_call_id); `end_state`, when given, is filled with the loop's
+    final state so a later call can resume from it. Both default to a fresh
+    conversion.
     """
     new_messages = []
-    pending_assistant_reasoning = None
+    _resume = resume_state or {}
+    pending_assistant_reasoning = _resume.get("pending_reasoning")
     # True when the most recently converted message was a reasoning block.  A
     # reasoning message only *continues* the pending reasoning when the message
     # immediately before it is also reasoning (one thought split across chunks);
     # anything in between — content, code, tool output — means this is a fresh
     # reasoning block from a new LLM call, which replaces the pending value.
-    prev_was_reasoning = False
+    prev_was_reasoning = _resume.get("prev_was_reasoning", False)
     # Track which tool produced the most recent code/edit block so that the
     # following console-output message is attributed to the right function name.
-    last_tool_name = "execute"
+    last_tool_name = _resume.get("last_tool_name", "execute")
     # Modern tool_calls need stable ids shared between a call and its outputs
     # (deterministic per-request so prefix caching stays effective).
     _modern_tools = _use_modern_tool_calls(interpreter)
-    _tool_call_counter = 0
-    last_tool_call_id = None
+    last_tool_call_id = _resume.get("last_tool_call_id")
     # A synthetic tool call must actually be followed by its tool output:
     # strict validators reject a call id with no later matching output, and
     # history routinely contains code that never executed (interrupted loops,
@@ -137,7 +153,7 @@ def convert_to_openai_messages(
     # text blocks, exactly like text mode.
     _paired_call_idx = set()
     if _modern_tools and function_calling:
-        for _pi, _pm in enumerate(messages):
+        for _pi, _pm in enumerate(messages, start=stored_offset):
             if (
                 _pm.get('type') in ('code', 'edit')
                 and _pm.get('role') == 'assistant'
@@ -145,7 +161,9 @@ def convert_to_openai_messages(
                     "recipient" in _pm and _pm["recipient"] != "assistant"
                 )
             ):
-                for _pj in range(_pi + 1, len(messages)):
+                # _pi is an absolute stored index (see stored_offset) while
+                # messages is the (possibly suffix-only) list actually passed.
+                for _pj in range(_pi + 1 - stored_offset, len(messages)):
                     _nx = messages[_pj]
                     if "recipient" in _nx and _nx["recipient"] != "assistant":
                         continue
@@ -169,7 +187,7 @@ def convert_to_openai_messages(
 
     #     messages = [message for message in messages if message.get("type") != "code"]
 
-    for _mi, message in enumerate(messages):
+    for _mi, message in enumerate(messages, start=stored_offset):
         # Is this for thine eyes?
         if "recipient" in message and message["recipient"] != "assistant":
             continue
@@ -231,8 +249,7 @@ def convert_to_openai_messages(
             new_message["role"] = "assistant"
             if function_calling:
                 if _modern_tools and _mi in _paired_call_idx:
-                    _tool_call_counter += 1
-                    last_tool_call_id = f"oi-call-{_tool_call_counter}"
+                    last_tool_call_id = f"oi-call-{_mi}"
                     new_message["tool_calls"] = [
                         {
                             "id": last_tool_call_id,
@@ -286,8 +303,7 @@ def convert_to_openai_messages(
             new_message["role"] = "assistant"
             if function_calling:
                 if _modern_tools and _mi in _paired_call_idx:
-                    _tool_call_counter += 1
-                    last_tool_call_id = f"oi-call-{_tool_call_counter}"
+                    last_tool_call_id = f"oi-call-{_mi}"
                     new_message["tool_calls"] = [
                         {
                             "id": last_tool_call_id,
@@ -660,5 +676,15 @@ def convert_to_openai_messages(
             combined_messages.append(msg)
 
         new_messages = combined_messages
+
+    if end_state is not None:
+        end_state.update(
+            {
+                "pending_reasoning": pending_assistant_reasoning,
+                "prev_was_reasoning": prev_was_reasoning,
+                "last_tool_name": last_tool_name,
+                "last_tool_call_id": last_tool_call_id,
+            }
+        )
 
     return new_messages
