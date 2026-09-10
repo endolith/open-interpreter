@@ -832,78 +832,60 @@ Continuing...
                 pass
 
 
-def _fill_reasoning_content(params):
-    """Fill reasoning_content for DeepSeek thinking-mode tool requests.
+def _dump_litellm_response(request_id, model, chunks):
+    """Append the verbatim streamed response for one request to the debug JSONL.
 
-    DeepSeek/OpenRouter require the field on every prior assistant message when
-    the request carries tools, including turns where the model did not think;
-    a missing field or "" on a tool_calls message is a 400. The fill is gated
-    on the request carrying tools (without them the field is ignored), on a
-    DeepSeek model id or real thinking history, and off when reasoning is
-    explicitly disabled.
-
-    Adapted from develop commits 654c27d405 and d3c2245642.
+    Paired with the outgoing-request dump by ``request_id`` so a looping turn can
+    be inspected end to end: exactly what was sent, and exactly what the model
+    streamed back (finish_reason, content, reasoning_content, tool_calls). The
+    ``chunks`` field is the raw provider stream; ``assembled`` is litellm's merged
+    view of it. Opt-in via the same OI_LOG_LITELLM_REQUESTS=1 switch.
     """
-    model = params.get("model", "")
-    extra_body = params.get("extra_body") or {}
-    if not isinstance(extra_body, dict):
-        extra_body = {}
-    thinking = extra_body.get("thinking")
-    thinking_disabled = (
-        isinstance(thinking, dict) and thinking.get("type") == "disabled"
-    )
-    reasoning_disabled = (
-        extra_body.get("include_reasoning") is False
-        or params.get("include_reasoning") is False
-        or thinking_disabled
-    )
-    uses_deepseek = "deepseek" in str(model).lower()
-    placeholder = "."
-    legacy_placeholder = "Executing the requested command."
-    has_thinking_history = any(
-        isinstance(m, dict)
-        and m.get("role") == "assistant"
-        and isinstance(m.get("reasoning_content"), str)
-        and (m["reasoning_content"] or "").strip()
-        not in (placeholder, legacy_placeholder)
-        for m in params.get("messages", []) or []
-    )
-    carries_tools = bool(params.get("tools") or params.get("functions"))
-    if not (
-        (uses_deepseek or has_thinking_history)
-        and carries_tools
-        and not reasoning_disabled
-    ):
-        return
+    try:
+        import datetime as _dt
 
-    last_reasoning = None
-    for msg in params.get("messages", []) or []:
-        if msg.get("role") == "assistant":
-            if "reasoning_content" in msg:
-                rc = msg.get("reasoning_content")
-                if not isinstance(rc, str):
-                    # A relay can send a list/dict here; normalize it rather
-                    # than calling .strip() on a non-string.
-                    rc = ""
-                    msg["reasoning_content"] = ""
-                if (rc or "").strip() in (placeholder, legacy_placeholder):
-                    last_reasoning = None
-                    if msg.get("tool_calls"):
-                        msg["reasoning_content"] = placeholder
-                    else:
-                        msg["reasoning_content"] = ""
-                else:
-                    last_reasoning = rc
-                    if not (rc or "").strip() and msg.get("tool_calls"):
-                        msg["reasoning_content"] = placeholder
-            elif msg.get("tool_calls"):
-                msg["reasoning_content"] = (
-                    last_reasoning if last_reasoning else placeholder
-                )
-            else:
-                msg["reasoning_content"] = ""
-        elif msg.get("role") == "user":
-            last_reasoning = None
+        dump_dir = os.path.expanduser("~/.config/open-interpreter/logs")
+        os.makedirs(dump_dir, exist_ok=True)
+        dump_path = os.path.join(dump_dir, "litellm_responses.jsonl")
+
+        record = {
+            "request_id": request_id,
+            "ts": _dt.datetime.now().isoformat(timespec="seconds"),
+            "model": model,
+            "chunk_count": len(chunks),
+            "chunks": [
+                c.model_dump() if hasattr(c, "model_dump") else str(c) for c in chunks
+            ],
+        }
+        try:
+            built = litellm.stream_chunk_builder(chunks)
+            choice = built.choices[0] if built and built.choices else None
+            if choice is not None:
+                msg = choice.message
+                tool_calls = []
+                for tc in getattr(msg, "tool_calls", None) or []:
+                    fn = getattr(tc, "function", None)
+                    tool_calls.append(
+                        {
+                            "id": getattr(tc, "id", None),
+                            "name": getattr(fn, "name", None),
+                            "arguments": getattr(fn, "arguments", None),
+                        }
+                    )
+                record["assembled"] = {
+                    "finish_reason": choice.finish_reason,
+                    "content": getattr(msg, "content", None),
+                    "reasoning_content": getattr(msg, "reasoning_content", None),
+                    "tool_calls": tool_calls,
+                }
+        except Exception as e:
+            record["assemble_error"] = f"{type(e).__name__}: {e}"
+
+        with open(dump_path, "a") as f:
+            f.write(json.dumps(record, default=str) + "\n")
+        print(f"\n[Dumped response to {dump_path}]", flush=True)
+    except Exception:
+        pass
 
 
 def fixed_litellm_completions(**params):
@@ -1039,7 +1021,10 @@ def fixed_litellm_completions(**params):
     # litellm.completion() is what becomes the wire request, so this captures
     # what the provider actually receives (modulo litellm's internal transforms).
     # Each line is one request: {"ts": ..., "model": ..., "messages": [...], ...}.
-    if os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1":
+    debug_dump = os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1"
+    debug_request_id = str(uuid.uuid4()) if debug_dump else None
+
+    if debug_dump:
         try:
             import datetime as _dt
             dump_dir = os.path.expanduser("~/.config/open-interpreter/logs")
@@ -1051,6 +1036,7 @@ def fixed_litellm_completions(**params):
                 f.write(
                     json.dumps(
                         {
+                            "request_id": debug_request_id,
                             "ts": _dt.datetime.now().isoformat(timespec="seconds"),
                             "model": params.get("model"),
                             "messages": params.get("messages"),
@@ -1072,6 +1058,15 @@ def fixed_litellm_completions(**params):
 
     while True:
         try:
+            if debug_dump:
+                _chunks = []
+                for _chunk in litellm.completion(**params):
+                    _chunks.append(_chunk)
+                    yield _chunk
+                _dump_litellm_response(
+                    debug_request_id, params.get("model"), _chunks
+                )
+                return
             yield from litellm.completion(**params)
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
