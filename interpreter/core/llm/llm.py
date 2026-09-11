@@ -927,6 +927,13 @@ def fixed_litellm_completions(**params):
         # inject a placeholder when no reasoning was produced; Qwen Code's maintainers
         # explicitly chose "an empty string or space", but OpenRouter's BYOK relay for
         # the `~deepseek/...-latest` tilde alias rejects even "" and requires non-empty.
+        # litellm's provider-side fix (BerriAI/litellm#28057, `_fill_reasoning_content`)
+        # also injects a single space, but it only runs for `deepseek/` with thinking
+        # explicitly enabled and never for `openrouter/`, so OI fills the field here.
+        # Because only the OpenRouter relay strictly needs a non-empty filler (the
+        # direct api.deepseek.com accepts "" on reasoning-less tool-call turns), this
+        # placeholder exists for the relay; a real chain of thought is always passed
+        # through untouched and is never replaced by the placeholder.
         # Semantically inert placeholder: the API only requires a non-empty value on
         # tool_calls messages, but the text is fed back to the model as its own prior
         # reasoning (DeepSeek's interleaved thinking mode). A phrase like the previous

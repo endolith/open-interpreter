@@ -245,6 +245,12 @@ def merge_consecutive_user_messages(messages):
     ``SYSTEM ALERT`` user message, and attaching an image appends the path as a
     text user message plus the image itself, yielding runs of 2-5 user messages.
     Merging restores the alternating shape without dropping content or images.
+
+    This mirrors DeepSeek's own V4.1 reference encoder: its ``merge_tool_messages``
+    appends another user message's blocks onto the previous user message
+    (DeepSeek-V4.1-Flash ``encoding/encoding.py``, huggingface.co/deepseek-ai).
+    DeepSeek's vision guide likewise says to keep an image and its instruction in
+    the same ``content`` array of a single user message.
     """
     merged = []
     for message in messages:
