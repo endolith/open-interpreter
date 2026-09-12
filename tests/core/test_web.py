@@ -466,5 +466,47 @@ class TestWebToolbox(unittest.TestCase):
             self.assertIn("Vanshul could not search", str(context.exception))
 
 
+    def test_links_inline_title_and_parens(self):
+        """Verify links() strips optional titles and keeps balanced parens in URLs."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        page = FetchResult({
+            "url": "https://en.wikipedia.org/wiki/X",
+            "title": "",
+            "content": '[Python](https://en.wikipedia.org/wiki/Python_(programming_language) "Python") and [A](http://a)',
+            "backend": "tavily",
+        })
+        self.assertEqual(page.links(), [
+            ("Python", "https://en.wikipedia.org/wiki/Python_(programming_language)"),
+            ("A", "http://a"),
+        ])
+
+
+    def test_links_reference_style(self):
+        """Verify links() resolves [text][ref] via [ref]: url definitions."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        page = FetchResult({
+            "url": "https://example.com",
+            "title": "",
+            "content": "See [docs][d] and [home][]\n\n[d]: https://example.com/docs\n[home]: https://example.com/",
+            "backend": "serper",
+        })
+        self.assertEqual(page.links(), [
+            ("docs", "https://example.com/docs"),
+            ("home", "https://example.com/"),
+        ])
+
+
+    def test_links_reference_uses_without_definitions(self):
+        """Verify dangling [text][ref] uses (serper strips definitions) yield no phantom links."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        page = FetchResult({
+            "url": "https://example.com",
+            "title": "",
+            "content": "See [docs][21] for details.",
+            "backend": "serper",
+        })
+        self.assertEqual(page.links(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
