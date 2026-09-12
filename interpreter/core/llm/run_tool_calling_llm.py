@@ -184,17 +184,40 @@ def run_tool_calling_llm(llm, request_params):
 
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
-            function_call_detected = True
-
             # import pdb; pdb.set_trace()
-            if len(delta["tool_calls"]) > 0 and delta["tool_calls"][0].function:
+            converted_call = None
+            for tool_call in delta["tool_calls"]:
+                # Entries arrive as objects (with .function) or plain dicts
+                # depending on the provider/litellm version.
+                if isinstance(tool_call, dict):
+                    function = tool_call.get("function")
+                else:
+                    function = getattr(tool_call, "function", None)
+                if not function:
+                    continue
+                # A nameless continuation still belongs to a call in
+                # progress: merge_deltas skips its None name and appends
+                # the arguments to the accumulated call.
+                if isinstance(function, dict):
+                    name = function.get("name")
+                    arguments = function.get("arguments")
+                else:
+                    name = getattr(function, "name", None)
+                    arguments = getattr(function, "arguments", None)
+                converted_call = {"name": name, "arguments": arguments}
+                break
+            if converted_call is not None:
+                function_call_detected = True
                 delta = {
                     # "id": delta["tool_calls"][0],
-                    "function_call": {
-                        "name": delta["tool_calls"][0].function.name,
-                        "arguments": delta["tool_calls"][0].function.arguments,
-                    }
+                    "function_call": converted_call,
                 }
+            else:
+                # No entry carried a usable function, and the raw tool_calls
+                # list is nothing the merge step can consume (merge_deltas
+                # cannot dict() it), so drop the key and let the chunk pass
+                # through empty rather than crashing.
+                delta = {key: value for key, value in delta.items() if key != "tool_calls"}
 
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
