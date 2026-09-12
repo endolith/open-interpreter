@@ -230,11 +230,35 @@ class FetchResult(dict):
     def links(self):
         """
         Extract hyperlinks from content.
-        Returns a list of (anchor_text, url) tuples parsed from markdown [text](url) syntax.
+        Returns a list of (anchor_text, url) tuples parsed from markdown links:
+        inline [text](url) and [text](url "title") (balanced parens in URLs kept),
+        plus reference-style [text][ref] resolved via [ref]: url definitions.
+        Note: some backends strip link destinations (serper keeps [text][ref]
+        uses but drops the definitions); if this is empty, retry the fetch
+        with backend='tavily'.
         """
         import re
         content = self._get_content()
-        return re.findall(r'\[([^\]]*)\]\((https?://[^)]+)\)', content)
+        found = []
+        # Inline links. The URL allows one level of balanced parens (Wikipedia
+        # titles like /Python_(programming_language)) and stops before an
+        # optional "title".
+        inline = re.compile(
+            r"\[([^\]]*)\]"          # anchor text
+            r"\(\s*"
+            r"(https?://(?:\([^)]*\)|[^\s)])+)"  # URL
+            r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?"  # optional title (either quote style)
+            r"\s*\)"
+        )
+        found.extend((m.group(1), m.group(2)) for m in inline.finditer(content))
+        # Reference-style links, resolved via definitions (if the backend kept them).
+        defs = dict(re.findall(r"(?m)^\s*\[([^\]]+)\]:\s*(\S+)", content))
+        if defs:
+            for m in re.finditer(r"\[([^\]]+)\]\[([^\]]*)\]", content):
+                text, ref = m.group(1), m.group(2) or m.group(1)  # [text][] → ref is text
+                if ref in defs:
+                    found.append((text, defs[ref]))
+        return found
 
     def __repr__(self):
         backend = self.get("backend", "?")
