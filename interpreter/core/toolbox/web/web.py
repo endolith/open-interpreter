@@ -2128,7 +2128,8 @@ class Web:
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: vanshul, tavily,
-        then fetch emulation (any fetch backend, unranked; reported as backend="fetch").
+        then fetch emulation (any fetch backend, unranked; .backend names the
+        fetch backend used and raw_response notes the emulation).
 
         Args:
             url (str): The URL of the page to search in
@@ -2211,12 +2212,14 @@ class Web:
 
         # Fall back to emulation via fetch() auto-select (uses its own backend order).
         # Only attempt this if at least one fetch backend is available.
+        # The label names the fetch backend actually used (feedable back into
+        # backend=); raw_response["emulated_via_fetch"] notes the emulation.
         if any(self._check_backend_available(b) for b in ("serper", "linkup", "tavily", "vanshul")):
             try:
                 result = self._search_page_via_fetch(
                     None, url, query, max_results=max_results, context_chars=context_chars
                 )
-                result["backend"] = "fetch"
+                result["backend"] = result.get("raw_response", {}).get("emulated_via_fetch") or "fetch"
                 print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
                 return PageSearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
