@@ -500,7 +500,7 @@ for __oi_k in __oi_funcs:
         # (the client fingerprints the raw definition text).
         import re as __oi_re
         __oi_src = __oi_re.sub(
-            r"^\s*print\('##active_line\d+##'\)\s*$", "", __oi_src, flags=__oi_re.M
+            r"^\\s*print\\('##active_line\\d+##'\\)\\s*$", "", __oi_src, flags=__oi_re.M
         )
         __oi_fp_parts.append(
             __oi_k + '=fn:' + __oi_hashlib.sha1(
