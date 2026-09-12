@@ -133,6 +133,29 @@ class ResultItem(dict):
             ) from exc
 
 
+def _hit_url(entries, index, method):
+    """Return the URL of one hit by integer index, else raise a guiding WebToolboxError.
+
+    Lists are deliberately not accepted: fetch pages one at a time (token
+    cost), or narrow to passages with search_page(i, query). A clean
+    WebToolboxError (not TypeError/IndexError) also renders via the compact
+    traceback instead of the full Jupyter one.
+    """
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise WebToolboxError(
+            f"{method}() takes a single result index, e.g. {method}(0) — "
+            f"got {type(index).__name__}. Fetch pages one at a time; for a "
+            "detail inside a page use search_page(i, query)."
+        )
+    try:
+        return entries[index]["url"]
+    except IndexError:
+        detail = f"only {len(entries)} available" if entries else "none available"
+        raise WebToolboxError(
+            f"Index {index} out of range ({detail})."
+        ) from None
+
+
 class SearchResult(dict):
     """Dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
 
@@ -151,15 +174,15 @@ class SearchResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for search result at the given index. Prefer search_page() when you only need a detail. Returns a FetchResult."""
+        """Fetch the full page for search result at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult."""
         results = self.get("results", [])
-        url = results[index]["url"]
+        url = _hit_url(results, index, "fetch")
         return self._web.fetch(url)
 
     def search_page(self, index, query, **kwargs):
-        """Search within the page for search result at the given index. Returns a PageSearchResult."""
+        """Search within the page for search result at the given index (single int, e.g. 0). Returns a PageSearchResult."""
         results = self.get("results", [])
-        url = results[index]["url"]
+        url = _hit_url(results, index, "search_page")
         return self._web.search_page(url, query, **kwargs)
 
     def __repr__(self):
@@ -322,15 +345,15 @@ class AnswerResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index. Prefer search_page() when you only need a detail. Returns a FetchResult."""
+        """Fetch the full page for source at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult."""
         sources = self.get("sources", [])
-        url = sources[index]["url"]
+        url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
 
     def search_page(self, index, query, **kwargs):
-        """Search within the page for source at the given index. Returns a PageSearchResult."""
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
         sources = self.get("sources", [])
-        url = sources[index]["url"]
+        url = _hit_url(sources, index, "search_page")
         return self._web.search_page(url, query, **kwargs)
 
     def __repr__(self):
@@ -365,19 +388,19 @@ class StructuredOutputResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index. Prefer search_page() when you only need a detail. Returns a FetchResult."""
+        """Fetch the full page for source at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult."""
         sources = self.get("sources", [])
         if not sources:
             raise WebToolboxError("No sources available in this result to fetch.")
-        url = sources[index]["url"]
+        url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
 
     def search_page(self, index, query, **kwargs):
-        """Search within the page for source at the given index. Returns a PageSearchResult."""
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
         sources = self.get("sources", [])
         if not sources:
             raise WebToolboxError("No sources available in this result to search.")
-        url = sources[index]["url"]
+        url = _hit_url(sources, index, "search_page")
         return self._web.search_page(url, query, **kwargs)
 
     def __repr__(self):

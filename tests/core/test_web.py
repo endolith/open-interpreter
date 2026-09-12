@@ -519,6 +519,52 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertIn("--upgrade linkup-sdk", msg)
                 self.assertNotIn("API key", msg)
 
+    def test_fetch_list_index_guides(self):
+        """Verify fetch([0, 1]) fails with guidance toward one-at-a-time fetching."""
+        from interpreter.core.toolbox.web.web import SearchResult
+        result = SearchResult(
+            {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
+            web=self.web,
+        )
+        with self.assertRaises(WebToolboxError) as context:
+            result.fetch([0, 1])
+        msg = str(context.exception)
+        self.assertIn("single result index", msg)
+        self.assertIn("search_page(i, query)", msg)
+
+    def test_fetch_string_index_guides(self):
+        """Verify a non-integer index raises WebToolboxError, not TypeError."""
+        from interpreter.core.toolbox.web.web import AnswerResult
+        result = AnswerResult(
+            {"answer": "A", "sources": [{"title": "T", "url": "http://b", "snippet": "S"}], "backend": "linkup"},
+            web=self.web,
+        )
+        with self.assertRaises(WebToolboxError):
+            result.fetch("0")
+        with self.assertRaises(WebToolboxError):
+            result.search_page({"i": 0}, "q")
+
+    def test_fetch_out_of_range_guides(self):
+        """Verify an out-of-range index names the valid range instead of leaking IndexError."""
+        from interpreter.core.toolbox.web.web import StructuredOutputResult
+        result = StructuredOutputResult(
+            {"structured_output": {}, "sources": [{"title": "T", "url": "http://c", "snippet": "S"}], "backend": "linkup"},
+            web=self.web,
+        )
+        with self.assertRaises(WebToolboxError) as context:
+            result.fetch(5)
+        self.assertIn("out of range", str(context.exception))
+
+    def test_fetch_bool_index_rejected(self):
+        """Verify bool is not silently accepted as an integer index."""
+        from interpreter.core.toolbox.web.web import SearchResult
+        result = SearchResult(
+            {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
+            web=self.web,
+        )
+        with self.assertRaises(WebToolboxError):
+            result.fetch(True)
+
 if __name__ == "__main__":
     unittest.main()
 
