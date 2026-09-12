@@ -103,7 +103,7 @@ class SearchResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for search result at the given index. Returns a FetchResult."""
+        """Fetch the full page for search result at the given index. Prefer search_page() when you only need a detail. Returns a FetchResult."""
         results = self.get("results", [])
         url = results[index]["url"]
         return self._web.fetch(url)
@@ -157,6 +157,7 @@ class FetchResult(dict):
     def find(self, term, context=100, max_results=None):
         """
         Find all occurrences of term in content (case-insensitive).
+        Tip: to avoid fetching the full page, use web.search_page(url, query) instead.
         Returns a list of snippet strings, each with up to `context` chars of surrounding text.
         Pass max_results to cap the number of matches returned.
         """
@@ -243,7 +244,7 @@ class AnswerResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index. Returns a FetchResult."""
+        """Fetch the full page for source at the given index. Prefer search_page() when you only need a detail. Returns a FetchResult."""
         sources = self.get("sources", [])
         url = sources[index]["url"]
         return self._web.fetch(url)
@@ -280,7 +281,7 @@ class StructuredOutputResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index. Returns a FetchResult."""
+        """Fetch the full page for source at the given index. Prefer search_page() when you only need a detail. Returns a FetchResult."""
         sources = self.get("sources", [])
         if not sources:
             raise WebToolboxError("No sources available in this result to fetch.")
@@ -1124,7 +1125,7 @@ class Web:
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            print("→ result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.results[i] | detail=toolbox.web.search_page(url, query) | page=result.fetch(i) → page.content")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -1138,7 +1139,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print("→ result.results[i] | detail=toolbox.web.search_page(url, query) | page=result.fetch(i) → page.content")
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1926,7 +1927,7 @@ class Web:
 
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
         """
-        Fetch web page content from a URL as markdown.
+        Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens.
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: serper, linkup, tavily, vanshul.
