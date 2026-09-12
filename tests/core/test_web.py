@@ -450,5 +450,21 @@ class TestWebToolbox(unittest.TestCase):
             self.assertEqual(posargs[1]["url"], "https://example.com")
 
 
+    def test_fetch_vanshul_error_text_raises(self):
+        """Verify service error text (e.g. 'Error: Upstream returned 530') raises, never content."""
+        with patch.object(self.web, "_vanshul_mcp_call", return_value="Error: Upstream returned 530"):
+            with self.assertRaises(WebToolboxError) as context:
+                self.web.fetch("https://example.com", backend="vanshul")
+            self.assertIn("Vanshul could not fetch", str(context.exception))
+
+
+    def test_search_page_vanshul_error_text_raises(self):
+        """Verify service error text from search_page raises instead of shape errors."""
+        with patch.object(self.web, "_vanshul_mcp_call", return_value="Error: Upstream returned 530"):
+            with self.assertRaises(WebToolboxError) as context:
+                self.web.search_page("https://example.com", "q", backend="vanshul")
+            self.assertIn("Vanshul could not search", str(context.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
