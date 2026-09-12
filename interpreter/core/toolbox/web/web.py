@@ -156,13 +156,19 @@ class SearchResult(dict):
         url = results[index]["url"]
         return self._web.fetch(url)
 
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for search result at the given index. Returns a PageSearchResult."""
+        results = self.get("results", [])
+        url = results[index]["url"]
+        return self._web.search_page(url, query, **kwargs)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         results = self.get("results", [])
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]")
-        lines.append("  → result.results[i] | detail=toolbox.web.search_page(url, query) | page=result.fetch(i) → page.content")
+        lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -297,6 +303,12 @@ class AnswerResult(dict):
         url = sources[index]["url"]
         return self._web.fetch(url)
 
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for source at the given index. Returns a PageSearchResult."""
+        sources = self.get("sources", [])
+        url = sources[index]["url"]
+        return self._web.search_page(url, query, **kwargs)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         answer = self.get("answer", "")
@@ -304,7 +316,7 @@ class AnswerResult(dict):
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
         lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
-        lines.append("  → result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+        lines.append("  → result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -336,6 +348,14 @@ class StructuredOutputResult(dict):
         url = sources[index]["url"]
         return self._web.fetch(url)
 
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for source at the given index. Returns a PageSearchResult."""
+        sources = self.get("sources", [])
+        if not sources:
+            raise WebToolboxError("No sources available in this result to search.")
+        url = sources[index]["url"]
+        return self._web.search_page(url, query, **kwargs)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         data = self.get("structured_output", {})
@@ -346,7 +366,7 @@ class StructuredOutputResult(dict):
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
-            "  → result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()"
+            "  → result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content"
         )
         # Pretty print a bit of JSON as preview — use 2-space indent, max 6 lines
         try:
@@ -1221,7 +1241,7 @@ class Web:
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            print("→ result.results[i] | detail=toolbox.web.search_page(url, query) | page=result.fetch(i) → page.content")
+            print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -1235,7 +1255,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result.results[i] | detail=toolbox.web.search_page(url, query) | page=result.fetch(i) → page.content")
+                print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1486,7 +1506,7 @@ class Web:
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            print("→ result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
@@ -1502,7 +1522,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
                 return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1605,7 +1625,7 @@ class Web:
             backend_methods = {"linkup": self._structured_output_linkup}
             result = backend_methods[backend](query, schema, **kwargs)
             result["backend"] = backend
-            print("→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
             return StructuredOutputResult(result, web=self)
 
         # Default/Auto-select (currently only linkup)
@@ -1619,7 +1639,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, schema, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
                 return StructuredOutputResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
