@@ -208,15 +208,17 @@ class TestWebToolbox(unittest.TestCase):
         self.assertIn("vanshul", str(context.exception))
 
     def test_search_page_auto_falls_through_to_fetch(self):
-        """Verify auto-select falls back to fetch emulation when native backends fail or lack keys."""
+        """Verify auto-select falls back to fetch emulation and labels the fetch backend used."""
         from interpreter.core.toolbox.web.web import FetchResult
-        page = FetchResult({"url": "https://example.com", "title": "", "content": "Hello world", "backend": "vanshul"})
+        page = FetchResult({"url": "https://example.com", "title": "", "content": "Hello world", "backend": "serper"})
         with patch.dict(os.environ, {}, clear=True):
             with patch.object(self.web, "_search_page_vanshul", side_effect=WebToolboxError("down")):
                 with patch.object(self.web, "fetch", return_value=page):
                     result = self.web.search_page("https://example.com", "hello")
-                    # Vanshul raises, tavily has no key, so emulation via fetch() handles it.
-                    self.assertEqual(result["backend"], "fetch")
+                    # Vanshul raises, tavily has no key, so emulation via fetch() handles it,
+                    # labeled with the fetch backend actually used (feedable back into backend=).
+                    self.assertEqual(result["backend"], "serper")
+                    self.assertEqual(result["raw_response"]["emulated_via_fetch"], "serper")
                     self.assertEqual(len(result["matches"]), 1)
 
     def test_page_search_result_fetch_returns_full_page(self):
