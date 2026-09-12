@@ -162,7 +162,7 @@ class SearchResult(dict):
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]")
-        lines.append("  → result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+        lines.append("  → result.results[i] | detail=toolbox.web.search_page(url, query) | page=result.fetch(i) → page.content")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -1072,8 +1072,7 @@ class Web:
                           - "ebay": eBay product search
                           - "walmart": Walmart product search
                           - "home_depot": Home Depot search
-                          - "apple_app_store": App Store search
-                          - "google_play": Google Play Store search
+                           - "apple_app_store": App Store search
                     - location (str): Location for localized results (e.g., "Austin, Texas")
                     - google_domain (str): Google domain (e.g., "google.com", "google.co.uk")
                     - safe (str): Safe search - "active" or "off"
@@ -2128,7 +2127,8 @@ class Web:
         Search within a single page for passages matching a query. PREFERRED over fetch() when you only need a detail.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: vanshul, tavily.
+        the specified one. Backends are tried in order: vanshul, tavily,
+        then fetch emulation (any fetch backend, unranked; reported as backend="fetch").
 
         Args:
             url (str): The URL of the page to search in
