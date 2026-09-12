@@ -420,6 +420,55 @@ def _normalize_tavily_single_page(result):
     return flat
 
 
+_SIMPLE_SCHEMA_TYPES = ("string", "integer", "number", "boolean", "array", "object", "null")
+
+
+def _normalize_structured_schema(schema):
+    """
+    Normalize the schema argument of Web.structured_output.
+
+    Accepts a simple field map ({"name": "string", "founded": "integer"}) and
+    converts it to {"type": "object", "properties": {...}, "required": [...]}
+    with all fields required. Values may also be property-schema dicts
+    ({"tags": {"type": "array", "items": {"type": "string"}}}). Anything else
+    (full JSON schemas, Pydantic classes, JSON strings) passes through untouched.
+
+    Detection is a single rule: a dict with a "properties" mapping is a full
+    JSON schema; any other dict is a field map. One caveat: a field literally
+    named "properties" requires the full-schema form.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    if isinstance(schema.get("properties"), dict):
+        return schema
+    if not schema:
+        raise WebToolboxError(
+            "Empty schema: define at least one field, e.g. schema={'name': 'string'}. "
+            "Or pass a full JSON schema {'type': 'object', 'properties': {...}}."
+        )
+    properties = {}
+    for field, spec in schema.items():
+        if isinstance(spec, str):
+            if spec not in _SIMPLE_SCHEMA_TYPES:
+                raise WebToolboxError(
+                    f"Invalid type '{spec}' for field '{field}'. Valid types: "
+                    f"{', '.join(_SIMPLE_SCHEMA_TYPES)}. For constraints, nesting, or "
+                    "descriptions, pass a full JSON schema "
+                    "{'type': 'object', 'properties': {...}}."
+                )
+            properties[field] = {"type": spec}
+        elif isinstance(spec, dict) and spec.get("type") in _SIMPLE_SCHEMA_TYPES:
+            properties[field] = spec
+        else:
+            raise WebToolboxError(
+                f"Invalid spec for field '{field}': expected a type name "
+                f"({', '.join(_SIMPLE_SCHEMA_TYPES)}) or a property schema like "
+                "{'type': 'string'}. For complex shapes, pass a full JSON schema "
+                "{'type': 'object', 'properties': {...}}."
+            )
+    return {"type": "object", "properties": properties, "required": list(schema.keys())}
+
+
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
@@ -1370,6 +1419,14 @@ class Web:
 
             response = client.search(**search_params)
         except Exception as e:
+            # A 400 here is almost always a schema problem, not an auth problem —
+            # say so instead of sending the caller to check their API key.
+            if "schema" in str(e).lower():
+                raise WebToolboxError(
+                    "LinkUp rejected the output schema. Pass a full JSON schema "
+                    "({'type': 'object', 'properties': {...}}) or a simple field map "
+                    f"({{'name': 'string'}}). Backend error: {e}"
+                ) from e
             self._handle_api_request_error("LinkUp", e)
 
         # LinkUp returns a LinkupStructuredOutput object with .structured_output attribute
@@ -1461,14 +1518,18 @@ class Web:
 
     def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", **kwargs) -> StructuredOutputResult:
         """
-        Search and extract specific fields defined by schema (dict or Pydantic). PREFERRED for data extraction.
+        Search and extract specific fields (simple field map, JSON schema, or Pydantic). PREFERRED for data extraction.
 
         This method is best for tasks requiring extracting specific fields (like author, year, title)
         directly from web resources into a schema-defined format.
 
         Args:
             query (str): The search query or data extraction prompt.
-            schema (dict or Pydantic model): The JSON schema defining the desired output structure.
+            schema: What to extract — a simple field map ({"name": "string",
+                "founded": "integer"}; all fields required; types: string,
+                integer, number, boolean, array, object, null), a full JSON
+                schema dict, a JSON string, or a Pydantic model class.
+                A dict with a "properties" mapping is treated as a full schema.
             backend (str, optional): Force a specific backend (default: "linkup").
             **kwargs: Additional backend-specific parameters:
                 - For linkup: depth ("standard" or "deep"), etc.
@@ -1476,8 +1537,15 @@ class Web:
         Returns:
             StructuredOutputResult: .structured_output, .sources (items: .title or ['title']), .backend (use attribute access)
 
-        Example:
-            # Using journal article schema
+        Examples:
+            # Simple field map (converted to a schema with all fields required)
+            result = toolbox.web.structured_output(
+                "Apple Inc",
+                schema={"name": "string", "founded": "integer", "headquarters": "string"},
+            )
+            print(result.structured_output["name"])
+
+            # Full JSON schema, e.g. for a journal article
             schema = {
                 "type": "object",
                 "properties": {
@@ -1491,6 +1559,10 @@ class Web:
             print(result.structured_output["author_last_name"])
         """
         import json
+
+        # Simple field maps ({"name": "string"}) become full JSON schemas here;
+        # full schemas, Pydantic classes, and JSON strings pass through untouched.
+        schema = _normalize_structured_schema(schema)
 
         # LinkUp SDK expects a Pydantic model CLASS or a JSON STRING or None.
         # It does NOT accept a dictionary directly.
