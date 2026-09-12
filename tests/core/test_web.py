@@ -3,7 +3,7 @@ import unittest
 import json
 from unittest.mock import MagicMock, patch
 
-from interpreter.core.toolbox.web.web import Web, StructuredOutputResult, WebToolboxError
+from interpreter.core.toolbox.web.web import Web, ResultItem, StructuredOutputResult, WebToolboxError
 
 class TestWebToolbox(unittest.TestCase):
     def setUp(self):
@@ -229,6 +229,56 @@ class TestWebToolbox(unittest.TestCase):
                 result = self.web.search_page("https://example.com", "q", backend="vanshul")
                 self.assertEqual(result.fetch()["content"], "full")
                 mock_fetch.assert_called_once_with("https://example.com/")
+
+    def test_result_item_model_style_access(self):
+        """Verify normalized items support the attribute access models kept guessing (r.title)."""
+        item = self.web._normalize_result_item({"title": "T", "link": "http://x", "snippet": "S"})
+        self.assertIsInstance(item, ResultItem)
+        # Attribute access (the style that raised AttributeError on plain dicts)
+        self.assertEqual(item.title, "T")
+        self.assertEqual(item.url, "http://x")
+        self.assertEqual(item.snippet, "S")
+        # Key access still works
+        self.assertEqual(item["title"], "T")
+        self.assertEqual(item.get("url"), "http://x")
+
+    def test_result_item_key_aliases(self):
+        """Verify common key guesses resolve: content<->snippet, link/href->url, name->title."""
+        item = self.web._normalize_result_item({"title": "T", "link": "http://x", "snippet": "S"})
+        self.assertEqual(item["content"], "S")
+        self.assertEqual(item.content, "S")
+        linky = ResultItem({"title": "T", "link": "http://x", "description": "D"})
+        self.assertEqual(linky.url, "http://x")
+        self.assertEqual(linky["url"], "http://x")
+        self.assertEqual(linky.snippet, "D")
+        self.assertEqual(ResultItem({"name": "N", "url": "http://x", "snippet": "S"}).title, "N")
+        # Reverse direction: fetch-style entries expose snippet as an alias of content
+        page = ResultItem({"url": "http://x", "title": "T", "content": "C"})
+        self.assertEqual(page.snippet, "C")
+        self.assertEqual(page["snippet"], "C")
+        self.assertEqual(page.get("snippet"), "C")
+
+    def test_result_item_truly_missing_keys_still_error(self):
+        """Verify forgiveness has limits: unknown keys raise KeyError/AttributeError, get() defaults."""
+        item = ResultItem({"title": "T"})
+        with self.assertRaises(KeyError):
+            item["nope"]
+        with self.assertRaises(AttributeError):
+            item.nope
+        self.assertIsNone(item.get("nope"))
+        self.assertEqual(item.get("nope", "fallback"), "fallback")
+
+    def test_search_page_matches_support_attribute_access(self):
+        """Verify page-search passages support match.snippet as well as match['snippet']."""
+        payload = {"url": "https://example.com/", "query": "q", "count": 1,
+                   "matches": [{"heading": "H", "snippet": "S", "score": 2}]}
+        with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
+            result = self.web.search_page("https://example.com", "q", backend="vanshul")
+            match = result.matches[0]
+            self.assertIsInstance(match, ResultItem)
+            self.assertEqual(match.snippet, "S")
+            self.assertEqual(match.heading, "H")
+            self.assertEqual(match["snippet"], "S")
 
 if __name__ == "__main__":
     unittest.main()
