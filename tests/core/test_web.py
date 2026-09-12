@@ -378,5 +378,35 @@ class TestWebToolbox(unittest.TestCase):
         with self.assertRaises(WebToolboxError):
             result.search_page(0, "query")
 
+    def test_fetch_auto_tries_vanshul_first(self):
+        """Verify fetch auto-select tries the leanest keyless backend before keyed ones."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        with patch.dict(os.environ, {"SERPER_API_KEY": "fake"}, clear=True):
+            with patch.object(self.web, "_fetch_vanshul", side_effect=WebToolboxError("down")) as mock_v:
+                made = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "serper"})
+                with patch.object(self.web, "_fetch_serper", return_value=dict(made)) as mock_s:
+                    with patch.object(self.web, "_fetch_linkup") as mock_l:
+                        with patch.object(self.web, "_fetch_tavily") as mock_t:
+                            result = self.web.fetch("https://example.com")
+                            self.assertEqual(result["backend"], "serper")
+                            mock_v.assert_called_once()
+                            mock_s.assert_called_once()
+                            mock_l.assert_not_called()
+                            mock_t.assert_not_called()
+
+
+    def test_search_page_auto_prefers_tavily(self):
+        """Verify search_page auto-select prefers semantic (tavily) over keyword (vanshul)."""
+        with patch.dict(os.environ, {"TAVILY_API_KEY": "fake"}, clear=True):
+            with patch.object(self.web, "_search_page_tavily", return_value={
+                "url": "https://example.com", "query": "q", "matches": [], "raw_response": {},
+            }) as mock_t:
+                with patch.object(self.web, "_search_page_vanshul") as mock_v:
+                    result = self.web.search_page("https://example.com", "paraphrased query")
+                    self.assertEqual(result["backend"], "tavily")
+                    mock_t.assert_called_once()
+                    mock_v.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
