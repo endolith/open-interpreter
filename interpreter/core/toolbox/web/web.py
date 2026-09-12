@@ -443,6 +443,36 @@ def _normalize_tavily_single_page(result):
 _SIMPLE_SCHEMA_TYPES = ("string", "integer", "number", "boolean", "array", "object", "null")
 
 
+def _normalize_fetch_url(url):
+    """
+    Normalize a URL for fetch/page-search: strip whitespace and
+    prepend https:// when the scheme is missing. Raise WebToolboxError for
+    malformed URLs (empty, non-http(s) scheme, missing or invalid host).
+    """
+    from urllib.parse import urlparse
+    if not isinstance(url, str) or not url.strip():
+        raise WebToolboxError(
+            f"Invalid URL {url!r}: expected something like 'https://example.com'."
+        )
+    url = url.strip()
+    if "://" not in url:
+        url = "https://" + url
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        parts = None
+    if (
+        parts is None
+        or parts.scheme not in ("http", "https")
+        or not parts.netloc
+        or any(ch.isspace() for ch in parts.netloc)
+    ):
+        raise WebToolboxError(
+            f"Invalid URL {url!r}: expected an http(s) URL like 'https://example.com'."
+        )
+    return url
+
+
 def _normalize_structured_schema(schema):
     """
     Normalize the schema argument of Web.structured_output.
@@ -2122,6 +2152,11 @@ class Web:
                 urls=["https://example.com", "https://example.org"]
             )
         """
+        # Normalize first so validation errors surface before backend errors and
+        # so schemeless URLs share cache entries with their https:// form.
+        url = _normalize_fetch_url(url)
+        if "urls" in kwargs:
+            kwargs["urls"] = [_normalize_fetch_url(u) for u in kwargs["urls"]]
         # Define backend methods
         backend_methods = {
             "serper": self._fetch_serper,
@@ -2255,6 +2290,7 @@ class Web:
             page = result.fetch()
             print(page.content[:500])
         """
+        url = _normalize_fetch_url(url)
         native_methods = {
             "vanshul": self._search_page_vanshul,
             "tavily": self._search_page_tavily,
