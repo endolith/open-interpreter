@@ -408,5 +408,47 @@ class TestWebToolbox(unittest.TestCase):
                     mock_v.assert_not_called()
 
 
+    def test_fetch_prepends_missing_scheme(self):
+        """Verify schemeless URLs gain https:// before reaching any backend."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        page = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "vanshul"})
+        with patch.object(self.web, "_fetch_vanshul", return_value=dict(page)) as mock_fetch:
+            result = self.web.fetch("example.com", backend="vanshul")
+            self.assertEqual(result["url"], "https://example.com")
+            mock_fetch.assert_called_once_with("https://example.com")
+
+
+    def test_fetch_rejects_malformed_urls(self):
+        """Verify malformed URLs raise helpfully instead of reaching backends."""
+        for bad in ["not a url", "", "ftp://example.com/files", "https://", "http://"]:
+            with self.subTest(url=bad):
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.fetch(bad, backend="vanshul")
+                self.assertIn("https://example.com", str(context.exception))
+
+
+    def test_fetch_cache_shared_across_scheme_forms(self):
+        """Verify schemeless and https:// forms of a URL share one cache entry."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        made = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "vanshul"})
+        with patch.object(self.web, "_fetch_vanshul", return_value=dict(made)) as mock_fetch:
+            first = self.web.fetch("example.com")
+            second = self.web.fetch("https://example.com")
+            self.assertEqual(first["content"], "hi")
+            self.assertTrue(second._cached)
+            self.assertEqual(mock_fetch.call_count, 1)
+
+
+    def test_search_page_validates_url(self):
+        """Verify search_page rejects malformed URLs and prepends a missing scheme."""
+        with self.assertRaises(WebToolboxError):
+            self.web.search_page("not a url", "q", backend="vanshul")
+        payload = {"url": "https://example.com/", "query": "q", "count": 0, "matches": []}
+        with patch.object(self.web, "_vanshul_mcp_call", return_value=payload) as mock_call:
+            self.web.search_page("example.com", "q", backend="vanshul")
+            posargs, _ = mock_call.call_args
+            self.assertEqual(posargs[1]["url"], "https://example.com")
+
+
 if __name__ == "__main__":
     unittest.main()
