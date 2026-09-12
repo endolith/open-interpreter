@@ -349,5 +349,34 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertIn("schema", msg.lower())
                 self.assertNotIn("API key", msg)
 
+    def test_search_result_search_page_delegates(self):
+        """Verify SearchResult.search_page(i, query) searches within that result's URL."""
+        from interpreter.core.toolbox.web.web import SearchResult
+        result = SearchResult(
+            {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
+            web=self.web,
+        )
+        with patch.object(self.web, "search_page", return_value="PASSAGES") as mock_sp:
+            self.assertEqual(result.search_page(0, "pricing", max_results=3), "PASSAGES")
+            mock_sp.assert_called_once_with("http://a", "pricing", max_results=3)
+
+    def test_answer_result_search_page_delegates(self):
+        """Verify AnswerResult.search_page(i, query) searches within that source's URL."""
+        from interpreter.core.toolbox.web.web import AnswerResult
+        result = AnswerResult(
+            {"answer": "A", "sources": [{"title": "T", "url": "http://b", "snippet": "S"}], "backend": "linkup"},
+            web=self.web,
+        )
+        with patch.object(self.web, "search_page", return_value="PASSAGES") as mock_sp:
+            self.assertEqual(result.search_page(0, "query"), "PASSAGES")
+            mock_sp.assert_called_once_with("http://b", "query")
+
+    def test_structured_result_search_page_no_sources(self):
+        """Verify StructuredOutputResult.search_page raises helpfully when there are no sources."""
+        from interpreter.core.toolbox.web.web import StructuredOutputResult
+        result = StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "linkup"}, web=self.web)
+        with self.assertRaises(WebToolboxError):
+            result.search_page(0, "query")
+
 if __name__ == "__main__":
     unittest.main()
