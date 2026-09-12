@@ -85,6 +85,54 @@ class WebToolboxError(Exception):
         return [f"WebToolboxError: {self}"]
 
 
+class ResultItem(dict):
+    """A single result entry (search hit, source, page, or passage). Forgiving by design.
+
+    All three access styles work: item.title, item["title"], item.get("title").
+    Common key aliases are accepted too: content<->snippet, link/href->url,
+    name->title, description/text->snippet. Truly missing keys still raise
+    KeyError (or AttributeError for attribute access) as usual.
+    """
+
+    _aliases = {
+        "title": ("name", "product_title"),
+        "url": ("link", "href"),
+        "snippet": ("content", "description", "text"),
+        "content": ("snippet", "description", "text"),
+    }
+
+    def _aliased(self, key):
+        """Return the value under an aliased key, or raise KeyError."""
+        for alias in self._aliases.get(key, ()):
+            if alias in self:
+                return self[alias]
+        raise KeyError(key)
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self._aliased(key)
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        try:
+            return self._aliased(key)
+        except KeyError:
+            return default
+
+    def __getattr__(self, name):
+        """Allow attribute-style access (item.title), including aliases."""
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"'ResultItem' object has no attribute '{name}'. "
+                "Use item.title, item['title'], or item.get('title'). See item.keys()."
+            ) from exc
+
+
 class SearchResult(dict):
     """Dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
 
@@ -113,7 +161,7 @@ class SearchResult(dict):
         results = self.get("results", [])
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
-        lines.append("  Keys: results[list of {title,url,snippet}], raw_response[dict], backend[str]")
+        lines.append("  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]")
         lines.append("  → result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
@@ -190,7 +238,7 @@ class FetchResult(dict):
             results = self.get("results", [])
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]{cached_tag}"]
-            lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
+            lines.append("  Keys: results[list of ResultItem: .title/.content or ['title']; snippet→content], raw_response[dict], backend[str]")
             lines.append("  → result.results[i]['content'] | result.find(term) | result.links()")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
@@ -255,7 +303,7 @@ class AnswerResult(dict):
         sources = self.get("sources", [])
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
-        lines.append("  Keys: answer[str], sources[list of {title,url,snippet}], backend[str]")
+        lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
         lines.append("  → result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
         if answer:
             for line in answer.split("\n"):
@@ -294,7 +342,7 @@ class StructuredOutputResult(dict):
         # Show some of the fields to be helpful but not flood repr
         keys = list(data.keys()) if isinstance(data, dict) else []
         lines = [f"StructuredOutputResult [backend={backend}]"]
-        lines.append("  Fields: .structured_output, .sources, .backend")
+        lines.append("  Fields: .structured_output, .sources (ResultItem: .title or ['title']), .backend")
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
@@ -338,7 +386,7 @@ class PageSearchResult(dict):
         matches = self.get("matches", [])
         n = len(matches)
         lines = [f"PageSearchResult({n} matches) [backend={backend}]"]
-        lines.append("  Keys: url[str], query[str], matches[list of {heading,snippet,score}], backend[str]")
+        lines.append("  Keys: url[str], query[str], matches[ResultItem: .snippet or ['snippet']], backend[str]")
         lines.append("  → result.matches[i]['snippet'] | page=result.fetch() → page.content")
         for i, m in enumerate(matches[:5]):
             heading = (m.get("heading") or "").strip()[:70]
@@ -459,7 +507,7 @@ class Web:
             engine: Optional engine name for engine-specific handling
 
         Returns:
-            dict: Normalized result with "title", "url", "snippet"
+            ResultItem: Normalized result with "title", "url", "snippet"
         """
         # Handle dict results
         if isinstance(result, dict):
@@ -480,15 +528,15 @@ class Web:
             if "content" in result and len(snippet) > 200:
                 snippet = snippet[:200]
 
-            return {"title": title, "url": url, "snippet": snippet}
+            return ResultItem({"title": title, "url": url, "snippet": snippet})
 
         # Handle object results (LinkUp style)
         elif hasattr(result, "name"):
-            return {
+            return ResultItem({
                 "title": getattr(result, "name", ""),
                 "url": getattr(result, "url", ""),
                 "snippet": (getattr(result, "content", "") or getattr(result, "snippet", ""))[:200] if getattr(result, "content", None) or getattr(result, "snippet", None) else ""
-            }
+            })
 
         # Unknown format
         raise ValueError(f"Result item is neither dict nor object: {type(result).__name__}")
@@ -1054,7 +1102,7 @@ class Web:
                     NOTE: Use country_code and language_code parameters (not gl/hl)
 
         Returns:
-            SearchResult: .results, .raw_response, .backend (use attribute access)
+            SearchResult: .results (items: .title or ['title']; content→snippet), .raw_response, .backend
 
         Examples:
             # Basic search (auto-selects backend)
@@ -1217,11 +1265,11 @@ class Web:
                     f"Tavily result item is not a dict: {type(result).__name__}. "
                     f"Result: {str(result)[:200]}"
                 )
-            source = {
+            source = ResultItem({
                 "title": result.get("title", ""),
                 "url": result.get("url", ""),
                 "snippet": result.get("content", "")[:200] if result.get("content") else ""
-            }
+            })
             normalized["sources"].append(source)
 
         return normalized
@@ -1362,7 +1410,7 @@ class Web:
                 - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
 
         Returns:
-            AnswerResult: .answer, .sources, .backend (use attribute access)
+            AnswerResult: .answer, .sources (items: .title or ['title']), .backend (use attribute access)
 
         Example:
             result = toolbox.web.answer("What is the latitude of Lilongwe in decimal format?")
@@ -1427,7 +1475,7 @@ class Web:
                 - For linkup: depth ("standard" or "deep"), etc.
 
         Returns:
-            StructuredOutputResult: .structured_output, .sources, .backend (use attribute access)
+            StructuredOutputResult: .structured_output, .sources (items: .title or ['title']), .backend (use attribute access)
 
         Example:
             # Using journal article schema
@@ -1711,11 +1759,11 @@ class Web:
                     f"Tavily result item is not a dict: {type(result).__name__}. "
                     f"Result: {str(result)[:200]}"
                 )
-            normalized["results"].append({
+            normalized["results"].append(ResultItem({
                 "url": result.get("url", ""),
                 "title": result.get("title", ""),
                 "content": result.get("raw_content", "") or result.get("content", "")  # Tavily returns "raw_content"
-            })
+            }))
 
         # If some URLs failed but we have some results, include failed_results in raw_response
         # (already included, but we could add a warning if needed)
@@ -1837,11 +1885,11 @@ class Web:
         for m in payload.get("matches", []) or []:
             if not isinstance(m, dict):
                 continue
-            matches.append({
+            matches.append(ResultItem({
                 "heading": m.get("heading"),
                 "snippet": m.get("snippet", ""),
                 "score": m.get("score"),
-            })
+            }))
         # Zero matches is a legitimate result (term not on page), not an error.
         return {
             "url": payload.get("url", url),
@@ -1904,11 +1952,11 @@ class Web:
             content = result.get("content", "") or result.get("raw_content", "")
             if not content:
                 continue
-            matches.append({
+            matches.append(ResultItem({
                 "heading": result.get("title"),
                 "snippet": content,
                 "score": result.get("score"),
-            })
+            }))
         return {"url": url, "query": query, "matches": matches, "raw_response": response}
 
     def _search_page_via_fetch(self, fetch_backend, url, query, max_results=5, context_chars=500):
@@ -1921,7 +1969,7 @@ class Web:
         return {
             "url": url,
             "query": query,
-            "matches": [{"heading": None, "snippet": s, "score": None} for s in snippets],
+            "matches": [ResultItem({"heading": None, "snippet": s, "score": None}) for s in snippets],
             "raw_response": {"emulated_via_fetch": page.get("backend", fetch_backend)},
         }
 
@@ -1955,7 +2003,7 @@ class Web:
                     - Other Tavily extract parameters
 
         Returns:
-            FetchResult: .url, .title, .content, .backend (single URL; multi-URL uses .results)
+            FetchResult: .url, .title, .content, .backend (single URL; multi-URL .results items: .title or ['title'])
 
         Examples:
             # Basic fetch (auto-selects backend)
@@ -2100,7 +2148,7 @@ class Web:
                     - No additional parameters beyond max_results/context_chars
 
         Returns:
-            PageSearchResult: .url, .query, .matches, .backend (use attribute access)
+            PageSearchResult: .url, .query, .matches (items: .snippet or ['snippet']), .backend (use attribute access)
 
         Examples:
             # Find a detail without fetching the whole page (auto-selects backend)
