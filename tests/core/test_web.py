@@ -92,7 +92,7 @@ class TestWebToolbox(unittest.TestCase):
         # Ensure no API keys are set
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(WebToolboxError) as context:
-                self.web.structured_output("test", schema={})
+                self.web.structured_output("test", schema={"name": "string"})
             # It might raise the specific ApiKeyError message or the aggregate No backends message
             err_msg = str(context.exception)
             self.assertTrue(
@@ -281,6 +281,73 @@ class TestWebToolbox(unittest.TestCase):
             self.assertEqual(match.snippet, "S")
             self.assertEqual(match.heading, "H")
             self.assertEqual(match["snippet"], "S")
+
+    def test_structured_output_simple_field_map_converts(self):
+        """Verify a simple field map becomes a full object schema with all fields required."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                mock_instance = MockClient.return_value
+                mock_instance.search.return_value = MagicMock(structured_output={}, sources=[])
+                self.web.structured_output("Apple Inc", schema={"name": "string", "founded": "integer"})
+                sent = mock_instance.search.call_args.kwargs["structured_output_schema"]
+                self.assertEqual(json.loads(sent), {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "founded": {"type": "integer"}},
+                    "required": ["name", "founded"],
+                })
+
+    def test_structured_output_simple_map_invalid_type(self):
+        """Verify an unknown type name fails fast locally instead of as a backend 400."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.structured_output("q", schema={"name": "str"})
+                self.assertIn("Valid types", str(context.exception))
+                MockClient.assert_not_called()
+
+    def test_structured_output_field_named_type(self):
+        """Verify the ambiguity resolves to a field: {'type': 'string'} means a field named type."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                mock_instance = MockClient.return_value
+                mock_instance.search.return_value = MagicMock(structured_output={}, sources=[])
+                self.web.structured_output("q", schema={"type": "string"})
+                sent = mock_instance.search.call_args.kwargs["structured_output_schema"]
+                self.assertEqual(json.loads(sent)["properties"], {"type": {"type": "string"}})
+
+    def test_structured_output_mixed_property_schema(self):
+        """Verify property-schema dicts pass through inside an otherwise simple field map."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                mock_instance = MockClient.return_value
+                mock_instance.search.return_value = MagicMock(structured_output={}, sources=[])
+                self.web.structured_output("q", schema={"tags": {"type": "array", "items": {"type": "string"}}})
+                sent = mock_instance.search.call_args.kwargs["structured_output_schema"]
+                self.assertEqual(
+                    json.loads(sent)["properties"]["tags"],
+                    {"type": "array", "items": {"type": "string"}},
+                )
+
+    def test_structured_output_empty_schema_raises(self):
+        """Verify an empty schema raises a helpful error instead of a backend 400."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with self.assertRaises(WebToolboxError) as context:
+                self.web.structured_output("q", schema={})
+            self.assertIn("at least one field", str(context.exception))
+
+    def test_structured_output_schema_rejection_hint(self):
+        """Verify a backend schema 400 blames the schema, not the API key."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                mock_instance = MockClient.return_value
+                mock_instance.search.side_effect = Exception(
+                    "Validation failed structuredOutputSchema: must be valid JSON schema of type object."
+                )
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.structured_output("q", schema={"name": "string"})
+                msg = str(context.exception)
+                self.assertIn("schema", msg.lower())
+                self.assertNotIn("API key", msg)
 
 if __name__ == "__main__":
     unittest.main()
