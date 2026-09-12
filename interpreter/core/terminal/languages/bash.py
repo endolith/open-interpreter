@@ -1,3 +1,5 @@
+import re
+
 from .cwd_tracking import CwdTrackingMixin
 from .resolve_bash import resolve_bash_executable
 from .shell_preprocess import preprocess_shell
@@ -18,10 +20,23 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
         SubprocessLanguage.__init__(self)
         self.start_cmd = [resolve_bash_executable()]
 
+    # Matches the end-of-execution marker with the exit status appended to it.
+    _EXIT_CODE_RE = re.compile(r"##end_of_execution##(\d+)")
+
     def preprocess_code(self, code):
         code = self._strip_redundant_cd(code)
         code = preprocess_shell(code)
-        end_marker = '\necho "##end_of_execution##"'
+        # Save $? the instant the user's code finishes, before anything this
+        # method appends can overwrite it. The cwd echo that _insert_cwd_marker
+        # adds below runs before the end marker, so reading $? in the marker
+        # itself would report that echo's status (always 0) rather than the
+        # user's. add_active_line_prints skips lines that run nothing for the
+        # same reason: a marker echo after the last real command would set $?.
+        code = code.replace(
+            '\necho "##end_of_execution##"',
+            '\n__oi_exit_code=$?\necho "##end_of_execution##$__oi_exit_code"',
+        )
+        end_marker = '\necho "##end_of_execution##$__oi_exit_code"'
         return self._insert_cwd_marker(code, end_marker)
 
     def _cwd_marker_echo(self):
@@ -34,3 +49,7 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
 
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line
+
+    def detect_exit_code(self, line):
+        match = self._EXIT_CODE_RE.search(line)
+        return int(match.group(1)) if match else None
