@@ -1,12 +1,31 @@
 import os
 import queue
 import re
+import signal
 import subprocess
 import threading
 import time
 import traceback
 
 from ..base_language import BaseLanguage
+
+
+def _env_seconds(name, default):
+    """Read a timeout (in seconds) from the environment. 0 / negative disables it."""
+    try:
+        value = float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+    return value if value > 0 else 0.0
+
+
+# A command that produces no output for this long is treated as hung and killed.
+# This is what stops `sshfs`, `ssh`, `apt` waiting on a prompt, etc. from blocking
+# the agent forever. Commands that keep streaming output are never killed by this.
+DEFAULT_IDLE_TIMEOUT = 120.0
+# Absolute wall-clock cap. Disabled (0) by default so long *productive* builds run
+# to completion; the idle timeout is what catches genuine hangs.
+DEFAULT_TOTAL_TIMEOUT = 0.0
 
 
 class SubprocessLanguage(BaseLanguage):
@@ -48,11 +67,60 @@ class SubprocessLanguage(BaseLanguage):
             self.process.stdin.write(payload)
         self.process.stdin.flush()
 
+    def _kill_process_group(self):
+        """SIGKILL the shell *and every process it spawned*.
+
+        ``Popen.terminate()`` only signals the shell itself, so a child that is
+        blocking (sshfs, ssh, a package manager waiting on a prompt) survives and
+        keeps the pipes open — which is precisely how a hung command wedged the
+        whole interpreter.
+
+        Safety: the process group is only signalled when it is genuinely NOT our
+        own. If ``start_new_session`` ever failed, the child would share our group
+        and ``killpg`` would kill Open Interpreter itself (and its parent shell).
+        In that case fall back to killing just the child.
+        """
+        proc = self.process
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            if os.name == "posix":
+                pgid = os.getpgid(proc.pid)
+                if pgid != os.getpgid(0):  # never signal our own group
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            else:
+                proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    def stop(self):
+        """Halt a running command.
+
+        ``BaseLanguage.stop()`` is a no-op, so before this override Ctrl-C (and
+        ``Terminal.stop()``) could not interrupt a running shell command at all.
+        """
+        self._kill_process_group()
+        self.done.set()
+
     def terminate(self):
         if self.process:
-            self.process.terminate()
-            self.process.stdin.close()
-            self.process.stdout.close()
+            self._kill_process_group()
+            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                try:
+                    if stream:
+                        stream.close()
+                except Exception:
+                    pass
+            try:
+                self.process.wait(timeout=5)
+            except Exception:
+                pass
+            self.process = None
 
     def start_process(self):
         if self.process:
@@ -67,6 +135,13 @@ class SubprocessLanguage(BaseLanguage):
             "bufsize": 0,
             "env": my_env,
         }
+        # Give the shell its own session/process group so the whole tree can be
+        # killed together on timeout. Without this the child shares our group and
+        # killpg() would take down Open Interpreter itself.
+        if os.name == "posix":
+            popen_kwargs["start_new_session"] = True
+        else:
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         if self.binary_stdio:
             self.process = subprocess.Popen(self.start_cmd, **popen_kwargs)
         else:
@@ -137,14 +212,38 @@ class SubprocessLanguage(BaseLanguage):
                     }
                     return
 
+        idle_timeout = _env_seconds("INTERPRETER_COMMAND_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT)
+        total_timeout = _env_seconds("INTERPRETER_COMMAND_TIMEOUT", DEFAULT_TOTAL_TIMEOUT)
+        started_at = time.time()
+        last_output_at = started_at
+
+        def _timed_out():
+            """Return a reason string if this command should be killed, else None."""
+            now = time.time()
+            if idle_timeout and (now - last_output_at) > idle_timeout:
+                return (
+                    f"produced no output for {idle_timeout:.0f}s",
+                    idle_timeout,
+                    "INTERPRETER_COMMAND_IDLE_TIMEOUT",
+                )
+            if total_timeout and (now - started_at) > total_timeout:
+                return (
+                    f"exceeded the {total_timeout:.0f}s total time limit",
+                    total_timeout,
+                    "INTERPRETER_COMMAND_TIMEOUT",
+                )
+            return None
+
         while True:
             if not self.output_queue.empty():
                 yield self.output_queue.get()
+                last_output_at = time.time()
             else:
                 time.sleep(0.1)
             try:
                 output = self.output_queue.get(timeout=0.3)  # Waits for 0.3 seconds
                 yield output
+                last_output_at = time.time()
             except queue.Empty:
                 if self.done.is_set():
                     # Try to yank 3 more times from it... maybe there's something in there...
@@ -153,6 +252,34 @@ class SubprocessLanguage(BaseLanguage):
                         if not self.output_queue.empty():
                             yield self.output_queue.get()
                         time.sleep(0.2)
+                    break
+
+                # Nothing arrived — check whether this command has hung. Without
+                # this the loop waits forever for an end-of-execution marker that
+                # a blocked command (sshfs, ssh, a prompt-waiting installer) will
+                # never print.
+                timed_out = _timed_out()
+                if timed_out:
+                    reason, limit, env_var = timed_out
+                    self._kill_process_group()
+                    self.done.set()
+                    # Drain anything the command managed to emit before the kill.
+                    while not self.output_queue.empty():
+                        yield self.output_queue.get()
+                    yield {
+                        "type": "console",
+                        "format": "output",
+                        "content": (
+                            f"\n[Open Interpreter] Command killed: it {reason}.\n"
+                            f"The command and every process it started were terminated "
+                            f"(SIGKILL to the process group).\n"
+                            f"If this command legitimately needs longer, raise {env_var} "
+                            f"(seconds, 0 disables), or run it in the background "
+                            f"(e.g. append ' &' or use nohup) so it does not block.\n"
+                        ),
+                    }
+                    # The shell is dead; the next run() will start a fresh one.
+                    self.process = None
                     break
 
     def handle_stream_output(self, stream, is_error_stream):
