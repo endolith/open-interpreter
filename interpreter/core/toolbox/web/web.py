@@ -1783,7 +1783,19 @@ class Web:
 
         try:
             client = LinkupClient(api_key=api_key)
+        except Exception as e:
+            self._handle_api_request_error("LinkUp", e)
 
+        if not hasattr(client, "fetch"):
+            # Old SDK versions (e.g. 0.2.x) predate the fetch endpoint; without
+            # this guard the AttributeError below surfaces as a misleading
+            # "check your API key" failure.
+            raise WebToolboxError(
+                "The installed linkup-sdk has no fetch support. "
+                "Upgrade: pip install --upgrade linkup-sdk (or use backend='serper'/'tavily'/'vanshul')."
+            )
+
+        try:
             # Build fetch parameters
             # LinkUp fetch() returns markdown by default, no output_format parameter needed
             fetch_params = {
