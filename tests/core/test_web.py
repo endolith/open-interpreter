@@ -508,5 +508,19 @@ class TestWebToolbox(unittest.TestCase):
         self.assertEqual(page.links(), [])
 
 
+    def test_fetch_linkup_old_sdk_guard(self):
+        """Verify a linkup-sdk without fetch support raises an upgrade hint, not an auth error."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                del MockClient.return_value.fetch
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.fetch("https://example.com", backend="linkup")
+                msg = str(context.exception)
+                self.assertIn("--upgrade linkup-sdk", msg)
+                self.assertNotIn("API key", msg)
+
+if __name__ == "__main__":
+    unittest.main()
+
 if __name__ == "__main__":
     unittest.main()
