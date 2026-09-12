@@ -483,6 +483,38 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertEqual(stripped, code)
         self.assertIsNone(notice)
 
+    def test_jupyter_language_source_has_no_invalid_escapes(self):
+        """Compiling jupyter_language.py must not emit SyntaxWarning (regression: the active_line regex nested in the state_code triple-quoted string used single backslashes, warning on every import)."""
+        import pathlib
+        import warnings
+
+        import interpreter.core.terminal.languages.jupyter_language as mod
+
+        src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            compile(src, mod.__file__, "exec")
+
+    def test_jupyter_state_code_embeds_working_active_line_regex(self):
+        """The kernel state snippet must carry the single-backslash active_line regex and strip marker lines (guards the double-escaping of the nested string)."""
+        import re
+
+        jl = object.__new__(JupyterLanguage)  # skip kernel startup
+        captured = {}
+
+        def fake_execute(code, message_queue):
+            captured["code"] = code
+
+        jl._execute_code = fake_execute
+        jl._capture_output = lambda message_queue: iter([])
+        list(jl._get_active_state())
+        state_code = captured["code"]
+        self.assertIn(r'''r"^\s*print\('##active_line\d+##'\)\s*$"''', state_code)
+        compile(state_code, "<oi_state>", "exec")
+        marker_regex = re.compile(r"^\s*print\('##active_line\d+##'\)\s*$", flags=re.M)
+        src = "def f():\n    print('##active_line12##')\n    return 1"
+        self.assertEqual(marker_regex.sub("", src), "def f():\n\n    return 1")
+
     def test_bash_cd_strip_respects_gate(self):
         """strip_redundant_code=false disables the bash redundant-cd strip, even at run time (preprocess)."""
         bash = Bash()
