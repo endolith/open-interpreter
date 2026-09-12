@@ -9,6 +9,7 @@ Supported backends:
 - Search: linkup, serper, serpapi, brave, tavily
 - Answer: linkup, tavily
 - Fetch: linkup, serper, tavily, vanshul (keyless, via https://mcp.vanshul.com/mcp)
+- Page search (passages matching a query within one URL): vanshul, tavily (native); serper, linkup (via fetch + local find)
 - Crawl: tavily (not implemented yet)
 - Structured output: linkup
 """
@@ -307,6 +308,48 @@ class StructuredOutputResult(dict):
                 lines.append("  ...")
         except (TypeError, ValueError):
             lines.append(f"  {str(data)[:200]}...")
+        return "\n".join(lines)
+
+
+class PageSearchResult(dict):
+    """Dict subclass for within-page search results. Has a compact repr to avoid flooding the context window."""
+
+    def __init__(self, data, web=None):
+        super().__init__(data)
+        self._web = web
+
+    def __getattr__(self, name):
+        """Allow attribute-style access for dict keys (result.matches, result.url, ...)."""
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"'PageSearchResult' object has no attribute '{name}'. "
+                "Use attribute access (e.g. result.matches). See result.keys()."
+            ) from exc
+
+    def fetch(self):
+        """Fetch the full page this result was searched in. Returns a FetchResult."""
+        return self._web.fetch(self.get("url", ""))
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        matches = self.get("matches", [])
+        n = len(matches)
+        lines = [f"PageSearchResult({n} matches) [backend={backend}]"]
+        lines.append("  Keys: url[str], query[str], matches[list of {heading,snippet,score}], backend[str]")
+        lines.append("  → result.matches[i]['snippet'] | page=result.fetch() → page.content")
+        for i, m in enumerate(matches[:5]):
+            heading = (m.get("heading") or "").strip()[:70]
+            snippet = (m.get("snippet") or "").replace("\n", " ").strip()[:150]
+            score = m.get("score")
+            tag = f" (score={score})" if score is not None else ""
+            prefix = f"  {i}. [{heading}]{tag}" if heading else f"  {i}.{tag}"
+            lines.append(prefix)
+            if snippet:
+                lines.append(f"     {snippet}")
+        if n > 5:
+            lines.append(f"  ... {n - 5} more")
         return "\n".join(lines)
 
 
@@ -1764,6 +1807,123 @@ class Web:
             "raw_response": {"content": content, "title": title},
         }
 
+    def _search_page_vanshul(self, url, query, max_results=5, context_chars=500, **kwargs):
+        """
+        Search within a page using the Vanshul MCP reader backend (search_page tool).
+
+        Free public service (https://mcp.vanshul.com/mcp), no API key needed.
+        Returns relevance-ranked passages with heading breadcrumbs.
+
+        Args:
+            url (str): The URL of the page to search in
+            query (str): Space-separated search terms (case-insensitive)
+            max_results (int): Max passages to return (1-50, default: 5)
+            context_chars (int): Per-passage character budget (50-4000, default: 500)
+            **kwargs: Ignored (accepted for interface consistency)
+
+        Returns:
+            Normalized dict with "url", "query", "matches" list
+        """
+        payload = self._vanshul_mcp_call(
+            "search_page",
+            {"url": url, "query": query, "max_matches": max_results, "context_chars": context_chars},
+        )
+        if not isinstance(payload, dict):
+            raise WebToolboxError(
+                "Vanshul search_page returned an unexpected response shape. Try a different backend."
+            )
+        matches = []
+        for m in payload.get("matches", []) or []:
+            if not isinstance(m, dict):
+                continue
+            matches.append({
+                "heading": m.get("heading"),
+                "snippet": m.get("snippet", ""),
+                "score": m.get("score"),
+            })
+        # Zero matches is a legitimate result (term not on page), not an error.
+        return {
+            "url": payload.get("url", url),
+            "query": payload.get("query", query),
+            "matches": matches,
+            "raw_response": payload,
+        }
+
+    def _search_page_tavily(self, url, query, max_results=5, **kwargs):
+        """
+        Search within a page using Tavily extract with query-scoped extraction.
+
+        Args:
+            url (str): The URL of the page to search in
+            query (str): Focus the extraction on content relevant to this query
+            max_results (int): Mapped to chunks_per_source unless overridden in kwargs
+            **kwargs: Additional Tavily extract parameters (extract_depth, chunks_per_source, etc.)
+
+        Returns:
+            Normalized dict with "url", "query", "matches" list
+        """
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            self._handle_import_error("tavily-python", "pip install tavily-python")
+
+        try:
+            api_key = self._check_api_key("TAVILY_API_KEY")
+        except ApiKeyError as e:
+            raise WebToolboxError(e.error_dict["message"]) from e
+
+        try:
+            client = TavilyClient(api_key=api_key)
+            extract_params = {"urls": [url], "query": query, "format": "markdown"}
+            if "chunks_per_source" not in kwargs:
+                extract_params["chunks_per_source"] = max_results
+            extract_params.update(kwargs)
+            response = client.extract(**extract_params)
+        except Exception as e:
+            self._handle_api_request_error("Tavily", e)
+
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Tavily returned unexpected response type: {type(response).__name__}. "
+                f"Response: {str(response)[:500]}"
+            )
+        failed_results = response.get("failed_results", [])
+        results = response.get("results", [])
+        if failed_results and not results:
+            failed_urls = [fr.get("url", "unknown") for fr in failed_results if isinstance(fr, dict)]
+            errors = [fr.get("error", "unknown error") for fr in failed_results if isinstance(fr, dict)]
+            raise WebToolboxError(
+                f"Tavily extract failed for {', '.join(failed_urls[:3])}. "
+                f"Errors: {', '.join(errors[:3])}. Try a different backend."
+            )
+        matches = []
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            content = result.get("content", "") or result.get("raw_content", "")
+            if not content:
+                continue
+            matches.append({
+                "heading": result.get("title"),
+                "snippet": content,
+                "score": result.get("score"),
+            })
+        return {"url": url, "query": query, "matches": matches, "raw_response": response}
+
+    def _search_page_via_fetch(self, fetch_backend, url, query, max_results=5, context_chars=500):
+        """
+        Emulate within-page search for backends with no native support (serper, linkup):
+        fetch the full page, then match locally. Scores are None (unranked, document order).
+        """
+        page = self.fetch(url, backend=fetch_backend)
+        snippets = page.find(query, context=context_chars, max_results=max_results)
+        return {
+            "url": url,
+            "query": query,
+            "matches": [{"heading": None, "snippet": s, "score": None} for s in snippets],
+            "raw_response": {"emulated_via_fetch": page.get("backend", fetch_backend)},
+        }
+
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
         """
         Fetch web page content from a URL as markdown.
@@ -1911,5 +2071,121 @@ class Web:
         fetch_backend_to_key = {"serper": "SERPER_API_KEY", "linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY", "vanshul": "(no API key required)"}
         message = self._build_no_backends_error(
             backends_to_try, failed_results, fetch_backend_to_package, fetch_backend_to_key, kind="fetch"
+        )
+        raise WebToolboxError(message)
+
+    def search_page(self, url: str, query: str, backend: Optional[str] = None, max_results: int = 5, context_chars: int = 500, **kwargs) -> PageSearchResult:
+        """
+        Search within a single page for passages matching a query. PREFERRED over fetch() when you only need a detail.
+
+        This method automatically selects the best available backend or uses
+        the specified one. Backends are tried in order: vanshul, tavily.
+
+        Args:
+            url (str): The URL of the page to search in
+            query (str): Space-separated search terms (case-insensitive), e.g. "pricing plans"
+            backend (str, optional): Force a specific backend ("vanshul", "tavily", "serper", or "linkup").
+                                     "serper"/"linkup" have no native page search and emulate it via
+                                     full-page fetch + local matching (unranked). If None, auto-selects.
+            max_results (int): Maximum passages to return (default: 5).
+                               For tavily this maps to chunks_per_source unless overridden in kwargs.
+            context_chars (int): Per-passage character budget (default: 500).
+                                 Supported by: vanshul (50-4000); used as local context window for emulated backends.
+            **kwargs: Additional backend-specific parameters:
+                TAVILY:
+                    - chunks_per_source (int): Max chunks per source (defaults to max_results)
+                    - extract_depth (str): "basic" or "advanced"
+                VANSHUL (no API key required, free public service https://mcp.vanshul.com/mcp):
+                    - No additional parameters beyond max_results/context_chars
+
+        Returns:
+            PageSearchResult: .url, .query, .matches, .backend (use attribute access)
+
+        Examples:
+            # Find a detail without fetching the whole page (auto-selects backend)
+            result = toolbox.web.search_page("https://example.com/docs", "rate limits")
+            for match in result.matches:
+                print(match["snippet"])
+
+            # Full page when a passage looks promising
+            page = result.fetch()
+            print(page.content[:500])
+        """
+        native_methods = {
+            "vanshul": self._search_page_vanshul,
+            "tavily": self._search_page_tavily,
+        }
+        emulated_backends = ("serper", "linkup")
+
+        if backend:
+            backend = backend.lower()
+            if backend in native_methods:
+                if backend == "vanshul":
+                    result = native_methods[backend](
+                        url, query, max_results=max_results, context_chars=context_chars, **kwargs
+                    )
+                else:
+                    result = native_methods[backend](url, query, max_results=max_results, **kwargs)
+            elif backend in emulated_backends:
+                result = self._search_page_via_fetch(
+                    backend, url, query, max_results=max_results, context_chars=context_chars
+                )
+            else:
+                raise WebToolboxError(
+                    f"Supported backends for search_page: {', '.join(list(native_methods.keys()) + list(emulated_backends))}. "
+                    "Try without specifying a backend to auto-select."
+                )
+            result["backend"] = backend
+            print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
+            return PageSearchResult(result, web=self)
+
+        # Auto-select: vanshul first (keyless + purpose-built passage ranking),
+        # then tavily (native query-scoped extraction), then emulation via fetch().
+        backends_to_try = ["vanshul", "tavily"]
+        failed_results = []
+
+        for backend_name in backends_to_try:
+            if not self._check_backend_available(backend_name):
+                continue
+            try:
+                if backend_name == "vanshul":
+                    result = native_methods[backend_name](
+                        url, query, max_results=max_results, context_chars=context_chars, **kwargs
+                    )
+                else:
+                    result = native_methods[backend_name](url, query, max_results=max_results, **kwargs)
+                result["backend"] = backend_name
+                print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
+                return PageSearchResult(result, web=self)
+            except (WebToolboxError, ApiKeyError) as e:
+                failed_results.append((backend_name, e))
+
+        # Fall back to emulation via fetch() auto-select (uses its own backend order).
+        # Only attempt this if at least one fetch backend is available.
+        if any(self._check_backend_available(b) for b in ("serper", "linkup", "tavily", "vanshul")):
+            try:
+                result = self._search_page_via_fetch(
+                    None, url, query, max_results=max_results, context_chars=context_chars
+                )
+                result["backend"] = "fetch"
+                print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
+                return PageSearchResult(result, web=self)
+            except (WebToolboxError, ApiKeyError) as e:
+                failed_results.append(("fetch", e))
+
+        message = self._build_no_backends_error(
+            backends_to_try + ["fetch"],
+            failed_results,
+            backend_to_package={
+                "vanshul": "requests (built-in)",
+                "tavily": "tavily-python",
+                "fetch": "requests (built-in)",
+            },
+            backend_to_key={
+                "vanshul": "(no API key required)",
+                "tavily": "TAVILY_API_KEY",
+                "fetch": "(any fetch backend key)",
+            },
+            kind="page search",
         )
         raise WebToolboxError(message)

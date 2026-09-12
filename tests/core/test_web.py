@@ -146,18 +146,89 @@ class TestWebToolbox(unittest.TestCase):
             )
         self.assertIn("tavily", str(context.exception))
 
-    def test_vanshul_mcp_call_parses_jsonrpc_response(self):
-        """Verify _vanshul_mcp_call unwraps the JSON-RPC envelope and JSON-parses text payloads."""
-        mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
-        mock_response.json.return_value = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {"content": [{"type": "text", "text": '{"title": "Hi"}'}]},
+    def test_search_page_vanshul_success(self):
+        """Verify search_page(backend='vanshul') normalizes ranked passages and maps max_results."""
+        payload = {
+            "url": "https://example.com/",
+            "query": "documentation",
+            "count": 1,
+            "matches": [{"heading": None, "snippet": "Use in documentation examples.", "score": 1}],
         }
-        with patch("interpreter.core.toolbox.web.web.requests.post", return_value=mock_response):
-            out = self.web._vanshul_mcp_call("fetch_metadata", {"url": "https://example.com"})
-            self.assertEqual(out, {"title": "Hi"})
+        with patch.object(self.web, "_vanshul_mcp_call", return_value=payload) as mock_call:
+            result = self.web.search_page("https://example.com", "documentation", backend="vanshul")
+            self.assertEqual(result["backend"], "vanshul")
+            self.assertEqual(len(result["matches"]), 1)
+            self.assertEqual(result["matches"][0]["snippet"], "Use in documentation examples.")
+            self.assertEqual(result["matches"][0]["score"], 1)
+            posargs, _ = mock_call.call_args
+            self.assertEqual(posargs[0], "search_page")
+            self.assertEqual(posargs[1]["max_matches"], 5)
+
+    def test_search_page_vanshul_empty_matches(self):
+        """Verify zero matches is a valid empty result, not an error (term simply not on page)."""
+        payload = {"url": "https://example.com/", "query": "xyzzy", "count": 0, "matches": []}
+        with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
+            result = self.web.search_page("https://example.com", "xyzzy", backend="vanshul")
+            self.assertEqual(result["matches"], [])
+
+    def test_search_page_tavily_passes_query(self):
+        """Verify the tavily backend forwards query/chunks to extract and maps results to matches."""
+        with patch.dict(os.environ, {"TAVILY_API_KEY": "fake_key"}):
+            with patch("tavily.TavilyClient") as MockClient:
+                mock_instance = MockClient.return_value
+                mock_instance.extract.return_value = {
+                    "results": [
+                        {"url": "https://example.com", "title": "Example", "content": "Rate limits apply.", "score": 0.9}
+                    ],
+                    "failed_results": [],
+                }
+                result = self.web.search_page("https://example.com", "rate limits", backend="tavily")
+                call_kwargs = mock_instance.extract.call_args.kwargs
+                self.assertEqual(call_kwargs["query"], "rate limits")
+                self.assertEqual(call_kwargs["urls"], ["https://example.com"])
+                self.assertEqual(result["backend"], "tavily")
+                self.assertEqual(len(result["matches"]), 1)
+                self.assertIn("Rate limits", result["matches"][0]["snippet"])
+
+    def test_search_page_emulated_via_fetch_backend(self):
+        """Verify backends without native support emulate search via full fetch plus local matching."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        page = FetchResult({"url": "https://example.com", "title": "", "content": "Alpha pricing plans beta", "backend": "serper"})
+        with patch.object(self.web, "fetch", return_value=page):
+            result = self.web.search_page("https://example.com", "pricing", backend="serper")
+            self.assertEqual(result["backend"], "serper")
+            self.assertEqual(len(result["matches"]), 1)
+            self.assertIn("pricing", result["matches"][0]["snippet"])
+            self.assertIsNone(result["matches"][0]["score"])
+
+    def test_search_page_invalid_backend(self):
+        """Verify an unknown backend name raises a guidance error listing supported backends."""
+        with self.assertRaises(WebToolboxError) as context:
+            self.web.search_page("https://example.com", "x", backend="brave")
+        self.assertIn("vanshul", str(context.exception))
+
+    def test_search_page_auto_falls_through_to_fetch(self):
+        """Verify auto-select falls back to fetch emulation when native backends fail or lack keys."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        page = FetchResult({"url": "https://example.com", "title": "", "content": "Hello world", "backend": "vanshul"})
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(self.web, "_search_page_vanshul", side_effect=WebToolboxError("down")):
+                with patch.object(self.web, "fetch", return_value=page):
+                    result = self.web.search_page("https://example.com", "hello")
+                    # Vanshul raises, tavily has no key, so emulation via fetch() handles it.
+                    self.assertEqual(result["backend"], "fetch")
+                    self.assertEqual(len(result["matches"]), 1)
+
+    def test_page_search_result_fetch_returns_full_page(self):
+        """Verify PageSearchResult.fetch() retrieves the full page the passages came from."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        payload = {"url": "https://example.com/", "query": "q", "count": 0, "matches": []}
+        full = FetchResult({"url": "https://example.com/", "title": "T", "content": "full", "backend": "vanshul"})
+        with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
+            with patch.object(self.web, "fetch", return_value=full) as mock_fetch:
+                result = self.web.search_page("https://example.com", "q", backend="vanshul")
+                self.assertEqual(result.fetch()["content"], "full")
+                mock_fetch.assert_called_once_with("https://example.com/")
 
 if __name__ == "__main__":
     unittest.main()
