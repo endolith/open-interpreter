@@ -8,7 +8,7 @@ multiple backends.
 Supported backends:
 - Search: linkup, serper, serpapi, brave, tavily
 - Answer: linkup, tavily
-- Fetch: linkup, serper, tavily
+- Fetch: linkup, serper, tavily, vanshul (keyless, via https://mcp.vanshul.com/mcp)
 - Crawl: tavily (not implemented yet)
 - Structured output: linkup
 """
@@ -867,7 +867,11 @@ class Web:
         return normalized
 
     def _check_backend_available(self, backend: str) -> bool:
-        """Check if a backend is available (has API key)."""
+        """Check if a backend is available (has API key, or keyless)."""
+        # Vanshul (https://mcp.vanshul.com/mcp) is a free public service with
+        # no API key, so it is always available as a fetch fallback.
+        if backend.lower() == "vanshul":
+            return True
         backend_keys = {
             "tavily": "TAVILY_API_KEY",
             "linkup": "LINKUP_API_KEY",
@@ -1674,20 +1678,109 @@ class Web:
 
         return normalized
 
+    def _vanshul_mcp_call(self, tool_name, arguments, timeout=60):
+        """
+        Call a tool on the public Vanshul MCP reader (https://mcp.vanshul.com/mcp).
+
+        Returns the tool's text payload (parsed as JSON when possible, else raw string).
+        """
+        endpoint = "https://mcp.vanshul.com/mcp"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+        try:
+            response = requests.post(endpoint, headers=headers, data=json.dumps(payload), timeout=timeout)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            self._handle_api_request_error("Vanshul", e)
+        try:
+            data = response.json()
+        except ValueError:
+            # Server may wrap JSON-RPC in SSE frames ("data: {...}"); unwrap them.
+            import re
+            texts = re.findall(r"^data:\s*(\{.*\})\s*$", response.text, re.MULTILINE)
+            if not texts:
+                raise WebToolboxError(f"Vanshul API returned a non-JSON response for tool '{tool_name}'.")
+            data = json.loads(texts[-1])
+        if isinstance(data, dict) and "error" in data:
+            err = data["error"]
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            raise WebToolboxError(f"Vanshul API error for tool '{tool_name}': {msg}")
+        try:
+            text = data["result"]["content"][0]["text"]
+        except (KeyError, IndexError, TypeError) as e:
+            raise WebToolboxError(f"Vanshul API returned an unexpected response shape for tool '{tool_name}': {e}")
+        try:
+            return json.loads(text)
+        except (ValueError, TypeError):
+            return text
+
+    def _fetch_vanshul(self, url, max_chars=None, **kwargs):
+        """
+        Fetch web page content using the Vanshul MCP reader backend.
+
+        Free public service (https://mcp.vanshul.com/mcp), no API key needed.
+        Uses fetch_markdown for content and fetch_metadata for the title.
+
+        Args:
+            url (str): The URL to fetch
+            max_chars (int, optional): Truncate the Markdown to at most this many characters
+            **kwargs: Ignored (accepted for interface consistency with other fetch backends)
+
+        Returns:
+            Normalized dict with "content" (markdown), "title", "url" keys
+        """
+        arguments = {"url": url}
+        if max_chars is not None:
+            arguments["max_chars"] = max_chars
+        content = self._vanshul_mcp_call("fetch_markdown", arguments)
+        if isinstance(content, dict):
+            # Defensive: if the endpoint ever returns JSON, stringify it.
+            content = json.dumps(content)
+        if not content or not str(content).strip():
+            raise WebToolboxError(
+                "Vanshul returned no content for this URL. "
+                "The page may be inaccessible or blocked. Try a different backend."
+            )
+        # Title is best-effort; metadata failures must not fail the fetch.
+        title = ""
+        try:
+            metadata = self._vanshul_mcp_call("fetch_metadata", {"url": url})
+            if isinstance(metadata, dict):
+                title = metadata.get("title", "") or ""
+        except WebToolboxError:
+            title = ""
+        return {
+            "url": url,
+            "title": title,
+            "content": content,
+            "raw_response": {"content": content, "title": title},
+        }
+
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
         """
         Fetch web page content from a URL as markdown.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: serper, linkup, tavily.
+        the specified one. Backends are tried in order: serper, linkup, tavily, vanshul.
 
         Args:
             url (str): The URL to fetch
-            backend (str, optional): Force a specific backend ("serper", "linkup", or "tavily").
+            backend (str, optional): Force a specific backend ("serper", "linkup", "tavily", or "vanshul").
                                      If None, auto-selects based on availability.
             render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
             extract_depth (str, optional): Extraction depth - "basic" or "advanced". Supported by: tavily (defaults to API default if not specified)
             **kwargs: Additional backend-specific parameters:
+
+                VANSHUL (no API key required, free public service https://mcp.vanshul.com/mcp):
+                    - max_chars (int): Truncate the Markdown to at most this many characters
 
                 SERPER:
                     - Other Serper scrape parameters (markdown is always enabled)
@@ -1732,7 +1825,8 @@ class Web:
         backend_methods = {
             "serper": self._fetch_serper,
             "linkup": self._fetch_linkup,
-            "tavily": self._fetch_tavily
+            "tavily": self._fetch_tavily,
+            "vanshul": self._fetch_vanshul,
         }
 
         # Validate backend name before touching the cache, so an invalid backend name
@@ -1758,6 +1852,11 @@ class Web:
             backend = backend.lower()
 
             if is_multi_url:
+                if backend != "tavily":
+                    raise WebToolboxError(
+                        f"Backend '{backend}' does not support multi-URL fetch (urls=[...]). "
+                        "Use backend='tavily' for multi-URL fetch."
+                    )
                 result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
             elif backend == "tavily":
                 result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
@@ -1777,11 +1876,14 @@ class Web:
                 print("→ result.content | result.find(term) | result.links()")
             return fetch_result
 
-        backends_to_try = ["serper", "linkup", "tavily"]
+        backends_to_try = ["serper", "linkup", "tavily", "vanshul"]
         failed_results = []
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
+                continue
+            if is_multi_url and backend_name != "tavily":
+                # Only tavily supports multi-URL fetch; skip others silently.
                 continue
             try:
                 if is_multi_url:
@@ -1805,8 +1907,8 @@ class Web:
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
-        fetch_backend_to_package = {"serper": "requests (built-in)", "linkup": "linkup-sdk", "tavily": "tavily-python"}
-        fetch_backend_to_key = {"serper": "SERPER_API_KEY", "linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"}
+        fetch_backend_to_package = {"serper": "requests (built-in)", "linkup": "linkup-sdk", "tavily": "tavily-python", "vanshul": "requests (built-in)"}
+        fetch_backend_to_key = {"serper": "SERPER_API_KEY", "linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY", "vanshul": "(no API key required)"}
         message = self._build_no_backends_error(
             backends_to_try, failed_results, fetch_backend_to_package, fetch_backend_to_key, kind="fetch"
         )
