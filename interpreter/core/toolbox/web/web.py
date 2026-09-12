@@ -2069,7 +2069,8 @@ class Web:
         Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: serper, linkup, tavily, vanshul.
+        the specified one. Backends are tried leanest-first: vanshul, serper, linkup, tavily.
+        Force backend="linkup" with render_js=True for pages that need JavaScript rendering.
 
         Args:
             url (str): The URL to fetch
@@ -2176,7 +2177,7 @@ class Web:
                 print("→ result.content | result.find(term) | result.links()")
             return fetch_result
 
-        backends_to_try = ["serper", "linkup", "tavily", "vanshul"]
+        backends_to_try = ["vanshul", "serper", "linkup", "tavily"]
         failed_results = []
 
         for backend_name in backends_to_try:
@@ -2219,7 +2220,8 @@ class Web:
         Search within a single page for passages matching a query. PREFERRED over fetch() when you only need a detail.
 
         This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: vanshul, tavily,
+        the specified one. Backends are tried in order: tavily (semantic,
+        preferred for paraphrase queries), vanshul (keyless keyword match),
         then fetch emulation (any fetch backend, unranked; .backend names the
         fetch backend used and raw_response notes the emulation).
 
@@ -2281,9 +2283,9 @@ class Web:
             print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
             return PageSearchResult(result, web=self)
 
-        # Auto-select: vanshul first (keyless + purpose-built passage ranking),
-        # then tavily (native query-scoped extraction), then emulation via fetch().
-        backends_to_try = ["vanshul", "tavily"]
+        # Auto-select: tavily first (semantic match, preferred for paraphrase
+        # queries), then vanshul (keyless keyword match), then emulation via fetch().
+        backends_to_try = ["tavily", "vanshul"]
         failed_results = []
 
         for backend_name in backends_to_try:
