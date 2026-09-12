@@ -1957,6 +1957,14 @@ class Web:
         if isinstance(content, dict):
             # Defensive: if the endpoint ever returns JSON, stringify it.
             content = json.dumps(content)
+        if isinstance(content, str) and content.strip().lower().startswith("error:"):
+            # The service reports failures as text (e.g. "Error: Upstream returned
+            # 530"). Raise so callers never mistake it for page content and so
+            # fetch() auto-select can fall through to the next backend.
+            raise WebToolboxError(
+                f"Vanshul could not fetch this URL ({url}): {content.strip()[:200]} "
+                "Try a different backend."
+            )
         if not content or not str(content).strip():
             raise WebToolboxError(
                 "Vanshul returned no content for this URL. "
@@ -1998,6 +2006,11 @@ class Web:
             "search_page",
             {"url": url, "query": query, "max_matches": max_results, "context_chars": context_chars},
         )
+        if isinstance(payload, str) and payload.strip().lower().startswith("error:"):
+            raise WebToolboxError(
+                f"Vanshul could not search this page ({url}): {payload.strip()[:200]} "
+                "Try a different backend."
+            )
         if not isinstance(payload, dict):
             raise WebToolboxError(
                 "Vanshul search_page returned an unexpected response shape. Try a different backend."
