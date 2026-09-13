@@ -426,6 +426,17 @@ class TestWebToolbox(unittest.TestCase):
                     self.web.fetch(bad, backend="vanshul")
                 self.assertIn("https://example.com", str(context.exception))
 
+    def test_fetch_integer_suggests_result_methods(self):
+        """Verify an index passed as URL points at result.fetch(i)/search_page(i)."""
+        with self.assertRaises(WebToolboxError) as context:
+            self.web.fetch(1, backend="vanshul")
+        msg = str(context.exception)
+        self.assertIn("result.fetch(1)", msg)
+        self.assertIn("not indices", msg)
+        with self.assertRaises(WebToolboxError) as context:
+            self.web.search_page(2, "q", backend="vanshul")
+        self.assertIn("result.search_page(2", str(context.exception))
+
 
     def test_fetch_cache_shared_across_scheme_forms(self):
         """Verify schemeless and https:// forms of a URL share one cache entry."""
@@ -579,7 +590,7 @@ class TestWebToolbox(unittest.TestCase):
         # Method funnel advertised; domains shown for orientation...
         self.assertIn("result.fetch(i)", text)
         self.assertIn("result.search_page(i, query)", text)
-        self.assertIn("NEVER hardcode URLs", text)
+        self.assertIn("NEVER invent hardcoded URLs", text)
         self.assertIn("example.com", text)
         # ...but full URLs are withheld so agents use methods instead of copying.
         self.assertNotIn("https://example.com/a/b?c=d", text)
