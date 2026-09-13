@@ -191,7 +191,7 @@ class SearchResult(dict):
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[ResultItem: .title/.url or ['title']/['url']; content→snippet], raw_response[dict], backend[str]")
-        lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
+        lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
