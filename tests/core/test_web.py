@@ -579,6 +579,7 @@ class TestWebToolbox(unittest.TestCase):
         # Method funnel advertised; domains shown for orientation...
         self.assertIn("result.fetch(i)", text)
         self.assertIn("result.search_page(i, query)", text)
+        self.assertIn("NEVER hardcode URLs", text)
         self.assertIn("example.com", text)
         # ...but full URLs are withheld so agents use methods instead of copying.
         self.assertNotIn("https://example.com/a/b?c=d", text)
