@@ -2427,7 +2427,9 @@ class Web:
         # Only attempt this if at least one fetch backend is available.
         # The label names the fetch backend actually used (feedable back into
         # backend=); raw_response["emulated_via_fetch"] notes the emulation.
-        if any(self._check_backend_available(b) for b in ("serper", "linkup", "tavily", "vanshul")):
+        fetch_backends = ("serper", "linkup", "tavily", "vanshul")
+        fetch_available = any(self._check_backend_available(b) for b in fetch_backends)
+        if fetch_available:
             try:
                 result = self._search_page_via_fetch(
                     None, url, query, max_results=max_results, context_chars=context_chars
@@ -2438,19 +2440,29 @@ class Web:
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append(("fetch", e))
 
+        # "fetch" is not a real backend, so it gets its own message instead of
+        # going through _build_no_backends_error (which would print a nonsense
+        # key name and swallow the actual emulation failure).
         message = self._build_no_backends_error(
-            backends_to_try + ["fetch"],
-            failed_results,
+            backends_to_try,
+            [(b, e) for b, e in failed_results if b != "fetch"],
             backend_to_package={
                 "vanshul": "requests (built-in)",
                 "tavily": "tavily-python",
-                "fetch": "requests (built-in)",
             },
             backend_to_key={
                 "vanshul": "(no API key required)",
                 "tavily": "TAVILY_API_KEY",
-                "fetch": "(any fetch backend key)",
             },
             kind="page search",
         )
+        fetch_failures = [e for b, e in failed_results if b == "fetch"]
+        if fetch_failures:
+            clean_err = " ".join(str(fetch_failures[0]).splitlines()).strip()
+            message += f" fetch emulation: {clean_err}" if clean_err else " fetch emulation failed."
+        elif not fetch_available:
+            message += (
+                " fetch emulation unavailable (needs one of SERPER_API_KEY, "
+                "LINKUP_API_KEY, TAVILY_API_KEY, or a reachable vanshul)."
+            )
         raise WebToolboxError(message)
