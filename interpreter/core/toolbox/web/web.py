@@ -191,7 +191,7 @@ class SearchResult(dict):
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[ResultItem: .title/.url or ['title']/['url']; content→snippet], raw_response[dict], backend[str]")
-        lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+        lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -363,7 +363,7 @@ class AnswerResult(dict):
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
         lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
-        lines.append("  → result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+        lines.append("  → result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -413,7 +413,7 @@ class StructuredOutputResult(dict):
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
-            "  → result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content"
+            "  → result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs"
         )
         # Pretty print a bit of JSON as preview — use 2-space indent, max 6 lines
         try:
@@ -1162,7 +1162,7 @@ class Web:
 
     def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> SearchResult:
         """
-        Search the web for links and snippets.
+        Search the web for links and snippets. Open hits only via result.fetch(i) / result.search_page(i, query) — never hardcode or guess URLs.
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: serper, serpapi, tavily, brave, linkup.
@@ -1318,7 +1318,7 @@ class Web:
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+            print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -1332,7 +1332,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+                print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1583,7 +1583,7 @@ class Web:
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+            print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
@@ -1599,7 +1599,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+                print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
                 return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1702,7 +1702,7 @@ class Web:
             backend_methods = {"linkup": self._structured_output_linkup}
             result = backend_methods[backend](query, schema, **kwargs)
             result["backend"] = backend
-            print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+            print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
             return StructuredOutputResult(result, web=self)
 
         # Default/Auto-select (currently only linkup)
@@ -1716,7 +1716,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, schema, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
+                print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER hardcode URLs")
                 return StructuredOutputResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -2168,7 +2168,7 @@ class Web:
 
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
         """
-        Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens.
+        Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens. Pass only URLs taken from search results; never invent them.
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried leanest-first: vanshul, serper, linkup, tavily.
