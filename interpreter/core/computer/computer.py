@@ -18,6 +18,28 @@ from .sms.sms import SMS
 from .terminal.terminal import Terminal
 from .vision.vision import Vision
 
+# Attribute names passed to _get_all_computer_tools_list (order matters for
+# system_message / LLM tool descriptions). When adding a subsystem, update
+# __init__, this tuple, and the new subpackage under interpreter/core/computer/.
+# A follow-up registry refactor is tracked in #121.
+COMPUTER_TOOL_SUBSYSTEMS = (
+    "mouse",
+    "keyboard",
+    "display",
+    "clipboard",
+    "mail",
+    "sms",
+    "calendar",
+    "contacts",
+    "browser",
+    "os",
+    "vision",
+    "skills",
+    "docs",
+    "ai",
+    "files",
+)
+
 
 class Computer:
     def __init__(self, interpreter):
@@ -86,23 +108,7 @@ Do not import the computer module, or any of its sub-modules. They are already i
         self.terminal.languages = value
 
     def _get_all_computer_tools_list(self):
-        return [
-            self.mouse,
-            self.keyboard,
-            self.display,
-            self.clipboard,
-            self.mail,
-            self.sms,
-            self.calendar,
-            self.contacts,
-            self.browser,
-            self.os,
-            self.vision,
-            self.skills,
-            self.docs,
-            self.ai,
-            self.files,
-        ]
+        return [getattr(self, name) for name in COMPUTER_TOOL_SUBSYSTEMS]
 
     def _get_all_computer_tools_signature_and_description(self):
         """
