@@ -565,6 +565,25 @@ class TestWebToolbox(unittest.TestCase):
         with self.assertRaises(WebToolboxError):
             result.fetch(True)
 
+    def test_search_repr_steers_to_methods(self):
+        """Verify the repr funnels agents into fetch(i)/search_page(i) without pasting URLs."""
+        from interpreter.core.toolbox.web.web import SearchResult
+        result = SearchResult(
+            {"results": [
+                {"title": "T1", "url": "https://example.com/a/b?c=d", "snippet": "S1"},
+                {"title": "T2", "url": "https://example.org/e", "snippet": "S2"},
+            ], "backend": "serper"},
+            web=self.web,
+        )
+        text = repr(result)
+        # Method funnel advertised; domains shown for orientation...
+        self.assertIn("result.fetch(i)", text)
+        self.assertIn("result.search_page(i, query)", text)
+        self.assertIn("example.com", text)
+        # ...but full URLs are withheld so agents use methods instead of copying.
+        self.assertNotIn("https://example.com/a/b?c=d", text)
+        self.assertNotIn("https://example.org/e", text)
+
 if __name__ == "__main__":
     unittest.main()
 

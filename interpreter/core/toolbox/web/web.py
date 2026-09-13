@@ -190,7 +190,7 @@ class SearchResult(dict):
         results = self.get("results", [])
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
-        lines.append("  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]")
+        lines.append("  Keys: results[ResultItem: .title/.url or ['title']/['url']; content→snippet], raw_response[dict], backend[str]")
         lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
