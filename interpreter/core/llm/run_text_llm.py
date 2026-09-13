@@ -1,15 +1,33 @@
 def run_text_llm(llm, params):
+    skip_execution_instructions = params.pop("skip_execution_instructions", False)
+    plain_title_stream = params.pop("conversation_title_plain_stream", False)
+
     ## Setup
 
-    if llm.execution_instructions:
+    if llm.execution_instructions and not skip_execution_instructions:
         try:
             # Add the system message
-            params["messages"][0][
-                "content"
-            ] += "\n" + llm.execution_instructions
+            params["messages"][0]["content"] += "\n" + llm.execution_instructions
         except:
             print('params["messages"][0]', params["messages"][0])
             raise
+
+    if plain_title_stream:
+        for chunk in llm.completions(**params):
+            if llm.interpreter.verbose:
+                print("Chunk in coding_llm", chunk)
+
+            if "choices" not in chunk or len(chunk["choices"]) == 0:
+                continue
+            delta = chunk["choices"][0]["delta"]
+            if "reasoning_content" in delta and delta["reasoning_content"]:
+                continue
+            content = delta.get("content", "")
+            if content is None or content == "":
+                continue
+            yield {"type": "message", "content": content}
+
+        return
 
     ## Convert output to LMC format
 
