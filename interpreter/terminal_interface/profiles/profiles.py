@@ -206,7 +206,7 @@ def apply_profile(interpreter, profile, profile_path):
             for i in interpreter.computer.languages
             if i.name.lower() in [l.lower() for l in profile["computer"]["languages"]]
         ]
-        del profile["computer.languages"]
+        del profile["computer"]["languages"]
 
     apply_profile_to_object(interpreter, profile)
 
@@ -242,7 +242,7 @@ def migrate_profile(old_path, new_path):
 
     # Reformat the YAML keys with indentation
     reformatted_profile = {}
-    for key, value in profile.items():
+    for key, value in mapped_profile.items():
         keys = key.split(".")
         current_level = reformatted_profile
         # Iterate through parts of the key except the last one
