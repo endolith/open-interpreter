@@ -596,8 +596,28 @@ class TestWebToolbox(unittest.TestCase):
         self.assertNotIn("https://example.com/a/b?c=d", text)
         self.assertNotIn("https://example.org/e", text)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_search_page_total_failure_reports_emulation_reason(self):
+        """Verify total failure surfaces the real emulation error, not a pseudo-backend key."""
+        with patch.dict(os.environ, {"TAVILY_API_KEY": "fake"}, clear=True):
+            with patch.object(self.web, "_search_page_tavily", side_effect=WebToolboxError("tavily down")):
+                with patch.object(self.web, "_search_page_vanshul", side_effect=WebToolboxError("vanshul down")):
+                    with patch.object(self.web, "_search_page_via_fetch", side_effect=WebToolboxError("emulated boom")):
+                        with self.assertRaises(WebToolboxError) as context:
+                            self.web.search_page("https://example.com", "q")
+                        msg = str(context.exception)
+                        self.assertIn("emulated boom", msg)
+                        self.assertNotIn("any fetch backend key", msg)
+
+    def test_search_page_no_backends_names_real_keys(self):
+        """Verify total unavailability names real fetch keys instead of a pseudo-backend."""
+        with patch.object(self.web, "_check_backend_available", return_value=False):
+            with patch.object(self.web, "_search_page_via_fetch") as mock_via:
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.search_page("https://example.com", "q")
+                msg = str(context.exception)
+                mock_via.assert_not_called()
+                self.assertIn("SERPER_API_KEY", msg)
+                self.assertIn("unavailable", msg)
 
 if __name__ == "__main__":
     unittest.main()
