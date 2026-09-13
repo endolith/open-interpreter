@@ -15,28 +15,147 @@ def _make_llm():
     return llm
 
 
-def test_tool_calls_function_is_none_raises():
-    """A tool_call delta with function=None crashes merge_deltas.
+def test_tool_calls_function_is_none_skipped():
+    """A tool_call delta with function=None yields no chunks.
 
-    KNOWN BUG: run_tool_calling_llm intends to skip tool_call deltas whose
-    function attribute is None (the guard only converts deltas with a truthy
-    function), but the unconverted delta is still forwarded to merge_deltas,
-    which calls dict() on the tool_calls list and raises TypeError. Documenting
-    current behavior; the fix belongs in a bug-fix PR.
+    Deltas whose function attribute is None carry nothing mergeable, so the
+    tool_calls key is dropped and the chunk passes through empty instead of
+    crashing merge_deltas. Regression test for #254.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {"choices": [{"delta": {"tool_calls": [SimpleNamespace(function=None)]}}]}
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "hi"}]})) == []
+
+
+def test_tool_calls_function_is_none_no_auth_error(monkeypatch):
+    """A function-less delta does not trip the auth judge-layer guard.
+
+    The detection flag is only set when a valid function call is converted,
+    so with INTERPRETER_REQUIRE_AUTHENTICATION enabled a malformed delta
+    yields no chunks instead of raising "Judge layer required but did not
+    run.". Regression test for #254.
+    """
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {"choices": [{"delta": {"tool_calls": [SimpleNamespace(function=None)]}}]}
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "hi"}]})) == []
+
+
+def test_tool_calls_later_valid_entry_converted():
+    """A valid entry after a function-less one is still converted.
+
+    Only entry 0 used to be inspected, so a leading malformed entry hid a
+    later valid tool call. Every entry is now scanned by index.
     """
     llm = _make_llm()
 
     def chat(*args, **kwargs):
         yield {
             "choices": [
-                {"delta": {"tool_calls": [SimpleNamespace(function=None)]}}
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(function=None),
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": "print(1)"}',
+                                ),
+                            ),
+                        ]
+                    }
+                }
             ]
         }
 
     llm.completions = chat
 
-    with pytest.raises(TypeError):
-        list(run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "hi"}]}))
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+def test_tool_calls_dict_shaped_entries():
+    """Dict-shaped entries (as newer litellm versions emit) are handled.
+
+    Entries may be plain dicts instead of objects; a dict entry with a valid
+    function mapping converts the same way.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {"function": None},
+                            {
+                                "id": "toolu_1",
+                                "function": {
+                                    "name": "execute",
+                                    "arguments": '{"language": "python", "code": "print(1)"}',
+                                },
+                            },
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+def test_tool_calls_nameless_continuation_merges():
+    """A continuation chunk without a name still appends its arguments.
+
+    Streaming providers send the tool name once, then arguments-only deltas.
+    The nameless chunk merges into the accumulated call so the full code is
+    yielded; the missing name must not be treated as a malformed entry.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": "pri',
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+        yield {"choices": [{"delta": {"tool_calls": [SimpleNamespace(function=SimpleNamespace(arguments='nt(1)"}'))]}}]}
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "pri"},
+        {"type": "code", "format": "python", "content": "nt(1)"},
+    ]
 
 
 def test_tool_calls_empty_list():
