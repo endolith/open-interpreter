@@ -607,7 +607,7 @@ def reset_profile(specific_default_profile=None):
             continue
 
         # Only reset default.yaml, all else are loaded from python package
-        if specific_default_profile != "default.yaml":
+        if filename != "default.yaml":
             continue
 
         target_file = os.path.join(profile_dir, filename)

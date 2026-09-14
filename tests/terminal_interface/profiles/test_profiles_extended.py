@@ -421,6 +421,36 @@ def test_reset_profile_skips_non_default_yaml(profile_env, monkeypatch):
     )
 
 
+def test_reset_profile_without_a_name_resets_default_yaml(profile_env, monkeypatch):
+    """reset_profile() with no name resets the default profiles.
+
+    `interpreter --reset_profile` passes no name, which arrives here as None.
+    That used to skip every packaged file, so the form the help text documents
+    ("run --reset_profile without an argument to reset all default profiles")
+    silently reset nothing. default.yaml is the only default that lives in the
+    user's profiles directory; the rest are read from the package.
+    """
+    _set_defaults(
+        profile_env["defaults_dir"],
+        {"default.yaml": "offline: True\n", "fast.yaml": "model: gpt\n"},
+        monkeypatch,
+    )
+    target = os.path.join(profile_env["profile_dir"], "default.yaml")
+    with open(target, "w") as f:
+        f.write("auto_run: True\n")
+    with mock.patch("builtins.input", return_value="y") as prompt, mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.determine_user_version",
+        return_value="0.2.5",
+    ), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.send2trash.send2trash",
+        mock.Mock(),
+    ):
+        profiles.reset_profile()
+    assert prompt.called
+    assert open(target).read().strip() == "offline: True"
+    assert not os.path.exists(os.path.join(profile_env["profile_dir"], "fast.yaml"))
+
+
 def test_reset_profile_interactive_no(profile_env, monkeypatch):
     """reset_profile() does not overwrite when the user answers 'n'."""
     _set_defaults(profile_env["defaults_dir"], {"default.yaml": "offline: True\n"}, monkeypatch)
