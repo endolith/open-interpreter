@@ -15,6 +15,7 @@ import re
 import subprocess
 import tempfile
 import time
+import traceback
 
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
@@ -129,7 +130,17 @@ def terminal_interface(interpreter, message):
                 continue
 
             if message.startswith("%") and interactive:
-                handle_magic_command(interpreter, message)
+                try:
+                    handle_magic_command(interpreter, message)
+                except Exception as e:
+                    # A magic command is a side trip, not part of the conversation.
+                    # A mistyped path or an unsupported command shouldn't end the
+                    # session and take the unsaved history with it.
+                    interpreter.display_message(
+                        f"\n**`{message}` failed:** {type(e).__name__}: {e}\n"
+                    )
+                    if interpreter.verbose:
+                        traceback.print_exc()
                 continue
 
             # Many users do this

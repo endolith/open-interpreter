@@ -140,6 +140,30 @@ def test_terminal_interface_dispatches_magic_command():
     interpreter.chat.assert_not_called()
 
 
+def test_terminal_interface_failing_magic_command_returns_to_prompt(tmp_path):
+    """A magic command that raises reports the error and asks for input again.
+
+    Magic commands are dispatched outside the render loop's try/except, so an
+    ordinary mistake -- %load_message on a path that does not exist -- used to
+    escape chat() and end the process, taking the session's unsaved history
+    with it. The real handler is used here so the whole escape path is covered.
+    """
+    interpreter = _intro_interpreter()
+    missing = tmp_path / "nope.json"
+
+    with mock.patch(
+        "builtins.input",
+        side_effect=[f"%load_message {missing}", KeyboardInterrupt()],
+    ) as prompt:
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert prompt.call_count == 2
+    displayed = [call[0][0] for call in interpreter.display_message.call_args_list]
+    assert any("FileNotFoundError" in message for message in displayed)
+    interpreter.chat.assert_not_called()
+
+
 def test_terminal_interface_local_command_hint(capsys):
     """terminal_interface points `interpreter --local` users back to the CLI."""
     interpreter = _intro_interpreter()
