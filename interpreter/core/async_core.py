@@ -267,8 +267,11 @@ class AsyncInterpreter(OpenInterpreter):
                             self._approval_event.wait()
 
                             if not self._approval_granted:
+                                # The turn was already marked complete above, before
+                                # parking on the approval. Sending a second one here
+                                # would land as the first frame of whatever the
+                                # client sends next.
                                 self._reset_respond_iterator()
-                                self.output_queue.sync_q.put(complete_message)
                                 return
 
                             self._clear_pending_confirmation()
