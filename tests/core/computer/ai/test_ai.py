@@ -99,3 +99,80 @@ def test_ai_chat_appends_image_message_for_base64():
         {"role": "user", "type": "message", "content": "hi"},
         {"role": "user", "type": "image", "format": "base64", "content": "abc123"},
     ]
+
+
+def test_query_reduce_chunks_returns_single_response_unchanged():
+    """A single mapped response is returned as-is, with no reduce call.
+
+    The while loop's body never runs for one response, so the old code fell
+    through to a `summaries` that was never assigned and raised
+    UnboundLocalError. Any text short enough to produce one chunk took this
+    path, which made computer.ai.summarize() fail on short input (#209).
+    """
+    llm = SimpleNamespace()
+
+    with mock.patch.object(ai_mod, "fast_llm") as fast:
+        assert ai_mod.query_reduce_chunks(["only"], llm, 2000, "q") == "only"
+
+    fast.assert_not_called()
+
+
+def test_query_reduce_chunks_returns_none_for_no_responses():
+    """No responses reduces to None rather than raising."""
+    llm = SimpleNamespace()
+
+    with mock.patch.object(ai_mod, "fast_llm") as fast:
+        assert ai_mod.query_reduce_chunks([], llm, 2000, "q") is None
+
+    fast.assert_not_called()
+
+
+def test_query_reduce_chunks_reduces_until_one_response_remains():
+    """Each pass feeds its summaries into the next, so the list converges to one.
+
+    The old loop never reassigned `responses`, so `len(responses) > 1` stayed
+    true forever and it made unbounded LLM calls for any input that mapped to
+    two or more responses.
+    """
+    llm = SimpleNamespace()
+    calls = []
+
+    def fake_fast_llm(llm, query, chunk):
+        calls.append(chunk)
+        return f"summary({chunk})"
+
+    def fake_chunk_responses(responses, tokens, llm):
+        # Halve the list each pass by pairing neighbours.
+        return [
+            "+".join(responses[i : i + 2]) for i in range(0, len(responses), 2)
+        ]
+
+    with mock.patch.object(ai_mod, "fast_llm", side_effect=fake_fast_llm), \
+         mock.patch.object(ai_mod, "chunk_responses", side_effect=fake_chunk_responses):
+        result = ai_mod.query_reduce_chunks(["a", "b", "c", "d"], llm, 2000, "q")
+
+    assert result == "summary(summary(a+b)+summary(c+d))"
+    assert calls == ["a+b", "c+d", "summary(a+b)+summary(c+d)"]
+
+
+def test_query_reduce_chunks_stops_when_a_pass_makes_no_progress():
+    """Responses that each fill a chunk alone are merged in one final call.
+
+    chunk_responses keeps an oversized response as its own chunk, so a pass
+    can return as many summaries as it was given. Without a guard that is an
+    unbounded loop of paid LLM calls at constant length.
+    """
+    llm = SimpleNamespace()
+    calls = []
+
+    def fake_fast_llm(llm, query, chunk):
+        calls.append(chunk)
+        return "same-size-summary"
+
+    with mock.patch.object(ai_mod, "fast_llm", side_effect=fake_fast_llm), \
+         mock.patch.object(ai_mod, "chunk_responses", side_effect=lambda r, t, l: list(r)):
+        result = ai_mod.query_reduce_chunks(["big1", "big2"], llm, 2000, "q")
+
+    assert result == "same-size-summary"
+    # One pass over both responses, then a single merge of what was left.
+    assert calls == ["big1", "big2", "same-size-summary\n\nsame-size-summary"]
