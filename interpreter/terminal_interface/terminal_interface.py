@@ -80,16 +80,26 @@ def terminal_interface(interpreter, message):
     active_block = None
     voice_subprocess = None
 
+    # If they passed in a message already (probably via "i {command}"), it's waiting in
+    # the history instead of being typed at the prompt. Claim it once, here, before the
+    # loop: the history looks exactly the same again after any turn that stores no
+    # assistant message (an empty completion), so checking this every iteration would
+    # re-send that message indefinitely without ever asking for input.
+    preloaded_message = None
+    if (
+        interactive
+        and len(interpreter.messages) == 1
+        and interpreter.messages[-1]["role"] == "user"
+        and interpreter.messages[-1]["type"] == "message"
+    ):
+        preloaded_message = interpreter.messages[-1]["content"]
+        interpreter.messages = interpreter.messages[:-1]
+
     while True:
         if interactive:
-            if (
-                len(interpreter.messages) == 1
-                and interpreter.messages[-1]["role"] == "user"
-                and interpreter.messages[-1]["type"] == "message"
-            ):
-                # They passed in a message already, probably via "i {command}"!
-                message = interpreter.messages[-1]["content"]
-                interpreter.messages = interpreter.messages[:-1]
+            if preloaded_message is not None:
+                message = preloaded_message
+                preloaded_message = None
             else:
                 ### This is the primary input for Open Interpreter.
                 try:
