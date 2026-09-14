@@ -1,3 +1,18 @@
+FENCE = "```"
+
+
+def _incomplete_fence_length(text):
+    """How many trailing backticks might still grow into a fence.
+
+    A stream can split ``` across chunks, so a trailing run of one or two
+    backticks is ambiguous: it may be literal prose (`ls`) or the start of a
+    fence. Those are held back until the next chunk disambiguates them. A run
+    of three is already a fence, so nothing is held back.
+    """
+    trailing = len(text) - len(text.rstrip("`"))
+    return trailing if trailing < 3 else 0
+
+
 def run_text_llm(llm, params):
     ## Setup
 
@@ -13,8 +28,14 @@ def run_text_llm(llm, params):
 
     ## Convert output to LMC format
 
+    # Everything received so far, and how much of it has already been yielded.
+    # Tracking a cursor into one buffer (rather than emitting each chunk as it
+    # arrives) is what lets a chunk be held back for fence disambiguation and
+    # still be emitted afterwards, instead of being dropped.
+    accumulated = ""
+    cursor = 0
+
     inside_code_block = False
-    accumulated_block = ""
     language = None
 
     for chunk in llm.completions(**params):
@@ -30,26 +51,50 @@ def run_text_llm(llm, params):
         if content == None:
             continue
 
-        accumulated_block += content
+        accumulated += content
 
-        if accumulated_block.endswith("`"):
-            # We might be writing "```" one token at a time.
-            continue
+        # One chunk can cross a boundary — prose, then a fence, then code — so
+        # keep consuming the buffer until it needs more input.
+        while True:
+            if not inside_code_block:
+                fence_at = accumulated.find(FENCE, cursor)
 
-        # Did we just enter a code block?
-        if "```" in accumulated_block and not inside_code_block:
-            inside_code_block = True
-            accumulated_block = accumulated_block.split("```")[1]
+                if fence_at == -1:
+                    # No fence yet: emit the prose that cannot be part of one.
+                    safe_end = len(accumulated) - _incomplete_fence_length(
+                        accumulated
+                    )
+                    if safe_end > cursor:
+                        yield {
+                            "type": "message",
+                            "content": accumulated[cursor:safe_end],
+                        }
+                        cursor = safe_end
+                    break
 
-        # Did we just exit a code block?
-        if inside_code_block and "```" in accumulated_block:
-            return
+                # Emit any prose preceding the fence, then enter the block.
+                if fence_at > cursor:
+                    yield {
+                        "type": "message",
+                        "content": accumulated[cursor:fence_at],
+                    }
+                cursor = fence_at + len(FENCE)
+                inside_code_block = True
+                continue
 
-        # If we're in a code block,
-        if inside_code_block:
-            # If we don't have a `language`, find it
-            if language is None and "\n" in accumulated_block:
-                language = accumulated_block.split("\n")[0]
+            # Inside a code block. The language label occupies the rest of the
+            # line after the opening fence and is structural, not code, so it is
+            # consumed by advancing the cursor past it rather than by stripping
+            # the label out of the emitted text.
+            if language is None:
+                newline_at = accumulated.find("\n", cursor)
+                if newline_at == -1:
+                    break  # the language line is still arriving
+
+                # Assigned before being refined so that an unlabelled fence in
+                # OS mode settles on "" rather than staying None, which would
+                # make the next line be parsed as a label.
+                language = accumulated[cursor:newline_at]
 
                 # Default to python if not specified
                 if language == "":
@@ -57,19 +102,41 @@ def run_text_llm(llm, params):
                         language = "python"
                     elif llm.interpreter.os == False:
                         # OS mode does this frequently. Takes notes with markdown code blocks
+                        # NOTE: repeats the condition above, so it is unreachable
+                        # and OS mode emits nothing here — see issue #220.
                         language = "text"
                 else:
                     # Removes hallucinations containing spaces or non letters.
                     language = "".join(char for char in language if char.isalpha())
+                cursor = newline_at + 1
 
-            # If we do have a `language`, send it out
-            if language:
+            fence_at = accumulated.find(FENCE, cursor)
+
+            if fence_at == -1:
+                safe_end = len(accumulated) - _incomplete_fence_length(accumulated)
+                if safe_end > cursor:
+                    if language:
+                        yield {
+                            "type": "code",
+                            "format": language,
+                            "content": accumulated[cursor:safe_end],
+                        }
+                    cursor = safe_end
+                break
+
+            # Closing fence: emit the remaining body and stop.
+            if fence_at > cursor and language:
                 yield {
                     "type": "code",
                     "format": language,
-                    "content": content.replace(language, ""),
+                    "content": accumulated[cursor:fence_at],
                 }
+            return
 
-        # If we're not in a code block, send the output as a message
+    # The stream ended with backticks still held back, so they were literal
+    # text rather than the start of a fence. Emit them instead of dropping them.
+    if cursor < len(accumulated):
         if not inside_code_block:
-            yield {"type": "message", "content": content}
+            yield {"type": "message", "content": accumulated[cursor:]}
+        elif language:
+            yield {"type": "code", "format": language, "content": accumulated[cursor:]}
