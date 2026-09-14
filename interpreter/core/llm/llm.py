@@ -306,18 +306,6 @@ Continuing...
         if self.interpreter.verbose:
             litellm.set_verbose = True
 
-        if (
-            self.interpreter.debug == True and False  # DISABLED
-        ):  # debug will equal "server" if we're debugging the server specifically
-            print("\n\n\nOPENAI COMPATIBLE MESSAGES:\n\n\n")
-            for message in messages:
-                if len(str(message)) > 5000:
-                    print(str(message)[:200] + "...")
-                else:
-                    print(message)
-                print("\n")
-            print("\n\n\n")
-
         if self.supports_functions:
             yield from run_tool_calling_llm(self, params)
         else:
