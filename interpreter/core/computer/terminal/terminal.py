@@ -1,7 +1,9 @@
+import atexit
 import os
 import time
 import subprocess
 import getpass
+import weakref
 
 from ..utils.recipient_utils import parse_for_recipient
 from .languages.applescript import AppleScript
@@ -29,8 +31,25 @@ computer = interpreter.computer
 """.strip()
 
 
+# Every live Terminal, so the process can shut their kernels and shells down at
+# exit. A WeakSet keeps this registry from extending any Terminal's lifetime.
+_LIVE_TERMINALS = weakref.WeakSet()
+
+
+def _terminate_live_terminals():
+    for terminal in list(_LIVE_TERMINALS):
+        try:
+            terminal.terminate()
+        except Exception:
+            pass  # exit must never fail because a runtime was already gone
+
+
+atexit.register(_terminate_live_terminals)
+
+
 class Terminal:
     def __init__(self, computer):
+        _LIVE_TERMINALS.add(self)
         self.computer = computer
         self.languages = [
             Ruby,
