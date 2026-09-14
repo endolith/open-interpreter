@@ -1,5 +1,8 @@
+import sys
 from io import StringIO
 from unittest import mock
+
+import pytest
 
 from interpreter.core.computer.terminal.languages.subprocess_language import (
     SubprocessLanguage,
@@ -13,6 +16,29 @@ class EchoLanguage(SubprocessLanguage):
     def __init__(self):
         super().__init__()
         self.start_cmd = ["cat"]
+
+    def detect_end_of_execution(self, line):
+        return "##done##" in line
+
+
+class DyingLanguage(SubprocessLanguage):
+    """A language whose process exits instead of printing the end marker.
+
+    Stands in for a shell block that runs `exit` or hits a fatal syntax error:
+    the process is alive when the code is written to stdin and gone before
+    ##done## could be printed.
+    """
+
+    file_extension = "txt"
+    name = "Dying"
+
+    def __init__(self):
+        super().__init__()
+        self.start_cmd = [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdin.readline(); print('bye', flush=True); sys.exit(3)",
+        ]
 
     def detect_end_of_execution(self, line):
         return "##done##" in line
@@ -78,3 +104,24 @@ def test_run_yields_queue_output():
     mock_process.stdin.write.assert_called_once_with("echo hi\n")
     mock_process.stdin.flush.assert_called_once()
     assert chunks[0]["content"] == "result"
+
+
+@pytest.mark.timeout(30)
+def test_run_returns_when_the_process_dies_before_the_end_marker():
+    """run() ends, reports the exit code, and drops the dead process.
+
+    The end-of-execution marker is the only completion signal, so a process
+    that exits before printing it (a shell block calling `exit`, or one that
+    bash refuses to parse) used to leave run() spinning forever with no
+    output, no error and no prompt. The output it did produce must still be
+    yielded, and the next run() must get a fresh process.
+    """
+    lang = DyingLanguage()
+    chunks = list(lang.run("anything"))
+    output = "".join(
+        chunk["content"] for chunk in chunks if chunk.get("format") == "output"
+    )
+    assert "bye" in output
+    assert "exited" in output
+    assert "3" in output
+    assert lang.process is None

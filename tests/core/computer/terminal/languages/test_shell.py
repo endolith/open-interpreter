@@ -86,6 +86,31 @@ def test_shell_run_survives_active_line_text_in_output():
         shell.terminate()
 
 
+@pytest.mark.linux_ci
+@pytest.mark.timeout(30)
+def test_shell_run_returns_when_the_block_exits_the_shell():
+    """A block that runs `exit` completes and reports that the shell died.
+
+    `exit` (even a successful `exit 0`) kills bash before the appended
+    ##end_of_execution## marker is reached, so run() waited for a marker that
+    could never arrive and the turn never finished.
+    """
+    require_bash_compatible_shell()
+    shell = Shell()
+    try:
+        output = "".join(
+            chunk["content"]
+            for chunk in shell.run("echo before\nexit 0\necho unreachable_line")
+            if chunk.get("format") == "output"
+        )
+        assert "before" in output
+        assert "exited with code 0" in output
+        assert "unreachable_line" not in output
+        assert shell.process is None
+    finally:
+        shell.terminate()
+
+
 def test_require_bash_compatible_shell_rejects_fish(monkeypatch):
     """require_bash_compatible_shell() fails when SHELL points to fish on Unix."""
     if platform.system() == "Windows":
