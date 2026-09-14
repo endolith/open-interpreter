@@ -125,3 +125,55 @@ def test_run_returns_when_the_process_dies_before_the_end_marker():
     assert "exited" in output
     assert "3" in output
     assert lang.process is None
+
+
+def test_handle_stream_output_survives_a_raising_detect_active_line():
+    """A language whose marker parse raises does not lose its reader thread.
+
+    Every subprocess language parses the active-line marker itself, and most
+    do it with an unguarded int() over anything containing "##active_line".
+    Program output is untrusted, so a line that merely resembles a marker
+    makes that parse raise. If the exception escapes here the reader thread
+    dies, nothing drains the pipe, the end marker is never seen, and run()
+    waits forever — on this block and on every later one using the same
+    process. The line is kept as ordinary output instead.
+    """
+    lang = EchoLanguage()
+
+    def detect(line):
+        if "##active_line" in line:
+            return int(line.split("##active_line")[1].split("##")[0])
+        return None
+
+    lang.detect_active_line = detect
+    stream = StringIO("echoed ##active_line## not a number\n")
+
+    lang.handle_stream_output(stream, is_error_stream=False)
+
+    output = lang.output_queue.get_nowait()
+    assert output["format"] == "output"
+    assert "not a number" in output["content"]
+    assert lang.output_queue.empty()
+
+
+def test_handle_stream_output_calls_detect_active_line_once_per_line():
+    """detect_active_line() runs once per line rather than twice.
+
+    It was called once as a truthiness test and again for its value, so any
+    per-line cost was paid twice and a marker numbered 0 would be discarded
+    by the first call and re-parsed as plain output by the second.
+    """
+    lang = EchoLanguage()
+    calls = []
+
+    def detect(line):
+        calls.append(line)
+        return 7 if "##active_line7##" in line else None
+
+    lang.detect_active_line = detect
+    stream = StringIO("##active_line7##\n")
+
+    lang.handle_stream_output(stream, is_error_stream=False)
+
+    assert len(calls) == 1
+    assert lang.output_queue.get_nowait()["content"] == 7
