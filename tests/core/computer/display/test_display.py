@@ -277,6 +277,32 @@ def test_get_text_offline_uses_pytesseract():
     assert result == "hello"
 
 
+def test_get_text_without_screenshot_captures_the_screen():
+    """Display.get_text_as_list_of_lists() with no screenshot takes one itself.
+
+    The model is told this exact call is available, so the default branch has to
+    reach the OCR step instead of raising on the way there.
+    """
+    computer = _make_offline_computer()
+    display = _make_display(computer)
+
+    pil = Image.new("RGB", (10, 10))
+    patcher, pyautogui = _patch_pyautogui(screenshot=pil, size=(10, 10))
+    pywinctl = mock.Mock()
+    pywinctl.getActiveWindow.return_value = None
+    with mock.patch("interpreter.core.computer.display.display.pywinctl", pywinctl):
+        with patcher:
+            with mock.patch(
+                "interpreter.core.computer.display.display.pytesseract_get_text",
+                return_value="hello",
+            ) as pytesseract_get_text:
+                result = display.get_text_as_list_of_lists()
+
+    assert result == "hello"
+    pyautogui.screenshot.assert_called_once_with()
+    assert pytesseract_get_text.call_args[0][0].mode == "RGB"
+
+
 def _patch_screeninfo(monitors):
     screeninfo = mock.Mock()
     screeninfo.get_monitors.return_value = monitors
