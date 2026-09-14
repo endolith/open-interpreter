@@ -126,6 +126,23 @@ def test_terminal_interface_ignores_empty_input():
     interpreter.chat.assert_not_called()
 
 
+def test_terminal_interface_exits_on_a_typed_exit_word():
+    """Typing an exit word ends the session before the message reaches the model.
+
+    `exit`, `quit`, `/exit` and `/quit` used to be sent to the model as
+    ordinary chat, and `%exit` / `%quit` hit the unknown-magic-command
+    fallback, so the session looked like it was ignoring them.
+    """
+    interpreter = _intro_interpreter()
+
+    with mock.patch("builtins.input", side_effect=["exit", KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert "Exiting..." in interpreter.display_message.call_args[0][0]
+    interpreter.chat.assert_not_called()
+
+
 def test_terminal_interface_dispatches_magic_command():
     """A message starting with % is handed to handle_magic_command."""
     import interpreter.terminal_interface.terminal_interface as ti

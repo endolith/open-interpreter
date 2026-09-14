@@ -27,6 +27,21 @@ from .utils.cli_input import cli_input
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 
+# Typed alone on a line, any of these ends the session. Both command prefixes
+# are accepted because neither is obviously the right one to someone who has
+# not read the help, and a bare word because that is what most REPLs take.
+EXIT_WORDS = frozenset({"exit", "quit", "%exit", "%quit", "/exit", "/quit"})
+
+
+def is_exit_command(message, interactive):
+    """True when a typed line asks to leave the session.
+
+    Only the whole line counts. "how do I quit vim?" is a question for the
+    model, and a non-interactive caller (a piped message, --stdin) has no
+    prompt to return to, so its input is data rather than a control word.
+    """
+    return interactive and isinstance(message, str) and message.strip().lower() in EXIT_WORDS
+
 # Add examples to the readline history
 examples = [
     "How many files are on my desktop?",
@@ -117,6 +132,14 @@ def terminal_interface(interpreter, message):
             if message == "":
                 # Ignore empty messages when user presses enter without typing anything
                 continue
+
+            if is_exit_command(message, interactive):
+                # Ctrl-C and Ctrl-D already exit, but people reach for a word
+                # first, and every spelling of it used to be sent to the model
+                # as an ordinary message — which looks exactly like the session
+                # ignoring them.
+                interpreter.display_message("\n\n`Exiting...`")
+                raise KeyboardInterrupt
 
             if message.startswith("%") and interactive:
                 handle_magic_command(interpreter, message)
