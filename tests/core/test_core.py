@@ -110,3 +110,36 @@ def test_respond_and_store_stops_on_stop_event(capsys):
         list(interpreter._respond_and_store())
     assert "Open Interpreter stopping." in capsys.readouterr().out
     assert interpreter.messages == []
+
+
+def test_chat_does_not_overwrite_an_existing_conversation_file(tmp_path):
+    """A same-name autosave gets a fresh file instead of destroying the old one.
+
+    The autosave names the file after the opening words and a one-second
+    timestamp, so two conversations opened with the same words in the same
+    second derive the same name. The name is reserved so an existing file is
+    never reopened in "w" mode (which would erase it).
+    """
+    import json
+    from datetime import datetime
+
+    history = tmp_path / "history"
+    history.mkdir()
+    existing = history / "hello_world__October_19_2026_12-00-00.json"
+    existing.write_text(json.dumps([{"role": "user", "content": "old"}]))
+
+    interpreter = OpenInterpreter(
+        disable_telemetry=True,
+        conversation_history=True,
+        conversation_history_path=str(history),
+    )
+    with mock.patch("interpreter.core.core.datetime") as dt:
+        dt.now.return_value = datetime(2026, 10, 19, 12, 0, 0)
+        with mock.patch.object(
+            interpreter, "_respond_and_store", return_value=iter([])
+        ):
+            interpreter.chat("hello world today", display=False)
+
+    assert json.loads(existing.read_text()) == [{"role": "user", "content": "old"}]
+    assert interpreter.conversation_filename != existing.name
+    assert len(list(history.glob("*.json"))) == 2
