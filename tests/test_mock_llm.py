@@ -241,6 +241,204 @@ def test_mock_llm_split_persistence_across_chats(
     assert "values verified." in messages[-1]["content"]
 
 
+def _console_text(messages) -> str:
+    """All console output in a conversation, joined."""
+    return "\n".join(
+        m.get("content", "")
+        for m in messages
+        if m.get("type") == "console" and isinstance(m.get("content"), str)
+    )
+
+
+def _code_contents(messages) -> list:
+    """The (format, content) of every code message, in order."""
+    return [(m["format"], m["content"]) for m in messages if m.get("type") == "code"]
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_call_name_only_opener(mock_llm_server, monkeypatch, tmp_path):
+    """A call announced with empty arguments executes once its arguments arrive.
+
+    OpenAI's first tool_calls delta carries the id and function name with
+    arguments "", and the JSON follows in later deltas. The client must
+    neither execute nor discard the call on the empty opener; it must
+    assemble the later argument text into one execution.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("name-first opener please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("opener ok")')]
+    assert "opener ok" in _console_text(messages)
+    assert messages[-1]["content"] == "opener done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_call_cut_mid_token_and_mid_escape(mock_llm_server, monkeypatch, tmp_path):
+    """Argument deltas cut inside "python" and inside a \\uXXXX escape still run correctly.
+
+    Providers cut argument JSON at arbitrary byte offsets. A cut inside the
+    language token must not latch a partial language, and a cut inside a
+    unicode escape must not corrupt the non-ASCII characters it encodes, so
+    the executed code and its output must match the scenario exactly.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("unicode cut please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("café ✓")')]
+    assert "café ✓" in _console_text(messages)
+    assert messages[-1]["content"] == "unicode done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_parallel_calls_in_one_delta_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: a second tool call in the same delta is silently dropped.
+
+    OpenAI may answer with two tool_calls entries (index 0 and 1) in one
+    delta. run_tool_calling_llm reads only entry [0] of each delta, so the
+    index-1 call never reaches parsing: the first call executes, its output
+    is the only console output, and no error or warning is raised.
+
+    Correct behavior is to execute both calls, in order, yielding two code
+    messages and both outputs. This test pins the current behavior so that
+    a fix is noticed; flip the second-call assertions when parallel tool
+    calls are supported.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("two calls at once please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("first of two")')]
+    assert "first of two" in _console_text(messages)
+    assert "second-of-two" not in _console_text(messages)
+    assert messages[-1]["content"] == "pair done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_parallel_calls_staggered_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: a second tool call arriving in a later delta is silently dropped.
+
+    When the index-1 entry comes in a delta of its own, run_tool_calling_llm
+    takes entry [0] of that delta, which is the second call, and merge_deltas
+    appends its arguments onto the first call's accumulated arguments. The
+    result is two JSON objects back to back, which parse_partial_json
+    rejects, so the second call is discarded without a trace. The first
+    call still executes because its arguments were already complete.
+
+    Correct behavior is to track calls by index and execute both. This test
+    pins the current behavior; flip the second-call assertions when
+    parallel tool calls are supported.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("two calls staggered please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("first of two")')]
+    assert "first of two" in _console_text(messages)
+    assert "second-of-two" not in _console_text(messages)
+    assert messages[-1]["content"] == "staggered done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_content_alongside_tool_call_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: text sent in the same delta as a tool call is dropped.
+
+    A streaming delta may carry both content and tool_calls. On seeing
+    tool_calls, run_tool_calling_llm replaces the whole delta with a
+    function_call dict, so the content key is gone before the message
+    branch runs: the narration never becomes an assistant message, while
+    the call itself executes normally.
+
+    Correct behavior is to keep the content and yield it as a message
+    before the code. This test pins the current behavior; flip the
+    narration assertion when mixed deltas are handled.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("narrated call please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("narrated ok")')]
+    assert "narrated ok" in _console_text(messages)
+    assert not any("Running it now." in (m.get("content") or "") for m in messages if m["role"] == "assistant")
+    assert messages[-1]["content"] == "narrated done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_auth_accepts_judge_trailer_after_tool_call(mock_llm_server, monkeypatch, tmp_path):
+    """A <safe> verdict streamed after a tool call satisfies the authentication guard.
+
+    With INTERPRETER_REQUIRE_AUTHENTICATION set, run_tool_calling_llm raises
+    when a function call arrives without a judge review. The review is
+    plain content after the call; it must be recognized as the verdict
+    rather than as a message, the code must still execute, and the review
+    text must stay ephemeral (never stored as an assistant message).
+    """
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("judged call please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("judged ok")')]
+    assert "judged ok" in _console_text(messages)
+    assert not any("Prints a constant." in (m.get("content") or "") for m in messages)
+    assert messages[-1]["content"] == "judged done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_code_containing_language_name(mock_llm_server, monkeypatch, tmp_path):
+    """Tool-call mode passes code that mentions its own language through verbatim.
+
+    The language and code travel as separate JSON fields, so the word
+    "python" inside the code has nothing to collide with. This is the
+    reference behavior the text-mode counterpart below falls short of.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("language echo please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("python says hi")')]
+    assert "python says hi" in _console_text(messages)
+    assert messages[-1]["content"] == "echo done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_text_code_containing_language_name_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: code-block mode deletes the language name from the code itself.
+
+    run_text_llm yields each chunk inside a fence as content.replace(language,
+    ""), intended to drop the fence's language line. It runs on every chunk
+    for the rest of the block, so any occurrence of the word "python" in the
+    code body is deleted too: print("python says hi") executes as
+    print(" says hi"), and the language line's newline is left behind. Real
+    providers stream token by token, so any token containing the language
+    name is mangled the same way.
+
+    Correct behavior is to strip only the language line and pass the code
+    body through verbatim, matching tool-call mode. This test pins the
+    current behavior; flip the assertions when the stripping is fixed.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    messages = interpreter.chat("language echo please", display=False, stream=False, blocking=True)
+
+    ((language, code),) = _code_contents(messages)
+    assert language == "python"
+    assert "python" not in code
+    assert code.strip() == 'print(" says hi")'
+    assert "python says hi" not in _console_text(messages)
+    assert "says hi" in _console_text(messages)
+    assert messages[-1]["content"] == "echo done."
+
+
 @pytest.mark.timeout(60)
 def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.

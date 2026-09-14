@@ -69,92 +69,171 @@ def pick_reply(body: dict) -> str:
     return "Hello, World!"
 
 
-def _user_history_text(messages: list) -> str:
-    """All user message text, for multi-turn scenario detection.
+# Multi-turn scenarios, keyed by a phrase in the user prompt that starts them.
+# Each step is one assistant turn: a dict describes an execute tool call
+# (rendered as streaming tool_calls deltas in tool mode and as a fenced code
+# block in text mode, from the same source so the two modes cannot drift);
+# a plain string is a talking turn. Optional dict fields shape the tool-mode
+# wire format only (text mode has no equivalent):
+#   name_first: open with a name-only entry whose arguments are "", as
+#       OpenAI's first delta does, before any argument text arrives.
+#   cut_after: markers; the argument JSON continues in a new delta right
+#       after the first occurrence of each, so cuts can land mid-token.
+#   second_call: a parallel {language, code, call_id} at tool_calls index 1,
+#       sent in the opening delta, or in a later delta of its own when
+#       second_call_later is set. Text mode renders the first call only.
+#   with_content: assistant text carried in the same delta as the opening
+#       tool call, as a model that narrates before acting can produce.
+#   trailer: text streamed after the call is complete, the shape a judge
+#       layer uses to append its <safe>/<warning>/<unsafe> verdict.
+SCENARIOS: dict[str, list] = {
+    "errand": [
+        {
+            "language": "python",
+            "code": 'with open("step1.txt", "w") as f:\n    f.write("one")',
+            "call_id": "call_step1",
+            "cut_after": ['"code": "with open('],
+        },
+        # Deliberately reads step1.txt: the shell step must observe the
+        # filesystem state left by the python step, proving execution state
+        # persists across tool calls (and across languages) rather than each
+        # step running isolated.
+        {
+            "language": "shell",
+            "code": "echo $(cat step1.txt)-two > step2.txt",
+            "call_id": "call_step2",
+        },
+        {"language": "python", "code": "print(undefined_name)", "call_id": "call_step3"},
+        {"language": "python", "code": 'print("recovered")', "call_id": "call_step4"},
+        "Errand complete.",
+    ],
+    # Split persistence: part one defines a python value and a shell value in
+    # one chat, part two uses them in the next chat.
+    "persistence check part one": [
+        {"language": "python", "code": "persist_num = 40 + 2", "call_id": "persist_step1"},
+        {"language": "shell", "code": "export PERSIST_WORD=hello", "call_id": "persist_step2"},
+        "values defined.",
+    ],
+    "persistence check part two": [
+        {"language": "python", "code": "print(persist_num)", "call_id": "persist_step3"},
+        {"language": "shell", "code": "echo $PERSIST_WORD", "call_id": "persist_step4"},
+        "values verified.",
+    ],
+    # OpenAI announces a call (id, name, arguments "") before streaming any
+    # argument text; the client must not treat the empty opener as a call.
+    "name-first opener": [
+        {"language": "python", "code": 'print("opener ok")', "call_id": "opener_1", "name_first": True},
+        "opener done.",
+    ],
+    # Cuts inside the language token and inside a \uXXXX escape: partial
+    # JSON must not be trusted for the language until it is complete, and a
+    # half-escape must not corrupt the non-ASCII characters it encodes.
+    "unicode cut": [
+        {
+            "language": "python",
+            "code": 'print("café ✓")',
+            "call_id": "unicode_1",
+            "cut_after": ['"pyth', "\\u00e"],
+        },
+        "unicode done.",
+    ],
+    # Parallel tool calls: OpenAI may return two calls in one turn, either
+    # both announced in the opening delta or the second in a later delta.
+    "two calls at once": [
+        {
+            "language": "python",
+            "code": 'print("first of two")',
+            "call_id": "pair_a",
+            "second_call": {"language": "shell", "code": "echo second-of-two", "call_id": "pair_b"},
+        },
+        "pair done.",
+    ],
+    "two calls staggered": [
+        {
+            "language": "python",
+            "code": 'print("first of two")',
+            "call_id": "stagger_a",
+            "second_call": {"language": "shell", "code": "echo second-of-two", "call_id": "stagger_b"},
+            "second_call_later": True,
+        },
+        "staggered done.",
+    ],
+    # A delta may carry both content and tool_calls; the narration must
+    # not be lost just because a call travels with it.
+    "narrated call": [
+        {
+            "language": "python",
+            "code": 'print("narrated ok")',
+            "call_id": "narrated_1",
+            "with_content": "Running it now.",
+        },
+        "narrated done.",
+    ],
+    # A judge layer appends its verdict as text after the tool call; the
+    # INTERPRETER_REQUIRE_AUTHENTICATION guard insists on seeing one.
+    "judged call": [
+        {
+            "language": "python",
+            "code": 'print("judged ok")',
+            "call_id": "judged_1",
+            "trailer": "<safe>Prints a constant.</safe>",
+        },
+        "judged done.",
+    ],
+    # Code that mentions its own language: the fence's language line must
+    # be the only thing stripped from a code block, never the code itself.
+    "language echo": [
+        {"language": "python", "code": 'print("python says hi")', "call_id": "echo_1"},
+        "echo done.",
+    ],
+}
 
-    Follow-up turns (e.g. injected console output) do not repeat the original
-    prompt, so scenarios spanning several turns must look at the whole history,
-    not just the last user message.
-    """
-    return "\n".join(
-        message["content"]
-        for message in messages
-        if message.get("role") == "user"
-        and isinstance(message.get("content"), str)
-    )
 
+def _scenario_step(messages: list):
+    """The registry step this request is owed, or None when no scenario applies.
 
-def _messages_since_keyword(messages: list, keyword: str) -> list:
-    """Messages from the most recent prompt containing keyword, or [].
+    User prompts are scanned newest-first and the first registry keyword found
+    owns the turn: a repeated scenario restarts at step zero, and a scenario
+    started after another one takes over regardless of registry order.
 
-    An interpreter may have chatted about other things — or run a previous
-    scenario — before starting this one; only turns after the latest matching
-    prompt belong to the current scenario. Searched newest-first so a repeated
-    scenario restarts at turn zero.
+    The turn index is the number of assistant messages since the owning
+    prompt. Request bodies hold OpenAI-format messages, where executed code
+    shows up as assistant tool calls / code content — never as computer
+    console entries — so completed assistant turns are what count. Past the
+    last step the scenario is over: later prompts fall through to the normal
+    fallback instead of repeating the completion.
     """
     for i in range(len(messages) - 1, -1, -1):
         message = messages[i]
-        if (
-            message.get("role") == "user"
-            and isinstance(message.get("content"), str)
-            and keyword in message["content"].lower()
-        ):
-            return messages[i:]
-    return []
+        if message.get("role") != "user" or not isinstance(message.get("content"), str):
+            continue
+        text = message["content"].lower()
+        for keyword, steps in SCENARIOS.items():
+            if keyword in text:
+                turn = sum(1 for m in messages[i:] if m.get("role") == "assistant")
+                return steps[turn] if turn < len(steps) else None
+    return None
 
 
-def _messages_since_errand(messages: list) -> list:
-    """Messages from the most recent errand prompt onward, or [] when none."""
-    return _messages_since_keyword(messages, "errand")
-
-
-def _assistant_count(messages: list) -> int:
-    """Count assistant messages since the errand prompt (completed errand turns).
-
-    The request body holds OpenAI-format messages, where executed code shows
-    up as assistant tool calls / code content — never as computer console
-    entries — so completed turns are what we count.
-    """
-    return sum(
-        1 for message in _messages_since_errand(messages) if message.get("role") == "assistant"
-    )
-
-
-def _assistant_count_since(messages: list, keyword: str) -> int:
-    """Count assistant messages since the latest prompt containing keyword."""
-    return sum(
-        1 for message in _messages_since_keyword(messages, keyword) if message.get("role") == "assistant"
-    )
-
-
-_ERRAND_PYTHON_CODE = 'with open("step1.txt", "w") as f:\n    f.write("one")'
-# Deliberately reads step1.txt: the shell step must observe the filesystem
-# state left by the python step, proving execution state persists across
-# tool calls (and across languages) rather than each step running isolated.
-_ERRAND_SHELL_CODE = "echo $(cat step1.txt)-two > step2.txt"
-_ERRAND_FAIL_CODE = "print(undefined_name)"
-_ERRAND_RECOVER_CODE = 'print("recovered")'
-
-_PERSIST_ONE_KEYWORD = "persistence check part one"
-_PERSIST_TWO_KEYWORD = "persistence check part two"
-_PERSIST_DEFINE_CODE = "persist_num = 40 + 2"
-_PERSIST_EXPORT_CODE = "export PERSIST_WORD=hello"
-_PERSIST_USE_PYTHON_CODE = "print(persist_num)"
-_PERSIST_USE_SHELL_CODE = "echo $PERSIST_WORD"
-
-
-def _tool_call_delta(call_id, name, arguments, index=0):
-    """One streaming tool-call delta entry in OpenAI wire shape."""
+def _call_entry(call_id: str, arguments: str, index: int = 0) -> dict:
+    """The opening tool_calls entry of one call: id, type, name and first arguments."""
     return {
-        "tool_calls": [
-            {
-                "index": index,
-                "id": call_id,
-                "type": "function",
-                "function": {"name": name, "arguments": arguments},
-            }
-        ]
+        "index": index,
+        "id": call_id,
+        "type": "function",
+        "function": {"name": "execute", "arguments": arguments},
     }
+
+
+def _split_after(text: str, markers) -> list[str]:
+    """Pieces of text, broken right after the first occurrence of each marker.
+
+    A missing marker raises so a scenario typo fails loudly instead of
+    quietly streaming the arguments in one piece.
+    """
+    cuts = sorted(text.index(marker) + len(marker) for marker in markers)
+    bounds = [0, *cuts, len(text)]
+    return [text[start:end] for start, end in zip(bounds, bounds[1:])]
 
 
 def merge_tool_calls(deltas: list) -> list:
@@ -188,161 +267,52 @@ def merge_tool_calls(deltas: list) -> list:
     ]
 
 
-def _split_tool_call_deltas(call_id, name, arguments):
-    """Split a tool call across two deltas (name + partial args, then rest).
+def _tool_deltas(step: dict) -> list[dict]:
+    """Streaming tool_calls deltas (no envelope) for one code step.
 
-    Mirrors how providers stream large arguments, exercising client-side
-    reassembly of the merged function_call.
+    The first delta carries the call's id, type and name; continuation
+    deltas carry only index and further argument text, as providers stream
+    large arguments. The optional step fields documented on SCENARIOS are
+    all applied here so a new wire shape costs one field, not a renderer.
     """
-    cut = len(arguments) // 2
-    return [
-        {
-            "tool_calls": [
-                {
-                    "index": 0,
-                    "id": call_id,
-                    "type": "function",
-                    "function": {"name": name, "arguments": arguments[:cut]},
-                }
-            ]
-        },
-        {"tool_calls": [{"index": 0, "function": {"arguments": arguments[cut:]}}]},
-    ]
+    pieces = _split_after(_arguments(step), step.get("cut_after", ()))
+    if step.get("name_first"):
+        pieces.insert(0, "")
+    deltas = [{"tool_calls": [_call_entry(step["call_id"], pieces[0])]}]
+    deltas += [{"tool_calls": [{"index": 0, "function": {"arguments": piece}}]} for piece in pieces[1:]]
+    if "with_content" in step:
+        deltas[0]["content"] = step["with_content"]
+    if "second_call" in step:
+        second = step["second_call"]
+        entry = _call_entry(second["call_id"], _arguments(second), index=1)
+        if step.get("second_call_later"):
+            deltas.append({"tool_calls": [entry]})
+        else:
+            deltas[0]["tool_calls"].append(entry)
+    if "trailer" in step:
+        deltas.append({"content": step["trailer"]})
+    return deltas
 
 
-def errand_tool_deltas(messages: list) -> list[dict] | None:
-    """Streaming deltas for the multi-turn errand scenario, or None.
-
-    Turn state comes from assistant-message count: python, shell, a failing
-    python step, a recovery python step, then plain talking. Returns delta
-    dicts (no envelope).
-    """
-    history = _user_history_text(messages).lower()
-    if "errand" not in history:
-        return None
-    turns = _assistant_count(messages)
-    if turns == 0:
-        arguments = json.dumps({"language": "python", "code": _ERRAND_PYTHON_CODE})
-        return _split_tool_call_deltas("call_step1", "execute", arguments)
-    if turns == 1:
-        arguments = json.dumps({"language": "shell", "code": _ERRAND_SHELL_CODE})
-        return [_tool_call_delta("call_step2", "execute", arguments)]
-    if turns == 2:
-        arguments = json.dumps({"language": "python", "code": _ERRAND_FAIL_CODE})
-        return [_tool_call_delta("call_step3", "execute", arguments)]
-    if turns == 3:
-        arguments = json.dumps({"language": "python", "code": _ERRAND_RECOVER_CODE})
-        return [_tool_call_delta("call_step4", "execute", arguments)]
-    if turns == 4:
-        return [{"content": "Errand complete."}]
-    # The completion was already delivered; a later user prompt starts a new
-    # topic, so fall through to the normal fallback instead of repeating it.
-    return None
+def _arguments(step: dict) -> str:
+    """The execute tool's JSON arguments for one code step."""
+    return json.dumps({"language": step["language"], "code": step["code"]})
 
 
-def errand_text_reply(messages: list) -> str | None:
-    """Plain-text reply for the errand scenario in code-block mode, or None."""
-    history = _user_history_text(messages).lower()
-    if "errand" not in history:
-        return None
-    turns = _assistant_count(messages)
-    if turns == 0:
-        return "```python\n" + _ERRAND_PYTHON_CODE + "\n```"
-    if turns == 1:
-        return "```shell\n" + _ERRAND_SHELL_CODE + "\n```"
-    if turns == 2:
-        return "```python\n" + _ERRAND_FAIL_CODE + "\n```"
-    if turns == 3:
-        return "```python\n" + _ERRAND_RECOVER_CODE + "\n```"
-    if turns == 4:
-        return "Errand complete."
-    # Same completion boundary as the tool-call path: fall back to normal
-    # replies for later unrelated prompts.
-    return None
-
-
-def _persist_step(keyword: str, turn: int):
-    """One step of the split persistence scenario, or None when done.
-
-    Part one defines a python value and a shell value; part two uses them.
-    Each part ends by talking at turn 2; beyond that the scenario is complete
-    and returns None so later prompts fall through to the normal fallback.
-    """
-    if keyword == _PERSIST_ONE_KEYWORD:
-        steps = [
-            ("python", _PERSIST_DEFINE_CODE, "persist_step1"),
-            ("shell", _PERSIST_EXPORT_CODE, "persist_step2"),
-            ("talk", "values defined."),
-        ]
-    elif keyword == _PERSIST_TWO_KEYWORD:
-        steps = [
-            ("python", _PERSIST_USE_PYTHON_CODE, "persist_step3"),
-            ("shell", _PERSIST_USE_SHELL_CODE, "persist_step4"),
-            ("talk", "values verified."),
-        ]
-    else:
-        return None
-    if turn >= len(steps):
-        return None
-    kind = steps[turn][0]
-    if kind == "talk":
-        return ("text", steps[turn][1])
-    _, payload, call_id = steps[turn]
-    return ("tool", call_id, kind, payload)
-
-
-def _latest_persist_part(messages: list) -> str | None:
-    """Which persistence part owns the turn, or None.
-
-    Scans user prompts newest-first; the first part keyword found wins, so a
-    second chat's part-two prompt takes over from the completed part one.
-    """
-    for i in range(len(messages) - 1, -1, -1):
-        message = messages[i]
-        if message.get("role") != "user" or not isinstance(
-            message.get("content"), str
-        ):
-            continue
-        text = message["content"].lower()
-        if _PERSIST_TWO_KEYWORD in text:
-            return _PERSIST_TWO_KEYWORD
-        if _PERSIST_ONE_KEYWORD in text:
-            return _PERSIST_ONE_KEYWORD
-    return None
-
-
-def persist_tool_deltas(messages: list) -> list[dict] | None:
-    """Streaming deltas for the split persistence scenario, or None.
-
-    Turn state counts assistant messages since the owning part prompt, so the
-    two chats stay independent. Returns None once the part's flow completes
-    so later prompts fall through to the normal fallback.
-    """
-    keyword = _latest_persist_part(messages)
-    if keyword is None:
-        return None
-    step = _persist_step(keyword, _assistant_count_since(messages, keyword))
+def scenario_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the scenario turn this request is owed, or None."""
+    step = _scenario_step(messages)
     if step is None:
         return None
-    if step[0] == "text":
-        return [{"content": step[1]}]
-    _, call_id, language, code = step
-    arguments = json.dumps({"language": language, "code": code})
-    return [_tool_call_delta(call_id, "execute", arguments)]
+    return [{"content": step}] if isinstance(step, str) else _tool_deltas(step)
 
 
-def persist_text_reply(messages: list) -> str | None:
-    """Plain-text reply for the split persistence scenario, or None."""
-    keyword = _latest_persist_part(messages)
-    if keyword is None:
-        return None
-    step = _persist_step(keyword, _assistant_count_since(messages, keyword))
+def scenario_text_reply(messages: list) -> str | None:
+    """Plain-text reply (code-block mode) for the scenario turn, or None."""
+    step = _scenario_step(messages)
     if step is None:
         return None
-    if step[0] == "text":
-        return step[1]
-    _, _, language, code = step
-    return "```%s\n%s\n```" % (language, code)
+    return step if isinstance(step, str) else "```%s\n%s\n```" % (step["language"], step["code"])
 
 
 def stream_reply_chunks(content: str) -> list[str]:
@@ -392,9 +362,7 @@ class _Handler(BaseHTTPRequestHandler):
         # Tool-call mode (function calling): the request carries a tools
         # parameter. Serve streaming tool_calls deltas for known scenarios.
         if body.get("tools"):
-            deltas = persist_tool_deltas(messages)
-            if deltas is None:
-                deltas = errand_tool_deltas(messages)
+            deltas = scenario_tool_deltas(messages)
             if deltas is None:
                 deltas = [{"content": "Hello, World!"}]
             if stream:
@@ -450,9 +418,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
 
-        content = persist_text_reply(messages)
-        if content is None:
-            content = errand_text_reply(messages)
+        content = scenario_text_reply(messages)
         if content is None:
             content = pick_reply(body)
 
