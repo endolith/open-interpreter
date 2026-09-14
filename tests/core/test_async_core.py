@@ -226,12 +226,11 @@ class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
         self.assertEqual(self.interpreter.llm.model, "gpt-4o-mini")
 
     def test_post_settings_rejects_a_sensitive_key_after_applying_an_earlier_one(self):
-        """A sensitive key aborts the payload, leaving earlier keys already applied.
+        """A sensitive key aborts the payload, and nothing is applied (fixed in #336).
 
-        The loop returns on the first rejected key instead of validating the whole
-        payload first, so a multi-key update is applied in part. A caller sending
-        a sensitive setting alongside a legitimate one gets a 403 and has to assume
-        none of it took effect, which is not what happens.
+        The loop used to return on the first rejected key instead of validating
+        the whole payload first, so a multi-key update was applied in part while
+        the 403 told the caller the opposite.
         """
         sensitive_key = "auto_run"
 
@@ -240,7 +239,7 @@ class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
         )
 
         self.assertEqual(response.status_code, 403)
-        self.assertTrue(self.interpreter.context_mode)
+        self.assertFalse(self.interpreter.context_mode)
 
     def test_post_settings_unknown_key_answers_404(self):
         """An unknown top-level key answers 404 with a JSON error body.
@@ -2093,11 +2092,12 @@ class TestAsyncRespondApprovalValues(TestCase):
         self.assertIsNone(self.interpreter.pending_confirmation)
         self.assertIsNone(self.interpreter.pending_confirmation_digest)
 
-    def test_denied_approval_closes_the_stream_with_two_complete_markers(self):
-        """A denial emits the pre-wait marker plus the denial marker, then stops.
+    def test_denied_approval_closes_the_stream_with_a_single_complete_marker(self):
+        """A denial emits exactly one complete marker, then stops (fixed in #336).
 
-        The first marker was already sent before the wait began; the second one
-        is what tells the client the turn ended without running anything.
+        The marker used to be sent both before the wait began and again on
+        denial, so the second one arrived as the first frame of whatever the
+        client sent next.
         """
         confirmation = {
             "type": "confirmation",
@@ -2120,7 +2120,8 @@ class TestAsyncRespondApprovalValues(TestCase):
             self.assertFalse(worker.is_alive())
 
         put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
-        self.assertEqual(put_chunks[-2:], [complete_message, complete_message])
+        self.assertEqual(put_chunks[-1:], [complete_message])
+        self.assertEqual(put_chunks.count(complete_message), 1)
         self.assertIsNone(self.interpreter._respond_iterator)
 
     def test_approval_of_a_lone_confirmation_completes_without_retry(self):
