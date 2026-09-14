@@ -167,6 +167,11 @@ def handle_load_message(self, json_path):
         json_path += ".json"
     with open(json_path, "r") as f:
         self.messages = json.load(f)
+    # The loaded messages are a different conversation from the one that was
+    # open, and the autosave name belongs to that one. Drop it with the
+    # messages it named, as `reset()` does, or the next turn writes the loaded
+    # conversation over the one we left.
+    self.conversation_filename = None
 
     self.display_message(f"> messages json loaded from {os.path.abspath(json_path)}")
 
@@ -306,6 +311,15 @@ def markdown(self, export_path: str):
 
     # If user doesn't specify the export path, then save the exported PDF in '~/Downloads'
     if not export_path:
+        # There is no conversation file to name the export after until the
+        # autosave has run: conversation_history may be off, or the messages
+        # were just loaded or reset.
+        if not self.conversation_filename:
+            print(
+                "No conversation file to name the export after. "
+                "Pass a path: %markdown path/to/export.md"
+            )
+            return
         export_path = get_downloads_path() + f"/{self.conversation_filename[:-4]}md"
 
     export_to_markdown(self.messages, export_path)
