@@ -73,15 +73,19 @@ def pick_reply(body: dict) -> str:
 # Each step is one assistant turn: a dict describes an execute tool call
 # (rendered as streaming tool_calls deltas in tool mode and as a fenced code
 # block in text mode, from the same source so the two modes cannot drift);
-# a plain string is a talking turn. Optional dict fields:
-#   split: stream the arguments across two deltas instead of one.
+# a plain string is a talking turn. Optional dict fields shape the tool-mode
+# wire format only (text mode has no equivalent):
+#   name_first: open with a name-only entry whose arguments are "", as
+#       OpenAI's first delta does, before any argument text arrives.
+#   cut_after: markers; the argument JSON continues in a new delta right
+#       after the first occurrence of each, so cuts can land mid-token.
 SCENARIOS: dict[str, list] = {
     "errand": [
         {
             "language": "python",
             "code": 'with open("step1.txt", "w") as f:\n    f.write("one")',
             "call_id": "call_step1",
-            "split": True,
+            "cut_after": ['"code": "with open('],
         },
         # Deliberately reads step1.txt: the shell step must observe the
         # filesystem state left by the python step, proving execution state
@@ -107,6 +111,24 @@ SCENARIOS: dict[str, list] = {
         {"language": "python", "code": "print(persist_num)", "call_id": "persist_step3"},
         {"language": "shell", "code": "echo $PERSIST_WORD", "call_id": "persist_step4"},
         "values verified.",
+    ],
+    # OpenAI announces a call (id, name, arguments "") before streaming any
+    # argument text; the client must not treat the empty opener as a call.
+    "name-first opener": [
+        {"language": "python", "code": 'print("opener ok")', "call_id": "opener_1", "name_first": True},
+        "opener done.",
+    ],
+    # Cuts inside the language token and inside a \uXXXX escape: partial
+    # JSON must not be trusted for the language until it is complete, and a
+    # half-escape must not corrupt the non-ASCII characters it encodes.
+    "unicode cut": [
+        {
+            "language": "python",
+            "code": 'print("café ✓")',
+            "call_id": "unicode_1",
+            "cut_after": ['"pyth', "\\u00e"],
+        },
+        "unicode done.",
     ],
 }
 
@@ -137,18 +159,25 @@ def _scenario_step(messages: list):
     return None
 
 
-def _tool_call_delta(call_id, name, arguments, index=0):
-    """One streaming tool-call delta entry in OpenAI wire shape."""
+def _call_entry(call_id: str, arguments: str, index: int = 0) -> dict:
+    """The opening tool_calls entry of one call: id, type, name and first arguments."""
     return {
-        "tool_calls": [
-            {
-                "index": index,
-                "id": call_id,
-                "type": "function",
-                "function": {"name": name, "arguments": arguments},
-            }
-        ]
+        "index": index,
+        "id": call_id,
+        "type": "function",
+        "function": {"name": "execute", "arguments": arguments},
     }
+
+
+def _split_after(text: str, markers) -> list[str]:
+    """Pieces of text, broken right after the first occurrence of each marker.
+
+    A missing marker raises so a scenario typo fails loudly instead of
+    quietly streaming the arguments in one piece.
+    """
+    cuts = sorted(text.index(marker) + len(marker) for marker in markers)
+    bounds = [0, *cuts, len(text)]
+    return [text[start:end] for start, end in zip(bounds, bounds[1:])]
 
 
 def merge_tool_calls(deltas: list) -> list:
@@ -182,34 +211,21 @@ def merge_tool_calls(deltas: list) -> list:
     ]
 
 
-def _split_tool_call_deltas(call_id, name, arguments):
-    """Split a tool call across two deltas (name + partial args, then rest).
-
-    Mirrors how providers stream large arguments, exercising client-side
-    reassembly of the merged function_call.
-    """
-    cut = len(arguments) // 2
-    return [
-        {
-            "tool_calls": [
-                {
-                    "index": 0,
-                    "id": call_id,
-                    "type": "function",
-                    "function": {"name": name, "arguments": arguments[:cut]},
-                }
-            ]
-        },
-        {"tool_calls": [{"index": 0, "function": {"arguments": arguments[cut:]}}]},
-    ]
-
-
 def _tool_deltas(step: dict) -> list[dict]:
-    """Streaming tool_calls deltas (no envelope) for one code step."""
+    """Streaming tool_calls deltas (no envelope) for one code step.
+
+    The first delta carries the call's id, type and name; continuation
+    deltas carry only index and further argument text, as providers stream
+    large arguments. The optional step fields documented on SCENARIOS are
+    all applied here so a new wire shape costs one field, not a renderer.
+    """
     arguments = json.dumps({"language": step["language"], "code": step["code"]})
-    if step.get("split"):
-        return _split_tool_call_deltas(step["call_id"], "execute", arguments)
-    return [_tool_call_delta(step["call_id"], "execute", arguments)]
+    pieces = _split_after(arguments, step.get("cut_after", ()))
+    if step.get("name_first"):
+        pieces.insert(0, "")
+    deltas = [{"tool_calls": [_call_entry(step["call_id"], pieces[0])]}]
+    deltas += [{"tool_calls": [{"index": 0, "function": {"arguments": piece}}]} for piece in pieces[1:]]
+    return deltas
 
 
 def scenario_tool_deltas(messages: list) -> list[dict] | None:

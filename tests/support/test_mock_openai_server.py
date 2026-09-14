@@ -300,6 +300,37 @@ def test_persist_parts_complete_and_release():
     assert scenario_tool_deltas(part_two_done) is None
 
 
+def test_name_first_opener_carries_no_arguments():
+    """A name_first step announces the call before any argument text.
+
+    The opening delta must carry id, type and name with arguments "", and
+    every later delta only index plus argument text, matching OpenAI's real
+    stream so the client's handling of an empty opener is what gets tested.
+    """
+    deltas = scenario_tool_deltas([{"role": "user", "content": "name-first opener please"}])
+    opener = deltas[0]["tool_calls"][0]
+    assert opener["id"] == "opener_1"
+    assert opener["function"] == {"name": "execute", "arguments": ""}
+    rest = [delta["tool_calls"][0] for delta in deltas[1:]]
+    assert rest and all(set(entry) == {"index", "function"} for entry in rest)
+    (call,) = merge_tool_calls(deltas)
+    assert json.loads(call["function"]["arguments"])["code"] == 'print("opener ok")'
+
+
+def test_cut_after_splits_arguments_at_markers():
+    """cut_after breaks the argument JSON right after each marker, in order.
+
+    The unicode scenario must cut inside the language token and inside a
+    \\uXXXX escape, and the pieces must concatenate back to the full JSON so
+    the split changes only chunking, never content.
+    """
+    deltas = scenario_tool_deltas([{"role": "user", "content": "unicode cut please"}])
+    pieces = [delta["tool_calls"][0]["function"]["arguments"] for delta in deltas]
+    assert pieces[0].endswith('"pyth')
+    assert pieces[1].endswith("\\u00e")
+    assert json.loads("".join(pieces)) == {"language": "python", "code": 'print("café ✓")'}
+
+
 def test_newest_scenario_prompt_owns_the_turn():
     """An errand started mid-way through an unfinished persistence part wins.
 

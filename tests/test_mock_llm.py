@@ -241,6 +241,58 @@ def test_mock_llm_split_persistence_across_chats(
     assert "values verified." in messages[-1]["content"]
 
 
+def _console_text(messages) -> str:
+    """All console output in a conversation, joined."""
+    return "\n".join(
+        m.get("content", "")
+        for m in messages
+        if m.get("type") == "console" and isinstance(m.get("content"), str)
+    )
+
+
+def _code_contents(messages) -> list:
+    """The (format, content) of every code message, in order."""
+    return [(m["format"], m["content"]) for m in messages if m.get("type") == "code"]
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_call_name_only_opener(mock_llm_server, monkeypatch, tmp_path):
+    """A call announced with empty arguments executes once its arguments arrive.
+
+    OpenAI's first tool_calls delta carries the id and function name with
+    arguments "", and the JSON follows in later deltas. The client must
+    neither execute nor discard the call on the empty opener; it must
+    assemble the later argument text into one execution.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("name-first opener please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("opener ok")')]
+    assert "opener ok" in _console_text(messages)
+    assert messages[-1]["content"] == "opener done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_call_cut_mid_token_and_mid_escape(mock_llm_server, monkeypatch, tmp_path):
+    """Argument deltas cut inside "python" and inside a \\uXXXX escape still run correctly.
+
+    Providers cut argument JSON at arbitrary byte offsets. A cut inside the
+    language token must not latch a partial language, and a cut inside a
+    unicode escape must not corrupt the non-ASCII characters it encodes, so
+    the executed code and its output must match the scenario exactly.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("unicode cut please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("café ✓")')]
+    assert "café ✓" in _console_text(messages)
+    assert messages[-1]["content"] == "unicode done."
+
+
 @pytest.mark.timeout(60)
 def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.
