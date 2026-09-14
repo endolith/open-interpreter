@@ -369,6 +369,28 @@ def test_mock_llm_content_alongside_tool_call_known_defect(mock_llm_server, monk
     assert messages[-1]["content"] == "narrated done."
 
 
+@pytest.mark.timeout(120)
+def test_mock_llm_auth_accepts_judge_trailer_after_tool_call(mock_llm_server, monkeypatch, tmp_path):
+    """A <safe> verdict streamed after a tool call satisfies the authentication guard.
+
+    With INTERPRETER_REQUIRE_AUTHENTICATION set, run_tool_calling_llm raises
+    when a function call arrives without a judge review. The review is
+    plain content after the call; it must be recognized as the verdict
+    rather than as a message, the code must still execute, and the review
+    text must stay ephemeral (never stored as an assistant message).
+    """
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("judged call please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("judged ok")')]
+    assert "judged ok" in _console_text(messages)
+    assert not any("Prints a constant." in (m.get("content") or "") for m in messages)
+    assert messages[-1]["content"] == "judged done."
+
+
 @pytest.mark.timeout(60)
 def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.

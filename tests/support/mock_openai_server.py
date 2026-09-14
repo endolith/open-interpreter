@@ -84,6 +84,8 @@ def pick_reply(body: dict) -> str:
 #       second_call_later is set. Text mode renders the first call only.
 #   with_content: assistant text carried in the same delta as the opening
 #       tool call, as a model that narrates before acting can produce.
+#   trailer: text streamed after the call is complete, the shape a judge
+#       layer uses to append its <safe>/<warning>/<unsafe> verdict.
 SCENARIOS: dict[str, list] = {
     "errand": [
         {
@@ -166,6 +168,17 @@ SCENARIOS: dict[str, list] = {
             "with_content": "Running it now.",
         },
         "narrated done.",
+    ],
+    # A judge layer appends its verdict as text after the tool call; the
+    # INTERPRETER_REQUIRE_AUTHENTICATION guard insists on seeing one.
+    "judged call": [
+        {
+            "language": "python",
+            "code": 'print("judged ok")',
+            "call_id": "judged_1",
+            "trailer": "<safe>Prints a constant.</safe>",
+        },
+        "judged done.",
     ],
 }
 
@@ -270,6 +283,8 @@ def _tool_deltas(step: dict) -> list[dict]:
             deltas.append({"tool_calls": [entry]})
         else:
             deltas[0]["tool_calls"].append(entry)
+    if "trailer" in step:
+        deltas.append({"content": step["trailer"]})
     return deltas
 
 

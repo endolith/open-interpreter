@@ -359,6 +359,21 @@ def test_with_content_shares_the_opening_delta():
     assert deltas[0]["tool_calls"][0]["id"] == "narrated_1"
 
 
+def test_trailer_follows_the_call_and_keeps_tool_calls_finish_reason(running_server):
+    """A trailer streams as text after the call, and the turn still ends with tool_calls.
+
+    The verdict must arrive after the complete call, since the client only
+    treats text as a review once a function call was detected, and the
+    terminal finish_reason must stay tool_calls so the trailing text does
+    not turn a code turn into a talking turn.
+    """
+    payloads = _post_sse(running_server, _tool_body([{"role": "user", "content": "judged call please"}]))
+    deltas = [json.loads(payload)["choices"][0]["delta"] for payload in payloads[:-1]]
+    assert "tool_calls" in deltas[0]
+    assert deltas[-2] == {"content": "<safe>Prints a constant.</safe>"}
+    assert json.loads(payloads[-2])["choices"][0]["finish_reason"] == "tool_calls"
+
+
 def test_newest_scenario_prompt_owns_the_turn():
     """An errand started mid-way through an unfinished persistence part wins.
 
