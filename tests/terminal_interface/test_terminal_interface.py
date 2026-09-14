@@ -479,6 +479,39 @@ def test_terminal_interface_uses_injected_message_in_interactive_mode():
     chat.assert_called_once_with("injected command", display=False, stream=True)
 
 
+def test_terminal_interface_empty_reply_does_not_resend_message():
+    """An empty reply returns to the prompt instead of re-sending the message.
+
+    chat() stores the user's message before the model answers, so a turn that
+    stores no assistant message leaves a history of exactly one user message --
+    the same shape as an "i {command}" injection. Detecting that shape inside the
+    loop re-sent the message with no input() in between, so a model that kept
+    returning nothing was billed in a tight loop with nothing shown to the user.
+    """
+    interpreter = _intro_interpreter()
+
+    def chat(message, display=False, stream=True):
+        """Emulate a turn with an empty completion: the user message is all that is stored."""
+        interpreter.messages.append(
+            {"role": "user", "type": "message", "content": message}
+        )
+        if interpreter.chat.call_count > 2:
+            # Without the fix this loops forever; fail instead of hanging.
+            raise AssertionError("message re-sent without asking for input")
+        return iter([])
+
+    interpreter.chat = mock.Mock(side_effect=chat)
+
+    with mock.patch(
+        "builtins.input", side_effect=["hello", KeyboardInterrupt()]
+    ) as prompt:
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert interpreter.chat.call_count == 1
+    assert prompt.call_count == 2
+
+
 def test_terminal_interface_multi_line_uses_cli_input():
     """multi_line mode prompts through cli_input instead of builtins.input."""
     import interpreter.terminal_interface.terminal_interface as ti
