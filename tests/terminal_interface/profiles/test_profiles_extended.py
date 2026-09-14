@@ -282,9 +282,8 @@ def test_apply_profile_warns_on_system_message(profile_env):
 
 
 def test_apply_profile_filters_computer_languages(profile_env):
-    """apply_profile() filters computer.languages to the requested names; the
-    code then raises KeyError on the bad `del profile["computer.languages"]`
-    (tracked in #225)."""
+    """apply_profile() filters computer.languages to the requested names and
+    drops the languages key without error (regression test for #225)."""
     path = os.path.join(profile_env["profile_dir"], "p.yaml")
     interpreter = mock.Mock()
     interpreter.computer.languages = [
@@ -294,13 +293,11 @@ def test_apply_profile_filters_computer_languages(profile_env):
     interpreter.computer.languages[0].name = "python"
     interpreter.computer.languages[1].name = "javascript"
     with mock.patch("interpreter.terminal_interface.profiles.profiles.time.sleep"):
-        with pytest.raises(KeyError, match="computer.languages"):
-            profiles.apply_profile(
-                interpreter,
-                {"version": "0.2.5", "computer": {"languages": ["javascript"]}},
-                path,
-            )
-    # The filter itself ran before the crash.
+        profiles.apply_profile(
+            interpreter,
+            {"version": "0.2.5", "computer": {"languages": ["javascript"]}},
+            path,
+        )
     assert [l.name for l in interpreter.computer.languages] == ["javascript"]
 
 
