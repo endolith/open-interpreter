@@ -331,6 +331,23 @@ def test_cut_after_splits_arguments_at_markers():
     assert json.loads("".join(pieces)) == {"language": "python", "code": 'print("café ✓")'}
 
 
+def test_second_call_placement_follows_the_step():
+    """second_call lands in the opening delta, or in its own delta when deferred.
+
+    Both placements are real OpenAI shapes, and they exercise different
+    client paths, so the harness must produce exactly the requested one
+    with a distinct index and id for the second call.
+    """
+    at_once = scenario_tool_deltas([{"role": "user", "content": "two calls at once please"}])
+    assert [entry["index"] for entry in at_once[0]["tool_calls"]] == [0, 1]
+    staggered = scenario_tool_deltas([{"role": "user", "content": "two calls staggered please"}])
+    assert [[entry["index"] for entry in delta["tool_calls"]] for delta in staggered] == [[0], [1]]
+    for deltas in (at_once, staggered):
+        calls = merge_tool_calls(deltas)
+        assert [call["id"] for call in calls] != [None, None]
+        assert [json.loads(call["function"]["arguments"])["language"] for call in calls] == ["python", "shell"]
+
+
 def test_newest_scenario_prompt_owns_the_turn():
     """An errand started mid-way through an unfinished persistence part wins.
 

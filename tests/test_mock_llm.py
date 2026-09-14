@@ -293,6 +293,57 @@ def test_mock_llm_tool_call_cut_mid_token_and_mid_escape(mock_llm_server, monkey
     assert messages[-1]["content"] == "unicode done."
 
 
+@pytest.mark.timeout(120)
+def test_mock_llm_parallel_calls_in_one_delta_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: a second tool call in the same delta is silently dropped.
+
+    OpenAI may answer with two tool_calls entries (index 0 and 1) in one
+    delta. run_tool_calling_llm reads only entry [0] of each delta, so the
+    index-1 call never reaches parsing: the first call executes, its output
+    is the only console output, and no error or warning is raised.
+
+    Correct behavior is to execute both calls, in order, yielding two code
+    messages and both outputs. This test pins the current behavior so that
+    a fix is noticed; flip the second-call assertions when parallel tool
+    calls are supported.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("two calls at once please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("first of two")')]
+    assert "first of two" in _console_text(messages)
+    assert "second-of-two" not in _console_text(messages)
+    assert messages[-1]["content"] == "pair done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_parallel_calls_staggered_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: a second tool call arriving in a later delta is silently dropped.
+
+    When the index-1 entry comes in a delta of its own, run_tool_calling_llm
+    takes entry [0] of that delta, which is the second call, and merge_deltas
+    appends its arguments onto the first call's accumulated arguments. The
+    result is two JSON objects back to back, which parse_partial_json
+    rejects, so the second call is discarded without a trace. The first
+    call still executes because its arguments were already complete.
+
+    Correct behavior is to track calls by index and execute both. This test
+    pins the current behavior; flip the second-call assertions when
+    parallel tool calls are supported.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("two calls staggered please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("first of two")')]
+    assert "first of two" in _console_text(messages)
+    assert "second-of-two" not in _console_text(messages)
+    assert messages[-1]["content"] == "staggered done."
+
+
 @pytest.mark.timeout(60)
 def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.

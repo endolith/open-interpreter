@@ -79,6 +79,9 @@ def pick_reply(body: dict) -> str:
 #       OpenAI's first delta does, before any argument text arrives.
 #   cut_after: markers; the argument JSON continues in a new delta right
 #       after the first occurrence of each, so cuts can land mid-token.
+#   second_call: a parallel {language, code, call_id} at tool_calls index 1,
+#       sent in the opening delta, or in a later delta of its own when
+#       second_call_later is set. Text mode renders the first call only.
 SCENARIOS: dict[str, list] = {
     "errand": [
         {
@@ -129,6 +132,27 @@ SCENARIOS: dict[str, list] = {
             "cut_after": ['"pyth', "\\u00e"],
         },
         "unicode done.",
+    ],
+    # Parallel tool calls: OpenAI may return two calls in one turn, either
+    # both announced in the opening delta or the second in a later delta.
+    "two calls at once": [
+        {
+            "language": "python",
+            "code": 'print("first of two")',
+            "call_id": "pair_a",
+            "second_call": {"language": "shell", "code": "echo second-of-two", "call_id": "pair_b"},
+        },
+        "pair done.",
+    ],
+    "two calls staggered": [
+        {
+            "language": "python",
+            "code": 'print("first of two")',
+            "call_id": "stagger_a",
+            "second_call": {"language": "shell", "code": "echo second-of-two", "call_id": "stagger_b"},
+            "second_call_later": True,
+        },
+        "staggered done.",
     ],
 }
 
@@ -219,13 +243,24 @@ def _tool_deltas(step: dict) -> list[dict]:
     large arguments. The optional step fields documented on SCENARIOS are
     all applied here so a new wire shape costs one field, not a renderer.
     """
-    arguments = json.dumps({"language": step["language"], "code": step["code"]})
-    pieces = _split_after(arguments, step.get("cut_after", ()))
+    pieces = _split_after(_arguments(step), step.get("cut_after", ()))
     if step.get("name_first"):
         pieces.insert(0, "")
     deltas = [{"tool_calls": [_call_entry(step["call_id"], pieces[0])]}]
     deltas += [{"tool_calls": [{"index": 0, "function": {"arguments": piece}}]} for piece in pieces[1:]]
+    if "second_call" in step:
+        second = step["second_call"]
+        entry = _call_entry(second["call_id"], _arguments(second), index=1)
+        if step.get("second_call_later"):
+            deltas.append({"tool_calls": [entry]})
+        else:
+            deltas[0]["tool_calls"].append(entry)
     return deltas
+
+
+def _arguments(step: dict) -> str:
+    """The execute tool's JSON arguments for one code step."""
+    return json.dumps({"language": step["language"], "code": step["code"]})
 
 
 def scenario_tool_deltas(messages: list) -> list[dict] | None:
