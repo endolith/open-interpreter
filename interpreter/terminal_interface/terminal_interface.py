@@ -30,7 +30,32 @@ from ..core.utils.execution_allowlist import (
     persist_allowlist_rule,
     should_require_execution_confirmation,
 )
-from ..core.utils.prompt_choice import prompt_choice
+from ..core.utils.prompt_choice import NoInteractiveInput, prompt_choice
+
+
+def _prompt_or_skip(prompt, choices, skipped="n"):
+    """
+    prompt_choice, but returns `skipped` when there is no TTY to ask.
+
+    Only for prompts where "no" is a harmless outcome the model can work
+    around: not showing an image, not scanning code. Prompts where skipping
+    would lose work or hide the reason handle NoInteractiveInput themselves.
+    """
+    try:
+        return prompt_choice(prompt, choices)
+    except NoInteractiveInput:
+        return skipped
+
+
+# Shown to the model instead of running/editing when nothing can approve the step.
+# It has to say "don't retry", or the model loops on the same rejected action.
+NO_APPROVER_NOTICE = (
+    "[This step needed approval and there is no interactive terminal to give"
+    " it, so it was not performed. Do not retry the same action. Either"
+    " continue with something that does not require approval, or stop and say"
+    " what needs approving. To approve automatically, start Open Interpreter"
+    " with -y (or set auto_run).]"
+)
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
@@ -205,7 +230,7 @@ def terminal_interface(interpreter, message):
                         )
                         _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
                         _console.print(RichPadding(_panel, PADDING_PANEL))
-                        response = prompt_choice("  ", ("f", "r", "n"))
+                        response = _prompt_or_skip("  ", ("f", "r", "n"))
                     else:
                         _content.append(
                             "\ny = upload image\n"
@@ -213,7 +238,7 @@ def terminal_interface(interpreter, message):
                         )
                         _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
                         _console.print(RichPadding(_panel, PADDING_PANEL))
-                        response = prompt_choice("  ", ("y", "n"))
+                        response = _prompt_or_skip("  ", ("y", "n"))
 
                     if (_any_large and response in ("f", "r")) or (
                         not _any_large and response == "y"
@@ -302,7 +327,7 @@ def terminal_interface(interpreter, message):
                             )
                             _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
                             _console.print(RichPadding(_panel, PADDING_PANEL))
-                            response = prompt_choice("  ", ("f", "r", "n"))
+                            response = _prompt_or_skip("  ", ("f", "r", "n"))
                         else:
                             _content.append(
                                 "\ny = show image\n"
@@ -310,7 +335,7 @@ def terminal_interface(interpreter, message):
                             )
                             _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
                             _console.print(RichPadding(_panel, PADDING_PANEL))
-                            response = prompt_choice("  ", ("y", "n"))
+                            response = _prompt_or_skip("  ", ("y", "n"))
                         interpreter._view_image_approval = response
                     else:
                         interpreter._view_image_approval = "n"
@@ -368,7 +393,12 @@ def terminal_interface(interpreter, message):
                                 if interpreter.plain_text_display
                                 else "  Would you like to apply this edit? (y/n)\n\n  "
                             )
-                            response = prompt_choice(edit_prompt, ("y", "n"))
+                            try:
+                                response = prompt_choice(edit_prompt, ("y", "n"))
+                                declined_notice = "[User declined to apply this edit.]"
+                            except NoInteractiveInput:
+                                response = "n"
+                                declined_notice = NO_APPROVER_NOTICE
 
                             if response == "y":
                                 active_block = CodeBlock(interpreter)
@@ -382,7 +412,7 @@ def terminal_interface(interpreter, message):
                                     {
                                         "role": "user",
                                         "type": "message",
-                                        "content": "[User declined to apply this edit.]",
+                                        "content": declined_notice,
                                         "sent_at": time.time(),
                                         "source": "terminal",
                                     }
@@ -401,7 +431,7 @@ def terminal_interface(interpreter, message):
                                 should_scan_code = True
                             elif interpreter.safe_mode == "ask":
                                 print("", flush=True)
-                                response = prompt_choice(
+                                response = _prompt_or_skip(
                                     "  Would you like to scan this code? (y/n)\n\n  ",
                                     ("y", "n"),
                                 )
@@ -431,7 +461,16 @@ def terminal_interface(interpreter, message):
                                 else "  Would you like to run this code? (y/n/e = edit)\n\n  "
                             )
                             run_choices = ("y", "n", "e")
-                        response = prompt_choice(run_prompt, run_choices)
+                        try:
+                            response = prompt_choice(run_prompt, run_choices)
+                            declined_notice = "[User declined to run this code.]"
+                        except NoInteractiveInput:
+                            # Never fall back to a choice here. run_choices ends in
+                            # "e" (edit) or "a" (add to allowlist), so "the last
+                            # option" would open an editor or permanently approve
+                            # the command. Reject the step instead.
+                            response = "n"
+                            declined_notice = NO_APPROVER_NOTICE
 
                         if response == "a":
                             rule, added = persist_allowlist_rule(
@@ -593,7 +632,7 @@ def terminal_interface(interpreter, message):
                                 {
                                     "role": "user",
                                     "type": "message",
-                                    "content": "[User declined to run this code.]",
+                                    "content": declined_notice,
                                     "sent_at": time.time(),
                                     "source": "terminal",
                                 }

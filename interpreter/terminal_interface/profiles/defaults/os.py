@@ -1,7 +1,7 @@
 import time
 
 from interpreter import interpreter
-from interpreter.core.utils.prompt_choice import prompt_choice
+from interpreter.core.utils.prompt_choice import NoInteractiveInput, prompt_choice
 
 interpreter.os = True
 interpreter.llm.supports_vision = True
@@ -166,7 +166,13 @@ if missing_packages:
     interpreter.display_message(
         f"> **Missing Package(s): {', '.join(['`' + p + '`' for p in missing_packages])}**\n\nThese packages are required for OS Control.\n\nInstall them?\n"
     )
-    user_input = prompt_choice("(y/n) > ", ("y", "n"))
+    try:
+        user_input = prompt_choice("(y/n) > ", ("y", "n"))
+    except NoInteractiveInput:
+        # Installing packages unasked is the riskier answer, and the code below
+        # already handles "no" by carrying on with instructions.
+        print("\nNo terminal to ask about installing these.\n")
+        user_input = "n"
     if user_input != "y":
         print("\nPlease try to install them manually.\n\n")
         time.sleep(2)
