@@ -180,6 +180,12 @@ SCENARIOS: dict[str, list] = {
         },
         "judged done.",
     ],
+    # Code that mentions its own language: the fence's language line must
+    # be the only thing stripped from a code block, never the code itself.
+    "language echo": [
+        {"language": "python", "code": 'print("python says hi")', "call_id": "echo_1"},
+        "echo done.",
+    ],
 }
 
 

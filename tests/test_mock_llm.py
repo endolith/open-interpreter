@@ -391,6 +391,54 @@ def test_mock_llm_auth_accepts_judge_trailer_after_tool_call(mock_llm_server, mo
     assert messages[-1]["content"] == "judged done."
 
 
+@pytest.mark.timeout(120)
+def test_mock_llm_tool_code_containing_language_name(mock_llm_server, monkeypatch, tmp_path):
+    """Tool-call mode passes code that mentions its own language through verbatim.
+
+    The language and code travel as separate JSON fields, so the word
+    "python" inside the code has nothing to collide with. This is the
+    reference behavior the text-mode counterpart below falls short of.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("language echo please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("python says hi")')]
+    assert "python says hi" in _console_text(messages)
+    assert messages[-1]["content"] == "echo done."
+
+
+@pytest.mark.timeout(120)
+def test_mock_llm_text_code_containing_language_name_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: code-block mode deletes the language name from the code itself.
+
+    run_text_llm yields each chunk inside a fence as content.replace(language,
+    ""), intended to drop the fence's language line. It runs on every chunk
+    for the rest of the block, so any occurrence of the word "python" in the
+    code body is deleted too: print("python says hi") executes as
+    print(" says hi"), and the language line's newline is left behind. Real
+    providers stream token by token, so any token containing the language
+    name is mangled the same way.
+
+    Correct behavior is to strip only the language line and pass the code
+    body through verbatim, matching tool-call mode. This test pins the
+    current behavior; flip the assertions when the stripping is fixed.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    messages = interpreter.chat("language echo please", display=False, stream=False, blocking=True)
+
+    ((language, code),) = _code_contents(messages)
+    assert language == "python"
+    assert "python" not in code
+    assert code.strip() == 'print(" says hi")'
+    assert "python says hi" not in _console_text(messages)
+    assert "says hi" in _console_text(messages)
+    assert messages[-1]["content"] == "echo done."
+
+
 @pytest.mark.timeout(60)
 def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.
