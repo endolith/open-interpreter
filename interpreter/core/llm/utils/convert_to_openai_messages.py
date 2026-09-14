@@ -291,12 +291,16 @@ def convert_to_openai_messages(
                         {"role": current_role, "content": "\n".join(current_content)}
                     )
                     current_content = []
+                # A non-string message ends the group, so forget its role too:
+                # keeping it made the next message of a different role flush an
+                # empty group under the stale role first.
+                current_role = None
                 combined_messages.append(message)
 
         # Add the last message
         if current_content:
             combined_messages.append(
-                {"role": current_role, "content": " ".join(current_content)}
+                {"role": current_role, "content": "\n".join(current_content)}
             )
 
         new_messages = combined_messages
