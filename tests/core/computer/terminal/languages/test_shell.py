@@ -304,3 +304,14 @@ def test_shell_start_cmd_defaults_to_bash_when_shell_unset():
         os.environ.pop("SHELL", None)
         shell = Shell()
     assert shell.start_cmd == ["bash"]
+
+
+def test_has_multiline_commands_handles_escapes_inside_double_quotes():
+    """Backslash escapes inside double quotes are skipped, not misread.
+
+    A line continuation inside double quotes is still a line break an
+    injected echo would land in the middle of, so it reports multiline;
+    an escaped quote is just a character, so `"a\\"b"` stays single-line.
+    """
+    assert has_multiline_commands('echo "a\\\n"')
+    assert not has_multiline_commands('echo "a\\"b"')

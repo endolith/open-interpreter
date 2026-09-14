@@ -189,8 +189,17 @@ class SubprocessLanguage(BaseLanguage):
                 if line is None:
                     continue  # `line = None` is the postprocessor's signal to discard completely
 
-                if self.detect_active_line(line):
+                # Program output is untrusted and can resemble a marker. Each
+                # language parses the marker itself, so a bad parse here must
+                # not be allowed to kill the reader thread — nothing would
+                # drain the pipe and run() would wait for an end marker that
+                # can never arrive.
+                try:
                     active_line = self.detect_active_line(line)
+                except ValueError:
+                    active_line = None
+
+                if active_line:
                     self.output_queue.put(
                         {
                             "type": "console",
