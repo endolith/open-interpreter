@@ -86,6 +86,22 @@ def test_info_returns_get_displays():
     get_displays.assert_called_once_with()
 
 
+def test_info_lists_the_monitors_screeninfo_reports():
+    """Display.info() returns the real monitor list, without mocking get_displays().
+
+    info() is advertised to the model as the way to pick a screen index, so the
+    whole path down to screeninfo has to work, not just the delegation.
+    """
+    display = _make_display()
+    monitors = [
+        SimpleNamespace(x=0, y=0, width=800, height=600, name="A"),
+        SimpleNamespace(x=800, y=0, width=1024, height=768, name="B"),
+    ]
+    with _patch_screeninfo(monitors) as screeninfo:
+        assert display.info() == monitors
+    screeninfo.get_monitors.assert_called_once_with()
+
+
 def test_view_delegates_to_screenshot():
     """Display.view() forwards all its parameters to screenshot()."""
     display = _make_display()
