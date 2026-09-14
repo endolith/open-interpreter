@@ -19,7 +19,11 @@ class Shell(SubprocessLanguage):
         if platform.system() == "Windows":
             self.start_cmd = ["cmd.exe"]
         else:
-            self.start_cmd = [os.environ.get("SHELL", "bash")]
+            # The Shell language preprocesses bash syntax (test -f, echo markers, etc.).
+            # Always invoke bash, not $SHELL: fish and other login shells hang or never
+            # print ##end_of_execution##. --norc --noprofile avoids blocking on .bashrc
+            # when HOME is on a slow or network-mounted filesystem.
+            self.start_cmd = ["bash", "--norc", "--noprofile"]
 
     def preprocess_code(self, code):
         return preprocess_shell(code)

@@ -73,10 +73,10 @@ def test_powershell_subprocess_smoke(interpreter):
 
 
 @pytest.mark.darwin_ci
-def test_shell_start_cmd_uses_shell_env():
-    """On macOS/Linux, Shell.start_cmd reads $SHELL from the environment."""
+def test_shell_start_cmd_uses_bash_on_unix():
+    """On macOS/Linux, Shell invokes bash (not $SHELL) because emitted code is bash syntax."""
     shell = Shell()
-    assert shell.start_cmd == [os.environ.get("SHELL", "bash")]
+    assert shell.start_cmd == ["bash", "--norc", "--noprofile"]
 
 
 @pytest.mark.darwin_ci
