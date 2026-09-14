@@ -5,9 +5,9 @@ import pytest
 
 from tests.support.mock_openai_server import (
     MockOpenAIServer,
-    errand_tool_deltas,
     merge_tool_calls,
     pick_reply,
+    scenario_tool_deltas,
     stream_reply_chunks,
 )
 
@@ -150,13 +150,13 @@ def test_merge_tool_calls_skips_functionless_entries():
 def test_errand_tool_deltas_talk_after_four_turns():
     """The errand ends by talking once four assistant turns exist."""
     messages = _errand_messages(n_assistant_turns=4)
-    assert errand_tool_deltas(messages) == [{"content": "Errand complete."}]
+    assert scenario_tool_deltas(messages) == [{"content": "Errand complete."}]
 
 
 def test_errand_tool_deltas_complete_after_talk():
     """The errand yields nothing once the talk turn is done."""
     messages = _errand_messages(n_assistant_turns=5)
-    assert errand_tool_deltas(messages) is None
+    assert scenario_tool_deltas(messages) is None
 
 
 def test_nonstream_tool_turn_returns_populated_tool_calls(running_server):
@@ -256,10 +256,8 @@ def test_stream_talk_turn_terminates_with_stop(running_server):
 
 def test_persist_part_one_starts_with_python_define():
     """Part one opens with the python define call at turn zero."""
-    from tests.support.mock_openai_server import persist_tool_deltas
-
     messages = [{"role": "user", "content": "persistence check part one: go"}]
-    deltas = persist_tool_deltas(messages)
+    deltas = scenario_tool_deltas(messages)
     assert len(deltas) == 1
     function = deltas[0]["tool_calls"][0]["function"]
     assert function["name"] == "execute"
@@ -268,8 +266,6 @@ def test_persist_part_one_starts_with_python_define():
 
 def test_persist_part_two_scoped_to_latest_prompt():
     """Part two counts from its own prompt, ignoring part one's turns."""
-    from tests.support.mock_openai_server import persist_tool_deltas
-
     messages = [
         {"role": "user", "content": "persistence check part one: go"},
         {"role": "assistant", "content": ""},
@@ -277,7 +273,7 @@ def test_persist_part_two_scoped_to_latest_prompt():
         {"role": "assistant", "content": "values defined."},
         {"role": "user", "content": "persistence check part two: go"},
     ]
-    deltas = persist_tool_deltas(messages)
+    deltas = scenario_tool_deltas(messages)
     assert len(deltas) == 1
     function = deltas[0]["tool_calls"][0]["function"]
     assert function["name"] == "execute"
@@ -286,21 +282,37 @@ def test_persist_part_two_scoped_to_latest_prompt():
 
 def test_persist_parts_complete_and_release():
     """Each part talks at turn two and releases past its flow."""
-    from tests.support.mock_openai_server import persist_tool_deltas
-
     part_one_done = [
         {"role": "user", "content": "persistence check part one: go"},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
     ]
-    assert persist_tool_deltas(part_one_done) == [{"content": "values defined."}]
+    assert scenario_tool_deltas(part_one_done) == [{"content": "values defined."}]
     part_two_done = part_one_done + [
         {"role": "assistant", "content": "values defined."},
         {"role": "user", "content": "persistence check part two: go"},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
     ]
-    assert persist_tool_deltas(part_two_done) == [{"content": "values verified."}]
+    assert scenario_tool_deltas(part_two_done) == [{"content": "values verified."}]
     part_two_done.append({"role": "assistant", "content": "values verified."})
     part_two_done.append({"role": "user", "content": "Say hello."})
-    assert persist_tool_deltas(part_two_done) is None
+    assert scenario_tool_deltas(part_two_done) is None
+
+
+def test_newest_scenario_prompt_owns_the_turn():
+    """An errand started mid-way through an unfinished persistence part wins.
+
+    Scenario ownership is decided by which prompt is most recent, not by the
+    order scenarios are checked in: the newer errand prompt must serve its
+    own python step even though the older persistence part still has steps
+    left, so two scenarios in one conversation cannot interleave.
+    """
+    messages = [
+        {"role": "user", "content": "persistence check part one: go"},
+        {"role": "assistant", "content": ""},
+        {"role": "user", "content": "Please run this errand."},
+    ]
+    (call,) = merge_tool_calls(scenario_tool_deltas(messages))
+    assert call["function"]["name"] == "execute"
+    assert "step1.txt" in call["function"]["arguments"]
