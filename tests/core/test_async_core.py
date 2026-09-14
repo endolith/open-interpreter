@@ -170,6 +170,39 @@ class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
         response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
         self.assertEqual(response.status_code, 200)
 
+    def test_post_settings_applies_nothing_when_a_later_key_is_refused(self):
+        """A payload holding a refused key changes nothing at all (fixed in #336).
+
+        The guard used to reject from inside the loop that was already writing,
+        so the keys ahead of the refused one were applied while the 403 told
+        the caller the opposite.
+        """
+        original_model = self.interpreter.llm.model
+
+        response = self.client.post(
+            "/settings", json={"llm": {"model": "changed"}, "auto_run": True}
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.interpreter.llm.model, original_model)
+        self.assertFalse(self.interpreter.auto_run)
+
+    def test_post_settings_rejects_a_scalar_for_a_nested_setting(self):
+        """A scalar for llm/computer is refused instead of replacing the object.
+
+        Writing a string over interpreter.llm was accepted with 200 and broke
+        every later turn with AttributeError (fixed in #336).
+        """
+        for key in ["llm", "computer"]:
+            with self.subTest(key=key):
+                original = getattr(self.interpreter, key)
+
+                response = self.client.post("/settings", json={key: "oops"})
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(key, response.json()["error"])
+                self.assertIs(getattr(self.interpreter, key), original)
+
     def test_post_settings_applies_a_plain_writable_attribute(self):
         """A non-dict top-level setting is assigned straight onto the interpreter.
 
@@ -819,6 +852,25 @@ class TestAsyncRespondApproval(TestCase):
 
         put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
         self.assertFalse(any(c.get("content") == "ok" for c in put_chunks))
+
+    def test_respond_marks_a_denied_turn_complete_only_once(self):
+        """A turn whose approval is refused ends with exactly one complete marker.
+
+        respond() used to mark the turn complete both before parking on the
+        approval event and on the way out, so the second marker arrived as the
+        first frame of whatever the client sent next (fixed in #336).
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": self._confirmation_payload(),
+        }
+
+        self._run_respond_with_chunks([confirmation], approve=False)
+
+        put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
+        completes = [c for c in put_chunks if c == complete_message]
+        self.assertEqual(len(completes), 1)
 
 
 class TestAsyncRespondProgress(TestCase):
