@@ -28,8 +28,14 @@ class Shell(SubprocessLanguage):
         return line
 
     def detect_active_line(self, line):
-        if "##active_line" in line:
-            return int(line.split("##active_line")[1].split("##")[0])
+        # Program output is untrusted and can contain the marker text, so only
+        # a complete "##active_line<digits>##" counts. Parsing anything that
+        # merely contains "##active_line" raised ValueError here, which killed
+        # the stdout reader thread and left run() waiting forever for the
+        # end-of-execution marker.
+        match = re.search(r"##active_line(\d+)##", line)
+        if match:
+            return int(match.group(1))
         return None
 
     def detect_end_of_execution(self, line):

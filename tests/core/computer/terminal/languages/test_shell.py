@@ -44,6 +44,48 @@ def test_shell_start_cmd_uses_shell_env():
         assert shell.start_cmd == ["/bin/bash"]
 
 
+def test_detect_active_line_ignores_marker_without_a_line_number():
+    """Shell.detect_active_line() returns None for '##active_line' with no digits.
+
+    Program output is untrusted text that can contain the marker string (e.g.
+    grepping these sources). Parsing it unconditionally raised ValueError,
+    which killed the stdout reader thread so the end-of-execution marker was
+    never seen and run() hung forever.
+    """
+    shell = Shell()
+    assert shell.detect_active_line("##active_line\n") is None
+    assert shell.detect_active_line("shell.py:31: '##active_line' in line\n") is None
+    assert shell.detect_active_line("##active_line12##\n") == 12
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(30)
+def test_shell_run_survives_active_line_text_in_output():
+    """A shell block whose output contains '##active_line' still completes.
+
+    The unparseable marker used to kill the stdout reader thread, hanging both
+    this run() and every later one on the same Shell instance.
+    """
+    require_bash_compatible_shell()
+    shell = Shell()
+    try:
+        output = "".join(
+            chunk["content"]
+            for chunk in shell.run("echo '##active_line'")
+            if chunk.get("format") == "output"
+        )
+        assert "##active_line" in output
+        # The instance must still be usable: the reader thread survived.
+        again = "".join(
+            chunk["content"]
+            for chunk in shell.run("echo still_alive")
+            if chunk.get("format") == "output"
+        )
+        assert "still_alive" in again
+    finally:
+        shell.terminate()
+
+
 def test_require_bash_compatible_shell_rejects_fish(monkeypatch):
     """require_bash_compatible_shell() fails when SHELL points to fish on Unix."""
     if platform.system() == "Windows":
