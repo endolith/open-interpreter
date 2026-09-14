@@ -344,6 +344,31 @@ def test_mock_llm_parallel_calls_staggered_known_defect(mock_llm_server, monkeyp
     assert messages[-1]["content"] == "staggered done."
 
 
+@pytest.mark.timeout(120)
+def test_mock_llm_content_alongside_tool_call_known_defect(mock_llm_server, monkeypatch, tmp_path):
+    """KNOWN DEFECT: text sent in the same delta as a tool call is dropped.
+
+    A streaming delta may carry both content and tool_calls. On seeing
+    tool_calls, run_tool_calling_llm replaces the whole delta with a
+    function_call dict, so the content key is gone before the message
+    branch runs: the narration never becomes an assistant message, while
+    the call itself executes normally.
+
+    Correct behavior is to keep the content and yield it as a message
+    before the code. This test pins the current behavior; flip the
+    narration assertion when mixed deltas are handled.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat("narrated call please", display=False, stream=False, blocking=True)
+
+    assert _code_contents(messages) == [("python", 'print("narrated ok")')]
+    assert "narrated ok" in _console_text(messages)
+    assert not any("Running it now." in (m.get("content") or "") for m in messages if m["role"] == "assistant")
+    assert messages[-1]["content"] == "narrated done."
+
+
 @pytest.mark.timeout(60)
 def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     """INTERPRETER_REQUIRE_AUTHENTICATION does not break tool-less runs.

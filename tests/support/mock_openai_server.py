@@ -82,6 +82,8 @@ def pick_reply(body: dict) -> str:
 #   second_call: a parallel {language, code, call_id} at tool_calls index 1,
 #       sent in the opening delta, or in a later delta of its own when
 #       second_call_later is set. Text mode renders the first call only.
+#   with_content: assistant text carried in the same delta as the opening
+#       tool call, as a model that narrates before acting can produce.
 SCENARIOS: dict[str, list] = {
     "errand": [
         {
@@ -153,6 +155,17 @@ SCENARIOS: dict[str, list] = {
             "second_call_later": True,
         },
         "staggered done.",
+    ],
+    # A delta may carry both content and tool_calls; the narration must
+    # not be lost just because a call travels with it.
+    "narrated call": [
+        {
+            "language": "python",
+            "code": 'print("narrated ok")',
+            "call_id": "narrated_1",
+            "with_content": "Running it now.",
+        },
+        "narrated done.",
     ],
 }
 
@@ -248,6 +261,8 @@ def _tool_deltas(step: dict) -> list[dict]:
         pieces.insert(0, "")
     deltas = [{"tool_calls": [_call_entry(step["call_id"], pieces[0])]}]
     deltas += [{"tool_calls": [{"index": 0, "function": {"arguments": piece}}]} for piece in pieces[1:]]
+    if "with_content" in step:
+        deltas[0]["content"] = step["with_content"]
     if "second_call" in step:
         second = step["second_call"]
         entry = _call_entry(second["call_id"], _arguments(second), index=1)

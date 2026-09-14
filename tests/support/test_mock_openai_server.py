@@ -348,6 +348,17 @@ def test_second_call_placement_follows_the_step():
         assert [json.loads(call["function"]["arguments"])["language"] for call in calls] == ["python", "shell"]
 
 
+def test_with_content_shares_the_opening_delta():
+    """with_content puts the narration in the same delta as the tool call.
+
+    Sending the text as its own delta would exercise the ordinary message
+    path instead of the mixed delta this field exists to reproduce.
+    """
+    deltas = scenario_tool_deltas([{"role": "user", "content": "narrated call please"}])
+    assert deltas[0]["content"] == "Running it now."
+    assert deltas[0]["tool_calls"][0]["id"] == "narrated_1"
+
+
 def test_newest_scenario_prompt_owns_the_turn():
     """An errand started mid-way through an unfinished persistence part wins.
 
