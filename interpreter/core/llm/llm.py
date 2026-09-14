@@ -21,8 +21,6 @@ import requests
 import tokentrim as tt
 
 from .run_text_llm import run_text_llm
-
-# from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 
@@ -321,7 +319,6 @@ Continuing...
             print("\n\n\n")
 
         if self.supports_functions:
-            # yield from run_function_calling_llm(self, params)
             yield from run_tool_calling_llm(self, params)
         else:
             yield from run_text_llm(self, params)
