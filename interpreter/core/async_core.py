@@ -35,7 +35,7 @@ try:
         WebSocketException,
     )
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-    from starlette.status import HTTP_403_FORBIDDEN
+    from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 except:
     # Server dependencies are not required by the main package.
     pass
@@ -72,6 +72,8 @@ SENSITIVE_SERVER_SETTINGS = frozenset(
     {"auto_run", "safe_mode", "system_message", "messages"}
 )
 SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
+# Attributes that hold an object, so POST /settings only writes their sub-keys.
+NESTED_SERVER_SETTINGS = frozenset({"llm", "computer"})
 
 
 def confirmation_digest(confirmation_content: Dict[str, Any]) -> str:
@@ -803,8 +805,9 @@ def create_router(async_interpreter):
 
     @router.post("/settings")
     async def set_settings(payload: Dict[str, Any]):
+        # Validate the whole payload before applying any of it, so a key that is
+        # refused cannot leave the keys in front of it already written.
         for key, value in payload.items():
-            print("Updating settings...")
             if key in SENSITIVE_SERVER_SETTINGS:
                 return JSONResponse(
                     status_code=HTTP_403_FORBIDDEN,
@@ -812,7 +815,16 @@ def create_router(async_interpreter):
                         "error": f"The setting {key} is not modifiable through the server due to security constraints."
                     },
                 )
-            if key in ["llm", "computer"] and isinstance(value, dict):
+            if key in NESTED_SERVER_SETTINGS:
+                if not isinstance(value, dict):
+                    # Assigning a scalar here would replace the object itself, so
+                    # every later turn would fail on the missing attributes.
+                    return JSONResponse(
+                        status_code=HTTP_400_BAD_REQUEST,
+                        content={
+                            "error": f"The setting {key} must be an object of sub-settings."
+                        },
+                    )
                 if key == "llm":
                     for sub_key in value:
                         if sub_key in SENSITIVE_LLM_SETTINGS:
@@ -822,20 +834,23 @@ def create_router(async_interpreter):
                                     "error": f"The setting llm.{sub_key} is not modifiable through the server due to security constraints."
                                 },
                             )
-                if hasattr(async_interpreter, key):
-                    for sub_key, sub_value in value.items():
-                        if hasattr(getattr(async_interpreter, key), sub_key):
-                            setattr(getattr(async_interpreter, key), sub_key, sub_value)
-                        else:
-                            return {
-                                "error": f"Sub-setting {sub_key} not found in {key}"
-                            }, 404
-                else:
+                if not hasattr(async_interpreter, key):
                     return {"error": f"Setting {key} not found"}, 404
-            elif hasattr(async_interpreter, key):
-                setattr(async_interpreter, key, value)
-            else:
+                for sub_key in value:
+                    if not hasattr(getattr(async_interpreter, key), sub_key):
+                        return {
+                            "error": f"Sub-setting {sub_key} not found in {key}"
+                        }, 404
+            elif not hasattr(async_interpreter, key):
                 return {"error": f"Setting {key} not found"}, 404
+
+        for key, value in payload.items():
+            print("Updating settings...")
+            if key in NESTED_SERVER_SETTINGS:
+                for sub_key, sub_value in value.items():
+                    setattr(getattr(async_interpreter, key), sub_key, sub_value)
+            else:
+                setattr(async_interpreter, key, value)
 
         return {"status": "success"}
 

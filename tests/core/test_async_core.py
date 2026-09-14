@@ -91,7 +91,8 @@ class TestSettingsEndpointGuards(TestCase):
         """Build a TestClient around a fresh server app."""
         from fastapi.testclient import TestClient
 
-        self.client = TestClient(Server(AsyncInterpreter()).app)
+        self.interpreter = AsyncInterpreter()
+        self.client = TestClient(Server(self.interpreter).app)
 
     def _assert_settings_blocked(self, payload, error_substring):
         """POST the given settings payload and assert it is rejected with 403."""
@@ -117,6 +118,42 @@ class TestSettingsEndpointGuards(TestCase):
         """Non-sensitive llm fields like model remain writable via POST /settings."""
         response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
         self.assertEqual(response.status_code, 200)
+
+    def test_post_settings_applies_nothing_when_a_later_key_is_refused(self):
+        """
+        A payload holding a refused key must change nothing at all.
+
+        The guard used to reject from inside the loop that was already writing, so
+        the keys ahead of the refused one were applied and the 403 told the caller
+        the opposite.
+        """
+        original_model = self.interpreter.llm.model
+
+        response = self.client.post(
+            "/settings", json={"llm": {"model": "changed"}, "auto_run": True}
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.interpreter.llm.model, original_model)
+        self.assertFalse(self.interpreter.auto_run)
+
+    def test_post_settings_rejects_a_scalar_for_a_nested_setting(self):
+        """
+        A scalar sent for llm/computer is refused instead of replacing the object.
+
+        Writing a string over interpreter.llm was accepted with 200 and broke every
+        later turn with AttributeError, since the endpoint only recognised the
+        nested form when the value happened to be a dict.
+        """
+        for key in ["llm", "computer"]:
+            with self.subTest(key=key):
+                original = getattr(self.interpreter, key)
+
+                response = self.client.post("/settings", json={key: "oops"})
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(key, response.json()["error"])
+                self.assertIs(getattr(self.interpreter, key), original)
 
 class TestAsyncApprovalBinding(TestCase):
     def setUp(self):
