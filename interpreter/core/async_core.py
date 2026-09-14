@@ -1044,6 +1044,9 @@ def create_router(async_interpreter):
         if (
             async_interpreter.messages
             and async_interpreter.messages[-1]["type"] == "code"
+            # content is str | list of OpenAI content parts; only the plain string
+            # form can be the "yes" that approves the pending code block.
+            and isinstance(last_message.content, str)
             and last_message.content.lower().strip(".!?").strip() == "yes"
         ):
             run_code = True
