@@ -31,6 +31,94 @@ def test_has_multiline_commands_detects_line_continuation():
     assert has_multiline_commands("echo hello \\\nworld")
 
 
+def test_preprocess_shell_still_marks_plain_commands(monkeypatch):
+    """A block of one-line commands keeps its active line markers.
+
+    Guards the fixes below against over-reach: only blocks whose line breaks
+    are not command boundaries should lose line highlighting.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "True")
+    result = preprocess_shell("echo one\necho two")
+    assert 'echo "##active_line1##"' in result
+    assert 'echo "##active_line2##"' in result
+
+
+def test_preprocess_shell_leaves_heredocs_alone(monkeypatch):
+    """A heredoc body is never instrumented with active line markers.
+
+    Line breaks inside a heredoc are not command boundaries, so an injected
+    echo becomes body text: the file the model writes silently gains
+    'echo "##active_lineN##"' lines between its own, with no error anywhere.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "True")
+    code = "cat > out.txt <<EOF\nline one\nline two\nEOF"
+    assert has_multiline_commands(code)
+    assert "##active_line" not in preprocess_shell(code)
+
+
+def test_preprocess_shell_still_marks_here_strings(monkeypatch):
+    """A `<<<` here-string keeps its markers; only `<<` opens a heredoc body."""
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "True")
+    code = 'cat <<< "one line"\necho ok'
+    assert not has_multiline_commands(code)
+    assert 'echo "##active_line2##"' in preprocess_shell(code)
+
+
+def test_preprocess_shell_leaves_multiline_quoted_strings_alone(monkeypatch):
+    """A quoted string spanning lines is never instrumented.
+
+    The injected echo would otherwise be printed as part of the string, so
+    `echo "first<newline>second"` printed an extra 'echo ' between the two.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "True")
+    double_quoted = 'echo "first\nsecond"'
+    single_quoted = "echo 'first\nsecond'"
+    assert has_multiline_commands(double_quoted)
+    assert has_multiline_commands(single_quoted)
+    assert "##active_line" not in preprocess_shell(double_quoted)
+    assert "##active_line" not in preprocess_shell(single_quoted)
+
+
+def test_preprocess_shell_leaves_case_blocks_alone(monkeypatch):
+    """A case statement is never instrumented.
+
+    Only patterns may follow `case ... in`, so an injected echo is a syntax
+    error: bash exits with status 2 and the block never finishes.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "True")
+    code = "x=a\ncase $x in\n  a) echo got_a ;;\nesac"
+    assert has_multiline_commands(code)
+    assert "##active_line" not in preprocess_shell(code)
+
+
+def test_has_multiline_commands_ignores_quotes_inside_comments():
+    """An apostrophe in a comment does not look like an unclosed quote.
+
+    The quote scanner has to skip comments, or a block ending in `# don't`
+    would lose its line markers for no reason.
+    """
+    assert not has_multiline_commands("echo one\n# don't worry\necho two")
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(30)
+def test_shell_heredoc_writes_the_file_verbatim(tmp_path, monkeypatch):
+    """A file written with a heredoc contains exactly what the model wrote.
+
+    Active line echoes injected into the body used to end up in the file, so
+    the model and the user both believed the file was correct.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "True")
+    require_bash_compatible_shell()
+    target = tmp_path / "out.txt"
+    shell = Shell()
+    try:
+        list(shell.run(f"cat > {target} <<EOF\nline one\nline two\nEOF"))
+    finally:
+        shell.terminate()
+    assert target.read_text() == "line one\nline two\n"
+
+
 def test_shell_start_cmd_uses_shell_env():
     """Shell subprocess uses os.environ['SHELL'] on Unix; cmd.exe on Windows."""
     import os
