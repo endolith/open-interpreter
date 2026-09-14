@@ -128,7 +128,14 @@ import matplotlib.pyplot as plt
             yield from self._capture_output(message_queue)
         except GeneratorExit:
             raise  # gotta pass this up!
-        except:
+        except KeyboardInterrupt:
+            # Ctrl-C is the user stopping this block, not the block failing. The
+            # kernel has its own session, so the terminal's SIGINT never reaches
+            # it — flag the listener to interrupt it, the way stop() does, then
+            # let the interrupt travel up to the terminal's own handler.
+            self.stop()
+            raise
+        except Exception:
             content = traceback.format_exc()
             yield {"type": "console", "format": "output", "content": content}
 

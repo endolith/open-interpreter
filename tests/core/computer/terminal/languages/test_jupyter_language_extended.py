@@ -5,6 +5,8 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,
     JupyterLanguage,
@@ -356,6 +358,39 @@ def test_run_yields_error_content_on_execution_failure():
     assert outputs[0]["type"] == "console"
     assert outputs[0]["format"] == "output"
     assert "RuntimeError: kaboom" in outputs[0]["content"]
+
+
+def test_run_propagates_keyboard_interrupt_and_asks_for_a_kernel_interrupt():
+    """A Ctrl-C during a block escapes run() and flags the listener to interrupt the kernel.
+
+    Ctrl-C is the user stopping the code, not the code failing. The kernel runs in its
+    own session, so only interrupt_kernel() can stop it and only the terminal's own
+    KeyboardInterrupt handler can return to the prompt. Swallowing the interrupt left
+    the kernel running and sent Open Interpreter's internal traceback to the model as
+    if the user's code had crashed.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.computer = SimpleNamespace(
+        interpreter=SimpleNamespace(stop_event=threading.Event())
+    )
+    lang.preprocess_code = lambda code: code
+    lang._execute_code = lambda code, mq: None
+
+    def interrupted(mq):
+        raise KeyboardInterrupt
+        yield  # pragma: no cover - makes this a generator, as _capture_output is
+
+    lang._capture_output = interrupted
+
+    chunks = []
+    with pytest.raises(KeyboardInterrupt):
+        for chunk in lang.run("time.sleep(60)"):
+            chunks.append(chunk)
+
+    assert chunks == []
+    assert lang.finish_flag is True
 
 
 def test_stop_sets_finish_flag():
