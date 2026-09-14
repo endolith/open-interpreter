@@ -445,6 +445,11 @@ class OpenInterpreter:
         self.computer._has_imported_computer_api = False  # Flag reset
         self.messages = []
         self.last_messages_count = 0
+        # The autosave names the conversation file after the messages' first
+        # entry and keeps writing to that name, so it identifies the messages
+        # just dropped. Drop it with them, or the next turn overwrites the old
+        # conversation's file with the new conversation.
+        self.conversation_filename = None
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.

@@ -1,9 +1,11 @@
+import json
 from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 import sys
 
+from interpreter import OpenInterpreter
 from interpreter.terminal_interface import magic_commands
 from tests.helpers import TEST_LLM_MODEL
 
@@ -53,6 +55,60 @@ def test_handle_reset_calls_reset():
     interpreter = _interpreter()
     magic_commands.handle_reset(interpreter, "")
     interpreter.reset.assert_called_once()
+
+
+def _chat_one_turn(interpreter, message):
+    """Run one non-display turn with the LLM stubbed out, so the autosave runs."""
+    with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
+        interpreter.chat(message=message, display=False)
+
+
+def test_handle_reset_starts_a_new_conversation_file(tmp_path):
+    """%reset must drop conversation_filename along with the messages.
+
+    The autosave only picks a new name when the filename is falsy, so a stale
+    one makes the next turn reopen the previous conversation's file in "w"
+    mode and destroy it.
+    """
+    interpreter = OpenInterpreter(conversation_history_path=str(tmp_path))
+    interpreter.conversation_history = True
+
+    _chat_one_turn(interpreter, "first conversation about apples")
+    first_filename = interpreter.conversation_filename
+
+    magic_commands.handle_reset(interpreter, "")
+    assert interpreter.conversation_filename is None
+
+    _chat_one_turn(interpreter, "second conversation about pears")
+
+    assert interpreter.conversation_filename != first_filename
+    with open(tmp_path / first_filename) as f:
+        assert json.load(f)[0]["content"] == "first conversation about apples"
+
+
+def test_handle_load_message_starts_a_new_conversation_file(tmp_path):
+    """%load_message must drop conversation_filename with the messages it replaces.
+
+    The loaded messages are a different conversation, so keeping the old name
+    would autosave them over the conversation that was open.
+    """
+    interpreter = OpenInterpreter(conversation_history_path=str(tmp_path))
+    interpreter.conversation_history = True
+
+    _chat_one_turn(interpreter, "first conversation about apples")
+    first_filename = interpreter.conversation_filename
+
+    loaded = tmp_path / "loaded.json"
+    with open(loaded, "w") as f:
+        json.dump([{"role": "user", "type": "message", "content": "loaded talk"}], f)
+    magic_commands.handle_load_message(interpreter, str(loaded))
+    assert interpreter.conversation_filename is None
+
+    _chat_one_turn(interpreter, "more about the loaded talk")
+
+    assert interpreter.conversation_filename != first_filename
+    with open(tmp_path / first_filename) as f:
+        assert json.load(f)[0]["content"] == "first conversation about apples"
 
 
 def test_handle_verbose_toggles_flag():
@@ -409,6 +465,27 @@ def test_markdown_default_path_uses_downloads(monkeypatch, tmp_path):
     export.assert_called_once_with(
         interpreter.messages, f"{tmp_path}/chat.md"
     )
+
+
+def test_markdown_without_conversation_filename_asks_for_path(monkeypatch, capsys):
+    """%markdown with no path and no conversation file asks for a path.
+
+    conversation_filename is None until the autosave has run (history off, or
+    messages just loaded or reset). It must not raise: handle_magic_command is
+    dispatched unguarded, so an exception here ends the session.
+    """
+    interpreter = _interpreter(
+        messages=[{"role": "user", "content": "hi"}],
+        conversation_filename=None,
+    )
+    monkeypatch.setattr(magic_commands, "get_downloads_path", lambda: "/downloads")
+    with mock.patch(
+        "interpreter.terminal_interface.magic_commands.export_to_markdown"
+    ) as export:
+        magic_commands.handle_magic_command(interpreter, "%markdown")
+
+    export.assert_not_called()
+    assert "Pass a path: %markdown" in capsys.readouterr().out
 
 
 def test_jupyter_handles_assistant_markdown_and_default_language(tmp_path):
