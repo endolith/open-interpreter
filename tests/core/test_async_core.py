@@ -4,6 +4,7 @@ from unittest import TestCase, mock
 from interpreter.core.async_core import (
     AsyncInterpreter,
     Server,
+    complete_message,
     confirmation_digest,
     is_websocket_origin_allowed,
     SENSITIVE_LLM_SETTINGS,
@@ -359,6 +360,27 @@ class TestAsyncRespondApproval(TestCase):
 
         put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
         self.assertFalse(any(c.get("content") == "ok" for c in put_chunks))
+
+    def test_respond_marks_a_denied_turn_complete_only_once(self):
+        """
+        A turn whose approval is refused ends with exactly one complete marker.
+
+        respond() marks the turn complete before parking on the approval event, so
+        the second marker it used to send on the way out arrived as the first frame
+        of whatever the client sent next: clients that stop reading on complete saw
+        an empty turn, and the real frames were attributed to nothing.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": self._confirmation_payload(),
+        }
+
+        self._run_respond_with_chunks([confirmation], approve=False)
+
+        put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
+        completes = [c for c in put_chunks if c == complete_message]
+        self.assertEqual(len(completes), 1)
 
 
 class TestServerRunAndSetters(TestCase):
