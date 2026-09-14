@@ -551,3 +551,33 @@ def test_image_description_normalizes_computer_role(interpreter):
     ]
     result = convert_to_openai_messages(messages, vision=True, interpreter=interpreter)
     assert result == [{"role": "user", "content": "tool output described"}]
+
+
+def test_repeated_user_message_templates_only_the_last_occurrence(interpreter):
+    """An earlier user message repeating the last one's text is not templated.
+
+    LMC messages carry no id, so locating the last user message by value
+    matched every earlier repeat of a common reply ("continue", "yes", "ok"),
+    stamping the template onto history on every later turn."""
+    messages = [
+        {"role": "user", "type": "message", "content": "continue"},
+        {"role": "assistant", "type": "message", "content": "ok"},
+        {"role": "user", "type": "message", "content": "continue"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert [m["content"] for m in result] == ["continue", "ok", "User: continue"]
+
+
+def test_user_text_followed_by_image_still_gets_the_template(interpreter):
+    """The template wraps the user's text even when an image follows it.
+
+    The terminal stores a dragged-in image as a text message plus a separate
+    user-role image message, so the image is the last user-role entry. The
+    template must still reach the text the user typed instead of being
+    dropped from exactly the turn that carried an image."""
+    messages = [
+        {"role": "user", "type": "message", "content": "what is this?"},
+        {"role": "user", "type": "image", "format": "description", "content": "a cat"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert [m["content"] for m in result] == ["User: what is this?", "a cat"]
