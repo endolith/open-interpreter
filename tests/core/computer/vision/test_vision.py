@@ -7,6 +7,7 @@ no real vision models are loaded or downloaded.
 import base64
 import io
 import os
+import tempfile
 from types import SimpleNamespace
 from unittest import mock
 
@@ -45,20 +46,20 @@ def test_ocr_reads_text_from_path():
 
 
 def test_ocr_decodes_base64_into_temp_file():
-    """Vision.ocr(base_64=...) writes the decoded bytes to a temp PNG first."""
+    """Vision.ocr(base_64=...) writes the decoded bytes to a temp PNG first.
+
+    The temp file is handed to easyocr and then removed, so nothing is left
+    on disk once the call returns.
+    """
     vision = _make_vision()
     vision.easyocr = _easyocr_mock()
 
-    read_path = None
-    try:
-        result = vision.ocr(base_64=_png_base64())
-        read_path = vision.easyocr.readtext.call_args[0][0]
-        assert result == "hello world"
-        assert read_path.endswith(".png")
-        assert os.path.exists(read_path)
-    finally:
-        if read_path:
-            os.remove(read_path)
+    result = vision.ocr(base_64=_png_base64())
+
+    read_path = vision.easyocr.readtext.call_args[0][0]
+    assert result == "hello world"
+    assert read_path.endswith(".png")
+    assert not os.path.exists(read_path)
 
 
 def test_ocr_accepts_lmc_path_format():
@@ -218,20 +219,19 @@ def test_query_returns_empty_when_load_fails():
 
 
 def test_ocr_accepts_pil_image():
-    """Vision.ocr(pil_image=...) saves the PIL image to a temp file for easyocr."""
+    """Vision.ocr(pil_image=...) saves the PIL image to a temp file for easyocr.
+
+    As with the base64 path, the temp file is removed once OCR has read it.
+    """
     vision = _make_vision()
     vision.easyocr = _easyocr_mock()
 
-    read_path = None
-    try:
-        result = vision.ocr(pil_image=Image.new("RGB", (4, 4)))
-        read_path = vision.easyocr.readtext.call_args[0][0]
-        assert result == "hello world"
-        assert read_path.endswith(".png")
-        assert os.path.exists(read_path)
-    finally:
-        if read_path:
-            os.remove(read_path)
+    result = vision.ocr(pil_image=Image.new("RGB", (4, 4)))
+
+    read_path = vision.easyocr.readtext.call_args[0][0]
+    assert result == "hello world"
+    assert read_path.endswith(".png")
+    assert not os.path.exists(read_path)
 
 
 def test_query_accepts_lmc_base64():
@@ -307,3 +307,65 @@ def test_load_debug_prints_moondream_hints():
         "Alternatively, you can use a vision-supporting LLM and set `interpreter.llm.supports_vision = True`."
     )
 
+
+
+def test_ocr_removes_the_temp_file_it_creates_from_base64(tmp_path, monkeypatch):
+    """A base64 image is written to a temp file that is deleted after OCR.
+
+    NamedTemporaryFile(delete=False) leaves the file on disk. llm.run() calls
+    ocr() for every image when the model has no vision support, so each image
+    used to leave a PNG behind permanently (#232).
+    """
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    vision = _make_vision()
+    vision.easyocr = SimpleNamespace(readtext=lambda path: [])
+
+    vision.ocr(base_64=_png_base64())
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_ocr_removes_the_temp_file_even_when_ocr_raises(tmp_path, monkeypatch):
+    """The temp file is removed even if the OCR backend fails."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    vision = _make_vision()
+
+    def boom(path):
+        raise RuntimeError("backend exploded")
+
+    vision.easyocr = SimpleNamespace(readtext=boom)
+
+    with pytest.raises(RuntimeError):
+        vision.ocr(base_64=base64.b64encode(b"x").decode())
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_ocr_does_not_delete_a_caller_supplied_path(tmp_path):
+    """A path passed in by the caller is left on disk.
+
+    Cleanup must only remove files this call created, never the user's image.
+    """
+    image = tmp_path / "keep-me.png"
+    image.write_bytes(b"x")
+
+    vision = _make_vision()
+    vision.easyocr = SimpleNamespace(readtext=lambda path: [])
+
+    vision.ocr(path=str(image))
+
+    assert image.exists()
+
+
+def test_ocr_survives_a_failed_temp_file_cleanup():
+    """A temp file that cannot be removed does not break the OCR result.
+
+    Cleanup is best-effort: on Windows the file can still be held open, and a
+    tmpreaper-style cleaner may have deleted it already. Neither should turn a
+    successful OCR into an exception.
+    """
+    vision = _make_vision()
+    vision.easyocr = _easyocr_mock()
+
+    with mock.patch.object(os, "remove", side_effect=OSError("still in use")):
+        assert vision.ocr(base_64=_png_base64()) == "hello world"
