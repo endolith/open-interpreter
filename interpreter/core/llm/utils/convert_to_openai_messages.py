@@ -339,12 +339,16 @@ def convert_to_openai_messages(
                     current_reasoning = [message.get("reasoning_content", "")]
             else:
                 flush("\n")
+                # A non-string message ends the group, so forget its role too:
+                # keeping it made the next message of a different role flush an
+                # empty group under the stale role first.
+                current_role = None
                 current_content = []
                 current_reasoning = []
                 combined_messages.append(message)
 
-        # The last group keeps the historical space separator.
-        flush(" ")
+        # The last group joins with the same newline separator as the others.
+        flush("\n")
 
         new_messages = combined_messages
 
