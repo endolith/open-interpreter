@@ -311,7 +311,7 @@ class Display:
         Extracts and returns text from a screenshot or the current screen as a list of lists, each representing a line of text.
         """
         if screenshot == None:
-            screenshot = self.screenshot(show=False, force_image=True)
+            screenshot = self.screenshot(show=False)
 
         if not self.computer.offline:
             # Convert the screenshot to base64
