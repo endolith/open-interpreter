@@ -535,9 +535,14 @@ def test_reset_profile_resets_known_historical_profile(tmp_path, monkeypatch):
 
 
 def test_get_default_profile_yaml(profile_env, monkeypatch):
-    """get_default_profile() parses the packaged .yaml default."""
+    """get_default_profile() parses the packaged .yaml default and stamps the
+    package version onto it, so apply_profile never mistakes it for a stale
+    user file."""
     _set_defaults(profile_env["defaults_dir"], {"fast.yaml": "model: gpt\n"}, monkeypatch)
-    assert profiles.get_default_profile("fast.yaml") == {"model": "gpt"}
+    assert profiles.get_default_profile("fast.yaml") == {
+        "model": "gpt",
+        "version": profiles.OI_VERSION,
+    }
 
 
 def test_get_default_profile_python(profile_env, monkeypatch):
@@ -558,11 +563,15 @@ def test_get_default_profile_python(profile_env, monkeypatch):
 
 
 def test_get_default_profile_json(profile_env, monkeypatch):
-    """get_default_profile() parses a packaged .json default."""
+    """get_default_profile() parses a packaged .json default and stamps the
+    package version onto it, as it does for every other packaged format."""
     _set_defaults(
         profile_env["defaults_dir"], {"fast.json": '{"model": "gpt"}\n'}, monkeypatch
     )
-    assert profiles.get_default_profile("fast.json") == {"model": "gpt"}
+    assert profiles.get_default_profile("fast.json") == {
+        "model": "gpt",
+        "version": profiles.OI_VERSION,
+    }
 
 
 # ---------------------------------------------------------------------------

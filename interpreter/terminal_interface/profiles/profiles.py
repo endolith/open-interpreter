@@ -674,9 +674,16 @@ def get_default_profile(specific_default_profile):
                     "version": OI_VERSION,
                 }  # Python scripts are always the latest version
             elif extension == ".json":
-                return json.load(file)
+                default_profile = json.load(file)
             else:
-                return yaml.safe_load(file)
+                default_profile = yaml.safe_load(file)
+
+        # Packaged profiles ship with the code, so like the Python ones above
+        # they are always the latest version. Without this, one that carries no
+        # version trailer looks to apply_profile like a user file left over from
+        # an older release, and every launch prompts to migrate it.
+        default_profile["version"] = OI_VERSION
+        return default_profile
 
 
 def determine_user_version():
