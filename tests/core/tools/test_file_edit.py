@@ -127,6 +127,28 @@ class TestRunSed(unittest.TestCase):
             self.assertNotIn("-i", args)
             replace_mock.assert_called_once_with(target, b"bar\n")
 
+    def test_run_sed_no_match_warns_and_leaves_file_untouched(self):
+        """A non-matching sed pattern must warn instead of reporting plain OK."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            before_mtime = os.path.getmtime(target)
+            result = run_sed(target, "s/does_not_match/xxx/")
+            self.assertIn("no changes", result)
+            self.assertEqual(open(target, encoding="utf-8").read(), "foo\n")
+            self.assertEqual(os.path.getmtime(target), before_mtime)
+
+    def test_run_sed_preserves_executable_bit(self):
+        """Editing a script must not clear its executable bit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.sh")
+            run_write(target, "foo\n")
+            os.chmod(target, 0o755)
+            run_sed(target, "s/foo/bar/")
+            self.assertEqual(open(target, encoding="utf-8").read(), "bar\n")
+            self.assertTrue(os.access(target, os.X_OK))
+            self.assertEqual(oct(os.stat(target).st_mode & 0o777), "0o755")
+
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
 class TestRunJq(unittest.TestCase):
@@ -186,6 +208,7 @@ class TestRunJq(unittest.TestCase):
 @unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
 class TestRunGawk(unittest.TestCase):
     def test_run_gawk_multiline_program(self):
+        """A per-line gawk program must rewrite the file with its stdout."""
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "hello world\n")
@@ -195,7 +218,8 @@ class TestRunGawk(unittest.TestCase):
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
 
-    def test_run_gawk_inplace_uses_target_parent_cwd(self):
+    def test_run_gawk_does_not_use_inplace_flag(self):
+        """Stdout+atomic replace is deterministic; -i inplace wiped END-only files."""
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "hello\n")
@@ -203,12 +227,35 @@ class TestRunGawk(unittest.TestCase):
                 "interpreter.core.tools.file_edit.subprocess.run"
             ) as run_mock:
                 run_mock.return_value = mock.Mock(
-                    returncode=0, stdout="", stderr=""
+                    returncode=0, stdout=b"hello\n", stderr=b""
                 )
-                run_gawk(target, "{ print }")
-            _, kwargs = run_mock.call_args
-            self.assertEqual(kwargs["cwd"], str(Path(target).parent))
-            self.assertEqual(run_mock.call_args[0][0][-1], Path(target).name)
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ):
+                    run_gawk(target, "{ print }")
+            args = run_mock.call_args[0][0]
+            self.assertNotIn("-i", args)
+            self.assertNotIn("inplace", args)
+            self.assertIn(target, args)
+
+    def test_run_gawk_empty_output_does_not_wipe_file(self):
+        """Empty gawk output for a non-empty file must abort instead of truncating."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "a\nb\nc\n")
+            with self.assertRaises(RuntimeError) as ctx:
+                run_gawk(target, "END { print \"\" }")
+            self.assertIn("no output", str(ctx.exception))
+            self.assertEqual(open(target, encoding="utf-8").read(), "a\nb\nc\n")
+
+    def test_run_gawk_no_changes_reports_notice(self):
+        """Identical gawk output must report no-changes instead of plain OK."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "hello\n")
+            result = run_gawk(target, "{ print }")
+            self.assertIn("no changes", result)
+            self.assertEqual(open(target, encoding="utf-8").read(), "hello\n")
 
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
