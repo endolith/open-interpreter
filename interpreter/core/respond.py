@@ -17,7 +17,11 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from .utils.assemble_system_message import assemble_system_message
 from .tools.file_edit import dry_run_edit, run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
-from .utils.prompt_choice import prompt_choice
+from .utils.prompt_choice import (
+    NoInteractiveInput,
+    prompt_choice,
+    stdin_is_interactive,
+)
 
 _LITELLM_OPTIONAL_API_EXCEPTIONS = tuple(
     getattr(litellm.exceptions, name)
@@ -62,12 +66,9 @@ def _html_error_to_renderable(error_str):
     return Markdown("\n" + md)
 
 
-def _stdin_is_interactive():
-    """False for uvicorn workers, pytest, and other environments with no real TTY."""
-    try:
-        return sys.stdin is not None and sys.stdin.isatty()
-    except (AttributeError, OSError, ValueError):
-        return False
+# Kept as a local name so the call site below still reads the same; the
+# implementation now lives next to prompt_choice, which needs the same check.
+_stdin_is_interactive = stdin_is_interactive
 
 
 def _is_temporary_provider_error(error):
@@ -390,7 +391,15 @@ def respond(interpreter):
 
                     print(provider_message)
 
-                    response = prompt_choice("  ", ("y", "n"))
+                    try:
+                        response = prompt_choice("  ", ("y", "n"))
+                    except NoInteractiveInput:
+                        # Reached in server mode too, where there is no TTY.
+                        # Quietly switching to a hosted model that trains on the
+                        # conversation is not an assumption to make on the user's
+                        # behalf, so fall through to the re-raise below and let
+                        # the real provider error surface.
+                        response = "n"
 
                     if response == "y":
                         interpreter.llm.model = "i"
