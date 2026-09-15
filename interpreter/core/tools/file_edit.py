@@ -181,14 +181,23 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
 
     Standard pattern for edit runners whose tool emits the full new file on stdout.
     Keeps temp files on the same drive as the target (Windows cannot rename across drives).
+    Preserves the original file's permission bits (e.g. executable bit), which a
+    fresh mkstemp file would otherwise lose.
     """
     path = Path(target)
+    # Read mode before replacing; target is validated to exist by callers.
+    try:
+        original_mode = path.stat().st_mode
+    except FileNotFoundError:
+        original_mode = None
     fd, tmp = tempfile.mkstemp(
         suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
     )
     os.close(fd)
     try:
         Path(tmp).write_bytes(stdout_bytes)
+        if original_mode is not None:
+            os.chmod(tmp, original_mode)
         os.replace(tmp, target)
         tmp = None
     finally:
@@ -249,28 +258,39 @@ def run_sed(target, code):
 
     if result.returncode != 0:
         _run_failed("sed", result)
-    _atomic_replace_from_stdout(target, result.stdout or b"")
+    new_bytes = result.stdout or b""
+    # Warn instead of silently reporting OK when nothing changed. sed exits 0
+    # even when the pattern matched zero lines, which previously looked like
+    # success while leaving the file untouched.
+    try:
+        before_bytes = Path(target).read_bytes()
+    except FileNotFoundError:
+        before_bytes = None
+    if before_bytes is not None and before_bytes == new_bytes:
+        return "sed: OK (no changes — pattern did not match)"
+    _atomic_replace_from_stdout(target, new_bytes)
     return "sed: OK"
 
 
 def run_gawk(target, code):
-    """Apply a gawk program in-place. Requires GNU awk (-i inplace).
+    """Apply a gawk program, replacing the file atomically from stdout.
 
-    Run with cwd set to the target's directory so inplace temp files land on the
-    same Windows drive as the file (avoids cross-device rename errors).
+    The program must emit the new file content on stdout (filter model, e.g.
+    ``{ gsub(...); print }``), like sed. Runs without ``-i inplace`` so behavior
+    is deterministic across platforms and matches dry_run_edit; ``-i inplace``
+    sends END-block output to stdout while truncating the file, which silently
+    wiped files. Empty output for a non-empty file is refused.
     """
     _validate_target(target, must_exist=True)
     if not code.strip():
         raise ValueError("gawk: no program in code")
 
     gawk = _resolve_gawk()
-    path = Path(target)
     prog_path = _write_temp_script(code, ".awk")
     try:
         result = subprocess.run(
-            [gawk, "-i", "inplace", "-f", prog_path, path.name],
+            [gawk, "-f", prog_path, target],
             capture_output=True,
-            cwd=_target_parent_dir(target),
         )
     finally:
         if os.path.isfile(prog_path):
@@ -278,8 +298,31 @@ def run_gawk(target, code):
 
     if result.returncode != 0:
         _run_failed("gawk", result)
-    out = _subprocess_text(result)
-    return out if out else "gawk: OK"
+    new_bytes = result.stdout or b""
+    try:
+        before_bytes = Path(target).read_bytes()
+    except FileNotFoundError:
+        before_bytes = None
+    if before_bytes:
+        if not new_bytes.strip():
+            raise RuntimeError(
+                "gawk produced no output for a non-empty file "
+                "(file was not modified; END-only programs print to stdout — "
+                "include a per-line print when transforming)"
+            )
+        if before_bytes == new_bytes:
+            return "gawk: OK (no changes — program output matches file)"
+        before_lines = before_bytes.count(b"\n")
+        new_lines = new_bytes.count(b"\n")
+        if before_lines >= 10 and new_lines <= max(2, before_lines // 10):
+            _atomic_replace_from_stdout(target, new_bytes)
+            return (
+                f"gawk: OK (warning: {before_lines} lines -> {new_lines} lines — "
+                "END-only output replaces the whole file; include per-line "
+                "print when transforming)"
+            )
+    _atomic_replace_from_stdout(target, new_bytes)
+    return "gawk: OK"
 
 
 def run_jq(target, code):
