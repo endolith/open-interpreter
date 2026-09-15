@@ -49,7 +49,22 @@ class JupyterLanguage(BaseLanguage):
         self.interpreter = interpreter
 
         self.km = KernelManager(kernel_name="python3")
-        self.km.start_kernel()
+        if sys.platform == "win32":
+            # On Windows, Ctrl+C is delivered to every process attached to the
+            # console, including the kernel subprocess. An idle kernel then
+            # dies with "IndexError: pop from an empty deque" in its asyncio
+            # loop (tornado), printing a traceback on exit. Starting it as an
+            # independent process puts it in its own process group
+            # (CREATE_NEW_PROCESS_GROUP) so it never sees the console Ctrl+C.
+            # Interrupts still work: jupyter_client interrupts via the
+            # JPY_INTERRUPT_EVENT, not via console events.
+            try:
+                self.km.start_kernel(independent=True)
+            except TypeError:
+                # Very old jupyter_client without the `independent` kwarg.
+                self.km.start_kernel()
+        else:
+            self.km.start_kernel()
         self.kc = self.km.client()
         self.kc.start_channels()
         while not self.kc.is_alive():
@@ -139,8 +154,32 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         # self.run(code)
 
     def terminate(self):
-        self.kc.stop_channels()
-        self.km.shutdown_kernel()
+        # Idempotent, exception-safe shutdown. Ctrl+C (or a second Ctrl+C,
+        # or an already-dead kernel) must never produce a traceback here.
+        # `now=True` kills the process instead of waiting on a graceful
+        # ZMQ shutdown round-trip that can hang when the kernel already died
+        # from a console Ctrl event.
+        try:
+            kc = getattr(self, "kc", None)
+            if kc is not None:
+                try:
+                    kc.stop_channels()
+                except Exception:
+                    pass
+        finally:
+            km = getattr(self, "km", None)
+            if km is not None:
+                try:
+                    if getattr(km, "has_kernel", False):
+                        try:
+                            km.shutdown_kernel(now=True)
+                        except Exception:
+                            try:
+                                km.kill_kernel()
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
     def run(self, code):
         while not self.kc.is_alive():

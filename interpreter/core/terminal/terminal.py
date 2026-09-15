@@ -325,5 +325,8 @@ print("__TOOLBOX_API_IMPORTED__")
             if (
                 language
             ):  # Not sure why this is None sometimes. We should look into this
-                language.terminate()
+                try:
+                    language.terminate()
+                except Exception:
+                    pass
             del self._active_languages[language_name]
