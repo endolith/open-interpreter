@@ -690,31 +690,36 @@ def main():
     except KeyboardInterrupt:
         try:
             from interpreter.terminal_interface.contributing_conversations import contribute_conversations
-            from interpreter.core.utils.prompt_choice import prompt_choice
+            from interpreter.core.utils.prompt_choice import NoInteractiveInput, prompt_choice
             interpreter.terminal.terminate()
 
             if not interpreter.offline and not interpreter.disable_telemetry:
                 feedback = None
                 if len(interpreter.messages) > 3:
-                    raw = prompt_choice(
-                        "\n\nWas Open Interpreter helpful? (y/n): ",
-                        ("y", "n"),
-                    )
-                    feedback = raw == "y"
-                    if feedback is not None and not interpreter.contribute_conversation:
-                        if interpreter.llm.model == "i":
-                            contribute = "y"
-                        else:
-                            print(
-                                "\nThanks for your feedback! Would you like to send us this chat so we can improve?\n"
-                            )
-                            contribute = prompt_choice("(y/n): ", ("y", "n"))
+                    try:
+                        raw = prompt_choice(
+                            "\n\nWas Open Interpreter helpful? (y/n): ",
+                            ("y", "n"),
+                        )
+                        feedback = raw == "y"
+                        if feedback is not None and not interpreter.contribute_conversation:
+                            if interpreter.llm.model == "i":
+                                contribute = "y"
+                            else:
+                                print(
+                                    "\nThanks for your feedback! Would you like to send us this chat so we can improve?\n"
+                                )
+                                contribute = prompt_choice("(y/n): ", ("y", "n"))
 
-                        if contribute == "y":
-                            interpreter.contribute_conversation = True
-                            interpreter.display_message(
-                                "\n*Thank you for contributing!*\n"
-                            )
+                            if contribute == "y":
+                                interpreter.contribute_conversation = True
+                                interpreter.display_message(
+                                    "\n*Thank you for contributing!*\n"
+                                )
+                    except NoInteractiveInput:
+                        # Optional end-of-session survey. Nobody is there to
+                        # answer it, so leave feedback unset and carry on.
+                        feedback = None
 
                 if (
                     interpreter.contribute_conversation or interpreter.llm.model == "i"
