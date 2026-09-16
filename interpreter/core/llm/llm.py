@@ -442,13 +442,25 @@ def fixed_litellm_completions(**params):
     params["num_retries"] = 0
 
     for attempt in range(attempts):
+        started = False
         try:
-            yield from litellm.completion(**params)
+            for chunk in litellm.completion(**params):
+                started = True
+                yield chunk
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
             print("Exiting...")
             sys.exit(0)
         except Exception as e:
+            if started:
+                # The stream already delivered chunks to the consumer before it
+                # failed (a dropped connection, a mid-stream error event).
+                # Retrying restarts litellm.completion from the beginning, so
+                # those chunks are replayed: the consumer duplicates prose, or
+                # concatenates the partial tool-call arguments with the restart
+                # into a string that never parses and executes only the prefix.
+                # A mid-stream failure cannot be retried safely, so surface it.
+                raise
             if attempt == 0:
                 # Store the first error
                 first_error = e
