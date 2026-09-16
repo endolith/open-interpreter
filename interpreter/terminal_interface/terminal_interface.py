@@ -135,9 +135,12 @@ def terminal_interface(interpreter, message):
 
             if is_exit_command(message, interactive):
                 # Ctrl-C and Ctrl-D already exit, but people reach for a word
-                # first, and every spelling of it used to be sent to the model
-                # as an ordinary message — which looks exactly like the session
-                # ignoring them.
+                # first, and none of the spellings did anything useful: `exit`,
+                # `quit`, `/exit` and `/quit` fell through to the model as an
+                # ordinary message, while `%exit` and `%quit` reached
+                # handle_magic_command's unknown-command fallback. Either way
+                # the session looked like it was ignoring them. This runs before
+                # the magic-command dispatch below so every spelling exits.
                 interpreter.display_message("\n\n`Exiting...`")
                 raise KeyboardInterrupt
 

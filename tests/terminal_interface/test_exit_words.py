@@ -2,9 +2,10 @@
 
 Ctrl-C and Ctrl-D already exit, but nothing said so: %help listed every other
 command and not that one. So a user who typed the obvious thing got the worst
-possible answer — /exit, /quit and %exit are not commands, so they were sent
-to the model as ordinary chat messages, which from the outside is
-indistinguishable from the session having stopped responding to input.
+possible answer — `exit`, `quit`, `/exit` and `/quit` were sent to the model as
+ordinary chat messages, while `%exit` and `%quit` reached handle_magic_command's
+unknown-command fallback. From the outside both are indistinguishable from the
+session having stopped responding to input.
 """
 
 import pytest
