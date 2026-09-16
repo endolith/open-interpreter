@@ -41,7 +41,7 @@ def _code_interpreter(*, language="python", code="1+1"):
             {"role": "assistant", "type": "code", "format": language, "content": code}
         ],
         computer=computer,
-        llm=SimpleNamespace(run=lambda msgs: iter([]), supports_vision=False),
+        llm=SimpleNamespace(run=lambda msgs: iter([]), supports_vision=False, max_budget=0),
         verbose=False,
         debug=False,
         auto_run=True,
@@ -52,7 +52,6 @@ def _code_interpreter(*, language="python", code="1+1"):
         offline=True,
         os=False,
         display_message=mock.Mock(),
-        max_budget=0,
         max_output=2800,
     )
 
@@ -141,11 +140,18 @@ def test_respond_assembles_full_system_message():
 
 
 def test_respond_handles_budget_exceeded():
-    """respond() reports the session/max budget and stops on BudgetExceededError."""
+    """respond() reports the session/max budget and stops on BudgetExceededError.
+
+    max_budget lives on interpreter.llm, not on the interpreter itself (the CLI
+    flag and the profile loader both write interpreter.llm.max_budget). The
+    handler read interpreter.max_budget, so reaching the budget raised
+    AttributeError instead of showing the message. The fake interpreter now
+    carries max_budget where the real one does, so the message must render.
+    """
     import litellm
 
     interpreter = _message_interpreter()
-    interpreter.max_budget = 5
+    interpreter.llm.max_budget = 5
 
     def run(msgs):
         raise litellm.exceptions.BudgetExceededError(current_cost=0, max_budget=5)
@@ -153,7 +159,9 @@ def test_respond_handles_budget_exceeded():
     interpreter.llm.run = run
     list(respond(interpreter))
 
-    assert "Max budget exceeded" in interpreter.display_message.call_args[0][0]
+    shown = interpreter.display_message.call_args[0][0]
+    assert "Max budget exceeded" in shown
+    assert "5" in shown  # the limit is reported, not swallowed by an AttributeError
 
 
 def test_respond_auth_error_raises_with_key_instructions():
