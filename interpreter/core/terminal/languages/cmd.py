@@ -8,7 +8,7 @@ from .subprocess_language import SubprocessLanguage
 class Cmd(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "bat"
     name = "cmd"
-    execute_tool_hint = "Windows cmd.exe — set VAR=value, use %VAR%; not bash/PowerShell syntax"
+    execute_tool_hint = "Windows cmd.exe — set VAR=value, use %VAR%; not bash/PowerShell syntax. One command per line for readability."
     # `cd /d X` is cmd's change-drive form; `;` is not a cmd separator.
     cd_option_prefixes = ("/d",)
     cd_chain_operators = ("&&", "&")

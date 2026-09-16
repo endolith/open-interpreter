@@ -243,6 +243,11 @@ class TestTerminalLanguages(unittest.TestCase):
             self.assertIn("cmd", desc)
             self.assertIn("cmd.exe", desc)
 
+    def test_shell_hints_recommend_one_command_per_line(self):
+        """Shell hints must steer the model to one command per line for readability."""
+        desc = format_execute_language_description(_default_terminal_languages())
+        self.assertIn("One command per line", desc)
+
     def test_strip_redundant_imports_removes_plain_import_when_already_imported(self):
         """A top-level `import os` is dropped when `os` is already bound in the kernel namespace."""
         stripped, removed = strip_redundant_imports("import os\nos.getcwd()", {"os"})
