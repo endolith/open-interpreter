@@ -37,6 +37,10 @@ def run_text_llm(llm, params):
 
     inside_code_block = False
     language = None
+    # Where the opening fence began, so that a stream cut off before the
+    # language line completes can still emit the fence and the partial label it
+    # already consumed, rather than dropping them.
+    block_open_at = 0
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
@@ -78,6 +82,7 @@ def run_text_llm(llm, params):
                         "type": "message",
                         "content": accumulated[cursor:fence_at],
                     }
+                block_open_at = fence_at
                 cursor = fence_at + len(FENCE)
                 inside_code_block = True
                 continue
@@ -133,9 +138,18 @@ def run_text_llm(llm, params):
                 }
             return
 
-    # The stream ended with backticks still held back, so they were literal
-    # text rather than the start of a fence. Emit them instead of dropping them.
-    if cursor < len(accumulated):
+    # The stream ended with something still unemitted.
+    if inside_code_block and language is None:
+        # The fence opened but its language line never finished, so this was
+        # never confirmed as a code block. Emit the fence and whatever label
+        # text arrived as literal message content rather than swallowing it —
+        # the whole point of this function is to never silently drop what the
+        # model sent.
+        yield {"type": "message", "content": accumulated[block_open_at:]}
+    elif cursor < len(accumulated):
+        # Backticks were held back for fence disambiguation and turned out to
+        # be literal text, or a code body ran to the end without a closing
+        # fence.
         if not inside_code_block:
             yield {"type": "message", "content": accumulated[cursor:]}
         elif language:

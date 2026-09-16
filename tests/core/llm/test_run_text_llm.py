@@ -236,3 +236,24 @@ def test_fence_split_across_deltas_yields_the_same_code():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+@pytest.mark.parametrize(
+    "chunks,expected",
+    [
+        (["```py"], "```py"),
+        (["```"], "```"),
+        (["```", "pyth"], "```pyth"),
+    ],
+)
+def test_a_fence_cut_off_before_its_language_line_is_not_dropped(chunks, expected):
+    """A stream that opens a fence but ends before the language line completes.
+
+    The fence and any partial label were consumed into the code-block state but
+    the language line never finished, so nothing was emitted and the text was
+    lost. This function exists to never silently drop what the model sent, so
+    an unconfirmed fence is flushed as literal message content at end of stream.
+    """
+    llm = _make_llm([{"choices": [{"delta": {"content": c}}]} for c in chunks])
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert "".join(c["content"] for c in result) == expected
