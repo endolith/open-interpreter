@@ -21,6 +21,131 @@ import tokentrim as tt
 
 from .providers import OpenRouterCatalogError, openrouter_model_entry
 
+# An image's token cost is charged flat by detail level, but the flat rate varies
+# by model: the gpt-4o family bills 85/765, while gpt-4o-mini's smaller image
+# grid bills 2833/5667. The gpt-4o numbers are the defaults for providers whose
+# contract we do not know. These size the text stand-in that stands in for the
+# image while tokentrim counts the message.
+_IMAGE_TOKENS_LOW = 85
+_IMAGE_TOKENS_HIGH = 765
+_IMAGE_TOKENS_BY_MODEL = {"gpt-4o-mini": (2833, 5667)}
+_IMAGE_OMITTED_TEXT = "[image omitted: it did not fit in the context window]"
+# Tokens the omission placeholder costs, rounded up (it is ~13). A stand-in that
+# tokentrim shortened is replaced by this longer text, so the merged request is
+# bigger than the one tokentrim validated; the budget is reduced by this much
+# per image to keep the oversized placeholder inside the window.
+_IMAGE_OMITTED_TOKENS = 16
+
+
+def _trim_budget(context_window, max_tokens, omitted_images):
+    """Tokens to keep, after reserving room for image omission placeholders.
+
+    `tokentrim` validates the shortened stand-ins, not the placeholders that
+    replace them afterwards, so each image message can add up to
+    `_IMAGE_OMITTED_TOKENS` tokens back to the merged request. Reserving that
+    space keeps the reserved-for-response branch (which subtracts `max_tokens`)
+    and the context-window-only branch (which had no buffer at all) from
+    exceeding the window.
+    """
+    budget = context_window
+    if max_tokens:
+        # Pre-existing buffer for the response.
+        budget -= max_tokens + 25
+    return max(1, budget - omitted_images * _IMAGE_OMITTED_TOKENS)
+
+
+def _image_token_cost(content, model=None):
+    """Approximate token cost of a message's image parts, as the provider bills.
+
+    tokentrim counts a message by str()-ing its content, so an image's base64
+    (megabytes) is counted as over a million tokens — which both evicts real
+    history to make room for phantom tokens and, because the content is a list,
+    makes tokentrim's shortening step raise TypeError. This is the real cost to
+    charge instead.
+
+    The rate is model-dependent: 85 understates a gpt-4o-mini image by ~2,700
+    tokens each, enough for two images to put a near-limit request back over
+    the provider's context window. An unknown model falls back to the gpt-4o
+    rate rather than guessing.
+    """
+    low, high = _IMAGE_TOKENS_BY_MODEL.get(
+        (model or "").rsplit("/", 1)[-1].lower(),
+        (_IMAGE_TOKENS_LOW, _IMAGE_TOKENS_HIGH),
+    )
+    total = 0
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == "image_url":
+            detail = (part.get("image_url") or {}).get("detail", "low")
+            total += low if detail == "low" else high
+    return total
+
+
+def _stand_in_for_images(messages, model=None):
+    """Return (trimmable, real_by_id, stand_in_content_by_id): messages with
+    images replaced by a same-cost text stand-in, plus a map from each
+    stand-in's id back to the real message and one from its id to the stand-in
+    content it was built with.
+
+    tokentrim returns the same dict objects it was given (it appends references
+    and shortens in place), so identity is preserved across the trim. The
+    content map lets the caller tell a stand-in it left untouched (restore the
+    real image) from one it shortened (drop it — restoring the full image would
+    put the request back over budget). Non-image messages pass through
+    unchanged.
+    """
+    trimmable = []
+    real_by_id = {}
+    stand_in_content_by_id = {}
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            cost = _image_token_cost(content, model)
+            # An image message can also carry text parts (a computer tool
+            # output, or a "path" message); they count toward the budget too,
+            # so fold them into the stand-in. "image" is one token, so the
+            # image part of the stand-in is about `cost` tokens.
+            text = " ".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+            stand_in_content = (text + " " if text else "") + "image " * cost
+            stand_in = {
+                "role": message.get("role", "user"),
+                "content": stand_in_content,
+            }
+            real_by_id[id(stand_in)] = message
+            stand_in_content_by_id[id(stand_in)] = stand_in_content
+            trimmable.append(stand_in)
+        else:
+            trimmable.append(message)
+    return trimmable, real_by_id, stand_in_content_by_id
+
+
+def _merge_trimmed_images(messages, real_by_id, stand_in_content_by_id):
+    """Map trimmed stand-ins back to the real image messages for the request.
+
+    A stand-in tokentrim left untouched is replaced by the real message. One it
+    shortened cannot be restored without undoing the trim, so it becomes a
+    visible placeholder instead of disappearing — dropping the only user turn
+    would make the request malformed or silently omit the image. Non-stand-ins
+    map to themselves.
+    """
+    merged = []
+    for message in messages:
+        real = real_by_id.get(id(message), message)
+        if (
+            id(message) in stand_in_content_by_id
+            and message.get("content") != stand_in_content_by_id[id(message)]
+        ):
+            merged.append(
+                {"role": message.get("role", "user"), "content": _IMAGE_OMITTED_TEXT}
+            )
+        else:
+            merged.append(real)
+    return merged
+
+
 from .run_text_llm import run_text_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.convert_to_openai_messages import convert_to_openai_messages
@@ -256,23 +381,29 @@ class Llm:
         system_message = messages[0]["content"]
         messages = messages[1:]
 
-        # Trim messages
+        # Trim messages. tokentrim over-counts a vision image by str()-ing its
+        # base64 (millions of tokens) and cannot shorten its list content, so
+        # trim a same-cost text stand-in and map the survivors back to the real
+        # messages afterwards.
+        messages, _real_by_id, _stand_in_content_by_id = _stand_in_for_images(
+            messages, self.model
+        )
+        omitted_images = len(_real_by_id)
         try:
             if self.context_window and self.max_tokens:
-                trim_to_be_this_many_tokens = (
-                    self.context_window - self.max_tokens - 25
-                )  # arbitrary buffer
                 messages = tt.trim(
                     messages,
                     system_message=system_message,
-                    max_tokens=trim_to_be_this_many_tokens,
+                    max_tokens=_trim_budget(
+                        self.context_window, self.max_tokens, omitted_images
+                    ),
                 )
             elif self.context_window and not self.max_tokens:
                 # Just trim to the context window if max_tokens not set
                 messages = tt.trim(
                     messages,
                     system_message=system_message,
-                    max_tokens=self.context_window,
+                    max_tokens=_trim_budget(self.context_window, 0, omitted_images),
                 )
             else:
                 try:
@@ -315,6 +446,13 @@ Continuing...
             messages = [{"role": "system", "content": system_message}] + messages
 
             pass
+
+        # Drop any stand-in tokentrim shortened and put the real image content
+        # back for the ones it left intact (tokentrim returns the same objects,
+        # so identity holds). See _merge_trimmed_images.
+        messages = _merge_trimmed_images(
+            messages, _real_by_id, _stand_in_content_by_id
+        )
 
         # If there should be a system message, there should be a system message!
         # Empty system messages appear to be deleted :(
