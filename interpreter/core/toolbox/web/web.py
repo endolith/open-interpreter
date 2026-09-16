@@ -85,6 +85,42 @@ class WebToolboxError(Exception):
         return [f"WebToolboxError: {self}"]
 
 
+# Default per-backend wait: every network call is bounded so a stalled
+# backend fails fast and auto-select moves on instead of hanging the session.
+DEFAULT_TIMEOUT = 30
+
+
+def _run_with_timeout(func, timeout, backend_name):
+    """Run func() on a daemon thread, raising WebToolboxError if it exceeds timeout.
+
+    Needed for SDK calls with no usable timeout of their own (linkup 0.2.x
+    hardcodes timeout=None; serpapi defaults to 60000s). The thread is a
+    daemon so a hung backend cannot block interpreter shutdown; it is
+    abandoned, not killed, on timeout.
+    """
+    import threading
+
+    result = {}
+
+    def target():
+        try:
+            result["value"] = func()
+        except Exception as exc:  # Capture, don't let the thread die silently.
+            result["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise WebToolboxError(
+            f"{backend_name} timed out after {timeout}s. "
+            "Try a different backend or pass a longer timeout."
+        )
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
 class ResultItem(dict):
     """A single result entry (search hit, source, page, or passage). Forgiving by design.
 
@@ -705,7 +741,7 @@ class Web:
             "raw_response": raw_response
         }
 
-    def _search_brave(self, query, count=10, country_code=None, language_code=None, safesearch="moderate", **kwargs):
+    def _search_brave(self, query, count=10, country_code=None, language_code=None, safesearch="moderate", timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search using Brave Search API backend.
 
@@ -746,7 +782,7 @@ class Web:
         }
 
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=60)
+            response = requests.get(url, headers=headers, params=params, timeout=timeout)
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
@@ -763,7 +799,7 @@ class Web:
 
         return normalized
 
-    def _search_serper(self, query, num=10, type="search", country_code=None, language_code=None, autocorrect=True, **kwargs):
+    def _search_serper(self, query, num=10, type="search", country_code=None, language_code=None, autocorrect=True, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search using Serper API (Google search) backend.
 
@@ -816,7 +852,7 @@ class Web:
         }
 
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
@@ -845,7 +881,7 @@ class Web:
 
         return normalized
 
-    def _search_serpapi(self, query, num=10, engine="google", country_code=None, language_code=None, **kwargs):
+    def _search_serpapi(self, query, num=10, engine="google", country_code=None, language_code=None, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search using SerpApi backend (supports multiple search engines).
 
@@ -915,7 +951,8 @@ class Web:
                     "hl": language_code,
                 }
                 search = GoogleSearch(search_params)
-                data = search.get_dict()
+                # SerpApi's client defaults to a 60000s timeout: guard it.
+                data = _run_with_timeout(search.get_dict, timeout, "SerpApi")
             elif engine in specific_class_engines:
                 # Use specific class for non-Google engines
                 class_name = specific_class_engines[engine]
@@ -947,7 +984,8 @@ class Web:
                     search_params["hl"] = language_code
 
                 search = SearchClass(search_params)
-                data = search.get_dict()
+                # SerpApi's client defaults to a 60000s timeout: guard it.
+                data = _run_with_timeout(search.get_dict, timeout, "SerpApi")
             else:
                 raise WebToolboxError(
                     f"Engine '{engine}' is not supported. Supported engines: "
@@ -1007,7 +1045,7 @@ class Web:
 
         return normalized
 
-    def _search_tavily(self, query, max_results=10, country_code=None, language_code=None, **kwargs):
+    def _search_tavily(self, query, max_results=10, country_code=None, language_code=None, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search using Tavily backend (just search results, no AI answer).
 
@@ -1040,6 +1078,7 @@ class Web:
                 "query": query,
                 "max_results": max_results,
                 "include_answer": False,  # Just search results, no AI answer
+                "timeout": min(timeout, 120),  # Tavily caps at 120s
                 **kwargs
             }
 
@@ -1058,7 +1097,7 @@ class Web:
 
         return normalized
 
-    def _search_linkup(self, query, depth="standard", country_code=None, language_code=None, **kwargs):
+    def _search_linkup(self, query, depth="standard", country_code=None, language_code=None, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search using LinkUp backend (searchResults mode).
 
@@ -1094,7 +1133,8 @@ class Web:
                 **kwargs
             }
 
-            response = client.search(**search_params)
+            # linkup-sdk 0.2.x hardcodes timeout=None: guard it.
+            response = _run_with_timeout(lambda: client.search(**search_params), timeout, "LinkUp")
         except Exception as e:
             self._handle_api_request_error("LinkUp", e)
 
@@ -1171,7 +1211,7 @@ class Web:
         kind_label = f"{kind} " if kind else ""
         return f"No {kind_label}backends are working. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
 
-    def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> SearchResult:
+    def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> SearchResult:
         """
         Search the web for links and snippets. Open hits only via result.fetch(i) / result.search_page(i, query) — never hardcode or guess URLs.
 
@@ -1185,7 +1225,8 @@ class Web:
             country_code (str, optional): 2-letter country code for localized results (e.g., "US", "GB", "FR").
                                           Defaults to system locale. Supported by: brave, serpapi, serper.
             language_code (str, optional): 2-letter language code for search interface (e.g., "en", "es", "fr").
-                                           Defaults to system locale. Supported by: brave, serpapi, serper.
+                                            Defaults to system locale. Supported by: brave, serpapi, serper.
+            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
 
                 BRAVE:
@@ -1327,7 +1368,7 @@ class Web:
                     "Try without specifying a backend to auto-select."
                 )
 
-            result = backend_methods[backend](query, **backend_kwargs)
+            result = backend_methods[backend](query, timeout=timeout, **backend_kwargs)
             result["backend"] = backend
             print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
             return SearchResult(result, web=self)
@@ -1341,7 +1382,7 @@ class Web:
             if not self._check_backend_available(backend_name):
                 continue
             try:
-                result = backend_methods[backend_name](query, **backend_kwargs)
+                result = backend_methods[backend_name](query, timeout=timeout, **backend_kwargs)
                 result["backend"] = backend_name
                 print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
                 return SearchResult(result, web=self)
@@ -1355,7 +1396,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def _answer_tavily(self, question, answer_mode="basic", **kwargs):
+    def _answer_tavily(self, question, answer_mode="basic", timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Get AI-generated answer using Tavily backend.
 
@@ -1384,6 +1425,7 @@ class Web:
             search_params = {
                 "query": question,
                 "include_answer": answer_mode,  # "basic" or "advanced"
+                "timeout": min(timeout, 120),  # Tavily caps at 120s
                 **kwargs
             }
 
@@ -1430,7 +1472,7 @@ class Web:
 
         return normalized
 
-    def _answer_linkup(self, question, depth="standard", **kwargs):
+    def _answer_linkup(self, question, depth="standard", timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Get AI-generated answer using LinkUp backend.
 
@@ -1463,7 +1505,8 @@ class Web:
                 **kwargs
             }
 
-            response = client.search(**search_params)
+            # linkup-sdk 0.2.x hardcodes timeout=None: guard it.
+            response = _run_with_timeout(lambda: client.search(**search_params), timeout, "LinkUp")
         except Exception as e:
             # API request failed (network error, rate limit, etc.) - return error dict for fallback
             self._handle_api_request_error("LinkUp", e)
@@ -1490,7 +1533,7 @@ class Web:
 
         return normalized
 
-    def _structured_output_linkup(self, query, structured_output_schema, depth="standard", **kwargs):
+    def _structured_output_linkup(self, query, structured_output_schema, depth="standard", timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Get JSON structured output using LinkUp backend.
 
@@ -1525,7 +1568,8 @@ class Web:
                 **kwargs
             }
 
-            response = client.search(**search_params)
+            # linkup-sdk 0.2.x hardcodes timeout=None: guard it.
+            response = _run_with_timeout(lambda: client.search(**search_params), timeout, "LinkUp")
         except Exception as e:
             # A 400 here is almost always a schema problem, not an auth problem —
             # say so instead of sending the caller to check their API key.
@@ -1558,7 +1602,7 @@ class Web:
 
         return normalized
 
-    def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> AnswerResult:
+    def answer(self, question: str, backend: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> AnswerResult:
         """
         AI-synthesized answer from web sources. PREFERRED for direct questions about current events
 
@@ -1569,6 +1613,7 @@ class Web:
             question (str): MUST be a natural-language question ending in "?", e.g. "What is the best vacuum cleaner in 2026?" — NOT search terms like "best vacuum cleaner 2026". An AI agent reads the web and answers the question for you.
             backend (str, optional): Force a specific backend ("tavily" or "linkup").
                                      If None, auto-selects based on availability.
+            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 - For tavily: answer_mode ("basic" or "advanced"), search_depth, etc.
                 - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
@@ -1592,7 +1637,7 @@ class Web:
                     "Supported backends for answer: 'tavily', 'linkup'. Try without specifying a backend to auto-select."
                 )
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
-            result = backend_methods[backend](question, **kwargs)
+            result = backend_methods[backend](question, timeout=timeout, **kwargs)
             result["backend"] = backend
             print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
             return AnswerResult(result, web=self)
@@ -1608,7 +1653,7 @@ class Web:
             if not self._check_backend_available(backend_name):
                 continue
             try:
-                result = backend_methods[backend_name](question, **kwargs)
+                result = backend_methods[backend_name](question, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
                 print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
                 return AnswerResult(result, web=self)
@@ -1624,7 +1669,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", **kwargs) -> StructuredOutputResult:
+    def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", timeout: float = DEFAULT_TIMEOUT, **kwargs) -> StructuredOutputResult:
         """
         Search and extract specific fields (simple field map, JSON schema, or Pydantic). PREFERRED for data extraction.
 
@@ -1639,6 +1684,7 @@ class Web:
                 schema dict, a JSON string, or a Pydantic model class.
                 A dict with a "properties" mapping is treated as a full schema.
             backend (str, optional): Force a specific backend (default: "linkup").
+            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 - For linkup: depth ("standard" or "deep"), etc.
 
@@ -1711,7 +1757,7 @@ class Web:
                     "Only LinkUp currently supports structured output via backend='linkup'."
                 )
             backend_methods = {"linkup": self._structured_output_linkup}
-            result = backend_methods[backend](query, schema, **kwargs)
+            result = backend_methods[backend](query, schema, timeout=timeout, **kwargs)
             result["backend"] = backend
             print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
             return StructuredOutputResult(result, web=self)
@@ -1725,7 +1771,7 @@ class Web:
             if not self._check_backend_available(backend_name):
                 continue
             try:
-                result = backend_methods[backend_name](query, schema, **kwargs)
+                result = backend_methods[backend_name](query, schema, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
                 print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
                 return StructuredOutputResult(result, web=self)
@@ -1741,7 +1787,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def _fetch_serper(self, url, **kwargs):
+    def _fetch_serper(self, url, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Fetch web page content using Serper API (scrape.serper.dev).
 
@@ -1773,7 +1819,7 @@ class Web:
         }
 
         try:
-            response = requests.post(scrape_url, headers=headers, data=json.dumps(payload), timeout=60)
+            response = requests.post(scrape_url, headers=headers, data=json.dumps(payload), timeout=timeout)
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException as e:
@@ -1793,7 +1839,7 @@ class Web:
 
         return normalized
 
-    def _fetch_linkup(self, url, render_js=False, **kwargs):
+    def _fetch_linkup(self, url, render_js=False, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Fetch web page content using LinkUp backend.
 
@@ -1838,7 +1884,9 @@ class Web:
                 **kwargs
             }
 
-            response = client.fetch(**fetch_params)
+            # Guard: old SDKs hardcode timeout=None and lack fetch entirely
+            # (the capability check above already rejected those).
+            response = _run_with_timeout(lambda: client.fetch(**fetch_params), timeout, "LinkUp")
         except Exception as e:
             self._handle_api_request_error("LinkUp", e)
 
@@ -1864,7 +1912,7 @@ class Web:
 
         return normalized
 
-    def _fetch_tavily(self, urls, extract_depth=None, **kwargs):
+    def _fetch_tavily(self, urls, extract_depth=None, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Fetch web page content using Tavily extract endpoint.
 
@@ -1904,7 +1952,7 @@ class Web:
 
             # Build extract parameters
             # According to Tavily docs, format defaults to "markdown" which is what we want
-            extract_params = {"urls": urls, "format": "markdown"}
+            extract_params = {"urls": urls, "format": "markdown", "timeout": timeout}
             if extract_depth is not None:
                 extract_params["extract_depth"] = extract_depth
             extract_params.update(kwargs)
@@ -1961,7 +2009,7 @@ class Web:
 
         return normalized
 
-    def _vanshul_mcp_call(self, tool_name, arguments, timeout=60):
+    def _vanshul_mcp_call(self, tool_name, arguments, timeout=DEFAULT_TIMEOUT):
         """
         Call a tool on the public Vanshul MCP reader (https://mcp.vanshul.com/mcp).
 
@@ -2005,7 +2053,7 @@ class Web:
         except (ValueError, TypeError):
             return text
 
-    def _fetch_vanshul(self, url, max_chars=None, **kwargs):
+    def _fetch_vanshul(self, url, max_chars=None, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Fetch web page content using the Vanshul MCP reader backend.
 
@@ -2023,7 +2071,7 @@ class Web:
         arguments = {"url": url}
         if max_chars is not None:
             arguments["max_chars"] = max_chars
-        content = self._vanshul_mcp_call("fetch_markdown", arguments)
+        content = self._vanshul_mcp_call("fetch_markdown", arguments, timeout=timeout)
         if isinstance(content, dict):
             # Defensive: if the endpoint ever returns JSON, stringify it.
             content = json.dumps(content)
@@ -2043,7 +2091,7 @@ class Web:
         # Title is best-effort; metadata failures must not fail the fetch.
         title = ""
         try:
-            metadata = self._vanshul_mcp_call("fetch_metadata", {"url": url})
+            metadata = self._vanshul_mcp_call("fetch_metadata", {"url": url}, timeout=timeout)
             if isinstance(metadata, dict):
                 title = metadata.get("title", "") or ""
         except WebToolboxError:
@@ -2055,7 +2103,7 @@ class Web:
             "raw_response": {"content": content, "title": title},
         }
 
-    def _search_page_vanshul(self, url, query, max_results=5, context_chars=500, **kwargs):
+    def _search_page_vanshul(self, url, query, max_results=5, context_chars=500, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search within a page using the Vanshul MCP reader backend (search_page tool).
 
@@ -2075,6 +2123,7 @@ class Web:
         payload = self._vanshul_mcp_call(
             "search_page",
             {"url": url, "query": query, "max_matches": max_results, "context_chars": context_chars},
+            timeout=timeout,
         )
         if isinstance(payload, str) and payload.strip().lower().startswith("error:"):
             raise WebToolboxError(
@@ -2102,7 +2151,7 @@ class Web:
             "raw_response": payload,
         }
 
-    def _search_page_tavily(self, url, query, max_results=5, **kwargs):
+    def _search_page_tavily(self, url, query, max_results=5, timeout=DEFAULT_TIMEOUT, **kwargs):
         """
         Search within a page using Tavily extract with query-scoped extraction.
 
@@ -2127,7 +2176,7 @@ class Web:
 
         try:
             client = TavilyClient(api_key=api_key)
-            extract_params = {"urls": [url], "query": query, "format": "markdown"}
+            extract_params = {"urls": [url], "query": query, "format": "markdown", "timeout": timeout}
             if "chunks_per_source" not in kwargs:
                 extract_params["chunks_per_source"] = max_results
             extract_params.update(kwargs)
@@ -2163,12 +2212,12 @@ class Web:
             }))
         return {"url": url, "query": query, "matches": matches, "raw_response": response}
 
-    def _search_page_via_fetch(self, fetch_backend, url, query, max_results=5, context_chars=500):
+    def _search_page_via_fetch(self, fetch_backend, url, query, max_results=5, context_chars=500, timeout=DEFAULT_TIMEOUT):
         """
         Emulate within-page search for backends with no native support (serper, linkup):
         fetch the full page, then match locally. Scores are None (unranked, document order).
         """
-        page = self.fetch(url, backend=fetch_backend)
+        page = self.fetch(url, backend=fetch_backend, timeout=timeout)
         snippets = page.find(query, context=context_chars, max_results=max_results)
         return {
             "url": url,
@@ -2177,7 +2226,7 @@ class Web:
             "raw_response": {"emulated_via_fetch": page.get("backend", fetch_backend)},
         }
 
-    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
+    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> FetchResult:
         """
         Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens. Pass only URLs taken from search results; never invent them.
 
@@ -2191,6 +2240,7 @@ class Web:
                                      If None, auto-selects based on availability.
             render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
             extract_depth (str, optional): Extraction depth - "basic" or "advanced". Supported by: tavily (defaults to API default if not specified)
+            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
 
                 VANSHUL (no API key required, free public service https://mcp.vanshul.com/mcp):
@@ -2276,14 +2326,14 @@ class Web:
                         f"Backend '{backend}' does not support multi-URL fetch (urls=[...]). "
                         "Use backend='tavily' for multi-URL fetch."
                     )
-                result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
+                result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, timeout=timeout, **{k: v for k, v in kwargs.items() if k != "urls"})
             elif backend == "tavily":
-                result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
+                result = backend_methods[backend]([url], extract_depth=extract_depth, timeout=timeout, **kwargs)
                 result = _normalize_tavily_single_page(result)
             elif backend == "linkup":
-                result = backend_methods[backend](url, render_js=render_js, **kwargs)
+                result = backend_methods[backend](url, render_js=render_js, timeout=timeout, **kwargs)
             else:
-                result = backend_methods[backend](url, **kwargs)
+                result = backend_methods[backend](url, timeout=timeout, **kwargs)
 
             result["backend"] = backend
             fetch_result = FetchResult(result)
@@ -2306,14 +2356,14 @@ class Web:
                 continue
             try:
                 if is_multi_url:
-                    result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
+                    result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, timeout=timeout, **{k: v for k, v in kwargs.items() if k != "urls"})
                 elif backend_name == "tavily":
-                    result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
+                    result = backend_methods[backend_name]([url], extract_depth=extract_depth, timeout=timeout, **kwargs)
                     result = _normalize_tavily_single_page(result)
                 elif backend_name == "linkup":
-                    result = backend_methods[backend_name](url, render_js=render_js, **kwargs)
+                    result = backend_methods[backend_name](url, render_js=render_js, timeout=timeout, **kwargs)
                 else:
-                    result = backend_methods[backend_name](url, **kwargs)
+                    result = backend_methods[backend_name](url, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
                 fetch_result = FetchResult(result)
                 if not is_multi_url:
@@ -2333,7 +2383,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def search_page(self, url: str, query: str, backend: Optional[str] = None, max_results: int = 5, context_chars: int = 500, **kwargs) -> PageSearchResult:
+    def search_page(self, url: str, query: str, backend: Optional[str] = None, max_results: int = 5, context_chars: int = 500, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> PageSearchResult:
         """
         Search within a single page for passages matching a query. PREFERRED over fetch() when you only need a detail.
 
@@ -2353,6 +2403,7 @@ class Web:
                                For tavily this maps to chunks_per_source unless overridden in kwargs.
             context_chars (int): Per-passage character budget (default: 500).
                                  Supported by: vanshul (50-4000); used as local context window for emulated backends.
+            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 TAVILY:
                     - chunks_per_source (int): Max chunks per source (defaults to max_results)
@@ -2385,13 +2436,15 @@ class Web:
             if backend in native_methods:
                 if backend == "vanshul":
                     result = native_methods[backend](
-                        url, query, max_results=max_results, context_chars=context_chars, **kwargs
+                        url, query, max_results=max_results, context_chars=context_chars,
+                        timeout=timeout, **kwargs
                     )
                 else:
-                    result = native_methods[backend](url, query, max_results=max_results, **kwargs)
+                    result = native_methods[backend](url, query, max_results=max_results, timeout=timeout, **kwargs)
             elif backend in emulated_backends:
                 result = self._search_page_via_fetch(
-                    backend, url, query, max_results=max_results, context_chars=context_chars
+                    backend, url, query, max_results=max_results, context_chars=context_chars,
+                    timeout=timeout,
                 )
             else:
                 raise WebToolboxError(
@@ -2413,10 +2466,11 @@ class Web:
             try:
                 if backend_name == "vanshul":
                     result = native_methods[backend_name](
-                        url, query, max_results=max_results, context_chars=context_chars, **kwargs
+                        url, query, max_results=max_results, context_chars=context_chars,
+                        timeout=timeout, **kwargs
                     )
                 else:
-                    result = native_methods[backend_name](url, query, max_results=max_results, **kwargs)
+                    result = native_methods[backend_name](url, query, max_results=max_results, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
                 print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
                 return PageSearchResult(result, web=self)
@@ -2432,7 +2486,8 @@ class Web:
         if fetch_available:
             try:
                 result = self._search_page_via_fetch(
-                    None, url, query, max_results=max_results, context_chars=context_chars
+                    None, url, query, max_results=max_results, context_chars=context_chars,
+                    timeout=timeout,
                 )
                 result["backend"] = result.get("raw_response", {}).get("emulated_via_fetch") or "fetch"
                 print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")

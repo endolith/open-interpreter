@@ -112,7 +112,7 @@ class TestWebToolbox(unittest.TestCase):
             "fetch_markdown": "Hello **world**",
             "fetch_metadata": {"title": "Example Domain"},
         }
-        with patch.object(self.web, "_vanshul_mcp_call", side_effect=lambda name, args: payloads[name]):
+        with patch.object(self.web, "_vanshul_mcp_call", side_effect=lambda name, args, **kw: payloads[name]):
             result = self.web.fetch("https://example.com", backend="vanshul")
             self.assertEqual(result["backend"], "vanshul")
             self.assertEqual(result["url"], "https://example.com")
@@ -121,7 +121,7 @@ class TestWebToolbox(unittest.TestCase):
 
     def test_fetch_vanshul_metadata_failure_still_returns_content(self):
         """Verify a metadata failure degrades to an empty title instead of failing the fetch."""
-        def fake_call(name, args):
+        def fake_call(name, args, **kw):
             if name == "fetch_markdown":
                 return "Some content"
             raise WebToolboxError("metadata failed")
@@ -415,7 +415,7 @@ class TestWebToolbox(unittest.TestCase):
         with patch.object(self.web, "_fetch_vanshul", return_value=dict(page)) as mock_fetch:
             result = self.web.fetch("example.com", backend="vanshul")
             self.assertEqual(result["url"], "https://example.com")
-            mock_fetch.assert_called_once_with("https://example.com")
+            mock_fetch.assert_called_once_with("https://example.com", timeout=30)
 
 
     def test_fetch_rejects_malformed_urls(self):
@@ -618,6 +618,58 @@ class TestWebToolbox(unittest.TestCase):
                 mock_via.assert_not_called()
                 self.assertIn("SERPER_API_KEY", msg)
                 self.assertIn("unavailable", msg)
+
+    def test_run_with_timeout_fires(self):
+        """Verify the thread guard returns fast values, propagates errors, and times out stalls."""
+        import time
+        from interpreter.core.toolbox.web.web import _run_with_timeout
+        self.assertEqual(_run_with_timeout(lambda: 42, 5, "Test"), 42)
+        with self.assertRaises(ValueError):
+            _run_with_timeout(lambda: (_ for _ in ()).throw(ValueError("boom")), 5, "Test")
+        started = time.time()
+        with self.assertRaises(WebToolboxError) as context:
+            _run_with_timeout(lambda: time.sleep(30), 0.3, "TestBackend")
+        self.assertLess(time.time() - started, 10)
+        self.assertIn("timed out", str(context.exception))
+
+    def test_linkup_search_timeout_guard(self):
+        """Verify a stalled linkup SDK call fails fast instead of hanging forever."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch("linkup.LinkupClient") as MockClient:
+                import time
+                mock_instance = MockClient.return_value
+                mock_instance.search.side_effect = lambda **kw: time.sleep(30)
+                started = time.time()
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.search("q", backend="linkup", timeout=0.3)
+                self.assertLess(time.time() - started, 10)
+                self.assertIn("timed out", str(context.exception))
+
+    def test_serpapi_search_timeout_guard(self):
+        """Verify a stalled serpapi call fails fast despite the SDK's 60000s default."""
+        with patch.dict(os.environ, {"SERPAPI_API_KEY": "fake_key"}):
+            with patch("serpapi.GoogleSearch") as MockSearch:
+                import time
+                mock_instance = MockSearch.return_value
+                mock_instance.get_dict.side_effect = lambda: time.sleep(30)
+                started = time.time()
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.search("q", backend="serpapi", timeout=0.3)
+                self.assertLess(time.time() - started, 10)
+                self.assertIn("timed out", str(context.exception))
+
+    def test_timeout_threaded_to_requests_backend(self):
+        """Verify the public timeout reaches the requests call and defaults to 30."""
+        from interpreter.core.toolbox.web.web import DEFAULT_TIMEOUT
+        self.assertEqual(DEFAULT_TIMEOUT, 30)
+        with patch.dict(os.environ, {"SERPER_API_KEY": "fake_key"}):
+            with patch("interpreter.core.toolbox.web.web.requests.post") as mock_post:
+                mock_response = MagicMock()
+                mock_response.json.return_value = {"organic": []}
+                mock_response.raise_for_status.return_value = None
+                mock_post.return_value = mock_response
+                self.web.fetch("https://example.com", backend="serper", timeout=7)
+                self.assertEqual(mock_post.call_args.kwargs["timeout"], 7)
 
 if __name__ == "__main__":
     unittest.main()
