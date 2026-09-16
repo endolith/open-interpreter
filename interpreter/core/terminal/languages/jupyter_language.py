@@ -624,18 +624,34 @@ print(__oi_res)
         self.finish_flag = False
         self._execute_code(state_code.strip(), message_queue)
 
+        # Buffer the state output until the kernel goes idle, then extract
+        # the hidden fingerprint marker from the COMPLETE text. The marker
+        # is one long line that can arrive split across stream messages (or
+        # glued to other text) — line-anchored parsing of individual chunks
+        # leaks raw marker text into visible output.
+        buf = ""
+        template = None
         for output in self._capture_output(message_queue):
-            if output.get("type") == "console" and output.get("format") == "output":
-                # The marker and the REPL-state line can arrive in the same
-                # stream chunk, so handle them line by line: parse the hidden
-                # fingerprint marker, show everything else.
-                for line in output.get("content").split("\n"):
-                    if line.startswith("##oi_fp##"):
-                        self._update_fingerprints(line)
-                    elif line:
-                        yield {**output, "content": line}
+            content = output.get("content")
+            if (
+                output.get("type") == "console"
+                and output.get("format") == "output"
+                and isinstance(content, str)
+            ):
+                buf += content
+                template = {**output}
                 continue
             yield output
+        m = re.search(r"##oi_fp##([^\r\n]*)", buf)
+        if m:
+            self._update_fingerprints("##oi_fp##" + m.group(1))
+        clean = re.sub(r"##oi_fp##[^\r\n]*", "", buf)
+        for line in clean.split("\n"):
+            if line:
+                yield {
+                    **(template or {"type": "console", "format": "output"}),
+                    "content": line,
+                }
 
     _STATE_MODULES_RE = re.compile(r"Already imported:\s*([^|\]]*)")
 
