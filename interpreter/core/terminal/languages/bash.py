@@ -7,7 +7,7 @@ from .subprocess_language import SubprocessLanguage
 class Bash(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "sh"
     name = "bash"
-    execute_tool_hint = "GNU bash — export VAR=value; always bash, never the login shell (fish/zsh)"
+    execute_tool_hint = "GNU bash — export VAR=value; always bash, never the login shell (fish/zsh). One command per line for readability."
     # POSIX escaping: `cd My\ Documents` is one path with a space.
     cd_unescape_backslashes = True
 
