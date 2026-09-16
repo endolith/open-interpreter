@@ -53,15 +53,28 @@ class JupyterLanguage(BaseLanguage):
             # On Windows, Ctrl+C is delivered to every process attached to the
             # console, including the kernel subprocess. An idle kernel then
             # dies with "IndexError: pop from an empty deque" in its asyncio
-            # loop (tornado), printing a traceback on exit. Starting it as an
-            # independent process puts it in its own process group
-            # (CREATE_NEW_PROCESS_GROUP) so it never sees the console Ctrl+C.
-            # Interrupts still work: jupyter_client interrupts via the
-            # JPY_INTERRUPT_EVENT, not via console events.
+            # loop (tornado), printing a traceback on exit. Put the kernel in
+            # its own process group (CREATE_NEW_PROCESS_GROUP) so it never
+            # sees the console Ctrl+C.
+            # NOTE: do NOT use independent=True for this: it also drops the
+            # JPY_PARENT_PID handle, and a kernel with no parent handle
+            # prints the scary "ipython kernel entry point, Ctrl-C will not
+            # work" NOTE at startup and would outlive a dead parent.
+            # Passing creationflags explicitly keeps parent-handle + interrupt
+            # event wiring intact. Interrupts still work: jupyter_client
+            # interrupts via JPY_INTERRUPT_EVENT, not console events.
             try:
-                self.km.start_kernel(independent=True)
+                from _winapi import CREATE_NEW_PROCESS_GROUP
+            except ImportError:  # pragma: no cover - win32 fallback
+                try:
+                    from _subprocess import CREATE_NEW_PROCESS_GROUP  # type: ignore[no-redef]
+                except ImportError:
+                    CREATE_NEW_PROCESS_GROUP = 0x00000200
+            try:
+                self.km.start_kernel(creationflags=CREATE_NEW_PROCESS_GROUP)
             except TypeError:
-                # Very old jupyter_client without the `independent` kwarg.
+                # jupyter_client too old to forward Popen kwargs — fall back
+                # to a shared process group (original behavior).
                 self.km.start_kernel()
         else:
             self.km.start_kernel()
