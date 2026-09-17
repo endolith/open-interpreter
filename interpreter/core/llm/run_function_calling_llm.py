@@ -15,7 +15,7 @@ function_schema = {
                     # This will be filled dynamically with the languages OI has access to.
                 ],
             },
-            "code": {"type": "string", "description": "The code to execute (required)"},
+            "code": {"type": "string", "description": "The code to execute (required). For persistent-session languages, append only the next missing operation to the live session; reuse live imports, variables, functions, directories, or environment state already established. Python is the next cell in the same Jupyter/IPython kernel. For stateless/display-only languages, send a complete block."},
         },
         "required": ["language", "code"],
     },
