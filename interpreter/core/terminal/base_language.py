@@ -1,8 +1,8 @@
 # Human-readable labels for execute-tool metadata (one line per mode, not per language).
 EXECUTION_MODE_LABELS = {
-    "repl": "persistent REPL — variables/imports survive across code blocks",
-    "per_block": "stateless — fresh process each block, no state persists",
-    "display": "display only — renders to the user's UI, no code executed",
+    "repl": "persistent REPL — variables/imports survive across code blocks; start from the live session and send only the next missing operation",
+    "per_block": "stateless — fresh process each block; send a complete, self-contained block",
+    "display": "display only — renders to the user's UI, no code executed; send only complete display source",
 }
 
 
