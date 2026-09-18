@@ -160,6 +160,12 @@ class ResultItem(dict):
 
     def __getattr__(self, name):
         """Allow attribute-style access (item.title), including aliases."""
+        if name in ("fetch", "search_page"):
+            raise AttributeError(
+                f"'ResultItem' object has no method '{name}'. Page methods live "
+                f"on the result object, not on items: use result.{name}(i), "
+                f"e.g. result.fetch(0). See result.keys()."
+            )
         try:
             return self[name]
         except KeyError as exc:
