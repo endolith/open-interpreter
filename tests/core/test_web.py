@@ -190,16 +190,15 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertEqual(len(result["matches"]), 1)
                 self.assertIn("Rate limits", result["matches"][0]["snippet"])
 
-    def test_search_page_emulated_via_fetch_backend(self):
-        """Verify backends without native support emulate search via full fetch plus local matching."""
-        from interpreter.core.toolbox.web.web import FetchResult
-        page = FetchResult({"url": "https://example.com", "title": "", "content": "Alpha pricing plans beta", "backend": "serper"})
-        with patch.object(self.web, "fetch", return_value=page):
-            result = self.web.search_page("https://example.com", "pricing", backend="serper")
-            self.assertEqual(result["backend"], "serper")
-            self.assertEqual(len(result["matches"]), 1)
-            self.assertIn("pricing", result["matches"][0]["snippet"])
-            self.assertIsNone(result["matches"][0]["score"])
+    def test_search_page_non_native_backend_guides(self):
+        """Verify serper/linkup point at fetch().find() instead of emulating search."""
+        for backend in ("serper", "linkup"):
+            with self.subTest(backend=backend):
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.search_page("https://example.com", "pricing", backend=backend)
+                msg = str(context.exception)
+                self.assertIn("no native within-page search", msg)
+                self.assertIn("page.find(term)", msg)
 
     def test_search_page_invalid_backend(self):
         """Verify an unknown backend name raises a guidance error listing supported backends."""
@@ -207,18 +206,15 @@ class TestWebToolbox(unittest.TestCase):
             self.web.search_page("https://example.com", "x", backend="brave")
         self.assertIn("vanshul", str(context.exception))
 
-    def test_search_page_auto_falls_through_to_fetch(self):
-        """Verify auto-select falls back to fetch emulation and labels the fetch backend used."""
-        from interpreter.core.toolbox.web.web import FetchResult
-        page = FetchResult({"url": "https://example.com", "title": "", "content": "Hello world", "backend": "serper"})
+    def test_search_page_auto_falls_through_to_vanshul(self):
+        """Verify auto-select falls from tavily failure through to keyless vanshul."""
+        payload = {"url": "https://example.com/", "query": "hello", "count": 1,
+                   "matches": [{"heading": None, "snippet": "Hello world", "score": 1}]}
         with patch.dict(os.environ, {}, clear=True):
-            with patch.object(self.web, "_search_page_vanshul", side_effect=WebToolboxError("down")):
-                with patch.object(self.web, "fetch", return_value=page):
+            with patch.object(self.web, "_search_page_tavily", side_effect=WebToolboxError("down")):
+                with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
                     result = self.web.search_page("https://example.com", "hello")
-                    # Vanshul raises, tavily has no key, so emulation via fetch() handles it,
-                    # labeled with the fetch backend actually used (feedable back into backend=).
-                    self.assertEqual(result["backend"], "serper")
-                    self.assertEqual(result["raw_response"]["emulated_via_fetch"], "serper")
+                    self.assertEqual(result["backend"], "vanshul")
                     self.assertEqual(len(result["matches"]), 1)
 
     def test_page_search_result_fetch_returns_full_page(self):
@@ -626,28 +622,23 @@ class TestWebToolbox(unittest.TestCase):
         self.assertNotIn("https://example.com/a/b?c=d", text)
         self.assertNotIn("https://example.org/e", text)
 
-    def test_search_page_total_failure_reports_emulation_reason(self):
-        """Verify total failure surfaces the real emulation error, not a pseudo-backend key."""
+    def test_search_page_total_failure_reports_reasons(self):
+        """Verify total failure surfaces each native backend's reason."""
         with patch.dict(os.environ, {"TAVILY_API_KEY": "fake"}, clear=True):
             with patch.object(self.web, "_search_page_tavily", side_effect=WebToolboxError("tavily down")):
                 with patch.object(self.web, "_search_page_vanshul", side_effect=WebToolboxError("vanshul down")):
-                    with patch.object(self.web, "_search_page_via_fetch", side_effect=WebToolboxError("emulated boom")):
-                        with self.assertRaises(WebToolboxError) as context:
-                            self.web.search_page("https://example.com", "q")
-                        msg = str(context.exception)
-                        self.assertIn("emulated boom", msg)
-                        self.assertNotIn("any fetch backend key", msg)
+                    with self.assertRaises(WebToolboxError) as context:
+                        self.web.search_page("https://example.com", "q")
+                    msg = str(context.exception)
+                    self.assertIn("tavily down", msg)
+                    self.assertIn("vanshul down", msg)
 
-    def test_search_page_no_backends_names_real_keys(self):
-        """Verify total unavailability names real fetch keys instead of a pseudo-backend."""
+    def test_search_page_no_backends_names_keys(self):
+        """Verify total unavailability names the real keys that would unlock backends."""
         with patch.object(self.web, "_check_backend_available", return_value=False):
-            with patch.object(self.web, "_search_page_via_fetch") as mock_via:
-                with self.assertRaises(WebToolboxError) as context:
-                    self.web.search_page("https://example.com", "q")
-                msg = str(context.exception)
-                mock_via.assert_not_called()
-                self.assertIn("SERPER_API_KEY", msg)
-                self.assertIn("unavailable", msg)
+            with self.assertRaises(WebToolboxError) as context:
+                self.web.search_page("https://example.com", "q")
+            self.assertIn("TAVILY_API_KEY", str(context.exception))
 
     def test_run_with_timeout_fires(self):
         """Verify the thread guard returns fast values, propagates errors, and times out stalls."""

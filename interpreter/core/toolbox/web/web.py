@@ -2236,20 +2236,6 @@ class Web:
             }))
         return {"url": url, "query": query, "matches": matches, "raw_response": response}
 
-    def _search_page_via_fetch(self, fetch_backend, url, query, max_results=5, context_chars=500, timeout=DEFAULT_TIMEOUT):
-        """
-        Emulate within-page search for backends with no native support (serper, linkup):
-        fetch the full page, then match locally. Scores are None (unranked, document order).
-        """
-        page = self.fetch(url, backend=fetch_backend, timeout=timeout)
-        snippets = page.find(query, context=context_chars, max_results=max_results)
-        return {
-            "url": url,
-            "query": query,
-            "matches": [ResultItem({"heading": None, "snippet": s, "score": None}) for s in snippets],
-            "raw_response": {"emulated_via_fetch": page.get("backend", fetch_backend)},
-        }
-
     def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> FetchResult:
         """
         Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens. Pass only URLs taken from search results; never invent them.
@@ -2413,20 +2399,17 @@ class Web:
 
         This method automatically selects the best available backend or uses
         the specified one. Backends are tried in order: tavily (semantic,
-        preferred for paraphrase queries), vanshul (keyless keyword match),
-        then fetch emulation (any fetch backend, unranked; .backend names the
-        fetch backend used and raw_response notes the emulation).
+        preferred for paraphrase queries), vanshul (keyless keyword match).
 
         Args:
             url (str): The URL of the page to search in
             query (str): Space-separated search terms (case-insensitive), e.g. "pricing plans"
-            backend (str, optional): Force a specific backend ("vanshul", "tavily", "serper", or "linkup").
-                                     "serper"/"linkup" have no native page search and emulate it via
-                                     full-page fetch + local matching (unranked). If None, auto-selects.
+            backend (str, optional): Force a specific backend ("vanshul" or "tavily").
+                                     If None, auto-selects based on availability.
             max_results (int): Maximum passages to return (default: 5).
                                For tavily this maps to chunks_per_source unless overridden in kwargs.
             context_chars (int): Per-passage character budget (default: 500).
-                                 Supported by: vanshul (50-4000); used as local context window for emulated backends.
+                                 Supported by: vanshul (50-4000).
             timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 TAVILY:
@@ -2449,30 +2432,30 @@ class Web:
             print(page.content[:500])
         """
         url = _normalize_fetch_url(url)
-        native_methods = {
+        backend_methods = {
             "vanshul": self._search_page_vanshul,
             "tavily": self._search_page_tavily,
         }
-        emulated_backends = ("serper", "linkup")
 
         if backend:
             backend = backend.lower()
-            if backend in native_methods:
+            if backend in backend_methods:
                 if backend == "vanshul":
-                    result = native_methods[backend](
+                    result = backend_methods[backend](
                         url, query, max_results=max_results, context_chars=context_chars,
                         timeout=timeout, **kwargs
                     )
                 else:
-                    result = native_methods[backend](url, query, max_results=max_results, timeout=timeout, **kwargs)
-            elif backend in emulated_backends:
-                result = self._search_page_via_fetch(
-                    backend, url, query, max_results=max_results, context_chars=context_chars,
-                    timeout=timeout,
+                    result = backend_methods[backend](url, query, max_results=max_results, timeout=timeout, **kwargs)
+            elif backend in ("serper", "linkup"):
+                raise WebToolboxError(
+                    f"Backend '{backend}' has no native within-page search. Fetch the "
+                    "page (page = toolbox.web.fetch(url)) and use page.find(term), "
+                    "or use backend='tavily'/'vanshul'."
                 )
             else:
                 raise WebToolboxError(
-                    f"Supported backends for search_page: {', '.join(list(native_methods.keys()) + list(emulated_backends))}. "
+                    "Supported backends for search_page: 'vanshul', 'tavily'. "
                     "Try without specifying a backend to auto-select."
                 )
             result["backend"] = backend
@@ -2480,7 +2463,7 @@ class Web:
             return PageSearchResult(result, web=self)
 
         # Auto-select: tavily first (semantic match, preferred for paraphrase
-        # queries), then vanshul (keyless keyword match), then emulation via fetch().
+        # queries), then vanshul (keyless keyword match).
         backends_to_try = ["tavily", "vanshul"]
         failed_results = []
 
@@ -2489,42 +2472,21 @@ class Web:
                 continue
             try:
                 if backend_name == "vanshul":
-                    result = native_methods[backend_name](
+                    result = backend_methods[backend_name](
                         url, query, max_results=max_results, context_chars=context_chars,
                         timeout=timeout, **kwargs
                     )
                 else:
-                    result = native_methods[backend_name](url, query, max_results=max_results, timeout=timeout, **kwargs)
+                    result = backend_methods[backend_name](url, query, max_results=max_results, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
                 print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
                 return PageSearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
-        # Fall back to emulation via fetch() auto-select (uses its own backend order).
-        # Only attempt this if at least one fetch backend is available.
-        # The label names the fetch backend actually used (feedable back into
-        # backend=); raw_response["emulated_via_fetch"] notes the emulation.
-        fetch_backends = ("serper", "linkup", "tavily", "vanshul")
-        fetch_available = any(self._check_backend_available(b) for b in fetch_backends)
-        if fetch_available:
-            try:
-                result = self._search_page_via_fetch(
-                    None, url, query, max_results=max_results, context_chars=context_chars,
-                    timeout=timeout,
-                )
-                result["backend"] = result.get("raw_response", {}).get("emulated_via_fetch") or "fetch"
-                print("→ result.matches[i]['snippet'] | page=result.fetch() → page.content")
-                return PageSearchResult(result, web=self)
-            except (WebToolboxError, ApiKeyError) as e:
-                failed_results.append(("fetch", e))
-
-        # "fetch" is not a real backend, so it gets its own message instead of
-        # going through _build_no_backends_error (which would print a nonsense
-        # key name and swallow the actual emulation failure).
         message = self._build_no_backends_error(
             backends_to_try,
-            [(b, e) for b, e in failed_results if b != "fetch"],
+            failed_results,
             backend_to_package={
                 "vanshul": "requests (built-in)",
                 "tavily": "tavily-python",
@@ -2535,13 +2497,4 @@ class Web:
             },
             kind="page search",
         )
-        fetch_failures = [e for b, e in failed_results if b == "fetch"]
-        if fetch_failures:
-            clean_err = " ".join(str(fetch_failures[0]).splitlines()).strip()
-            message += f" fetch emulation: {clean_err}" if clean_err else " fetch emulation failed."
-        elif not fetch_available:
-            message += (
-                " fetch emulation unavailable (needs one of SERPER_API_KEY, "
-                "LINKUP_API_KEY, TAVILY_API_KEY, or a reachable vanshul)."
-            )
         raise WebToolboxError(message)
