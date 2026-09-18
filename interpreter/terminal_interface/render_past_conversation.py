@@ -8,6 +8,7 @@ from rich.box import ROUNDED
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
+from ..core.utils.sanitize_terminal_input import strip_terminal_state_sequences
 from .utils.display_constants import PADDING_PANEL
 from .utils.display_markdown_message import display_markdown_message
 
@@ -103,7 +104,11 @@ def render_past_conversation(messages):
             if chunk.get("format") == "active_line":
                 continue
             if isinstance(content, str):
-                pending_output += "\n" + content
+                # Replaying history prints saved output raw: strip
+                # state-changing sequences (a TUI capture saved here would
+                # otherwise re-arm mouse tracking in this pane). The log
+                # file itself is left untouched; plain colors survive.
+                pending_output += "\n" + strip_terminal_state_sequences(content)
             continue
 
     flush_pending_code()
