@@ -191,6 +191,33 @@ def _no_page_method_error(cls_name, name, fetch_example):
     )
 
 
+def _bind_item_methods(entries, web):
+    """Normalize hits to ResultItems and give each bound fetch()/search_page().
+
+    The closures capture the hit's own URL, so hit.fetch() needs no index and
+    never handles a URL string. Stored as instance attributes (never dict
+    keys), so item data, .keys(), and equality are untouched. Returns the
+    (possibly converted) entry list for the caller to store.
+    """
+    bound = []
+    for item in entries or []:
+        if not isinstance(item, ResultItem):
+            try:
+                item = ResultItem(item)
+            except (TypeError, ValueError):
+                bound.append(item)
+                continue
+        if web is not None:
+            try:
+                url = item.get("url", "")
+                item.fetch = lambda _url=url: web.fetch(_url)
+                item.search_page = lambda query, _url=url, **kw: web.search_page(_url, query, **kw)
+            except AttributeError:
+                pass  # Defensive; ResultItems always support attributes.
+        bound.append(item)
+    return bound
+
+
 def _hit_url(entries, index, method):
     """Return the URL of one hit by integer index, else raise a guiding WebToolboxError.
 
@@ -220,6 +247,8 @@ class SearchResult(dict):
     def __init__(self, data, web=None):
         super().__init__(data)
         self._web = web
+        if "results" in self:
+            self["results"] = _bind_item_methods(self["results"], web)
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.results, result.backend, ...)."""
@@ -234,13 +263,13 @@ class SearchResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for search result at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult."""
+        """Fetch the full page for search result at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult. (Equivalent: hit.fetch().)"""
         results = self.get("results", [])
         url = _hit_url(results, index, "fetch")
         return self._web.fetch(url)
 
     def search_page(self, index, query, **kwargs):
-        """Search within the page for search result at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        """Search within the page for search result at the given index (single int, e.g. 0). Returns a PageSearchResult. (Equivalent: hit.search_page(query).)"""
         results = self.get("results", [])
         url = _hit_url(results, index, "search_page")
         return self._web.search_page(url, query, **kwargs)
@@ -251,7 +280,7 @@ class SearchResult(dict):
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
         lines.append("  Keys: results[ResultItem: .title/.url or ['title']/['url']; content→snippet], raw_response[dict], backend[str]")
-        lines.append("  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+        lines.append("  → hit=result.results[i] | page=hit.fetch() | detail=hit.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -393,6 +422,8 @@ class AnswerResult(dict):
     def __init__(self, data, web=None):
         super().__init__(data)
         self._web = web
+        if "sources" in self:
+            self["sources"] = _bind_item_methods(self["sources"], web)
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.answer, result.sources, ...)."""
@@ -407,13 +438,13 @@ class AnswerResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult."""
+        """Fetch the full page for source at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult. (Equivalent: src.fetch().)"""
         sources = self.get("sources", [])
         url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
 
     def search_page(self, index, query, **kwargs):
-        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult. (Equivalent: src.search_page(query).)"""
         sources = self.get("sources", [])
         url = _hit_url(sources, index, "search_page")
         return self._web.search_page(url, query, **kwargs)
@@ -425,7 +456,7 @@ class AnswerResult(dict):
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
         lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
-        lines.append("  → result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+        lines.append("  → src=result.sources[i] | page=src.fetch() | detail=src.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -438,6 +469,8 @@ class StructuredOutputResult(dict):
     def __init__(self, data, web=None):
         super().__init__(data)
         self._web = web
+        if "sources" in self:
+            self["sources"] = _bind_item_methods(self["sources"], web)
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.structured_output, result.sources, ...)."""
@@ -452,7 +485,7 @@ class StructuredOutputResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult."""
+        """Fetch the full page for source at the given index (single int, e.g. 0). Prefer search_page() when you only need a detail. Returns a FetchResult. (Equivalent: src.fetch().)"""
         sources = self.get("sources", [])
         if not sources:
             raise WebToolboxError("No sources available in this result to fetch.")
@@ -460,7 +493,7 @@ class StructuredOutputResult(dict):
         return self._web.fetch(url)
 
     def search_page(self, index, query, **kwargs):
-        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult. (Equivalent: src.search_page(query).)"""
         sources = self.get("sources", [])
         if not sources:
             raise WebToolboxError("No sources available in this result to search.")
@@ -477,7 +510,7 @@ class StructuredOutputResult(dict):
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
-            "  → result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs"
+            "  → src=result.sources[i] | page=src.fetch() | detail=src.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs"
         )
         # Pretty print a bit of JSON as preview — use 2-space indent, max 6 lines
         try:
@@ -1418,7 +1451,7 @@ class Web:
 
             result = backend_methods[backend](query, timeout=timeout, **backend_kwargs)
             result["backend"] = backend
-            print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+            print("→ hit=result.results[i] | page=hit.fetch() | detail=hit.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -1432,7 +1465,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, timeout=timeout, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+                print("→ hit=result.results[i] | page=hit.fetch() | detail=hit.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1688,7 +1721,7 @@ class Web:
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, timeout=timeout, **kwargs)
             result["backend"] = backend
-            print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+            print("→ src=result.sources[i] | page=src.fetch() | detail=src.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
@@ -1704,7 +1737,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](question, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+                print("→ src=result.sources[i] | page=src.fetch() | detail=src.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
                 return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1809,7 +1842,7 @@ class Web:
             backend_methods = {"linkup": self._structured_output_linkup}
             result = backend_methods[backend](query, schema, timeout=timeout, **kwargs)
             result["backend"] = backend
-            print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+            print("→ src=result.sources[i] | page=src.fetch() | detail=src.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
             return StructuredOutputResult(result, web=self)
 
         # Default/Auto-select (currently only linkup)
@@ -1823,7 +1856,7 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, schema, timeout=timeout, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.content | NEVER invent hardcoded URLs")
+                print("→ src=result.sources[i] | page=src.fetch() | detail=src.search_page(query) [or result.fetch(i)] → page.content | NEVER invent hardcoded URLs")
                 return StructuredOutputResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
