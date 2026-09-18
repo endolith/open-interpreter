@@ -280,6 +280,26 @@ class TestWebToolbox(unittest.TestCase):
             self.assertIn(f"result.{method}(i)", msg)
             self.assertNotIn("item.title", msg)
 
+    def test_find_links_redirect_to_pages(self):
+        """Verify result.find()/links() point at page methods instead of generic guidance."""
+        from interpreter.core.toolbox.web.web import (
+            AnswerResult, PageSearchResult, SearchResult, StructuredOutputResult,
+        )
+        cases = [
+            (SearchResult({"results": [], "backend": "x"}, web=self.web), "result.fetch(i)"),
+            (AnswerResult({"answer": "a", "sources": [], "backend": "x"}, web=self.web), "result.fetch(i)"),
+            (StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "x"}, web=self.web), "result.fetch(i)"),
+            (PageSearchResult({"url": "http://a", "query": "q", "matches": [], "backend": "x"}, web=self.web), "result.fetch()"),
+        ]
+        for obj, hint in cases:
+            for method in ("find", "links"):
+                with self.subTest(cls=type(obj).__name__, method=method):
+                    with self.assertRaises(AttributeError) as context:
+                        getattr(obj, method)
+                    msg = str(context.exception)
+                    self.assertIn(hint, msg)
+                    self.assertIn("search_page(i, query)", msg)
+
     def test_search_page_matches_support_attribute_access(self):
         """Verify page-search passages support match.snippet as well as match['snippet']."""
         payload = {"url": "https://example.com/", "query": "q", "count": 1,
