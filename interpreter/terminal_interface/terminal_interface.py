@@ -31,6 +31,7 @@ from ..core.utils.execution_allowlist import (
     should_require_execution_confirmation,
 )
 from ..core.utils.prompt_choice import prompt_choice
+from ..core.utils.sanitize_terminal_input import sanitize_terminal_input
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
@@ -145,7 +146,9 @@ def terminal_interface(interpreter, message):
                     message = (
                         cli_input("> ").strip()
                         if interpreter.multi_line
-                        else input("> ").strip()
+                        # Non-multiline path bypasses cli_input: sanitize here
+                        # too (a poisoned log can arm tracking on replay).
+                        else sanitize_terminal_input(input("> ")).strip()
                     )
                 except (KeyboardInterrupt, EOFError):
                     # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
@@ -153,8 +156,11 @@ def terminal_interface(interpreter, message):
                     raise KeyboardInterrupt
 
             try:
-                # This lets users hit the up arrow key for past messages
-                readline.add_history(message)
+                # This lets users hit the up arrow key for past messages.
+                # Skip blank strings (e.g. a prompt that held only leaked
+                # report bytes) so they never pollute readline history.
+                if not (isinstance(message, str) and not message.strip()):
+                    readline.add_history(message)
             except:
                 # If the user doesn't have readline (may be the case on windows), that's fine
                 pass

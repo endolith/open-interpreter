@@ -26,6 +26,7 @@ from .utils.execution_allowlist import (
     should_require_execution_confirmation,
 )
 from .utils.telemetry import send_telemetry
+from .utils.sanitize_terminal_input import strip_terminal_state_sequences
 from .utils.truncate_output import truncate_output
 
 # After this many user messages, run one extra completion to rename the JSON once
@@ -723,6 +724,22 @@ class OpenInterpreter:
                 if hasattr(self, "stop_event") and self.stop_event.is_set():
                     print("Open Interpreter stopping.")
                     break
+
+                # Strip terminal state-changing sequences (mouse-tracking
+                # enables, bracketed-paste modes, OSC payloads) from program
+                # output before it is stored or displayed. A full-screen TUI's
+                # redraw stream captured here would otherwise persist verbatim
+                # into the conversation .json log and re-arm e.g. mouse
+                # tracking when history replays next session. Plain SGR colors
+                # are left intact.
+                if (
+                    chunk.get("type") == "console"
+                    and chunk.get("format") == "output"
+                    and isinstance(chunk.get("content"), str)
+                ):
+                    cleaned = strip_terminal_state_sequences(chunk["content"])
+                    if cleaned != chunk["content"]:
+                        chunk = {**chunk, "content": cleaned}
 
                 # Skip empty content, except for console output - empty command output is
                 # meaningful (e.g. grep with no matches) and must be added so the LLM
