@@ -175,6 +175,16 @@ class ResultItem(dict):
             ) from exc
 
 
+def _no_page_method_error(cls_name, name, fetch_example):
+    """Redirect find()/links() called on hit-lists toward page methods."""
+    return AttributeError(
+        f"'{cls_name}' object has no '{name}' — that searches page content, "
+        f"not hit lists. Open a hit first: page = {fetch_example}, then "
+        "page.find(term) / page.links(), or use result.search_page(i, query) "
+        "for passages."
+    )
+
+
 def _hit_url(entries, index, method):
     """Return the URL of one hit by integer index, else raise a guiding WebToolboxError.
 
@@ -207,6 +217,8 @@ class SearchResult(dict):
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.results, result.backend, ...)."""
+        if name in ("find", "links"):
+            raise _no_page_method_error("SearchResult", name, "result.fetch(i)")
         try:
             return self[name]
         except KeyError as exc:
@@ -378,6 +390,8 @@ class AnswerResult(dict):
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.answer, result.sources, ...)."""
+        if name in ("find", "links"):
+            raise _no_page_method_error("AnswerResult", name, "result.fetch(i)")
         try:
             return self[name]
         except KeyError as exc:
@@ -421,6 +435,8 @@ class StructuredOutputResult(dict):
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.structured_output, result.sources, ...)."""
+        if name in ("find", "links"):
+            raise _no_page_method_error("StructuredOutputResult", name, "result.fetch(i)")
         try:
             return self[name]
         except KeyError as exc:
@@ -478,6 +494,8 @@ class PageSearchResult(dict):
 
     def __getattr__(self, name):
         """Allow attribute-style access for dict keys (result.matches, result.url, ...)."""
+        if name in ("find", "links"):
+            raise _no_page_method_error("PageSearchResult", name, "result.fetch()")
         try:
             return self[name]
         except KeyError as exc:
