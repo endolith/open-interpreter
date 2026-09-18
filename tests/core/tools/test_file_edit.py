@@ -11,6 +11,7 @@ from interpreter.core.tools.file_edit import (
     _assert_mikefarah_yq,
     _comby_rewritten_source,
     _poke_prepare_script,
+    _reject_wrong_os_path,
     _split_comby_templates,
     _validate_target,
     _write_temp_script,
@@ -54,6 +55,36 @@ class TestValidateTarget(unittest.TestCase):
             target = os.path.join(tmp, "missing.txt")
             with self.assertRaises(FileNotFoundError):
                 _validate_target(target, must_exist=True)
+
+    def test_rejects_git_bash_drive_path_on_windows(self):
+        """A Git Bash style /c/... path must fail on Windows before it creates a literal 'c' folder."""
+        with mock.patch("platform.system", return_value="Windows"):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_target("/c/Users/test/file.txt", must_exist=True)
+            self.assertIn("Git Bash", str(ctx.exception))
+
+    def test_rejects_drive_relative_path_on_windows(self):
+        """A rooted path with no drive letter resolves against the current drive, so reject it."""
+        with mock.patch("platform.system", return_value="Windows"):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_target("/Users/test/file.txt", must_exist=True)
+            self.assertIn("drive letter", str(ctx.exception))
+
+    def test_rejects_windows_path_on_posix(self):
+        """A C:/... path on Mac/Linux must fail with an OS-specific message, not the generic absolute-path one."""
+        with mock.patch("platform.system", return_value="Linux"):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_target("C:/Users/test/file.txt", must_exist=True)
+            self.assertIn("not Windows", str(ctx.exception))
+
+    def test_accepts_well_formed_paths_for_each_os(self):
+        """Well-formed paths must pass the OS-shape check on their own OS."""
+        with mock.patch("platform.system", return_value="Windows"):
+            _reject_wrong_os_path("C:/Users/test/file.txt")
+            _reject_wrong_os_path("C:\\Users\\test\\file.txt")
+            _reject_wrong_os_path("\\\\server\\share\\file.txt")
+        with mock.patch("platform.system", return_value="Linux"):
+            _reject_wrong_os_path("/home/test/file.txt")
 
 
 class TestCombyJson(unittest.TestCase):

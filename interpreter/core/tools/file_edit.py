@@ -137,9 +137,39 @@ def _resolve_patch():
 # Path validation
 # ---------------------------------------------------------------------------
 
+def _reject_wrong_os_path(target):
+    """Reject paths shaped for a different OS before os.path misreads them.
+
+    On Windows, os.path.isabs('/c/Users/...') is True (rooted on the current
+    drive), so a Git Bash style drive path sails through validation and lands
+    at e.g. C:\\c\\Users — a literal 'c' folder. Catch that here and tell the
+    model the right shape instead.
+    """
+    if platform.system() == "Windows":
+        if re.match(r"^[\\/][a-zA-Z][\\/]", target):
+            raise ValueError(
+                f"target looks like a Git Bash style path ({target!r}); "
+                "on Windows use a drive-letter path (e.g. 'C:/Users/...')"
+            )
+        if re.match(r"^[\\/]", target) and not re.match(r"^[\\/]{2}", target):
+            raise ValueError(
+                f"target {target!r} has no drive letter and resolves against "
+                "the current drive; use a full path with a drive letter "
+                "(e.g. 'C:/Users/...')"
+            )
+    else:
+        if re.match(r"^[a-zA-Z]:[\\/]", target):
+            raise ValueError(
+                f"target looks like a Windows path ({target!r}), but this "
+                "system is not Windows; use a POSIX absolute path "
+                "(e.g. '/home/...')"
+            )
+
+
 def _validate_target(target, *, must_exist):
     if not isinstance(target, str) or not target.strip():
         raise ValueError("target is required and must be a non-empty string")
+    _reject_wrong_os_path(target)
     if not os.path.isabs(target):
         raise ValueError(
             "target must be an absolute path "
