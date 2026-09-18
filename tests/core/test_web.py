@@ -270,6 +270,16 @@ class TestWebToolbox(unittest.TestCase):
         self.assertIsNone(item.get("nope"))
         self.assertEqual(item.get("nope", "fallback"), "fallback")
 
+    def test_result_item_fetch_redirects(self):
+        """Verify item.fetch()/search_page() point at the result-level methods."""
+        item = ResultItem({"title": "T", "url": "http://a", "snippet": "S"})
+        for method in ("fetch", "search_page"):
+            with self.assertRaises(AttributeError) as context:
+                getattr(item, method)
+            msg = str(context.exception)
+            self.assertIn(f"result.{method}(i)", msg)
+            self.assertNotIn("item.title", msg)
+
     def test_search_page_matches_support_attribute_access(self):
         """Verify page-search passages support match.snippet as well as match['snippet']."""
         payload = {"url": "https://example.com/", "query": "q", "count": 1,
