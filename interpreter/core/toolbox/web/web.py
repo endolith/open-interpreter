@@ -87,7 +87,12 @@ class WebToolboxError(Exception):
 
 # Default per-backend wait: every network call is bounded so a stalled
 # backend fails fast and auto-select moves on instead of hanging the session.
-DEFAULT_TIMEOUT = 30
+# Tunable via profile settings (interpreter.web_timeout /
+# interpreter.web_answer_timeout, mirrored on the toolbox); deliberately NOT
+# public method parameters, so the option costs models zero tokens until a
+# timeout error itself points it out.
+DEFAULT_TIMEOUT = 30.0
+DEFAULT_ANSWER_TIMEOUT = 120.0
 
 
 def _run_with_timeout(func, timeout, backend_name):
@@ -113,8 +118,9 @@ def _run_with_timeout(func, timeout, backend_name):
     thread.join(timeout)
     if thread.is_alive():
         raise WebToolboxError(
-            f"{backend_name} timed out after {timeout}s. "
-            "Try a different backend or pass a longer timeout."
+            f"{backend_name} timed out after {timeout}s. If the extra wait may "
+            "be worth it, retry with timeout=<seconds> (e.g. timeout=120), "
+            "or try a different backend."
         )
     if "error" in result:
         raise result["error"]
@@ -646,6 +652,21 @@ class Web:
         # Session-scoped cache: keyed by URL. Web page content doesn't change
         # mid-session, so re-fetching the same URL is always wasteful.
         self._fetch_cache: Dict[str, "FetchResult"] = {}
+
+    def _web_timeout(self, kind="web"):
+        """Per-backend wait in seconds, from profile settings (never model-facing).
+
+        Reads interpreter.web_timeout / interpreter.web_answer_timeout via the
+        toolbox mirror; anything but a real number falls back to the defaults.
+        (Strict isinstance check because MagicMock toolboxen in tests make
+        float() happily return 1.0 for any attribute.)
+        """
+        attr = "web_answer_timeout" if kind == "answer" else "web_timeout"
+        default = DEFAULT_ANSWER_TIMEOUT if kind == "answer" else DEFAULT_TIMEOUT
+        value = getattr(self.toolbox, attr, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default
+        return max(1.0, float(value))
 
     def _get_locale_defaults(self, country_code=None, language_code=None, country_case="lower"):
         """
@@ -1235,7 +1256,7 @@ class Web:
         kind_label = f"{kind} " if kind else ""
         return f"No {kind_label}backends are working. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
 
-    def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> SearchResult:
+    def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> SearchResult:
         """
         Search the web for links and snippets. Open hits only via result.fetch(i) / result.search_page(i, query) — never hardcode or guess URLs.
 
@@ -1250,7 +1271,6 @@ class Web:
                                           Defaults to system locale. Supported by: brave, serpapi, serper.
             language_code (str, optional): 2-letter language code for search interface (e.g., "en", "es", "fr").
                                             Defaults to system locale. Supported by: brave, serpapi, serper.
-            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
 
                 BRAVE:
@@ -1368,6 +1388,10 @@ class Web:
             )
         """
         used_backend = None
+
+        # Hidden power path: timeout stays out of the signature/docs so it
+        # costs zero tokens, but still works if an error message suggests it.
+        timeout = kwargs.pop("timeout", self._web_timeout())
 
         # Prepare normalized parameters for all backends
         backend_kwargs = kwargs.copy()
@@ -1626,7 +1650,7 @@ class Web:
 
         return normalized
 
-    def answer(self, question: str, backend: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> AnswerResult:
+    def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> AnswerResult:
         """
         AI-synthesized answer from web sources. PREFERRED for direct questions about current events
 
@@ -1637,7 +1661,6 @@ class Web:
             question (str): MUST be a natural-language question ending in "?", e.g. "What is the best vacuum cleaner in 2026?" — NOT search terms like "best vacuum cleaner 2026". An AI agent reads the web and answers the question for you.
             backend (str, optional): Force a specific backend ("tavily" or "linkup").
                                      If None, auto-selects based on availability.
-            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 - For tavily: answer_mode ("basic" or "advanced"), search_depth, etc.
                 - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
@@ -1653,6 +1676,8 @@ class Web:
         """
         if "?" not in question:
             print(f"⚠️  web.answer() AI expects a question ending in '?', not search terms.\n")
+
+        timeout = kwargs.pop("timeout", self._web_timeout("answer"))
 
         if backend:
             backend = backend.lower()
@@ -1693,7 +1718,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", timeout: float = DEFAULT_TIMEOUT, **kwargs) -> StructuredOutputResult:
+    def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", **kwargs) -> StructuredOutputResult:
         """
         Search and extract specific fields (simple field map, JSON schema, or Pydantic). PREFERRED for data extraction.
 
@@ -1708,7 +1733,6 @@ class Web:
                 schema dict, a JSON string, or a Pydantic model class.
                 A dict with a "properties" mapping is treated as a full schema.
             backend (str, optional): Force a specific backend (default: "linkup").
-            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 - For linkup: depth ("standard" or "deep"), etc.
 
@@ -1737,6 +1761,8 @@ class Web:
             print(result.structured_output["author_last_name"])
         """
         import json
+
+        timeout = kwargs.pop("timeout", self._web_timeout("answer"))
 
         # Simple field maps ({"name": "string"}) become full JSON schemas here;
         # full schemas, Pydantic classes, and JSON strings pass through untouched.
@@ -2236,7 +2262,7 @@ class Web:
             }))
         return {"url": url, "query": query, "matches": matches, "raw_response": response}
 
-    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> FetchResult:
+    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
         """
         Fetch full web page content from a URL as markdown. Prefer search_page() when you only need a specific detail — it costs far fewer tokens. Pass only URLs taken from search results; never invent them.
 
@@ -2250,7 +2276,6 @@ class Web:
                                      If None, auto-selects based on availability.
             render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
             extract_depth (str, optional): Extraction depth - "basic" or "advanced". Supported by: tavily (defaults to API default if not specified)
-            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
 
                 VANSHUL (no API key required, free public service https://mcp.vanshul.com/mcp):
@@ -2300,6 +2325,7 @@ class Web:
         url = _normalize_fetch_url(url)
         if "urls" in kwargs:
             kwargs["urls"] = [_normalize_fetch_url(u) for u in kwargs["urls"]]
+        timeout = kwargs.pop("timeout", self._web_timeout())
         # Define backend methods
         backend_methods = {
             "serper": self._fetch_serper,
@@ -2393,7 +2419,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def search_page(self, url: str, query: str, backend: Optional[str] = None, max_results: int = 5, context_chars: int = 500, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> PageSearchResult:
+    def search_page(self, url: str, query: str, backend: Optional[str] = None, max_results: int = 5, context_chars: int = 500, **kwargs) -> PageSearchResult:
         """
         Search within a single page for passages matching a query. PREFERRED over fetch() when you only need a detail.
 
@@ -2410,7 +2436,6 @@ class Web:
                                For tavily this maps to chunks_per_source unless overridden in kwargs.
             context_chars (int): Per-passage character budget (default: 500).
                                  Supported by: vanshul (50-4000).
-            timeout (float): Seconds to wait per backend before falling through (default: 30).
             **kwargs: Additional backend-specific parameters:
                 TAVILY:
                     - chunks_per_source (int): Max chunks per source (defaults to max_results)
@@ -2432,6 +2457,7 @@ class Web:
             print(page.content[:500])
         """
         url = _normalize_fetch_url(url)
+        timeout = kwargs.pop("timeout", self._web_timeout())
         backend_methods = {
             "vanshul": self._search_page_vanshul,
             "tavily": self._search_page_tavily,
