@@ -267,7 +267,7 @@ class TestWebToolbox(unittest.TestCase):
         self.assertEqual(item.get("nope", "fallback"), "fallback")
 
     def test_result_item_fetch_redirects(self):
-        """Verify item.fetch()/search_page() point at the result-level methods."""
+        """Verify items built without a web handle still redirect to result methods."""
         item = ResultItem({"title": "T", "url": "http://a", "snippet": "S"})
         for method in ("fetch", "search_page"):
             with self.assertRaises(AttributeError) as context:
@@ -275,6 +275,30 @@ class TestWebToolbox(unittest.TestCase):
             msg = str(context.exception)
             self.assertIn(f"result.{method}(i)", msg)
             self.assertNotIn("item.title", msg)
+
+    def test_item_bound_fetch_and_search_page(self):
+        """Verify hits carry bound fetch()/search_page() over their own URL, data untouched."""
+        from interpreter.core.toolbox.web.web import (
+            AnswerResult, SearchResult, StructuredOutputResult,
+        )
+        web = MagicMock()
+        web.fetch.return_value = "PAGE"
+        web.search_page.return_value = "PASSAGES"
+        hits = [{"title": "T", "url": "http://a", "snippet": "S"}]
+        cases = [
+            SearchResult({"results": hits, "backend": "x"}, web=web),
+            AnswerResult({"answer": "a", "sources": hits, "backend": "x"}, web=web),
+            StructuredOutputResult({"structured_output": {}, "sources": hits, "backend": "x"}, web=web),
+        ]
+        for result in cases:
+            item = (result.get("results") or result.get("sources"))[0]
+            with self.subTest(cls=type(result).__name__):
+                self.assertEqual(item.fetch(), "PAGE")
+                web.fetch.assert_called_with("http://a")
+                self.assertEqual(item.search_page("q", max_results=2), "PASSAGES")
+                web.search_page.assert_called_with("http://a", "q", max_results=2)
+                self.assertNotIn("fetch", item.keys())
+                self.assertNotIn("search_page", item.keys())
 
     def test_find_links_redirect_to_pages(self):
         """Verify result.find()/links() point at page methods instead of generic guidance."""
@@ -614,8 +638,8 @@ class TestWebToolbox(unittest.TestCase):
         )
         text = repr(result)
         # Method funnel advertised; domains shown for orientation...
-        self.assertIn("result.fetch(i)", text)
-        self.assertIn("result.search_page(i, query)", text)
+        self.assertIn("hit.fetch()", text)
+        self.assertIn("hit.search_page(query)", text)
         self.assertIn("NEVER invent hardcoded URLs", text)
         self.assertIn("example.com", text)
         # ...but full URLs are withheld so agents use methods instead of copying.
