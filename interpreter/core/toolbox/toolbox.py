@@ -15,7 +15,7 @@ from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse
 from .os.os import Os
-from .web.web import Web
+from .web.web import DEFAULT_ANSWER_TIMEOUT, DEFAULT_TIMEOUT, Web
 from .skills.skills import Skills
 from .sms.sms import SMS
 from .vision.vision import Vision
@@ -59,6 +59,12 @@ class Toolbox:
         self.max_output = (
             self.interpreter.max_output
         )  # Should mirror interpreter.max_output
+        self.web_timeout = getattr(
+            self.interpreter, "web_timeout", DEFAULT_TIMEOUT
+        )  # Should mirror interpreter.web_timeout
+        self.web_answer_timeout = getattr(
+            self.interpreter, "web_answer_timeout", DEFAULT_ANSWER_TIMEOUT
+        )  # Should mirror interpreter.web_answer_timeout
 
         self._system_message_override = None
 

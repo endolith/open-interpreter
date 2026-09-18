@@ -692,5 +692,43 @@ class TestWebToolbox(unittest.TestCase):
                 self.web.fetch("https://example.com", backend="serper", timeout=7)
                 self.assertEqual(mock_post.call_args.kwargs["timeout"], 7)
 
+    def test_timeout_hidden_from_signatures(self):
+        """Verify timeout costs models zero tokens: absent from all public signatures."""
+        import inspect
+        for method in ("search", "answer", "structured_output", "fetch", "search_page"):
+            with self.subTest(method=method):
+                self.assertNotIn("timeout", inspect.signature(getattr(self.web, method)).parameters)
+
+    def test_timeout_from_profile_setting(self):
+        """Verify the toolbox profile value drives the backend wait without a parameter."""
+        from interpreter.core.toolbox.web.web import FetchResult
+        made = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "vanshul"})
+        self.web.toolbox.web_timeout = 7
+        try:
+            with patch.object(self.web, "_fetch_vanshul", return_value=dict(made)) as mock_fetch:
+                self.web.fetch("https://example.com")
+                self.assertEqual(mock_fetch.call_args.kwargs["timeout"], 7)
+        finally:
+            del self.web.toolbox.web_timeout
+
+    def test_timeout_invalid_profile_falls_back(self):
+        """Verify garbage profile values degrade to defaults instead of crashing."""
+        from interpreter.core.toolbox.web.web import DEFAULT_ANSWER_TIMEOUT, DEFAULT_TIMEOUT
+        self.web.toolbox.web_timeout = "soon"
+        self.web.toolbox.web_answer_timeout = None
+        try:
+            self.assertEqual(self.web._web_timeout(), DEFAULT_TIMEOUT)
+            self.assertEqual(self.web._web_timeout("answer"), DEFAULT_ANSWER_TIMEOUT)
+        finally:
+            del self.web.toolbox.web_timeout
+            del self.web.toolbox.web_answer_timeout
+
+    def test_answer_default_timeout_is_generous(self):
+        """Verify synthesis waits longer by default than plain fetches."""
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with patch.object(self.web, "_answer_linkup", return_value={"answer": "a", "sources": []}) as mock_a:
+                self.web.answer("What is the answer?")
+                self.assertEqual(mock_a.call_args.kwargs["timeout"], 120)
+
 if __name__ == "__main__":
     unittest.main()

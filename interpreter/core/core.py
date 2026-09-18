@@ -118,6 +118,8 @@ class OpenInterpreter:
         verbose=False,
         debug=False,
         max_output=2800,
+        web_timeout=30.0,
+        web_answer_timeout=120.0,
         safe_mode="off",
         shrink_images=False,
         loop=False,
@@ -167,6 +169,8 @@ class OpenInterpreter:
         self.verbose = verbose
         self.debug = debug
         self.max_output = max_output
+        self.web_timeout = web_timeout
+        self.web_answer_timeout = web_answer_timeout
         self.safe_mode = safe_mode
         # One switch gates ALL boilerplate stripping (redundant cd, redundant
         # imports, `import toolbox`, and the redundant-function/scalar stripping).
