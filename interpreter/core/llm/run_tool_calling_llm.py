@@ -75,7 +75,7 @@ edit_tool_schema = {
             "  comby — structural match/replace: match template, then --- line, then rewrite "
             "(or match on line 1, rewrite on following lines).\n"
             "  patch — unified diff body to apply to the existing target file.\n"
-            "Rules: target must be absolute. Never wrap these in bash."
+            "Rules: target must be an absolute path for this OS (C:/... on Windows, /... on Mac/Linux — never Git Bash /c/... style). Never wrap these in bash."
         ),
         "parameters": {
             "type": "object",
