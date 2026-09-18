@@ -1,5 +1,7 @@
 from rich import print as rich_print
 
+from .sanitize_terminal_input import sanitize_terminal_input
+
 
 def prompt_choice(prompt, choices):
     """
@@ -19,7 +21,9 @@ def prompt_choice(prompt, choices):
     reprompt = "  "
     current_prompt = prompt
     while True:
-        response = input(current_prompt).strip().lower()
+        # Strip leaked mouse/report bytes (a poisoned log can arm tracking on
+        # replay) so a movement while answering y/n doesn't fail validation.
+        response = sanitize_terminal_input(input(current_prompt)).strip().lower()
         response = response[:1] if response else ""
         if response in choices:
             print("")
