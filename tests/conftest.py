@@ -10,41 +10,11 @@ _INTEGRATION_OPT_IN_SKIP = (
 _INTEGRATION_API_KEY_SKIP = "OPENAI_API_KEY not set; skipping integration tests"
 
 
-def _conversation_file(interpreter) -> str | None:
-    """Exact log path an interpreter instance saved to, or None.
-
-    chat() writes history_path/conversation_filename synchronously before
-    returning, so a filename set on the instance names a file this process
-    wrote — no guessing, no timestamps, no other process can hold the same
-    claim unless it wrote the identical path first (in which case our save
-    already overwrote it during the test).
-    """
-    if not interpreter.conversation_history or not interpreter.conversation_filename:
-        return None
-    path = os.path.join(
-        interpreter.conversation_history_path, interpreter.conversation_filename
-    )
-    if not path.endswith(".json"):
-        return None
-    return path
-
-
-_test_interpreters: list = []
-
-
-def _remove_test_conversations(interpreters) -> None:
-    """Remove log files reported by the given interpreters, tolerating failures."""
-    for interpreter in interpreters:
-        try:
-            path = _conversation_file(interpreter)
-        except Exception:
-            continue
-        if path is None:
-            continue
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+from tests.helpers import (
+    begin_test_conversations,
+    end_test_conversations,
+    _test_interpreters,
+)
 
 
 def _install_construction_tracking() -> None:
@@ -80,15 +50,15 @@ def _clean_test_conversations():
     writes JSON logs into the user's conversations folder. Every
     OpenInterpreter constructed in this process is registered (including
     module-level instances built at import time); at teardown each one's
-    reported log path is removed. Identity comes from the writer object
-    itself rather than filesystem observation, so files from anyone else
-    are never touched. Behaves identically on CI and locally.
+    reported log path is removed unless that file already existed before
+    the test ran. Identity comes from the writer object itself rather than
+    filesystem observation, so files from anyone else are never touched.
+    Cleanup stays inside the snapshotted directory, and a snapshot that
+    fails to read removes nothing. Behaves identically on CI and locally.
     """
+    state = begin_test_conversations()
     yield
-    try:
-        _remove_test_conversations(_test_interpreters)
-    finally:
-        del _test_interpreters[:]
+    end_test_conversations(state)
 
 
 def integration_skip_reason() -> str | None:
