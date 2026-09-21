@@ -75,9 +75,9 @@ llm:
 
 Controls how much a reasoning model thinks before answering. Reasoning/thinking models (e.g. `deepseek/`, `z-ai/glm-5.3`, some OpenRouter models) emit separate reasoning tokens before their visible reply; these tokens consume time and `max_tokens` budget, and a model that "thinks endlessly in circles" can be reined in by lowering the effort or disabling reasoning entirely.
 
-- `reasoning_effort`: `"low"`, `"medium"`, or `"high"` (only when the model supports it). Some models only accept a specific subset (e.g. GLM-5.3 accepts `low`/`high`/`max`); an unsupported value is dropped with a note rather than sent.
-- `include_reasoning`: `true` (default for supported models) or `false` to disable reasoning tokens entirely. Setting it to `false` also disables `reasoning_effort`.
-- Some endpoints **mandate reasoning** (e.g. `z-ai/glm-5.3-flash`, reported `reasoning.mandatory` in OpenRouter's model list). Reasoning can't be turned off there — Open Interpreter detects this and ignores `include_reasoning: false` (with a one-time note) instead of sending a request the API rejects with `400 "Reasoning is mandatory"`. Use `reasoning_effort: "low"` as the floor for such models.
+- `reasoning_effort`: how hard a reasoning model should think. Accepted values are model-specific (e.g. `deepseek/` and `z-ai/glm-5.3` accept `low`/`high`/`max`) and change over time, so the value you set is sent as-is rather than pre-filtered by Open Interpreter. If the provider rejects it, the provider's own error is shown; when that error names `reasoning_effort`, a short note follows repeating the value that was actually sent.
+- `include_reasoning`: `true` (default for supported models) or `false` to disable reasoning tokens entirely. It is also sent as-is. If an endpoint mandates reasoning, it returns its own error (`400 "Reasoning is mandatory…"`), which is surfaced rather than pre-empted.
+- Setting `include_reasoning: false` together with a `reasoning_effort` is contradictory: a model told not to think ignores the effort (providers return success with no reasoning). Both are still sent as configured, and a one-time note explains that the effort will have no effect.
 
 <CodeGroup>
 

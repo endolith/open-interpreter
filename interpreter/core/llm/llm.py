@@ -65,10 +65,11 @@ class AccessDeniedError(Exception):
 # changes within a session and a network round-trip per probe is wasteful.
 _openrouter_model_entries = {}
 
-# Models already warned about during this process (mandatory reasoning / an
-# unsupported effort value), so the note is printed once instead of every turn.
-_warned_mandatory_reasoning = set()
-_warned_unsupported_effort = set()
+# Models already warned about during this process when both a reasoning_effort and
+# include_reasoning: false are configured. That combination cannot take effect (a
+# disabled model does not think), and providers ignore the effort rather than
+# erroring, so the note is printed once instead of every turn.
+_warned_effort_without_reasoning = set()
 
 # Create or get the logger
 logger = logging.getLogger("LiteLLM")
@@ -455,63 +456,49 @@ Continuing...
                 params["include_reasoning"] = True
                 stream_options["include_reasoning"] = True
 
-        # Override reasoning settings if explicitly set on interpreter.llm
+        # Override reasoning settings if explicitly set on interpreter.llm. The
+        # value is passed through as-is: whether an endpoint permits disabling
+        # reasoning is the API's decision, and its error (e.g. "Reasoning is
+        # mandatory for this endpoint and cannot be disabled") is surfaced to the
+        # user like any other provider error rather than being silently swallowed.
         if self.include_reasoning is not None:
-            # Some OpenRouter endpoints (e.g. z-ai/glm-5.3-flash) mandate reasoning:
-            # sending reasoning.enabled:false there returns 400 "Reasoning is
-            # mandatory for this endpoint and cannot be disabled". OpenRouter's
-            # model metadata flags this, so refuse to send the disable rather than
-            # fail the request. The model then uses its default effort (max for GLM).
-            _reasoning_mandatory = False
+            params["include_reasoning"] = self.include_reasoning
+            stream_options["include_reasoning"] = self.include_reasoning
             if model.startswith("openrouter/"):
-                _reasoning_mandatory = bool(
-                    ((self._openrouter_model_entry(model) or {}).get("reasoning") or {}).get(
-                        "mandatory"
-                    )
-                )
-            if self.include_reasoning is False and _reasoning_mandatory:
-                if model not in _warned_mandatory_reasoning:
-                    self.interpreter.display_message(
-                        f"> **Note:** `{model}` always reasons and cannot have reasoning "
-                        "disabled, so `include_reasoning: false` is being ignored."
-                    )
-                    _warned_mandatory_reasoning.add(model)
-            else:
-                params["include_reasoning"] = self.include_reasoning
-                stream_options["include_reasoning"] = self.include_reasoning
-                if model.startswith("openrouter/"):
-                    params["extra_body"] = params.get("extra_body", {})
-                    params["extra_body"]["include_reasoning"] = self.include_reasoning
-                    params["extra_body"]["reasoning"] = {"enabled": self.include_reasoning}
+                params["extra_body"] = params.get("extra_body", {})
+                params["extra_body"]["include_reasoning"] = self.include_reasoning
+                params["extra_body"]["reasoning"] = {"enabled": self.include_reasoning}
 
-        # A reasoning_effort only makes sense when reasoning is enabled; sending
-        # one alongside include_reasoning=false is contradictory and some backends
-        # reject it, so skip it whenever the caller disabled reasoning explicitly.
-        if self.reasoning_effort and self.include_reasoning is not False:
-            # Guard against sending an unsupported effort level. GLM 5.3 only
-            # accepts low/high/max and 400s on anything else (including "medium").
-            _effort_ok = True
-            if model.startswith("openrouter/"):
-                _supported = (
-                    ((self._openrouter_model_entry(model) or {}).get("reasoning") or {}).get(
-                        "supported_efforts"
-                    )
+        if self.reasoning_effort:
+            # Pass the requested level through as-is. OpenRouter advertises a
+            # restricted set of effort levels per model (e.g. GLM-5.3 and DeepSeek
+            # V4 list low/high/max), but we deliberately do not pre-filter against
+            # it: the advertised set changes over time, and the server remaps or
+            # rejects on its own. If it rejects the value, that error is surfaced
+            # to the user like any other provider error instead of the setting
+            # being silently dropped.
+            #
+            # include_reasoning: false is a genuine contradiction: a model told not
+            # to think cannot honor an effort level, and providers silently ignore
+            # the effort rather than erroring (verified against OpenRouter/DeepSeek:
+            # reasoning {enabled: false, effort: "low"} returns 200 with no
+            # reasoning). We still send what was configured, but warn once so the
+            # user is not surprised the effort did nothing.
+            if (
+                self.include_reasoning is False
+                and model not in _warned_effort_without_reasoning
+            ):
+                self.interpreter.display_message(
+                    f"> **Note:** `reasoning_effort: {self.reasoning_effort}` has no "
+                    "effect while `include_reasoning` is false, so the model will not think."
                 )
-                if _supported and self.reasoning_effort not in _supported:
-                    _effort_ok = False
-                    if model not in _warned_unsupported_effort:
-                        self.interpreter.display_message(
-                            f"> **Note:** `{model}` only supports reasoning_effort "
-                            f"{_supported}, so `{self.reasoning_effort}` is being ignored."
-                        )
-                        _warned_unsupported_effort.add(model)
-            if _effort_ok:
-                params["reasoning_effort"] = self.reasoning_effort
-                if model.startswith("openrouter/"):
-                    params["extra_body"] = params.get("extra_body", {})
-                    if "reasoning" not in params["extra_body"]:
-                        params["extra_body"]["reasoning"] = {}
-                    params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
+                _warned_effort_without_reasoning.add(model)
+            params["reasoning_effort"] = self.reasoning_effort
+            if model.startswith("openrouter/"):
+                params["extra_body"] = params.get("extra_body", {})
+                if "reasoning" not in params["extra_body"]:
+                    params["extra_body"]["reasoning"] = {}
+                params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
 
         params["stream_options"] = stream_options
 
@@ -629,10 +616,8 @@ Continuing...
 
         OpenRouter proxies any provider's models, so LiteLLM's registry often
         doesn't list new ones (e.g. openrouter/qwen/qwen3.7-plus). OpenRouter's
-        model list is authoritative for input modalities AND for the reasoning
-        contract (mandatory reasoning, supported_efforts, default_effort), so a
-        single cached fetch serves both the vision probe and the reasoning
-        param-guarding below. Returns the entry dict, or None if the model is
+        model list is authoritative for input modalities, so this cached fetch
+        backs the vision probe. Returns the entry dict, or None if the model is
         not openrouter/ or the list can't be fetched.
         """
         if not model.lower().startswith("openrouter/"):

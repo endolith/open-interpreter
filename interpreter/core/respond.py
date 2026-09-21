@@ -297,6 +297,17 @@ def respond(interpreter):
                         rich_print(panel)
                         print("")  # Add space after error
 
+                    # A provider 400 about reasoning_effort lists the accepted
+                    # values but never echoes what we sent, so it can be unclear
+                    # which setting is wrong. Add a separate note with the value we
+                    # sent; the provider error panel above is left untouched.
+                    if "reasoning_effort" in error_message:
+                        sent_effort = getattr(interpreter.llm, "reasoning_effort", None)
+                        if sent_effort is not None:
+                            interpreter.display_message(
+                                f"> **Note:** the request sent `reasoning_effort={sent_effort!r}`."
+                            )
+
                     # Temporary provider errors (including upstream rate limits)
                     # are retried automatically to avoid blocking on user input.
                     if is_temporary_error:

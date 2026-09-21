@@ -58,12 +58,12 @@ Thinking models stream reasoning tokens when supported. Control this on `interpr
 
 ```python
 interpreter.llm.include_reasoning = True  # or False to disable
-interpreter.llm.reasoning_effort = "high"  # low, medium, high (when supported)
+interpreter.llm.reasoning_effort = "high"  # model-specific, e.g. low/high/max for DeepSeek V4
 ```
 
 ```yaml Profile
 llm:
-  reasoning_effort: "low"   # low, medium, high (when supported)
+  reasoning_effort: "low"   # model-specific (DeepSeek V4: low/high/max); sent as-is
   # include_reasoning: false  # set false to disable thinking tokens entirely
 ```
 
