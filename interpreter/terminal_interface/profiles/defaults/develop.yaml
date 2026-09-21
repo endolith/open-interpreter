@@ -15,8 +15,10 @@
 llm:
   model: "gpt-4.1-mini"
   temperature: 0
-  # reasoning_effort: "low"  # "low" | "medium" | "high" — how hard reasoning models think before answering
-  #   (some models only accept a subset, e.g. GLM-5.3: low/high/max; unsupported values are dropped)
+  # reasoning_effort: "low"  # How hard reasoning models think before answering. Accepted values are
+  #   model-dependent and unsupported ones are dropped with a note: GLM-5.3 and DeepSeek V4/V4.1 use
+  #   low/high/max. DeepSeek V4.1's native API also takes an integer 1-100, but OpenRouter exposes only
+  #   the low/high/max tiers, so "low" is the floor there.
   # include_reasoning: true   # false disables reasoning/thinking tokens (also disables reasoning_effort;
   #   ignored with a note on mandatory-reasoning endpoints like GLM-5.3)
   # api_key: ...  # Your API key, if the API requires it
