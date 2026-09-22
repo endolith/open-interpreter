@@ -189,43 +189,46 @@ def test_find_unquoted_uses_point(monkeypatch):
     assert result == [(0.1, 0.2)]
 
 
-def test_find_raises_when_offline_and_point_fails(monkeypatch):
-    """Display.find() re-raises point failures when offline."""
+def test_find_reports_a_failure_instead_of_uploading(monkeypatch):
+    """A failed local lookup says what to install; it does not phone home.
+
+    This used to POST the screenshot to a hosted endpoint whenever the computer
+    was online, so failing to find an icon locally sent the user's screen to a
+    third party. The error now names the packages that would make the local
+    locator work.
+    """
     install_point_heavy_deps(monkeypatch)
-    computer = _make_offline_computer()
-    display = _make_display(computer)
+    display = _make_display(_make_offline_computer(offline=False))
 
     with mock.patch(
         "interpreter.core.computer.display.point.point.point",
         side_effect=ValueError("boom"),
     ):
-        with pytest.raises(ValueError, match="boom"):
+        with pytest.raises(Exception, match="open-interpreter\\[os\\]"):
             display.find("folder", screenshot="img")
 
 
-def test_find_falls_back_to_icon_api_when_point_fails(monkeypatch):
-    """Display.find() retries via the remote /point/ API when point() fails and
-    the computer is online."""
+def test_find_never_sends_the_screenshot_anywhere(monkeypatch):
+    """No network call on the failure path, online or not.
+
+    The module no longer imports `requests` at all, which is the strongest
+    form of this guarantee; this pins the behaviour so a future change cannot
+    quietly reintroduce the upload.
+    """
     install_point_heavy_deps(monkeypatch)
-    computer = _make_offline_computer(offline=False)
-    display = _make_display(computer)
+    display = _make_display(_make_offline_computer(offline=False))
+
+    import interpreter.core.computer.display.display as display_module
+
+    assert not hasattr(display_module, "requests")
 
     screenshot = Image.new("RGB", (800, 600))
-    response = SimpleNamespace(json=lambda: {"ok": True})
     with mock.patch(
         "interpreter.core.computer.display.point.point.point",
         side_effect=ValueError("boom"),
     ):
-        with mock.patch(
-            "interpreter.core.computer.display.display.requests.post",
-            return_value=response,
-        ) as post:
-            result = display.find("folder", screenshot=screenshot)
-
-    assert result == {"ok": True}
-    assert post.call_args[0][0] == "http://example.com:8080/point/"
-    assert post.call_args[1]["json"]["query"] == "folder"
-    assert post.call_args[1]["json"]["base64"]
+        with pytest.raises(Exception):
+            display.find("folder", screenshot=screenshot)
 
 
 def test_find_text_offline_uses_local_vision():
@@ -243,23 +246,24 @@ def test_find_text_offline_uses_local_vision():
     assert result == [{"coordinates": (0.25, 0.75), "text": "", "similarity": 1}]
 
 
-def test_find_text_online_uses_remote_api():
-    """Display.find_text() posts the screenshot to the remote /point/text/ API when
-    online."""
-    computer = _make_offline_computer(offline=False)
-    display = _make_display(computer)
+def test_find_text_reads_locally_even_when_online():
+    """Being online is no longer a reason to upload the screen.
+
+    find_text() used to POST the screenshot -- unresized -- to a hosted
+    endpoint and only read it locally when that call failed. Local OCR is now
+    the only path, whatever `offline` is set to.
+    """
+    display = _make_display(_make_offline_computer(offline=False))
 
     screenshot = Image.new("RGB", (10, 10))
-    response = SimpleNamespace(json=lambda: {"text": [["hello"]]})
     with mock.patch(
-        "interpreter.core.computer.display.display.requests.post",
-        return_value=response,
-    ) as post:
+        "interpreter.core.computer.display.display.find_text_in_image",
+        return_value=[(0.25, 0.75)],
+    ) as find_text_in_image:
         result = display.find_text("hello", screenshot=screenshot)
 
-    assert result == {"text": [["hello"]]}
-    assert post.call_args[0][0] == "http://example.com:8080/point/text/"
-    assert post.call_args[1]["json"]["query"] == "hello"
+    find_text_in_image.assert_called_once_with(screenshot, "hello", False)
+    assert result == [{"coordinates": (0.25, 0.75), "text": "", "similarity": 1}]
 
 
 def test_get_text_offline_uses_pytesseract():
