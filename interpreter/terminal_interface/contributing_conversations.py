@@ -6,6 +6,7 @@ from typing import List, TypedDict
 from importlib.metadata import version, PackageNotFoundError
 import requests
 
+from interpreter.core.utils.prompt_choice import prompt_choice
 from interpreter.terminal_interface.profiles.profiles import write_key_to_profile
 from interpreter.terminal_interface.utils.display_markdown_message import (
     display_markdown_message,
@@ -47,11 +48,11 @@ def send_past_conversations(interpreter):
         )
         print()
         time.sleep(2)
-        uh = input(
-            "Do we have your permission to send all previous conversations to Open Interpreter? (y/n): "
+        choice = prompt_choice(
+            "Do we have your permission to send all previous conversations to Open Interpreter? (y/n): ",
+            ("y", "n"),
         )
-        print()
-        if uh == "y":
+        if choice == "y":
             print("Sending all previous conversations to OpenInterpreter...")
             contribute_conversations(past_conversations)
             print()
@@ -70,14 +71,12 @@ To change this, run `interpreter --profiles` and edit the `default.yaml` profile
 
 def user_wants_to_contribute_past():
     print("\nWould you like to contribute all past conversations?\n")
-    response = input("(y/n) ")
-    return response.lower() == "y"
+    return prompt_choice("(y/n) ", ("y", "n")) == "y"
 
 
 def user_wants_to_contribute_future():
     print("\nWould you like to contribute all future conversations?\n")
-    response = input("(y/n) ")
-    return response.lower() == "y"
+    return prompt_choice("(y/n) ", ("y", "n")) == "y"
 
 
 def contribute_conversation_launch_logic(interpreter):
