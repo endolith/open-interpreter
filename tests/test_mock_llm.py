@@ -118,14 +118,14 @@ def test_mock_llm_write_to_file(mock_llm_server, monkeypatch, tmp_path):
     assert "Washington" in messages[-1]["content"]
 
 
-_ERRAND_PROMPT = (
-    "Please run this errand: write step one, then step two, then report back. "
-    "Start now."
+_TOOL_CHAIN_PROMPT = (
+    "Please demonstrate a tool chain: write to a file with python, modify it "
+    "with shell, then recover from an error and report back."
 )
 
 
-def _assert_errand_complete(interpreter, tmp_path, messages):
-    """The errand ran python, shell, failing python, fixed python, then talked.
+def _assert_tool_chain_complete(interpreter, tmp_path, messages):
+    """The tool chain ran python, shell, failing python, fixed python, then talked.
 
     step2.txt embeds step1.txt's content, proving the shell execution
     observed the python execution's filesystem state (cross-step, cross-
@@ -134,7 +134,7 @@ def _assert_errand_complete(interpreter, tmp_path, messages):
     proves it keeps executing afterwards. Full conversation:
 
     - User
-      - message: "Please run this errand: ..."
+      - message: "Please demonstrate a tool chain: ..."
     - Assistant
       - code (python): write "one" to step1.txt
     - Computer
@@ -152,11 +152,11 @@ def _assert_errand_complete(interpreter, tmp_path, messages):
     - Computer
       - console output
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     assert (tmp_path / "step1.txt").read_text() == "one"
     assert (tmp_path / "step2.txt").read_text().strip() == "one-two"
-    assert "Errand complete." in messages[-1]["content"]
+    assert "Tool chain complete." in messages[-1]["content"]
     formats = [m.get("format") for m in messages if m.get("type") == "code"]
     assert formats == ["python", "shell", "python", "python"]
     console_text = "\n".join(
@@ -170,7 +170,7 @@ def _assert_errand_complete(interpreter, tmp_path, messages):
 
 @pytest.mark.linux_ci
 @pytest.mark.timeout(180)
-def test_mock_llm_tool_call_errand(mock_llm_server, monkeypatch, tmp_path):
+def test_mock_llm_tool_chain(mock_llm_server, monkeypatch, tmp_path):
     """One tool-calling convo executes, fails, recovers, then talks.
 
     The mock server emits real OpenAI streaming tool_calls deltas (split
@@ -179,7 +179,7 @@ def test_mock_llm_tool_call_errand(mock_llm_server, monkeypatch, tmp_path):
     through HTTP with no live API key. Conversation:
 
     - User
-      - message: "Please run this errand: ..."
+      - message: "Please demonstrate a tool chain: ..."
     - Assistant
       - tool_call execute(python): write "one" to step1.txt
     - Tool
@@ -197,28 +197,28 @@ def test_mock_llm_tool_call_errand(mock_llm_server, monkeypatch, tmp_path):
     - Tool
       - result
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     require_bash_compatible_shell()
     monkeypatch.chdir(tmp_path)
     interpreter = _mock_tool_interpreter(mock_llm_server)
 
     messages = interpreter.chat(
-        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+        _TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True
     )
 
-    _assert_errand_complete(interpreter, tmp_path, messages)
+    _assert_tool_chain_complete(interpreter, tmp_path, messages)
 
 
 @pytest.mark.linux_ci
 @pytest.mark.timeout(120)
-def test_mock_llm_text_errand(mock_llm_server, monkeypatch, tmp_path):
-    """The same errand in code-block mode: fences, two languages, then talking.
+def test_mock_llm_text_tool_chain(mock_llm_server, monkeypatch, tmp_path):
+    """The same tool chain in code-block mode: fences, two languages, then talking.
 
     Conversation (code arrives as fenced text blocks, not tool_calls):
 
     - User
-      - message: "Please run this errand: ..."
+      - message: "Please demonstrate a tool chain: ..."
     - Assistant
       - message: ```python block writing "one" to step1.txt
     - Computer
@@ -236,34 +236,34 @@ def test_mock_llm_text_errand(mock_llm_server, monkeypatch, tmp_path):
     - Computer
       - console output
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     require_bash_compatible_shell()
     monkeypatch.chdir(tmp_path)
     interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
 
     messages = interpreter.chat(
-        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+        _TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True
     )
 
-    _assert_errand_complete(interpreter, tmp_path, messages)
+    _assert_tool_chain_complete(interpreter, tmp_path, messages)
 
 
 @pytest.mark.linux_ci
 @pytest.mark.timeout(120)
-def test_mock_llm_tool_errand_after_prior_message(mock_llm_server, monkeypatch, tmp_path):
-    """An errand started after an unrelated user message still begins at the python step.
+def test_mock_llm_tool_chain_after_prior_message(mock_llm_server, monkeypatch, tmp_path):
+    """A tool chain started after an unrelated user message still begins at the python step.
 
-    Turn counting is scoped to messages after the errand prompt; the assistant
-    turn from the earlier hello message must not shift the errand to turn 1.
-    Conversation:
+    Turn counting is scoped to messages after the tool-chain prompt; the
+    assistant turn from the earlier hello message must not shift the tool
+    chain to turn 1. Conversation:
 
     - User
       - message: "Say hello."
     - Assistant
       - message: "Hello, World!"
     - User
-      - message: "Please run this errand: ..."
+      - message: "Please demonstrate a tool chain: ..."
     - Assistant
       - tool_call execute(python): write "one" to step1.txt
     - Tool
@@ -281,7 +281,7 @@ def test_mock_llm_tool_errand_after_prior_message(mock_llm_server, monkeypatch, 
     - Tool
       - result
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     require_bash_compatible_shell()
     monkeypatch.chdir(tmp_path)
@@ -289,26 +289,27 @@ def test_mock_llm_tool_errand_after_prior_message(mock_llm_server, monkeypatch, 
 
     interpreter.chat("Say hello.", display=False, stream=False, blocking=True)
     messages = interpreter.chat(
-        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+        _TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True
     )
 
-    _assert_errand_complete(interpreter, tmp_path, messages)
+    _assert_tool_chain_complete(interpreter, tmp_path, messages)
 
 
 @pytest.mark.linux_ci
 @pytest.mark.timeout(180)
-def test_mock_llm_second_errand_restarts_at_python(mock_llm_server, monkeypatch, tmp_path):
-    """A second errand in one conversation restarts at the python step.
+def test_mock_llm_second_tool_chain_restarts_at_python(mock_llm_server, monkeypatch, tmp_path):
+    """A second tool-chain run in one conversation restarts at the python step.
 
-    Turn counting is scoped to the most recent errand prompt; the completed
-    first errand's assistant turns must not shift the second errand past its
-    tool calls into an immediate "Errand complete." Conversation:
+    Turn counting is scoped to the most recent tool-chain prompt; the
+    completed first run's assistant turns must not shift the second run past
+    its tool calls into an immediate "Tool chain complete." Conversation:
 
     - User
-      - message: "Please run this errand: ..." (first run, full 5-turn body
-        as in test_mock_llm_tool_call_errand, ending "Errand complete.")
+      - message: "Please demonstrate a tool chain: ..." (first run, full
+        5-turn body as in test_mock_llm_tool_chain, ending "Tool chain
+        complete.")
     - User
-      - message: "Please run this errand again from the top."
+      - message: "Please demonstrate the tool chain again from the top."
     - Assistant
       - tool_call execute(python): write "one" to step1.txt
     - Tool
@@ -326,23 +327,23 @@ def test_mock_llm_second_errand_restarts_at_python(mock_llm_server, monkeypatch,
     - Tool
       - result
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     require_bash_compatible_shell()
     monkeypatch.chdir(tmp_path)
     interpreter = _mock_tool_interpreter(mock_llm_server)
 
     interpreter.chat(
-        _ERRAND_PROMPT, display=False, stream=False, blocking=True
+        _TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True
     )
     messages = interpreter.chat(
-        "Please run this errand again from the top.",
+        "Please demonstrate the tool chain again from the top.",
         display=False,
         stream=False,
         blocking=True,
     )
 
-    _assert_errand_complete(interpreter, tmp_path, messages)
+    _assert_tool_chain_complete(interpreter, tmp_path, messages)
 
 
 @pytest.mark.linux_ci
@@ -359,7 +360,8 @@ def test_mock_llm_persistence_across_user_messages(
     Conversation:
 
     - User
-      - message: "persistence check part one: define a python value and ..."
+      - message: "Store values for later: set a python variable and a shell
+        variable"
     - Assistant
       - tool_call execute(python): persist_num = 40 + 2
     - Tool
@@ -371,7 +373,7 @@ def test_mock_llm_persistence_across_user_messages(
     - Assistant
       - message: "values defined."
     - User
-      - message: "persistence check part two: print both values"
+      - message: "Use the stored values: print both"
     - Assistant
       - tool_call execute(python): print(persist_num)
     - Tool
@@ -388,13 +390,13 @@ def test_mock_llm_persistence_across_user_messages(
     interpreter = _mock_tool_interpreter(mock_llm_server)
 
     interpreter.chat(
-        "persistence check part one: define a python value and a shell value",
+        "Store values for later: set a python variable and a shell variable",
         display=False,
         stream=False,
         blocking=True,
     )
     messages = interpreter.chat(
-        "persistence check part two: print both values",
+        "Use the stored values: print both",
         display=False,
         stream=False,
         blocking=True,

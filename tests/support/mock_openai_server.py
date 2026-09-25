@@ -2,13 +2,13 @@
 
 Requests are dispatched on their content, first match wins:
 - tool mode (the request carries a tools parameter): persist_tool_deltas,
-  then errand_tool_deltas, then a "Hello, World!" fallback.
-- text mode: persist_text_reply, then errand_text_reply, then pick_reply's
+  then tool_chain_tool_deltas, then a "Hello, World!" fallback.
+- text mode: persist_text_reply, then tool_chain_text_reply, then pick_reply's
   keyword branches, then the same fallback.
 
 Vocabulary used by this module's docstrings:
 - "trigger phrase": user text that starts a scenario (e.g. a prompt asking
-  for the errand).
+  for a tool-chain demo).
 - "step state": which canned reply comes next inside a scenario. The server
   is stateless, so step state is derived from the conversation it receives —
   how many assistant messages follow the latest matching prompt — and never
@@ -149,21 +149,9 @@ def _messages_since_keyword(messages: list, keyword: str) -> list:
     return []
 
 
-def _messages_since_errand(messages: list) -> list:
-    """Messages from the most recent errand prompt onward, or [] when none."""
-    return _messages_since_keyword(messages, "errand")
-
-
-def _assistant_count(messages: list) -> int:
-    """Count assistant messages since the errand prompt (completed errand turns).
-
-    The request body holds OpenAI-format messages, where executed code shows
-    up as assistant tool calls / code content — never as computer console
-    entries — so completed turns are what we count.
-    """
-    return sum(
-        1 for message in _messages_since_errand(messages) if message.get("role") == "assistant"
-    )
+def _messages_since_tool_chain(messages: list) -> list:
+    """Messages from the most recent tool-chain prompt onward, or [] when none."""
+    return _messages_since_keyword(messages, "tool chain")
 
 
 def _assistant_count_since(messages: list, keyword: str) -> int:
@@ -173,16 +161,16 @@ def _assistant_count_since(messages: list, keyword: str) -> int:
     )
 
 
-_ERRAND_PYTHON_CODE = 'with open("step1.txt", "w") as f:\n    f.write("one")'
+_CHAIN_WRITE_FILE_CODE = 'with open("step1.txt", "w") as f:\n    f.write("one")'
 # Deliberately reads step1.txt: the shell step must observe the filesystem
 # state left by the python step, proving execution state persists across
 # tool calls (and across languages) rather than each step running isolated.
-_ERRAND_SHELL_CODE = "echo $(cat step1.txt)-two > step2.txt"
-_ERRAND_FAIL_CODE = "print(undefined_name)"
-_ERRAND_RECOVER_CODE = 'print("recovered")'
+_CHAIN_EDIT_FILE_CODE = "echo $(cat step1.txt)-two > step2.txt"
+_CHAIN_FAILING_CODE = "print(undefined_name)"
+_CHAIN_RECOVERY_CODE = 'print("recovered")'
 
-_PERSIST_ONE_KEYWORD = "persistence check part one"
-_PERSIST_TWO_KEYWORD = "persistence check part two"
+_STORE_STATE_KEYWORD = "store values for later"
+_USE_STATE_KEYWORD = "use the stored values"
 _PERSIST_DEFINE_CODE = "persist_num = 40 + 2"
 _PERSIST_EXPORT_CODE = "export PERSIST_WORD=hello"
 _PERSIST_USE_PYTHON_CODE = "print(persist_num)"
@@ -256,16 +244,19 @@ def _split_tool_call_deltas(call_id, name, arguments):
     ]
 
 
-def errand_tool_deltas(messages: list) -> list[dict] | None:
-    """Streaming deltas for the multi-turn errand scenario, or None.
+def tool_chain_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the multi-turn tool-chain scenario, or None.
 
     Turn state comes from assistant-message count. The server never stores
     state between requests — why counting works that way is explained under
     "step state" in the module docstring. Returns delta dicts
-    (no envelope). The simulated conversation:
+    (no envelope). The simulated conversation — python writes a file, shell
+    edits it (proving cross-language execution state), python deliberately
+    fails, python recovers, then the model talks:
 
     - User
-      - message: "Please run this errand: write step one, then step two, ..."
+      - message: "Please demonstrate a tool chain: write to a file with
+        python, modify it with shell, then recover from an error."
     - Assistant
       - tool_call execute(python): write "one" to step1.txt
     - Tool
@@ -283,40 +274,41 @@ def errand_tool_deltas(messages: list) -> list[dict] | None:
     - Tool
       - result
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     history = _user_history_text(messages).lower()
-    if "errand" not in history:
+    if "tool chain" not in history:
         return None
-    turns = _assistant_count(messages)
+    turns = _assistant_count_since(messages, "tool chain")
     if turns == 0:
-        arguments = json.dumps({"language": "python", "code": _ERRAND_PYTHON_CODE})
+        arguments = json.dumps({"language": "python", "code": _CHAIN_WRITE_FILE_CODE})
         return _split_tool_call_deltas("call_step1", "execute", arguments)
     if turns == 1:
-        arguments = json.dumps({"language": "shell", "code": _ERRAND_SHELL_CODE})
+        arguments = json.dumps({"language": "shell", "code": _CHAIN_EDIT_FILE_CODE})
         return [_tool_call_delta("call_step2", "execute", arguments)]
     if turns == 2:
-        arguments = json.dumps({"language": "python", "code": _ERRAND_FAIL_CODE})
+        arguments = json.dumps({"language": "python", "code": _CHAIN_FAILING_CODE})
         return [_tool_call_delta("call_step3", "execute", arguments)]
     if turns == 3:
-        arguments = json.dumps({"language": "python", "code": _ERRAND_RECOVER_CODE})
+        arguments = json.dumps({"language": "python", "code": _CHAIN_RECOVERY_CODE})
         return [_tool_call_delta("call_step4", "execute", arguments)]
     if turns == 4:
-        return [{"content": "Errand complete."}]
+        return [{"content": "Tool chain complete."}]
     # The completion was already delivered; a later user prompt starts a new
     # topic, so fall through to the normal fallback instead of repeating it.
     return None
 
 
-def errand_text_reply(messages: list) -> str | None:
-    """Plain-text reply for the errand scenario in code-block mode, or None.
+def tool_chain_text_reply(messages: list) -> str | None:
+    """Plain-text reply for the tool-chain scenario in code-block mode, or None.
 
-    Same conversation as errand_tool_deltas, but each assistant code turn
+    Same conversation as tool_chain_tool_deltas, but each assistant code turn
     arrives as a fenced text block instead of a tool_calls delta. Step state
     is derived the same way ("step state" in the module docstring):
 
     - User
-      - message: "Please run this errand: write step one, then step two, ..."
+      - message: "Please demonstrate a tool chain: write to a file with
+        python, modify it with shell, then recover from an error."
     - Assistant
       - message: ```python block writing "one" to step1.txt
     - Computer
@@ -334,41 +326,41 @@ def errand_text_reply(messages: list) -> str | None:
     - Computer
       - console output
     - Assistant
-      - message: "Errand complete."
+      - message: "Tool chain complete."
     """
     history = _user_history_text(messages).lower()
-    if "errand" not in history:
+    if "tool chain" not in history:
         return None
-    turns = _assistant_count(messages)
+    turns = _assistant_count_since(messages, "tool chain")
     if turns == 0:
-        return "```python\n" + _ERRAND_PYTHON_CODE + "\n```"
+        return "```python\n" + _CHAIN_WRITE_FILE_CODE + "\n```"
     if turns == 1:
-        return "```shell\n" + _ERRAND_SHELL_CODE + "\n```"
+        return "```shell\n" + _CHAIN_EDIT_FILE_CODE + "\n```"
     if turns == 2:
-        return "```python\n" + _ERRAND_FAIL_CODE + "\n```"
+        return "```python\n" + _CHAIN_FAILING_CODE + "\n```"
     if turns == 3:
-        return "```python\n" + _ERRAND_RECOVER_CODE + "\n```"
+        return "```python\n" + _CHAIN_RECOVERY_CODE + "\n```"
     if turns == 4:
-        return "Errand complete."
+        return "Tool chain complete."
     # Same completion boundary as the tool-call path: fall back to normal
     # replies for later unrelated prompts.
     return None
 
 
 def _persist_step(keyword: str, turn: int):
-    """One step of the split persistence scenario, or None when done.
+    """One step of the cross-prompt state scenario, or None when done.
 
     Part one defines a python value and a shell value; part two uses them.
     Each part ends by talking at turn 2; beyond that the scenario is complete
     and returns None so later prompts fall through to the normal fallback.
     """
-    if keyword == _PERSIST_ONE_KEYWORD:
+    if keyword == _STORE_STATE_KEYWORD:
         steps = [
             ("python", _PERSIST_DEFINE_CODE, "persist_step1"),
             ("shell", _PERSIST_EXPORT_CODE, "persist_step2"),
             ("talk", "values defined."),
         ]
-    elif keyword == _PERSIST_TWO_KEYWORD:
+    elif keyword == _USE_STATE_KEYWORD:
         steps = [
             ("python", _PERSIST_USE_PYTHON_CODE, "persist_step3"),
             ("shell", _PERSIST_USE_SHELL_CODE, "persist_step4"),
@@ -398,15 +390,15 @@ def _latest_persist_part(messages: list) -> str | None:
         ):
             continue
         text = message["content"].lower()
-        if _PERSIST_TWO_KEYWORD in text:
-            return _PERSIST_TWO_KEYWORD
-        if _PERSIST_ONE_KEYWORD in text:
-            return _PERSIST_ONE_KEYWORD
+        if _USE_STATE_KEYWORD in text:
+            return _USE_STATE_KEYWORD
+        if _STORE_STATE_KEYWORD in text:
+            return _STORE_STATE_KEYWORD
     return None
 
 
 def persist_tool_deltas(messages: list) -> list[dict] | None:
-    """Streaming deltas for the split persistence scenario, or None.
+    """Streaming deltas for the cross-prompt state scenario, or None.
 
     Turn state counts assistant messages since the owning part prompt, so the
     two parts stay independent (the stateless "step state" pattern described
@@ -416,7 +408,8 @@ def persist_tool_deltas(messages: list) -> list[dict] | None:
     conversation spans two user messages in one conversation:
 
     - User
-      - message: "persistence check part one: define a python value and ..."
+      - message: "Store values for later: set a python variable and a shell
+        variable"
     - Assistant
       - tool_call execute(python): persist_num = 40 + 2
     - Tool
@@ -428,7 +421,7 @@ def persist_tool_deltas(messages: list) -> list[dict] | None:
     - Assistant
       - message: "values defined."
     - User
-      - message: "persistence check part two: print both values"
+      - message: "Use the stored values: print both"
     - Assistant
       - tool_call execute(python): print(persist_num)
     - Tool
@@ -454,14 +447,14 @@ def persist_tool_deltas(messages: list) -> list[dict] | None:
 
 
 def persist_text_reply(messages: list) -> str | None:
-    """Plain-text reply for the split persistence scenario, or None.
+    """Plain-text reply for the cross-prompt state scenario, or None.
 
     Same two-part conversation as persist_tool_deltas, but each assistant
     code turn arrives as a fenced text block instead of a tool_calls delta
     (same keyed "step state" derivation):
 
     - User
-      - message: "persistence check part one: ..."
+      - message: "Store values for later: ..."
     - Assistant
       - message: ```python block defining persist_num
     - Computer
@@ -473,7 +466,7 @@ def persist_text_reply(messages: list) -> str | None:
     - Assistant
       - message: "values defined."
     - User
-      - message: "persistence check part two: ..."
+      - message: "Use the stored values: ..."
     - Assistant
       - message: ```python block printing persist_num
     - Computer
@@ -546,7 +539,7 @@ class _Handler(BaseHTTPRequestHandler):
         if body.get("tools"):
             deltas = persist_tool_deltas(messages)
             if deltas is None:
-                deltas = errand_tool_deltas(messages)
+                deltas = tool_chain_tool_deltas(messages)
             if deltas is None:
                 deltas = [{"content": "Hello, World!"}]
             if stream:
@@ -604,7 +597,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         content = persist_text_reply(messages)
         if content is None:
-            content = errand_text_reply(messages)
+            content = tool_chain_text_reply(messages)
         if content is None:
             content = pick_reply(body)
 
