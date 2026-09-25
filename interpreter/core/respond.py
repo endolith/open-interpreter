@@ -665,11 +665,13 @@ def respond(interpreter):
                 # confirmation chunk and is shown beside the run prompt, not in
                 # the command's terminal output.
                 lang = interpreter.terminal.get_language_instance(language)
-                if lang is not None and getattr(
-                    interpreter, "strip_redundant_code", True
-                ):
+                if lang is not None:
                     try:
                         stripped, strip_notice = lang.strip_boilerplate(code)
+                        # Each language implementation gates its own redundant-code
+                        # removals; unsafe rewrites (such as shell `nul` targets)
+                        # always run. Calling this unconditionally keeps the
+                        # preview and executed code in agreement.
                         # Always adopt the stripped version when something was
                         # removed — even if it reduces the block to nothing (a
                         # lone redundant cd, or only already-imported modules).
