@@ -10,6 +10,8 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
     execute_tool_hint = "GNU bash — export VAR=value; always bash, never the login shell (fish/zsh). One command per line for readability."
     # POSIX escaping: `cd My\ Documents` is one path with a space.
     cd_unescape_backslashes = True
+    # Bash has no `nul` device; redirecting to `nul` creates a literal file.
+    null_device = "/dev/null"
 
     def __init__(self):
         CwdTrackingMixin.__init__(self)
@@ -19,6 +21,7 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
         self.start_cmd = [resolve_bash_executable()]
 
     def preprocess_code(self, code):
+        code, _ = self._normalize_null_redirects(code)
         code = self._strip_redundant_cd(code)
         code = preprocess_shell(code)
         end_marker = '\necho "##end_of_execution##"'
