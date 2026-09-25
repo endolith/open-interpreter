@@ -39,3 +39,26 @@ def test_merge_empty_original():
     delta = {"role": "assistant", "content": "hi"}
     merge_deltas(original, delta)
     assert original == {"role": "assistant", "content": "hi"}
+def test_merge_string_delta_onto_none_value():
+    """A string delta whose existing key holds None starts concatenation from empty, not from a fallback literal."""
+    original = {"content": None}
+    delta = {"content": "hi"}
+    merge_deltas(original, delta)
+    assert original["content"] == "hi"
+
+
+def test_merge_empty_string_delta_preserves_content():
+    """An empty-string delta concatenates as an empty suffix, leaving existing content unchanged."""
+    original = {"content": "x"}
+    delta = {"content": ""}
+    merge_deltas(original, delta)
+    assert original["content"] == "x"
+
+
+def test_merge_new_dict_key_copies_value():
+    """A dict-valued key absent from the original is deep-copied into it, not replaced with None."""
+    original = {}
+    delta = {"choices": {"delta": {"content": "x"}}}
+    merge_deltas(original, delta)
+    assert original["choices"] == {"delta": {"content": "x"}}
+    delta["choices"]["delta"]["content"] = "mutated"
