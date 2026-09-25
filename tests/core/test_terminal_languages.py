@@ -826,6 +826,104 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertEqual(stripped, "ls")
         self.assertIsNone(notice)
 
+    def test_bash_rewrites_bare_nul_redirect_to_dev_null(self):
+        """Bash must send stderr to `/dev/null`, not create a literal `nul` file."""
+        bash = Bash()
+        cases = {
+            "make >nul": "make >/dev/null",
+            "make >>NUL": "make >>/dev/null",
+            "pdftotext report.pdf 2>nul | grep -c x": "pdftotext report.pdf 2>/dev/null | grep -c x",
+            "make 1>nul && make 2>>nul": "make 1>/dev/null && make 2>>/dev/null",
+            "make &>nul": "make &>/dev/null",
+            'make 2>"nul"': "make 2>/dev/null",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                stripped, notice = bash.strip_boilerplate(source)
+                self.assertEqual(stripped, expected)
+                self.assertIn("/dev/null", notice)
+
+    def test_powershell_rewrites_bare_nul_redirect_to_null_variable(self):
+        """PowerShell must send output to `$null`, not create a literal/reserved `nul` file."""
+        with patch(
+            "interpreter.core.terminal.languages.powershell.resolve_powershell_executable",
+            return_value="pwsh",
+        ), patch(
+            "interpreter.core.terminal.languages.powershell.powershell_startup_args",
+            return_value=[],
+        ):
+            ps = PowerShell()
+        cases = {
+            "Get-Item missing 2>nul": "Get-Item missing 2>$null",
+            "Get-Item missing *>NUL": "Get-Item missing *>$null",
+            "Get-Item missing 6>>nul": "Get-Item missing 6>>$null",
+            "Get-Item missing >'nul'": "Get-Item missing >$null",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                stripped, notice = ps.strip_boilerplate(source)
+                self.assertEqual(stripped, expected)
+                self.assertIn("$null", notice)
+
+    def test_cmd_keeps_nul_device_target(self):
+        """cmd already has a real `nul` device, so its redirection target must not be rewritten."""
+        cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
+        cmd.cwd = "/home/user/project"
+        stripped, notice = cmd.strip_boilerplate("dir 2>nul")
+        self.assertEqual(stripped, "dir 2>nul")
+        self.assertIsNone(notice)
+
+    def test_null_redirect_ignores_quotes_comments_and_paths(self):
+        """The `nul` rewrite applies only to an actual bare redirect target, including comments and quoted text."""
+        bash = Bash()
+        rewritten, notice = bash.strip_boilerplate("make 2>nul # trailing 2>nul")
+        self.assertEqual(rewritten, "make 2>/dev/null # trailing 2>nul")
+        self.assertIn("/dev/null", notice)
+        unchanged = [
+            'echo "redirect 2>nul"',
+            "echo 'redirect 2>nul'",
+            'make 2>"nul"x',
+            "make 2>nul.txt",
+            "make 2>./nul",
+            "make 2>$null",
+            "make 2>/dev/null",
+            "# make 2>nul",
+        ]
+        for source in unchanged:
+            with self.subTest(source=source):
+                stripped, notice = bash.strip_boilerplate(source)
+                self.assertEqual(stripped, source)
+                self.assertIsNone(notice)
+
+    def test_null_redirect_rewrite_ignores_gate(self):
+        """The `nul` safety rewrite is not redundant-code stripping, so it stays on when that switch is off; the gated `cd` removal stays off."""
+        bash = Bash()
+        bash.cwd = os.getcwd()
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = f'cd "{bash.cwd}" && make 2>nul'
+        stripped, notice = bash.strip_boilerplate(code)
+        self.assertEqual(stripped, f'cd "{bash.cwd}" && make 2>/dev/null')
+        self.assertIn("Replaced `nul` with `/dev/null`", notice)
+        self.assertNotIn("already in that directory", notice)
+
+    def test_shell_preprocess_uses_corrected_null_target(self):
+        """The code actually executed must use the corrected null target before shell markers are appended."""
+        bash = Bash()
+        bash_result = bash.preprocess_code("make 2>nul")
+        self.assertIn("make 2>/dev/null", bash_result)
+        self.assertIn('echo "##end_of_execution##"', bash_result)
+        with patch(
+            "interpreter.core.terminal.languages.powershell.resolve_powershell_executable",
+            return_value="pwsh",
+        ), patch(
+            "interpreter.core.terminal.languages.powershell.powershell_startup_args",
+            return_value=[],
+        ):
+            powershell = PowerShell()
+        powershell_result = powershell.preprocess_code("Get-Item missing 2>nul")
+        self.assertIn("Get-Item missing 2>$null", powershell_result)
+        self.assertIn('Write-Output "##end_of_execution##"', powershell_result)
+
     def test_bash_peek_strip_does_not_advance_cwd_or_strip_real_cd(self):
         """The respond-path peek must not pre-apply a kept cd (regression: `cd /home/user && pwd` printed the old dir because the peek advanced cwd and the run then stripped it)."""
         with tempfile.TemporaryDirectory() as d:
@@ -922,7 +1020,7 @@ class _FakeTerminal:
 class TestRespondNotices(unittest.TestCase):
     """respond() reports silent code rewrites via the confirmation chunk's `removed` notice."""
 
-    def _confirmation(self, messages, instances=None):
+    def _confirmation(self, messages, instances=None, interpreter_attrs=None):
         from interpreter.core.respond import respond
 
         class FakeInterpreter:
@@ -934,6 +1032,8 @@ class TestRespondNotices(unittest.TestCase):
             )()
 
         interp = FakeInterpreter()
+        for key, value in (interpreter_attrs or {}).items():
+            setattr(interp, key, value)
         interp.messages = messages
         interp.terminal = _FakeTerminal(instances)
         with patch(
@@ -1032,6 +1132,33 @@ class TestRespondNotices(unittest.TestCase):
             ]
         )
         self.assertIsNone(chunk["content"]["removed"])
+
+    def test_respond_null_redirect_notice_ignores_gate(self):
+        """Respond shows and runs the `nul` safety rewrite even when redundant-code stripping is disabled, while leaving the gated redundant `cd` in place."""
+        from interpreter.core.terminal.languages.bash import Bash
+
+        bash = Bash()
+        bash.cwd = os.getcwd()
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "bash",
+                    "content": f'cd "{bash.cwd}" && make 2>nul',
+                },
+            ],
+            instances={"bash": bash},
+            interpreter_attrs={"strip_redundant_code": False},
+        )
+        content = chunk["content"]
+        self.assertEqual(
+            content["content"], f'cd "{bash.cwd}" && make 2>/dev/null'
+        )
+        self.assertIn("Replaced `nul` with `/dev/null`", content["removed"])
+        self.assertNotIn("already in that directory", content["removed"])
 
     def test_import_toolbox_stripped_with_notice(self):
         """`import toolbox` is stripped (toolbox is injected into the kernel) and reported — the old guard raised after approval instead (regression)."""
