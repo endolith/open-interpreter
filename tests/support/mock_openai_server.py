@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -445,20 +446,51 @@ def persist_text_reply(messages: list) -> str | None:
     return "```%s\n%s\n```" % (language, code)
 
 
+_MAX_TEXT_DELTA = 8
+_TEXT_DELTA = re.compile(r"\s*\S+\s*")
+
+
+def _text_deltas(text: str) -> list[str]:
+    """Split prose into word-sized deltas the way a provider streams it.
+
+    A real provider emits a few characters at a time, so a reply arriving as
+    one delta never exercises the client's reassembly. Splitting on word
+    boundaries (keeping each word's trailing whitespace) makes the deltas
+    token-like while guaranteeing that concatenating them reproduces the
+    input exactly, spaces included. A word longer than _MAX_TEXT_DELTA is cut
+    into pieces, since providers also split long unbroken tokens.
+    """
+    deltas: list[str] = []
+    for word in _TEXT_DELTA.findall(text):
+        while len(word) > _MAX_TEXT_DELTA:
+            deltas.append(word[:_MAX_TEXT_DELTA])
+            word = word[_MAX_TEXT_DELTA:]
+        if word:
+            deltas.append(word)
+    if not deltas and text:
+        # Whitespace-only text: no word to attach it to, but the stream still
+        # has to carry it or the reassembled message loses characters.
+        deltas.append(text)
+    return deltas
+
+
 def stream_reply_chunks(content: str) -> list[str]:
     """Split assistant text into streaming deltas that run_text_llm can parse.
 
+    Fenced replies keep a structural split rather than a token one:
     run_text_llm defers processing while accumulated text ends with a backtick
-    (waiting for more of a fence). Split the opening fence from the language line
-    so the yielded code body does not include leading ``` markers.
+    (waiting for more of a fence), so the opening fence is separated from the
+    language line and the code body never carries leading ``` markers.
+
+    Everything else — prose before a fence, and plain replies with no fence at
+    all — is split into word-sized deltas, because that is how a provider
+    actually streams and a single-delta reply cannot test reassembly.
     """
     if "```" not in content:
-        return [content]
+        return _text_deltas(content)
 
     before, rest = content.split("```", 1)
-    chunks: list[str] = []
-    if before:
-        chunks.append(before)
+    chunks: list[str] = _text_deltas(before)
 
     if "\n" in rest:
         language, code = rest.split("\n", 1)
