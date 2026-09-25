@@ -4,6 +4,7 @@ from unittest import TestCase, mock
 from interpreter.core.async_core import (
     AsyncInterpreter,
     Server,
+    complete_message,
     confirmation_digest,
     is_websocket_origin_allowed,
     SENSITIVE_LLM_SETTINGS,
@@ -91,7 +92,8 @@ class TestSettingsEndpointGuards(TestCase):
         """Build a TestClient around a fresh server app."""
         from fastapi.testclient import TestClient
 
-        self.client = TestClient(Server(AsyncInterpreter()).app)
+        self.interpreter = AsyncInterpreter()
+        self.client = TestClient(Server(self.interpreter).app)
 
     def _assert_settings_blocked(self, payload, error_substring):
         """POST the given settings payload and assert it is rejected with 403."""
@@ -117,6 +119,42 @@ class TestSettingsEndpointGuards(TestCase):
         """Non-sensitive llm fields like model remain writable via POST /settings."""
         response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
         self.assertEqual(response.status_code, 200)
+
+    def test_post_settings_applies_nothing_when_a_later_key_is_refused(self):
+        """
+        A payload holding a refused key must change nothing at all.
+
+        The guard used to reject from inside the loop that was already writing, so
+        the keys ahead of the refused one were applied and the 403 told the caller
+        the opposite.
+        """
+        original_model = self.interpreter.llm.model
+
+        response = self.client.post(
+            "/settings", json={"llm": {"model": "changed"}, "auto_run": True}
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.interpreter.llm.model, original_model)
+        self.assertFalse(self.interpreter.auto_run)
+
+    def test_post_settings_rejects_a_scalar_for_a_nested_setting(self):
+        """
+        A scalar sent for llm/computer is refused instead of replacing the object.
+
+        Writing a string over interpreter.llm was accepted with 200 and broke every
+        later turn with AttributeError, since the endpoint only recognised the
+        nested form when the value happened to be a dict.
+        """
+        for key in ["llm", "computer"]:
+            with self.subTest(key=key):
+                original = getattr(self.interpreter, key)
+
+                response = self.client.post("/settings", json={key: "oops"})
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(key, response.json()["error"])
+                self.assertIs(getattr(self.interpreter, key), original)
 
 class TestAsyncApprovalBinding(TestCase):
     def setUp(self):
@@ -322,6 +360,27 @@ class TestAsyncRespondApproval(TestCase):
 
         put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
         self.assertFalse(any(c.get("content") == "ok" for c in put_chunks))
+
+    def test_respond_marks_a_denied_turn_complete_only_once(self):
+        """
+        A turn whose approval is refused ends with exactly one complete marker.
+
+        respond() marks the turn complete before parking on the approval event, so
+        the second marker it used to send on the way out arrived as the first frame
+        of whatever the client sent next: clients that stop reading on complete saw
+        an empty turn, and the real frames were attributed to nothing.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": self._confirmation_payload(),
+        }
+
+        self._run_respond_with_chunks([confirmation], approve=False)
+
+        put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
+        completes = [c for c in put_chunks if c == complete_message]
+        self.assertEqual(len(completes), 1)
 
 
 class TestServerRunAndSetters(TestCase):
