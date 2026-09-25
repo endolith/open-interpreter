@@ -65,3 +65,53 @@ def test_parse_truncated_nested_object():
     """A truncated nested object is repaired by closing inner and outer braces."""
     result = parse_partial_json('{"a": {"b": 1')
     assert result == {"a": {"b": 1}}
+def test_parse_truncated_after_closed_array():
+    """A closed array followed by a truncated string repairs correctly, requiring bracket matching in the repair path."""
+    result = parse_partial_json('{"a": [1], "b": "x')
+    assert result == {"a": [1], "b": "x"}
+
+
+def test_parse_truncated_unclosed_array():
+    """A truncated array value is auto-closed in the right order."""
+    result = parse_partial_json('{"a": [1, 2')
+    assert result == {"a": [1, 2]}
+
+
+def test_parse_mismatched_closing_bracket_returns_none():
+    """A closing bracket that does not match the innermost open structure is malformed and returns None."""
+    assert parse_partial_json('{"a": ]}') is None
+
+
+def test_parse_escaped_quote_inside_truncated_string():
+    """An escaped quote inside a truncated string value is kept as content, not treated as a string terminator."""
+    result = parse_partial_json('{"code": "print(\\"hello')
+    assert result == {"code": 'print("hello'}
+
+
+def test_parse_escaped_backslash_inside_truncated_string():
+    """An escaped backslash inside a truncated string value is preserved as a single backslash."""
+    result = parse_partial_json('{"path": "C:\\\\temp')
+    assert result == {"path": "C:\\temp"}
+
+
+def test_parse_empty_string_value():
+    """An empty string value parses correctly, including in the repair path."""
+    assert parse_partial_json('{"a": ""}') == {"a": ""}
+    result = parse_partial_json('{"a": ""')
+    assert result == {"a": ""}
+
+
+def test_parse_backslash_before_truncation():
+    """A dangling escape sequence before truncation does not corrupt the repaired string."""
+    result = parse_partial_json('{"a": "ends with backslash \\\\')
+    assert result == {"a": "ends with backslash \\"}
+def test_parse_truncated_after_empty_string_value():
+    """An empty string value followed by more truncated content parses correctly (empty-string quote pairing)."""
+    result = parse_partial_json('{"a": "", "b": 1')
+    assert result == {"a": "", "b": 1}
+
+
+def test_parse_truncated_after_closed_nested_object():
+    """A closed nested object followed by a truncated string repairs correctly (inner brace popped)."""
+    result = parse_partial_json('{"a": {}, "b": "x')
+    assert result == {"a": {}, "b": "x"}
