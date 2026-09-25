@@ -62,10 +62,6 @@ def pick_reply(body: dict) -> str:
     ):
         return "Washington"
 
-    if "use python" in text and "print" not in text:
-        # Simple math smoke: integration tests ask the model to compute via Python.
-        return "```python\nprint(42)\n```"
-
     return "Hello, World!"
 
 
