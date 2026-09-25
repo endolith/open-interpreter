@@ -166,7 +166,8 @@ def test_vision_false_skips_base64_image(interpreter):
         }
     ]
     assert (
-        convert_to_openai_messages(messages, vision=False, interpreter=interpreter) == []
+        convert_to_openai_messages(messages, vision=False, interpreter=interpreter)
+        == []
     )
 
 
@@ -255,6 +256,7 @@ def test_image_missing_format_raises(interpreter):
             interpreter=interpreter,
         )
 
+
 def test_console_output_non_string_content_is_coerced(interpreter):
     """Non-string console output (e.g. an int) is coerced to a string before sending."""
     interpreter.debug = True
@@ -300,9 +302,7 @@ def test_base64_image_without_dot_defaults_to_png(interpreter):
     import base64
 
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
-    messages = [
-        {"role": "user", "type": "image", "format": "base64", "content": png}
-    ]
+    messages = [{"role": "user", "type": "image", "format": "base64", "content": png}]
     result = convert_to_openai_messages(
         messages, vision=True, shrink_images=False, interpreter=interpreter
     )
@@ -440,9 +440,7 @@ def test_whitespace_around_text_content_is_stripped(interpreter):
 
     Models are sensitive to stray whitespace in the payload; every string
     content is normalized before it is sent."""
-    messages = [
-        {"role": "assistant", "type": "message", "content": "  Hello world  "}
-    ]
+    messages = [{"role": "assistant", "type": "message", "content": "  Hello world  "}]
     result = convert_to_openai_messages(messages, interpreter=interpreter)
     assert result == [{"role": "assistant", "content": "Hello world"}]
 
@@ -551,3 +549,225 @@ def test_image_description_normalizes_computer_role(interpreter):
     ]
     result = convert_to_openai_messages(messages, vision=True, interpreter=interpreter)
     assert result == [{"role": "user", "content": "tool output described"}]
+
+
+import base64
+import io
+import sys
+
+
+def _png_bytes():
+    """A small valid 2x2 PNG, for tests that need a decodable image."""
+    import io
+
+    from PIL import Image
+
+    buffered = io.BytesIO()
+    Image.new("RGB", (2, 2)).save(buffered, format="png")
+    return buffered.getvalue()
+
+
+def _oversized_png_path(tmp_path):
+    """A PNG whose base64 data URL just exceeds the 5 MB shrink threshold (and is still decodable)."""
+    import os
+
+    from PIL import Image
+
+    width = height = 1118
+    img = Image.frombytes("RGB", (width, height), os.urandom(width * height * 3))
+    buffered = io.BytesIO()
+    img.save(buffered, format="png", compress_level=0)
+    png = buffered.getvalue()
+    # Pad after IEND so the base64 length lands in (5*2^20, 5*(1025/1024)^2*2^20)
+    # bytes: large enough that the original code shrinks it, small enough that
+    # a mutant computing MB with 1025*1024 does not.
+    png = png + os.urandom(3932115 - len(png))
+    path = tmp_path / "big.png"
+    path.write_bytes(png)
+    return path, width
+
+
+def test_recipient_skip_continues_later_messages(interpreter):
+    """Messages addressed to the user are skipped, but later messages are still processed."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "for the user",
+            "recipient": "user",
+        },
+        {"role": "assistant", "type": "message", "content": "Visible"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "assistant", "content": "Visible"}]
+
+
+def test_error_message_skipped_but_later_processed(interpreter):
+    """Error messages are skipped, but later messages are still processed."""
+    messages = [
+        {"role": "system", "type": "error", "content": "boom"},
+        {"role": "assistant", "type": "message", "content": "Visible"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "assistant", "content": "Visible"}]
+
+
+def test_function_calling_false_merges_consecutive_messages(interpreter):
+    """With function calling off, consecutive same-role messages merge: earlier runs join with newlines, the final run with spaces."""
+    messages = [
+        {"role": "user", "type": "message", "content": "a"},
+        {"role": "user", "type": "message", "content": "b"},
+        {"role": "assistant", "type": "message", "content": "x"},
+        {"role": "user", "type": "message", "content": "c"},
+        {"role": "user", "type": "message", "content": "d"},
+    ]
+    result = convert_to_openai_messages(
+        messages, interpreter=interpreter, function_calling=False
+    )
+    assert result == [
+        {"role": "user", "content": "a\nb"},
+        {"role": "assistant", "content": "x"},
+        # The last user message gets the interpreter's user_message_template.
+        {"role": "user", "content": "c User: d"},
+    ]
+
+
+def test_vision_defaults_to_false_skips_images(interpreter, tmp_path):
+    """Without vision enabled, image messages are dropped and later messages still appear."""
+    path = tmp_path / "pic.png"
+    path.write_bytes(_png_bytes())
+    messages = [
+        {"role": "computer", "type": "image", "format": "path", "content": str(path)},
+        {"role": "assistant", "type": "message", "content": "Visible"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "assistant", "content": "Visible"}]
+
+
+def test_base64_image_extension_from_format(interpreter):
+    """For base64 images, the data URL's extension comes from the last dot-separated segment of the format."""
+    fake_b64 = base64.b64encode(_png_bytes()).decode()
+    messages = [
+        {
+            "role": "computer",
+            "type": "image",
+            "format": "base64.image.png",
+            "content": fake_b64,
+        }
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
+
+
+def test_path_image_extension_from_filename(interpreter, tmp_path):
+    """For image paths, the data URL's extension comes from the file name and the base64 payload is the file's bytes."""
+    path = tmp_path / "pic.v2.png"
+    path.write_bytes(_png_bytes())
+    messages = [
+        {"role": "user", "type": "image", "format": "path", "content": str(path)}
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split(",", 1)[1]) == _png_bytes()
+
+
+def test_computer_image_gets_detail_low_and_prompt_text(interpreter):
+    """A computer-sourced base64 image becomes an image_url part with detail=low plus the tool-output prompt text."""
+    fake_b64 = base64.b64encode(_png_bytes()).decode()
+    messages = [
+        {
+            "role": "computer",
+            "type": "image",
+            "format": "base64.png",
+            "content": fake_b64,
+        }
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
+    assert result == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64," + fake_b64,
+                        "detail": "low",
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": "This image is the result of the last tool output. What does it mean / are we done?",
+                },
+            ],
+        }
+    ]
+
+
+def test_path_image_includes_path_text(interpreter, tmp_path):
+    """A user-sourced image path message includes the path in a text part."""
+    path = tmp_path / "shot.png"
+    path.write_bytes(_png_bytes())
+    messages = [
+        {"role": "user", "type": "image", "format": "path", "content": str(path)}
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
+    assert result[0]["content"][1] == {
+        "type": "text",
+        "text": "This image is at this path: " + str(path),
+    }
+
+
+def test_computer_path_image_appends_path_text(interpreter, tmp_path):
+    """A computer-sourced image path message appends the path to the existing prompt text."""
+    path = tmp_path / "shot.png"
+    path.write_bytes(_png_bytes())
+    messages = [
+        {"role": "computer", "type": "image", "format": "path", "content": str(path)}
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
+    assert result[0]["content"][1]["text"] == (
+        "This image is the result of the last tool output. What does it mean / are we done?\nThis image is at this path: "
+        + str(path)
+    )
+
+
+def test_oversized_image_is_shrunk_below_limit(interpreter, tmp_path):
+    """An image whose data URL exceeds 5 MB is resized (shrink_images defaults to True) by the expected scale factor."""
+    import sys as _sys
+
+    from PIL import Image
+
+    path, width = _oversized_png_path(tmp_path)
+    original_b64 = base64.b64encode(path.read_bytes()).decode()
+    original_content = "data:image/png;base64," + original_b64
+
+    messages = [
+        {"role": "computer", "type": "image", "format": "path", "content": str(path)}
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
+
+    url = result[0]["content"][0]["image_url"]["url"]
+    # Shrinking happened at all.
+    assert len(url) < len(original_content)
+    # The scale factor matches (4.9 / size_mb) ** 0.5 applied once.
+    size_mb = _sys.getsizeof(original_content) / (1024 * 1024)
+    expected_width = int(width * (4.9 / size_mb) ** 0.5)
+    img = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1])))
+    assert img.width == expected_width
+def test_merge_flushes_accumulated_text_on_image(interpreter, tmp_path):
+    """When an image message (list content) interrupts accumulated text messages, the buffered text flushes with newline joins."""
+    path = tmp_path / "pic.png"
+    path.write_bytes(_png_bytes())
+    messages = [
+        {"role": "user", "type": "message", "content": "a"},
+        {"role": "user", "type": "message", "content": "b"},
+        {"role": "computer", "type": "image", "format": "path", "content": str(path)},
+    ]
+    result = convert_to_openai_messages(
+        messages, interpreter=interpreter, vision=True, function_calling=False
+    )
+    # "b" is the last user text message, so it gets the template before joining.
+    assert result[0] == {"role": "user", "content": "a\nUser: b"}
+    assert result[1]["content"][0]["type"] == "image_url"
