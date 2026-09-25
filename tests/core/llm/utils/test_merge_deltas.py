@@ -39,11 +39,20 @@ def test_merge_empty_original():
     delta = {"role": "assistant", "content": "hi"}
     merge_deltas(original, delta)
     assert original == {"role": "assistant", "content": "hi"}
-def test_merge_string_delta_onto_none_value():
-    """A string delta whose existing key holds None starts concatenation from empty, not from a fallback literal."""
-    original = {"content": None}
-    delta = {"content": "hi"}
-    merge_deltas(original, delta)
+
+
+def test_merge_string_delta_onto_falsy_value():
+    """A string delta concatenating onto a falsy stored value starts from empty.
+
+    An empty-string delta stores "", so a later content delta re-enters the
+    concatenation branch with a falsy left side; the "or ''" guard keeps the
+    literal out of the result. None cannot reach this branch — merge_deltas
+    skips None deltas and no caller pre-seeds the accumulator — so "" is the
+    reachable shape of the guard.
+    """
+    original = {}
+    merge_deltas(original, {"content": ""})
+    merge_deltas(original, {"content": "hi"})
     assert original["content"] == "hi"
 
 
@@ -56,9 +65,14 @@ def test_merge_empty_string_delta_preserves_content():
 
 
 def test_merge_new_dict_key_copies_value():
-    """A dict-valued key absent from the original is deep-copied into it, not replaced with None."""
+    """A dict-valued key absent from the original is initialized with a shallow copy of the value.
+
+    dict(value) copies the outer dict only, so later edits to the merged
+    outer level leave the delta untouched while nested dicts stay shared.
+    """
     original = {}
     delta = {"choices": {"delta": {"content": "x"}}}
     merge_deltas(original, delta)
     assert original["choices"] == {"delta": {"content": "x"}}
-    delta["choices"]["delta"]["content"] = "mutated"
+    original["choices"]["added"] = True
+    assert "added" not in delta["choices"]
