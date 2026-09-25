@@ -12,6 +12,8 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
     # `cd /d X` is cmd's change-drive form; `;` is not a cmd separator.
     cd_option_prefixes = ("/d",)
     cd_chain_operators = ("&&", "&")
+    # `nul` is cmd's actual null device, so there is nothing to normalize.
+    null_device = None
 
     def __init__(self):
         CwdTrackingMixin.__init__(self)
@@ -23,6 +25,7 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
         self.start_cmd = ["cmd.exe", "/K", "chcp 65001 >nul"]
 
     def preprocess_code(self, code):
+        code, _ = self._normalize_null_redirects(code)
         code = self._strip_redundant_cd(code)
         code = preprocess_shell(code)
         end_marker = '\necho "##end_of_execution##"'

@@ -1,6 +1,8 @@
 import os
 import re
 
+from ...utils.shell_chain import replace_null_redirect_target
+
 
 class CwdTrackingMixin:
     """Tracks a persistent shell's working directory and strips redundant ``cd`` prefixes.
@@ -23,6 +25,12 @@ class CwdTrackingMixin:
       ``cd_option_prefixes``   leading option tokens to skip (cmd's ``/d``)
       ``cd_chain_operators``   chaining separators kept after a stripped cd
                                (cmd has no ``;``; default ``("&&", ";", "&")``)
+      ``null_device``          shell-specific null sink used when rewriting a
+                               bare ``nul`` redirect target (``None`` leaves
+                               cmd's real NUL device alone)
+      ``shell_quote_style``    ``"posix"`` for shells whose backslash escapes
+                               the next character, ``"powershell"`` for
+                               PowerShell's backtick/quote-doubling rules
     """
 
     cd_commands = ("cd",)
@@ -34,6 +42,10 @@ class CwdTrackingMixin:
     # bash does this; cmd/PowerShell use backslash as a path separator and
     # quote spaces instead, so they must keep the backslashes.
     cd_unescape_backslashes = False
+    # `nul` is a real device only in cmd. Bash and PowerShell ordinarily
+    # create a file literally named `nul`; rewrite that redirect target.
+    null_device = None
+    shell_quote_style = "posix"
 
     def __init__(self):
         self.cwd = os.getcwd()
@@ -91,18 +103,47 @@ class CwdTrackingMixin:
         return self._postprocess_line(line)
 
     def strip_boilerplate(self, code):
-        """Return (stripped_code, notice) after removing redundant cd prefixes.
+        """Return (stripped_code, notice) after safe shell-code normalization.
 
-        Non-mutating: it does NOT update the tracked cwd for kept ``cd``
-        commands. Called by respond() as a "peek" before the code runs — if it
-        advanced ``self.cwd`` here, the actual run (preprocess_code) would
-        re-strip the same code and consider those ``cd``s redundant, stripping
-        commands that genuinely change directories. Only the real run tracks
-        the cwd.
+        Rewrites a bare ``nul`` redirect target to the configured null sink and
+        removes redundant cd prefixes. Non-mutating: it does NOT update the
+        tracked cwd for kept ``cd`` commands. Called by respond() as a "peek"
+        before the code runs — if it advanced ``self.cwd`` here, the actual run
+        (preprocess_code) would re-strip the same code and consider those
+        ``cd``s redundant, stripping commands that genuinely change
+        directories. Only the real run tracks the cwd.
         """
         self._pending_notice = None
-        stripped = self._strip_redundant_cd(code, track=False)
+        normalized, null_rewritten = self._normalize_null_redirects(code)
+        stripped = self._strip_redundant_cd(normalized, track=False)
+        notices = []
+        if null_rewritten:
+            notices.append(self._null_rewrite_notice())
+        if self._pending_notice:
+            notices.append(self._pending_notice)
+        self._pending_notice = "; ".join(notices) if notices else None
         return stripped, self._pending_notice
+
+    def _normalize_null_redirects(self, code):
+        """Replace an unsafe bare `nul` redirect target.
+
+        Unlike redundant-code stripping, this safety rewrite is never gated:
+        it prevents a harmful file from being created even when
+        `strip_redundant_code` is false.
+        """
+        if self.null_device is None:
+            return code, False
+        return replace_null_redirect_target(
+            code,
+            self.null_device,
+            powershell=self.shell_quote_style == "powershell",
+        )
+
+    def _null_rewrite_notice(self):
+        return (
+            f"Replaced `nul` with `{self.null_device}` "
+            "(a bare `nul` redirect would create a file here)."
+        )
 
     def _postprocess_line(self, line):
         return line
