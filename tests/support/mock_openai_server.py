@@ -1,4 +1,27 @@
-"""Minimal OpenAI-compatible chat API for CI (no real LLM)."""
+"""Minimal OpenAI-compatible chat API for CI (no real LLM).
+
+Requests are dispatched on their content, first match wins:
+- tool mode (the request carries a tools parameter): persist_tool_deltas,
+  then errand_tool_deltas, then a "Hello, World!" fallback.
+- text mode: persist_text_reply, then errand_text_reply, then pick_reply's
+  keyword branches, then the same fallback.
+
+Vocabulary used by this module's docstrings:
+- "trigger phrase": user text that starts a scenario (e.g. a prompt asking
+  for the errand).
+- "step state": which canned reply comes next inside a scenario. The server
+  is stateless, so step state is derived from the conversation it receives —
+  how many assistant messages follow the latest matching prompt — and never
+  stored between requests.
+- "fallback": the default reply for prompts no scenario claims.
+
+"Level N" in docstrings means the test tier:
+- level 1: helper unit tests calling these functions directly
+  (tests/support/test_mock_openai_server.py).
+- level 2: full chat() loops against this server over real HTTP
+  (tests/test_mock_llm.py) — what these scenarios script.
+- level 3: integration tests against real providers.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +51,34 @@ def _last_user_text(messages: list) -> str:
 
 
 def pick_reply(body: dict) -> str:
-    """Return a canned assistant reply based on prompt keywords (level-2 scenarios)."""
+    """Return a canned assistant reply based on prompt keywords (level-2 scenarios).
+
+    One-shot exchanges, so the transcript fits here instead of in the
+    branching logic:
+
+    - greeting:
+      - User - message: "Say hello."
+      - Assistant - message: "Hello, World!"
+    - write to file:
+      - User - message: "Write the word 'Washington' to a .txt file called
+        file.txt. Instantly run the code! Save the file!"
+      - Assistant - message: ```python block writing 'Washington' to file.txt
+      - Computer - console output (empty; the code ran for real)
+      - Assistant - message: "The task is done." — a loop-stopper: any
+        computer console entry in the history ends the respond() loop.
+    - read the file back:
+      - User - message: "Read file.txt in the current directory and tell me
+        what's in it."
+      - Assistant - message: "Washington"
+    - OI itself injects a turn:
+      - User - message: "code output: ..." — console output injected as a
+        follow-up user turn ends the respond() loop.
+
+    Unmatched prompts fall through to "Hello, World!" — note this doubles as
+    the greeting scenario's reply, so an unknown prompt is indistinguishable
+    from a greeting on the wire (a future demo mode should give the fallback
+    a menu of things to try instead).
+    """
     messages = body.get("messages") or []
     text = _last_user_text(messages).lower()
     ran_code = any(
@@ -37,7 +87,7 @@ def pick_reply(body: dict) -> str:
     )
 
     if ran_code and "read file.txt" not in text:
-        # End the respond() loop after auto_run executes mocked code once.
+        # End the respond() loop after auto_run executes the canned code once.
         return "The task is done."
 
     if "code output:" in text:
@@ -209,7 +259,9 @@ def _split_tool_call_deltas(call_id, name, arguments):
 def errand_tool_deltas(messages: list) -> list[dict] | None:
     """Streaming deltas for the multi-turn errand scenario, or None.
 
-    Turn state comes from assistant-message count. Returns delta dicts
+    Turn state comes from assistant-message count. The server never stores
+    state between requests — why counting works that way is explained under
+    "step state" in the module docstring. Returns delta dicts
     (no envelope). The simulated conversation:
 
     - User
@@ -260,7 +312,8 @@ def errand_text_reply(messages: list) -> str | None:
     """Plain-text reply for the errand scenario in code-block mode, or None.
 
     Same conversation as errand_tool_deltas, but each assistant code turn
-    arrives as a fenced text block instead of a tool_calls delta:
+    arrives as a fenced text block instead of a tool_calls delta. Step state
+    is derived the same way ("step state" in the module docstring):
 
     - User
       - message: "Please run this errand: write step one, then step two, ..."
@@ -356,7 +409,9 @@ def persist_tool_deltas(messages: list) -> list[dict] | None:
     """Streaming deltas for the split persistence scenario, or None.
 
     Turn state counts assistant messages since the owning part prompt, so the
-    two parts stay independent. Returns None once the part's flow completes
+    two parts stay independent (the stateless "step state" pattern described
+    in the module docstring, keyed on each part's prompt). Returns None once
+    the part's flow completes
     so later prompts fall through to the normal fallback. The simulated
     conversation spans two user messages in one conversation:
 
@@ -402,7 +457,8 @@ def persist_text_reply(messages: list) -> str | None:
     """Plain-text reply for the split persistence scenario, or None.
 
     Same two-part conversation as persist_tool_deltas, but each assistant
-    code turn arrives as a fenced text block instead of a tool_calls delta:
+    code turn arrives as a fenced text block instead of a tool_calls delta
+    (same keyed "step state" derivation):
 
     - User
       - message: "persistence check part one: ..."
