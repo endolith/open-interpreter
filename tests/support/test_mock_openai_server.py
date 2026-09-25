@@ -107,6 +107,60 @@ def test_stream_reply_chunks_splits_fenced_code():
     assert chunks == ["```", "python\nprint(1)\n", "```"]
 
 
+def test_stream_reply_chunks_splits_plain_text_into_word_sized_deltas():
+    """Plain prose arrives as several deltas, the way a provider streams it.
+
+    A single-delta reply cannot expose a client that drops or duplicates an
+    intermediate piece, so the mock has to fragment plain text by default.
+    """
+    chunks = stream_reply_chunks("The quick brown fox")
+    assert chunks == ["The ", "quick ", "brown ", "fox"]
+    assert len(chunks) > 1
+
+
+def test_stream_reply_chunks_reassembles_to_the_exact_input():
+    """Splitting is lossless: whitespace, newlines, and long words all survive.
+
+    Each delta keeps its word's trailing whitespace, so the deltas concatenate
+    back to the original character for character — the property that lets a
+    test assert on final message content while still streaming in pieces.
+    """
+    for text in (
+        "Hello, World!",
+        "double  space",
+        " leading and trailing ",
+        "line\nbreak\n\nparagraph",
+        "x" * 40,
+        "single",
+    ):
+        assert "".join(stream_reply_chunks(text)) == text
+
+
+def test_stream_reply_chunks_splits_long_unbroken_token():
+    """A word longer than the delta cap is cut up, since providers split those too."""
+    chunks = stream_reply_chunks("x" * 20)
+    assert len(chunks) > 1
+    assert all(len(chunk) <= 8 for chunk in chunks)
+
+
+def test_stream_reply_chunks_keeps_whitespace_only_text():
+    """A whitespace-only reply still streams its characters instead of vanishing."""
+    assert "".join(stream_reply_chunks("   ")) == "   "
+
+
+def test_stream_reply_chunks_empty_text_yields_no_deltas():
+    """Empty content sends no content delta at all, only the terminal chunk."""
+    assert stream_reply_chunks("") == []
+
+
+def test_stream_reply_chunks_splits_prose_before_a_fence():
+    """Narration ahead of a code block streams word-wise, then the fence splits structurally."""
+    chunks = stream_reply_chunks("Let me check.\n```python\nprint(1)\n```")
+    assert chunks[:2] == ["Let ", "me "]
+    assert chunks[-3:] == ["```", "python\nprint(1)\n", "```"]
+    assert "".join(chunks) == "Let me check.\n```python\nprint(1)\n```"
+
+
 def _errand_messages(n_assistant_turns=0):
     """History with an errand prompt plus completed assistant turns."""
     messages = [{"role": "user", "content": "Please run this errand."}]
