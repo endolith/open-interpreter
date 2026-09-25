@@ -5,6 +5,8 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,
     JupyterLanguage,
@@ -358,6 +360,39 @@ def test_run_yields_error_content_on_execution_failure():
     assert "RuntimeError: kaboom" in outputs[0]["content"]
 
 
+def test_run_propagates_keyboard_interrupt_and_asks_for_a_kernel_interrupt():
+    """A Ctrl-C during a block escapes run() and flags the listener to interrupt the kernel.
+
+    Ctrl-C is the user stopping the code, not the code failing. The kernel runs in its
+    own session, so only interrupt_kernel() can stop it and only the terminal's own
+    KeyboardInterrupt handler can return to the prompt. Swallowing the interrupt left
+    the kernel running and sent Open Interpreter's internal traceback to the model as
+    if the user's code had crashed.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.computer = SimpleNamespace(
+        interpreter=SimpleNamespace(stop_event=threading.Event())
+    )
+    lang.preprocess_code = lambda code: code
+    lang._execute_code = lambda code, mq: None
+
+    def interrupted(mq):
+        raise KeyboardInterrupt
+        yield  # pragma: no cover - makes this a generator, as _capture_output is
+
+    lang._capture_output = interrupted
+
+    chunks = []
+    with pytest.raises(KeyboardInterrupt):
+        for chunk in lang.run("time.sleep(60)"):
+            chunks.append(chunk)
+
+    assert chunks == []
+    assert lang.finish_flag is True
+
+
 def test_stop_sets_finish_flag():
     """stop() flags the language so the listener thread halts at the next check."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
@@ -383,3 +418,76 @@ def test_preprocess_code_delegates_to_preprocess_python():
         "os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}
     ):
         assert lang.preprocess_code("x = 1\n\n") == "x = 1"
+
+
+def _iopub_msg_from(msg_type, parent_msg_id, **content):
+    """Build an iopub message tagged with the execute_request that caused it."""
+    return {
+        "header": {"msg_type": msg_type},
+        "msg_type": msg_type,
+        "parent_header": {"msg_id": parent_msg_id},
+        "content": content,
+    }
+
+
+def test_execute_code_ignores_a_previous_executions_messages():
+    """Leftover output from an earlier execute_request is not read as this one's.
+
+    interrupt_kernel() returns before the kernel has finished emitting, and
+    stop() abandons the listener without draining, so the next run() can find
+    the previous execution's stream and status messages still queued. Reading
+    the stale status/idle ended this execution immediately, so its real output
+    stayed in the channel and surfaced under the command after it — output
+    arriving one command late, and commands that appeared never to run.
+    """
+    lang = _scripted_language(
+        [
+            _iopub_msg_from("stream", "old-request", name="stdout", text="STALE\n"),
+            _iopub_msg_from("status", "old-request", execution_state="idle"),
+            _iopub_msg_from("stream", "this-request", name="stdout", text="MINE\n"),
+            _iopub_msg_from("status", "this-request", execution_state="idle"),
+        ]
+    )
+    lang.kc.execute = lambda code: "this-request"
+
+    outputs = _drain_listener(lang)
+
+    texts = [o.get("content") for o in outputs if o.get("type") == "console"]
+    assert "MINE\n" in texts
+    assert "STALE\n" not in texts
+
+
+def test_execute_code_records_the_execution_id_before_listening():
+    """The execute_request is sent before the listener starts, so its id is known.
+
+    The listener filters on parent_header against this id; if it started first
+    it would race the assignment and could read stale traffic as its own.
+    """
+    lang = _scripted_language(
+        [_iopub_msg_from("status", "req-1", execution_state="idle")]
+    )
+    lang.kc.execute = lambda code: "req-1"
+
+    _drain_listener(lang)
+
+    assert lang._execution_id == "req-1"
+
+
+def test_execute_code_still_accepts_messages_without_a_parent_header():
+    """Messages carrying no parent_header are kept rather than discarded.
+
+    Some kernel messages arrive unparented; dropping them would lose real
+    output, so the filter only rejects a parent that is positively someone
+    else's.
+    """
+    lang = _scripted_language(
+        [
+            _iopub_msg("stream", name="stdout", text="UNPARENTED\n"),
+            _iopub_msg_from("status", "this-request", execution_state="idle"),
+        ]
+    )
+    lang.kc.execute = lambda code: "this-request"
+
+    outputs = _drain_listener(lang)
+
+    assert "UNPARENTED\n" in [o.get("content") for o in outputs if o.get("type") == "console"]
