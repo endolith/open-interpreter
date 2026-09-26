@@ -96,11 +96,32 @@ class TestWebSocketOriginPolicy(TestCase):
         self.assertFalse(is_websocket_origin_allowed("file:///etc/passwd"))
 
 
-class TestSettingsEndpointGuards(TestCase):
+class _UnauthenticatedServerTestCase(TestCase):
+    """Base that hides INTERPRETER_API_KEY from the auth middleware for one test.
+
+    The middleware resolves `server.authenticate` on every request, and
+    `authenticate_function` re-reads the environment each time. So an exported
+    INTERPRETER_API_KEY turns every request these tests make into a 403, and they
+    would fail for a reason unrelated to what they check. The websocket tests
+    already do this via a `monkeypatch.delenv` fixture; unittest classes need the
+    patch started and stopped by hand.
+    """
+
+    def setUp(self):
+        """Clear the key for this test, restoring the environment afterwards."""
+        env_patch = mock.patch.dict(os.environ)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        os.environ.pop("INTERPRETER_API_KEY", None)
+        super().setUp()
+
+
+class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
     def setUp(self):
         """Build a TestClient around a fresh server app, keeping the interpreter."""
         from fastapi.testclient import TestClient
 
+        super().setUp()
         self.interpreter = AsyncInterpreter()
         self.client = TestClient(Server(self.interpreter).app)
 
@@ -202,7 +223,7 @@ class TestSettingsEndpointGuards(TestCase):
         self.assertIn("Failed to serialize", response.json()[0]["error"])
 
 
-class TestHomeEndpointTemplate(TestCase):
+class TestHomeEndpointTemplate(_UnauthenticatedServerTestCase):
     """Pins the computed parts of the served chat page.
 
     The page is assembled at request time from the interpreter's host, port, and
@@ -214,6 +235,7 @@ class TestHomeEndpointTemplate(TestCase):
         """A TestClient plus the interpreter whose server backs the page."""
         from fastapi.testclient import TestClient
 
+        super().setUp()
         self.interpreter = AsyncInterpreter()
         self.interpreter.auto_run = False
         self.client = TestClient(Server(self.interpreter).app)
@@ -1053,10 +1075,17 @@ class TestAsyncRespondProgress(TestCase):
             yield confirmation
 
         with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
-            worker = threading.Thread(target=self.interpreter.respond)
+            worker = threading.Thread(target=self.interpreter.respond, daemon=True)
             worker.start()
             for _ in range(500):
-                if self.interpreter.pending_confirmation is not None:
+                # Wait for complete_message, not pending_confirmation. respond()
+                # sets pending_confirmation early, then clears the approval event
+                # and only afterwards puts complete_message before waiting. A
+                # cancel sent in between would be erased by that clear(), leaving
+                # the worker blocked in wait() forever — and since the thread is
+                # not the main one, pytest would hang at shutdown rather than
+                # report the failure.
+                if complete_message in self._put_chunks():
                     break
                 time.sleep(0.01)
 
@@ -1620,19 +1649,34 @@ class TestAsyncAccumulate(TestCase):
         self.assertIn("start: True", str(caught.exception))
         self.assertEqual(self.interpreter.messages, [])
 
-    def test_active_line_chunks_are_ignored(self):
-        """A chunk formatted "active_line" is dropped without touching messages.
+    def test_chunks_with_nothing_to_accumulate_are_ignored(self):
+        """Carriage and unsupported chunk shapes leave the transcript untouched.
 
-        These stream the current shell line continuously; appending them would
-        corrupt the transcript with terminal echo.
+        Three shapes reach no branch: an active_line update (the shell echoes the
+        current line continuously, and appending it would corrupt the transcript),
+        a non-dict/non-str/non-bytes value, and a dict carrying neither "start"
+        nor "content". Each would otherwise spawn an empty message that then
+        reaches the model as a blank turn.
         """
-        self.interpreter.messages = [{"role": "user", "type": "message", "content": "kept"}]
+        kept = [{"role": "user", "type": "message", "content": "kept"}]
+        ignored_chunks = {
+            "active_line update": {
+                "role": "output",
+                "type": "console",
+                "format": "active_line",
+                "content": "ls -la",
+            },
+            "unsupported type": 42,
+            "no start or content": {"role": "assistant", "type": "message"},
+        }
 
-        self.interpreter.accumulate({"role": "output", "format": "active_line", "content": "ls -la"})
+        for label, chunk in ignored_chunks.items():
+            with self.subTest(chunk=label):
+                self.interpreter.messages = list(kept)
 
-        self.assertEqual(
-            self.interpreter.messages, [{"role": "user", "type": "message", "content": "kept"}]
-        )
+                self.interpreter.accumulate(chunk)
+
+                self.assertEqual(self.interpreter.messages, kept)
 
     def test_content_before_any_message_is_refused(self):
         """Content arriving with no message to attach to raises rather than guessing.
@@ -1771,28 +1815,6 @@ class TestAsyncAccumulate(TestCase):
         self.interpreter.accumulate(b"\x01")
 
         self.assertEqual(self.interpreter.messages[0]["content"], b"\x00\x01")
-
-    def test_unsupported_chunk_type_is_ignored(self):
-        """A chunk that is neither dict, str, nor bytes leaves messages untouched."""
-        self.interpreter.messages = [{"role": "user", "type": "message", "content": "kept"}]
-
-        self.interpreter.accumulate(42)
-
-        self.assertEqual(
-            self.interpreter.messages, [{"role": "user", "type": "message", "content": "kept"}]
-        )
-
-    def test_dict_without_start_or_content_is_ignored(self):
-        """A dict carrying neither "start" nor "content" adds nothing.
-
-        Metadata-only chunks must not spawn empty messages that would then be sent
-        to the model as blank turns.
-        """
-        self.interpreter.messages = [{"role": "user", "type": "message", "content": "kept"}]
-
-        self.interpreter.accumulate({"role": "assistant", "type": "message"})
-
-        self.assertEqual(len(self.interpreter.messages), 1)
 
 
 class TestServerAuthMiddleware(TestCase):

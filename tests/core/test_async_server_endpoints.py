@@ -7,6 +7,19 @@ from fastapi.testclient import TestClient
 from interpreter.core.async_core import AsyncInterpreter, Server
 
 
+@pytest.fixture(autouse=True)
+def _no_api_key(monkeypatch):
+    """Hide INTERPRETER_API_KEY from the auth middleware for every test here.
+
+    The middleware resolves `server.authenticate` per request and
+    `authenticate_function` re-reads the environment each time, so an exported
+    key would answer 403 to every request below and fail them for a reason
+    unrelated to what they check. No test in this file sets the key itself, so
+    clearing it cannot mask an assertion about it.
+    """
+    monkeypatch.delenv("INTERPRETER_API_KEY", raising=False)
+
+
 @pytest.fixture
 def server_pair():
     """Build a (TestClient, AsyncInterpreter) pair for a fresh server."""
