@@ -21,8 +21,27 @@ def preprocess_shell(code):
 def add_active_line_prints(code):
     lines = code.split("\n")
     for index, line in enumerate(lines):
+        # Skip lines that execute nothing. Marking them is meaningless, and the
+        # marker is an `echo`, so one sitting after the user's last real command
+        # becomes the command that sets `$?`. Code ending in a newline splits to
+        # a trailing empty line, which is how a failing command's exit status
+        # used to be reported as 0. The index still counts skipped lines so the
+        # numbers keep matching the user's source.
+        if _runs_nothing(line):
+            continue
         lines[index] = f'echo "##active_line{index + 1}##"\n{line}'
     return "\n".join(lines)
+
+
+def _runs_nothing(line):
+    """True for blank and comment-only lines.
+
+    ``#`` is the comment character in bash; cmd uses ``rem``/``::`` instead, but
+    skipping a ``#`` line there only costs a highlight for a line that would
+    have failed anyway.
+    """
+    stripped = line.strip()
+    return not stripped or stripped.startswith("#")
 
 
 def has_multiline_commands(script_text):

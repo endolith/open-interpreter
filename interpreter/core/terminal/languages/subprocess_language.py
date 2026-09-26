@@ -24,6 +24,14 @@ class SubprocessLanguage(BaseLanguage):
     def detect_active_line(self, line):
         return None
 
+    def detect_exit_code(self, line):
+        """Exit status encoded in the end-of-execution marker, or None.
+
+        Only subclasses whose marker carries the status (currently Bash)
+        override this; the default keeps every other language unchanged.
+        """
+        return None
+
     def detect_end_of_execution(self, line):
         return None
 
@@ -193,11 +201,23 @@ class SubprocessLanguage(BaseLanguage):
                             {"type": "console", "format": "output", "content": line}
                         )
                 elif self.detect_end_of_execution(line):
-                    # Sometimes there's a little extra on the same line, so be sure to send that out
-                    line = line.replace("##end_of_execution##", "").strip()
+                    exit_code = self.detect_exit_code(line)
+                    # Sometimes there's a little extra on the same line, so be sure to send that out.
+                    # \d* also consumes the exit status when the marker carries one.
+                    line = re.sub(r"##end_of_execution##\d*", "", line).strip()
                     if line:
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
+                        )
+                    # Only report failures: a successful command stays silent and
+                    # costs the model nothing.
+                    if exit_code:
+                        self.output_queue.put(
+                            {
+                                "type": "console",
+                                "format": "output",
+                                "content": f"[exited with code {exit_code}]",
+                            }
                         )
                     self.done.set()
                 elif is_error_stream and "KeyboardInterrupt" in line:
