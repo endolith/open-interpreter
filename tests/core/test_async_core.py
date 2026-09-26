@@ -96,10 +96,11 @@ class TestWebSocketOriginPolicy(TestCase):
 
 class TestSettingsEndpointGuards(TestCase):
     def setUp(self):
-        """Build a TestClient around a fresh server app."""
+        """Build a TestClient around a fresh server app, keeping the interpreter."""
         from fastapi.testclient import TestClient
 
-        self.client = TestClient(Server(AsyncInterpreter()).app)
+        self.interpreter = AsyncInterpreter()
+        self.client = TestClient(Server(self.interpreter).app)
 
     def _assert_settings_blocked(self, payload, error_substring):
         """POST the given settings payload and assert it is rejected with 403."""
@@ -125,6 +126,162 @@ class TestSettingsEndpointGuards(TestCase):
         """Non-sensitive llm fields like model remain writable via POST /settings."""
         response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
         self.assertEqual(response.status_code, 200)
+
+    def test_post_settings_applies_a_plain_writable_attribute(self):
+        """A non-dict top-level setting is assigned straight onto the interpreter.
+
+        This is the branch a caller reaches for scalar switches; if it stopped
+        assigning, POST /settings would report success while changing nothing.
+        `context_mode` stands in because auto_run and safe_mode are on the
+        sensitive list and are rejected before reaching this branch.
+        """
+        self.interpreter.context_mode = False
+
+        response = self.client.post("/settings", json={"context_mode": True})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.interpreter.context_mode)
+
+    def test_post_settings_applies_a_nested_llm_attribute(self):
+        """A dict setting is applied to the sub-object, not to the interpreter."""
+        response = self.client.post("/settings", json={"llm": {"model": "gpt-4o-mini"}})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.interpreter.llm.model, "gpt-4o-mini")
+
+    def test_post_settings_rejects_a_sensitive_key_after_applying_an_earlier_one(self):
+        """A sensitive key aborts the payload, leaving earlier keys already applied.
+
+        The loop returns on the first rejected key instead of validating the whole
+        payload first, so a multi-key update is applied in part. A caller sending
+        a sensitive setting alongside a legitimate one gets a 403 and has to assume
+        none of it took effect, which is not what happens.
+        """
+        sensitive_key = "auto_run"
+
+        response = self.client.post(
+            "/settings", json={"context_mode": True, sensitive_key: True}
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(self.interpreter.context_mode)
+
+    def test_post_settings_unknown_key_answers_200_with_a_tuple_body(self):
+        """An unknown top-level key yields a JSON array and a 200, not a 404.
+
+        The handler returns `({"error": ...}, 404)`, but FastAPI serialises the
+        tuple as the response body and answers 200, so the intended status never
+        reaches the caller. Pinned as-is: the report asks for characterization
+        tests, so this is recorded rather than changed.
+        """
+        response = self.client.post("/settings", json={"not_a_real_setting": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("not found", response.json()[0]["error"])
+
+    def test_post_settings_unknown_llm_subkey_answers_200_with_a_tuple_body(self):
+        """An unknown llm sub-key has the same tuple-body-200 shape as above."""
+        response = self.client.post("/settings", json={"llm": {"not_a_field": 1}})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("not found", response.json()[0]["error"])
+
+    def test_get_setting_unserialisable_value_answers_200_with_a_tuple_body(self):
+        """A setting that cannot be JSON-encoded reports the error in a 200 body.
+
+        Same tuple-return shape as the 404 branches: the 500 in
+        `({"error": ...}, 500)` never becomes a status code.
+        """
+        self.interpreter.not_serialisable = object()
+
+        response = self.client.get("/settings/not_serialisable")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Failed to serialize", response.json()[0]["error"])
+
+
+class TestHomeEndpointTemplate(TestCase):
+    """Pins the computed parts of the served chat page.
+
+    The page is assembled at request time from the interpreter's host, port, and
+    whether output has to be acknowledged. Until now only the DOCTYPE was
+    asserted, so any of those computed fragments could change silently.
+    """
+
+    def setUp(self):
+        """A TestClient plus the interpreter whose server backs the page."""
+        from fastapi.testclient import TestClient
+
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.auto_run = False
+        self.client = TestClient(Server(self.interpreter).app)
+
+    def test_home_is_served_as_html(self):
+        """The chat page comes back as text/html."""
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers["content-type"].startswith("text/html"))
+
+    def test_home_points_the_browser_at_the_host_and_port_actually_serving(self):
+        """The embedded websocket URL uses the live server's host and port.
+
+        The template reads host and port per request, so a page generated against
+        defaults would point the browser's websocket at the wrong address and the
+        chat would silently never connect.
+        """
+        self.interpreter.server.host = "10.1.2.3"
+        self.interpreter.server.port = 4242
+
+        response = self.client.get("/")
+
+        self.assertIn("ws://10.1.2.3:4242/", response.text)
+
+    def test_home_omits_the_ack_handshake_when_acknowledgement_is_off(self):
+        """With acknowledgement disabled the page sends no ack frames.
+
+        The ack is what makes the server retry a dropped chunk, so emitting it
+        when the server is not waiting for one would leave unsent chunks queued.
+        """
+        self.interpreter.require_acknowledge = False
+
+        response = self.client.get("/")
+
+        self.assertNotIn('"ack": eventData.id', response.text)
+
+    def test_home_includes_the_ack_handshake_when_acknowledgement_is_on(self):
+        """With acknowledgement enabled the page acknowledges each chunk.
+
+        Without this the server would hold every chunk back waiting for an ack
+        that never arrives, and the client would show nothing at all.
+        """
+        self.interpreter.require_acknowledge = True
+
+        response = self.client.get("/")
+
+        self.assertIn('"ack": eventData.id', response.text)
+
+    def test_home_includes_the_approval_controls(self):
+        """The page ships the buttons that send go and auth command blocks.
+
+        Without them the only way to approve code would be a raw websocket client,
+        so their absence would make manual approval impossible from the browser.
+        """
+        response = self.client.get("/")
+
+        self.assertIn("approveCodeButton", response.text)
+        self.assertIn("authButton", response.text)
+
+    def test_home_sends_go_with_the_last_confirmation_id(self):
+        """Approval replays the stored confirmation id, so it cannot go stale.
+
+        go is sent bare only when nothing is pending; the page has to thread the
+        id it captured from the confirmation chunk into the command.
+        """
+        response = self.client.get("/")
+
+        self.assertIn('lastConfirmationId ? ("go:" + lastConfirmationId) : "go"', response.text)
+
 
 class TestAsyncApprovalBinding(TestCase):
     def setUp(self):
