@@ -4,6 +4,7 @@ import os
 import threading
 
 import pytest
+import socket
 from unittest import TestCase, mock
 
 import janus
@@ -15,6 +16,7 @@ from interpreter.core.async_core import (
     is_websocket_origin_allowed,
     SENSITIVE_LLM_SETTINGS,
     SENSITIVE_SERVER_SETTINGS,
+    authenticate_function,
     complete_message,
 )
 
@@ -1135,6 +1137,229 @@ class TestServerRunAndSetters(TestCase):
         self.assertIn("127.0.0.1", out)
         self.assertIn("8080", out)
         uvicorn_server_cls.return_value.run.assert_called_once_with()
+
+
+    def test_run_without_arguments_leaves_host_and_port_untouched(self):
+        """run() with no host or port binds to whatever the server already holds.
+
+        The `is not None` guards exist so that omitted values do not overwrite the
+        configured ones with None; without them a bare run() would bind to nothing.
+        """
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter(), "127.0.0.1", 8123)
+        s.uvicorn_server.run = mock.Mock()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            s.run()
+
+        self.assertEqual(s.host, "127.0.0.1")
+        self.assertEqual(s.port, 8123)
+        s.uvicorn_server.run.assert_called_once_with()
+
+    def test_run_without_zero_host_never_opens_a_socket(self):
+        """A loopback or named host prints its address without probing for a LAN IP.
+
+        The probe is a real UDP connect used only to discover the outward-facing
+        address. On any host other than 0.0.0.0 the server is not exposed to the
+        network, so no socket should be opened at all.
+        """
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter(), "127.0.0.1", 8123)
+        s.uvicorn_server.run = mock.Mock()
+
+        with mock.patch("interpreter.core.async_core.socket.socket") as socket_cls:
+            with contextlib.redirect_stdout(io.StringIO()):
+                s.run()
+
+        socket_cls.assert_not_called()
+
+    def test_run_without_zero_host_prints_no_exposure_warning(self):
+        """The LAN-exposure warning belongs to the 0.0.0.0 branch only.
+
+        Warning on a loopback bind would cry wolf on the safe, default
+        configuration.
+        """
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter(), "127.0.0.1", 8123)
+        s.uvicorn_server.run = mock.Mock()
+        buf = io.StringIO()
+
+        with contextlib.redirect_stdout(buf):
+            s.run()
+
+        self.assertNotIn("Warning", buf.getvalue())
+
+    def test_run_closes_the_probe_socket(self):
+        """The UDP probe socket is closed after the address is read.
+
+        Leaking it would hold a descriptor for the life of the process, and the
+        probe runs on every server start.
+        """
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter())
+        s.uvicorn_server.run = mock.Mock()
+        s.config.host = "0.0.0.0"
+        fake_socket = mock.Mock()
+        fake_socket.getsockname.return_value = ("192.168.1.50", 12345)
+
+        with mock.patch(
+            "interpreter.core.async_core.socket.socket", return_value=fake_socket
+        ) as socket_cls:
+            with contextlib.redirect_stdout(io.StringIO()):
+                s.run()
+
+        socket_cls.assert_called_once_with(socket.AF_INET, socket.SOCK_DGRAM)
+        fake_socket.close.assert_called_once()
+
+    def test_run_honours_only_the_host_argument(self):
+        """Passing just a host leaves the configured port in place.
+
+        run(host=...) is a valid call, and it must not reset the port to a default.
+        The host setter rebuilds the uvicorn server, so the class is patched rather
+        than the instance — otherwise the rebuilt server would really start.
+        """
+        import contextlib
+        import io
+
+        s = Server(AsyncInterpreter(), "127.0.0.1", 8123)
+        fake_socket = mock.Mock()
+        fake_socket.getsockname.return_value = ("192.168.1.50", 12345)
+
+        with mock.patch(
+            "interpreter.core.async_core.uvicorn.Server"
+        ) as uvicorn_server_cls:
+            with mock.patch(
+                "interpreter.core.async_core.socket.socket", return_value=fake_socket
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    s.run(host="0.0.0.0")
+
+        self.assertEqual(s.port, 8123)
+        self.assertEqual(s.host, "0.0.0.0")
+        uvicorn_server_cls.return_value.run.assert_called_once_with()
+
+
+class TestAuthenticateFunction(TestCase):
+    """Pins the API-key check the server's middleware delegates to.
+
+    This decides whether a request is served at all, and its "no key configured"
+    case is the one that matters most: get it backwards and a server with no
+    configured key either serves everyone or refuses everyone.
+    """
+
+    def test_no_configured_key_accepts_any_request(self):
+        """With no INTERPRETER_API_KEY set, every request is authorised."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("INTERPRETER_API_KEY", None)
+            self.assertTrue(authenticate_function(None))
+            self.assertTrue(authenticate_function("anything"))
+
+    def test_configured_key_accepts_only_an_exact_match(self):
+        """With a key configured, the presented key must equal it."""
+        with mock.patch.dict(os.environ, {"INTERPRETER_API_KEY": "supersecret"}):
+            self.assertTrue(authenticate_function("supersecret"))
+            self.assertFalse(authenticate_function("wrong"))
+            self.assertFalse(authenticate_function("SuperSecret"))
+
+    def test_configured_key_rejects_a_missing_header(self):
+        """A configured key means an absent header is a failure, not a pass."""
+        with mock.patch.dict(os.environ, {"INTERPRETER_API_KEY": "supersecret"}):
+            self.assertFalse(authenticate_function(None))
+
+    def test_empty_configured_key_matches_only_an_empty_header(self):
+        """An empty INTERPRETER_API_KEY is still a configured key.
+
+        It is a footgun rather than a bug, but the distinction matters: the value
+        is compared rather than treated as absent, so only an empty header passes.
+        """
+        with mock.patch.dict(os.environ, {"INTERPRETER_API_KEY": ""}):
+            self.assertTrue(authenticate_function(""))
+            self.assertFalse(authenticate_function("supersecret"))
+
+
+class TestServerAuthenticationWiring(TestCase):
+    """Pins how the middleware is attached and where the key check comes from.
+
+    The middleware resolves `self.authenticate` per request, so swapping the
+    attribute is the supported way to change the policy; a server that captured
+    the function at build time would ignore that.
+    """
+
+    def test_server_authenticates_through_the_module_function(self):
+        """A freshly built server delegates to authenticate_function."""
+        server = Server(AsyncInterpreter())
+
+        self.assertIs(server.authenticate, authenticate_function)
+
+    def test_replacing_authenticate_changes_the_policy(self):
+        """Overriding server.authenticate changes what the middleware accepts.
+
+        This is the extension point the attribute exists for; if the middleware
+        closed over the module function instead, the override would be inert.
+        """
+        from fastapi.testclient import TestClient
+
+        server = Server(AsyncInterpreter())
+        server.authenticate = lambda key: False
+        client = TestClient(server.app)
+
+        response = client.post("/settings", json={"context_mode": True})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_heartbeat_is_reachable_even_when_auth_rejects_everything(self):
+        """/heartbeat stays open so a supervisor can probe a locked server."""
+        from fastapi.testclient import TestClient
+
+        server = Server(AsyncInterpreter())
+        server.authenticate = lambda key: False
+        client = TestClient(server.app)
+
+        response = client.get("/heartbeat")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "alive")
+
+    def test_port_from_the_environment_is_coerced_to_an_integer(self):
+        """INTERPRETER_PORT arrives as a string and is stored as an int.
+
+        A string port would reach uvicorn as text and fail to bind, or compare
+        unequal to an int port set another way.
+        """
+        with mock.patch.dict(os.environ, {"INTERPRETER_PORT": "1234"}):
+            server = Server(AsyncInterpreter())
+
+        self.assertEqual(server.port, 1234)
+        self.assertIsInstance(server.port, int)
+
+    def test_host_and_port_fall_back_to_the_environment(self):
+        """With no arguments the env vars supply both, and the defaults cover neither."""
+        with mock.patch.dict(
+            os.environ, {"INTERPRETER_HOST": "env-host", "INTERPRETER_PORT": "4321"}
+        ):
+            server = Server(AsyncInterpreter())
+
+        self.assertEqual(server.host, "env-host")
+        self.assertEqual(server.port, 4321)
+
+    def test_defaults_apply_when_neither_argument_nor_env_is_set(self):
+        """Loopback and 8000 are the defaults, so a bare server is not exposed."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("INTERPRETER_HOST", None)
+            os.environ.pop("INTERPRETER_PORT", None)
+            server = Server(AsyncInterpreter())
+
+        self.assertEqual(server.host, Server.DEFAULT_HOST)
+        self.assertEqual(server.port, Server.DEFAULT_PORT)
+        self.assertEqual(Server.DEFAULT_HOST, "127.0.0.1")
 
 
 class TestAsyncOutputQueue(TestCase):
