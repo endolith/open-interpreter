@@ -460,3 +460,375 @@ def test_insecure_download_route_missing_file_reports_200_with_array_body(
         {"error": "[Errno 2] No such file or directory: 'nope.bin'"},
         500,
     ]
+
+
+def _deltas(body):
+    """Extract the streamed delta content strings from an SSE response body."""
+    deltas = []
+    for line in body.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = json.loads(line[len("data: ") :])
+        deltas.append(payload["choices"][0]["delta"]["content"])
+    return deltas
+
+
+def _frames(body):
+    """Extract every decoded SSE frame from a response body."""
+    frames = []
+    for line in body.splitlines():
+        if line.startswith("data: "):
+            frames.append(json.loads(line[len("data: ") :]))
+    return frames
+
+
+def _code_stream_pair(server_pair, chunks):
+    """Point a server's interpreter at a canned run-code chunk stream."""
+    _, interpreter = server_pair
+    interpreter.messages = [
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "print(1)",
+        }
+    ]
+    interpreter._respond_and_store = mock.MagicMock(return_value=iter(chunks))
+    return interpreter
+
+
+def test_stream_wraps_generated_code_in_a_markdown_fence(client, server_pair):
+    """Code start/end chunks bracket the code as a fenced block.
+
+    An OpenAI-compatible client renders the deltas verbatim, so without the
+    fences a caller would display bare source with no code block around it.
+    """
+    _code_stream_pair(
+        server_pair,
+        [
+            {"role": "assistant", "type": "code", "start": True, "format": "python"},
+            {"role": "assistant", "type": "code", "content": "print(1)", "format": "python"},
+            {"role": "assistant", "type": "code", "end": True, "format": "python"},
+        ],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert _deltas(response.text) == ["```python\n", "print(1)", "\n```\n"]
+
+
+def test_stream_fence_names_the_chunk_language(client, server_pair):
+    """The opening fence carries the chunk's own format, not a fixed language.
+
+    Code streamed as javascript has to be labelled as such or a client will
+    highlight Python that is not Python.
+    """
+    _code_stream_pair(
+        server_pair,
+        [
+            {"role": "assistant", "type": "code", "start": True, "format": "javascript"},
+            {"role": "assistant", "type": "code", "end": True, "format": "javascript"},
+        ],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert _deltas(response.text)[0] == "```javascript\n"
+
+
+def test_stream_skips_chunks_with_nothing_to_render(client, server_pair):
+    """A chunk with no content, no fence marker and no message role emits no frame.
+
+    Carriage such as active_line updates and bare end-of-stream markers would
+    otherwise reach the client as empty deltas and blank out the rendered message.
+    """
+    _code_stream_pair(
+        server_pair,
+        [
+            {"role": "assistant", "type": "message", "content": "visible"},
+            {
+                "role": "output",
+                "type": "console",
+                "format": "active_line",
+                "content": "ls -la",
+            },
+            {"role": "assistant", "type": "message"},
+        ],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert _deltas(response.text) == ["visible"]
+
+
+def test_stream_breaks_on_a_chunk_with_no_type(client, server_pair):
+    """A chunk missing `type` raises inside the generator and truncates the stream.
+
+    The generator reads chunk["type"] unguarded on every chunk, so a producer that
+    omits the field kills the response mid-flight. Headers are already sent by then,
+    so the caller sees a truncated 200 rather than an error. Pinned as-is: this
+    campaign is characterization only, and the fix belongs with the producer that
+    should always set `type`.
+    """
+    _code_stream_pair(
+        server_pair,
+        [
+            {"role": "assistant", "type": "message", "content": "visible"},
+            {"role": "output", "format": "active_line", "content": "ls -la"},
+        ],
+    )
+
+    with pytest.raises(KeyError):
+        client.post(
+            "/openai/chat/completions",
+            json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+        )
+
+
+def test_stream_frames_carry_the_openai_chunk_envelope(client, server_pair):
+    """Each frame identifies itself as a chat.completion.chunk from open-interpreter.
+
+    Clients switch on `object` to tell a chunk from a terminal response, and some
+    display the `model` field, so both have to be present and correct.
+    """
+    _code_stream_pair(
+        server_pair,
+        [{"role": "assistant", "type": "message", "content": "hi"}],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    frame = _frames(response.text)[0]
+    assert frame["object"] == "chat.completion.chunk"
+    assert frame["model"] == "open-interpreter"
+    assert isinstance(frame["created"], (int, float))
+
+
+def test_stream_frame_ids_increase_with_each_chunk(client, server_pair):
+    """Frame ids follow the source chunk index so a client can detect gaps.
+
+    A repeated or reset id would make a client believe a chunk was retransmitted
+    and duplicate content it has already rendered.
+    """
+    _code_stream_pair(
+        server_pair,
+        [
+            {"role": "assistant", "type": "message", "content": "one"},
+            {"role": "assistant", "type": "message", "content": "two"},
+        ],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert [frame["id"] for frame in _frames(response.text)] == [0, 1]
+
+
+def test_stream_is_served_as_ndjson(client, server_pair):
+    """The streaming response is typed application/x-ndjson."""
+    _code_stream_pair(
+        server_pair,
+        [{"role": "assistant", "type": "message", "content": "hi"}],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+
+
+def test_stream_ends_without_a_done_sentinel(client, server_pair):
+    """The stream closes by ending, with no `data: [DONE]` frame.
+
+    KNOWN GAP: the OpenAI streaming protocol terminates with a `[DONE]` sentinel,
+    and strict clients wait for it rather than treating EOF as completion. Pinned
+    as-is because this campaign is characterization only.
+    """
+    _code_stream_pair(
+        server_pair,
+        [{"role": "assistant", "type": "message", "content": "hi"}],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert "[DONE]" not in response.text
+
+
+def test_non_stream_envelope_echoes_the_requested_model(client, server_pair):
+    """A non-streaming reply reports the model the caller asked for.
+
+    Clients route on the model name, so answering with a hardcoded one would make
+    every request look like it came from the same backend.
+    """
+    _, interpreter = server_pair
+    interpreter.chat = mock.MagicMock(
+        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={
+            "messages": [{"role": "user", "content": "hello"}],
+            "model": "gpt-4o-mini",
+        },
+    )
+
+    body = response.json()
+    assert body["object"] == "chat.completion"
+    assert body["model"] == "gpt-4o-mini"
+    assert body["choices"][0]["message"] == {"role": "assistant", "content": "hi"}
+
+
+def test_non_stream_model_defaults_to_default_model(client, server_pair):
+    """Omitting the model yields the documented `default-model` placeholder.
+
+    A different default would be echoed straight back to the caller, so the
+    placeholder is part of the request contract.
+    """
+    _, interpreter = server_pair
+    interpreter.chat = mock.MagicMock(
+        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+
+    assert response.json()["model"] == "default-model"
+
+
+def test_stream_model_is_fixed_regardless_of_the_request(client, server_pair):
+    """Streaming frames report `open-interpreter` even when a model was requested.
+
+    This is inconsistent with the non-streaming path, which echoes the request.
+    Pinned deliberately so the divergence is visible rather than accidental.
+    """
+    _code_stream_pair(
+        server_pair,
+        [{"role": "assistant", "type": "message", "content": "hi"}],
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={
+            "messages": [{"role": "user", "content": "yes"}],
+            "model": "gpt-4o-mini",
+            "stream": True,
+        },
+    )
+
+    assert _frames(response.text)[0]["model"] == "open-interpreter"
+
+
+def test_confirmation_does_not_ask_when_auto_run_is_on(client, server_pair):
+    """With auto_run enabled a confirmation is not turned into a prompt.
+
+    The code is already authorised to run, so asking "do you want to run this
+    code?" would stall an unattended caller on a question it cannot answer.
+    """
+    _, interpreter = server_pair
+    interpreter.auto_run = True
+    interpreter.chat = mock.MagicMock(
+        return_value=[
+            {
+                "role": "computer",
+                "type": "confirmation",
+                "content": {"format": "python", "content": "print(1)"},
+            }
+        ]
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+
+    assert "Do you want to run this code?" not in response.text
+
+
+def test_stream_stops_when_the_stop_flag_is_set_mid_response(client, server_pair):
+    """A stop raised after the first chunk ends the stream there.
+
+    The chunk already in hand is dropped rather than forwarded, so an interrupted
+    turn does not leak a partial delta the caller never cancelled.
+    """
+    _, interpreter = server_pair
+    interpreter.auto_run = False
+
+    def chat_with_stop(*args, **kwargs):
+        """Yield one message chunk, then raise the stop flag before the next."""
+        yield {"role": "assistant", "type": "message", "content": "first"}
+        interpreter.stop_event.set()
+        yield {"role": "assistant", "type": "message", "content": "dropped"}
+
+    interpreter.chat = chat_with_stop
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}], "stream": True},
+    )
+
+    assert _deltas(response.text) == ["first"]
+
+
+def test_silent_model_is_nudged_with_escalating_prompts(client, server_pair):
+    """A model that returns nothing is retried with progressively blunter prompts.
+
+    This is the recovery path for a silent provider, so both the number of
+    attempts and their distinctness matter: repeating one prompt would make the
+    retries useless.
+    """
+    _, interpreter = server_pair
+    interpreter.auto_run = False
+    interpreter.chat = mock.MagicMock(return_value=[])
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}], "stream": True},
+    )
+
+    attempted = [call.kwargs["message"] for call in interpreter.chat.call_args_list]
+    assert len(attempted) == 6
+    assert len(set(attempted)) == 6
+    assert attempted[0] == "."
+
+
+def test_nudge_loop_stops_as_soon_as_a_reply_arrives(client, server_pair):
+    """A reply on the first attempt means no further nudges are sent.
+
+    Otherwise every answered request would pay for the whole retry ladder and
+    leave six spurious turns in the transcript.
+    """
+    _, interpreter = server_pair
+    interpreter.auto_run = False
+    interpreter.chat = mock.MagicMock(
+        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    )
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}], "stream": True},
+    )
+
+    assert "hi" in response.text
+    assert interpreter.chat.call_count == 1
