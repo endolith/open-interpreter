@@ -832,3 +832,54 @@ def test_nudge_loop_stops_as_soon_as_a_reply_arrives(client, server_pair):
 
     assert "hi" in response.text
     assert interpreter.chat.call_count == 1
+
+
+def test_context_mode_does_not_suppress_a_plain_message(client, server_pair):
+    """With context mode enabled, an ordinary message is still answered.
+
+    KNOWN GAP: context mode is documented as accumulating context without
+    replying until a {START} arrives, but the only code that reads
+    `context_mode` sits in a branch entered solely when message content is
+    neither str nor list — which the request schema cannot produce. So the flag is
+    stored and reported as set, yet gates nothing reachable. Pinned as-is; the fix
+    is to move the check into the path a real request actually takes.
+    """
+    _, interpreter = server_pair
+    interpreter.chat = mock.MagicMock(
+        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    )
+    client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "{CONTEXT_MODE_ON}"}]},
+    )
+    assert interpreter.context_mode is True
+
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+
+    assert response.status_code == 200
+    assert interpreter.chat.call_count == 1
+
+
+def test_content_that_is_neither_text_nor_a_list_is_rejected(client, server_pair):
+    """Only str and list message content is accepted, closing off the other branch.
+
+    Every other JSON type fails validation, which is what makes the context-mode
+    branch below the str/list dispatch unreachable. Pinned so that if the schema
+    ever widens, this test is the one that notices the branch became reachable.
+    """
+    _, interpreter = server_pair
+    interpreter.chat = mock.MagicMock(
+        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    )
+
+    for content in (123, 4.5, True, None, {"text": "hi"}):
+        response = client.post(
+            "/openai/chat/completions",
+            json={"messages": [{"role": "user", "content": content}]},
+        )
+        assert response.status_code == 422, content
+
+    assert interpreter.chat.call_count == 0
