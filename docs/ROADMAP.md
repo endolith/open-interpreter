@@ -92,7 +92,7 @@ Once the develop features are in, refactor the codebase to be more Pythonic and 
 
 ### Phase 4: Mine the abandoned OI 1.0 rewrite (maybe)
 
-The `development` branch (and its continuation `develop_1.0`) was meant to become Open Interpreter 1.0. Its desktop-automation core is Anthropic-specific — it hardcodes the now-removed `computer-use-2024-10-22` beta and the `BetaToolComputerUse20241022Param` SDK type, so that part cannot work with current models. But not everything in it is Anthropic-bound: worth cherry-picking after the earlier phases are anything that is provider-agnostic (e.g. ideas from its `tools/` design, command handling, or profiles), not the computer-use integration. See also the desktop-automation item below.  (Also consider abandoned PRs from the upstream repo: https://github.com/endolith/open-interpreter/issues/102)
+The `archive/anthropic-computer-use/original` branch (and its continuation `archive/anthropic-computer-use/final`) was meant to become Open Interpreter 1.0. Its desktop-automation core is Anthropic-specific — it hardcodes the now-removed `computer-use-2024-10-22` beta and the `BetaToolComputerUse20241022Param` SDK type, so that part cannot work with current models. But not everything in it is Anthropic-bound: worth cherry-picking after the earlier phases are anything that is provider-agnostic (e.g. ideas from its `tools/` design, command handling, or profiles), not the computer-use integration. See also the desktop-automation item below.  (Also consider abandoned PRs from the upstream repo: https://github.com/endolith/open-interpreter/issues/102)
 
 ## Documentation
 
@@ -155,8 +155,8 @@ This repository (`endolith/open-interpreter`) is the **Python** edition of Open 
 
 - **`main`** — merge target; PRs and CI land here. Default branch and CI badge. As features are ported over from `classic/develop` (see the [Plan](#plan)), this becomes the recommended install for everyone.
 - **`classic/develop`** — the maintainer's daily driver and currently the best install for most users. Features are ported to `main` as isolated PRs, not merged wholesale (see the [Plan](#plan) Phase 2).
-- **`development`** — abandoned attempt at Open Interpreter 1.0 (see the [Plan](#plan) Phase 4); not maintained and not becoming `main`.
-- **`develop_1.0`** — experimental continuation of `development` (the maintainer's work on it before it was abandoned); also abandoned.
+- **`archive/anthropic-computer-use/original`** — abandoned attempt at Open Interpreter 1.0 (see the [Plan](#plan) Phase 4); not maintained and not becoming `main`.
+- **`archive/anthropic-computer-use/final`** — experimental continuation of `archive/anthropic-computer-use/original` (the maintainer's work on it before it was abandoned); also abandoned.
 
 Open Interpreter contains two projects which support each other, whose scopes are as follows:
 
