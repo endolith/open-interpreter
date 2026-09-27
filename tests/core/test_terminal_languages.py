@@ -2,6 +2,7 @@ import os
 import platform
 import tempfile
 import unittest
+from io import StringIO
 from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
@@ -196,6 +197,42 @@ class TestTerminalLanguages(unittest.TestCase):
             ps = PowerShell()
             pw = ps.preprocess_code("Write-Host 1")
             self.assertIn("##active_line", pw)
+
+    def test_active_line_detection_only_accepts_numeric_markers(self):
+        """Numeric markers are detected, while literal placeholders in output are ignored."""
+        bash = Bash()
+
+        self.assertEqual(bash.detect_active_line("prefix ##active_line12## suffix"), 12)
+        self.assertIsNone(bash.detect_active_line("docs: ##active_lineN##"))
+        self.assertIsNone(bash.detect_active_line("##active_line##"))
+
+    def test_stream_reader_survives_literal_active_line_text(self):
+        """A literal ##active_lineN## in command output must not kill the stream reader."""
+        bash = Bash()
+        stream = StringIO(
+            "##active_line1##\n"
+            "documentation: ##active_lineN## is a placeholder\n"
+            "##end_of_execution##\n"
+        )
+
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):
+            bash.handle_stream_output(stream, False)
+
+        chunks = []
+        while not bash.output_queue.empty():
+            chunks.append(bash.output_queue.get_nowait())
+        self.assertTrue(bash.done.is_set())
+        self.assertIn(
+            {"type": "console", "format": "active_line", "content": 1}, chunks
+        )
+        self.assertIn(
+            {
+                "type": "console",
+                "format": "output",
+                "content": "documentation: ##active_lineN## is a placeholder\n",
+            },
+            chunks,
+        )
 
     def test_bash_resolve_bash_executable(self):
         path = resolve_bash_executable()

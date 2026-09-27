@@ -35,10 +35,5 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
         # `@` suppresses cmd echoing this command back; `%CD%` is the current dir.
         return "\n@echo ##oi_pwd##%CD%"
 
-    def detect_active_line(self, line):
-        if "##active_line" in line:
-            return int(line.split("##active_line")[1].split("##")[0])
-        return None
-
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line
