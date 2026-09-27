@@ -5,10 +5,10 @@ import pytest
 
 from tests.support.mock_openai_server import (
     MockOpenAIServer,
-    errand_tool_deltas,
     merge_tool_calls,
     pick_reply,
     stream_reply_chunks,
+    tool_chain_tool_deltas,
 )
 
 
@@ -107,9 +107,9 @@ def test_stream_reply_chunks_splits_fenced_code():
     assert chunks == ["```", "python\nprint(1)\n", "```"]
 
 
-def _errand_messages(n_assistant_turns=0):
-    """History with an errand prompt plus completed assistant turns."""
-    messages = [{"role": "user", "content": "Please run this errand."}]
+def _tool_chain_messages(n_assistant_turns=0):
+    """History with a tool-chain prompt plus completed assistant turns."""
+    messages = [{"role": "user", "content": "Please demonstrate a tool chain."}]
     for _ in range(n_assistant_turns):
         messages.append({"role": "assistant", "content": ""})
     return messages
@@ -147,23 +147,23 @@ def test_merge_tool_calls_skips_functionless_entries():
     assert merge_tool_calls([{"tool_calls": [{"index": 0, "function": None}]}]) == []
 
 
-def test_errand_tool_deltas_talk_after_four_turns():
-    """The errand ends by talking once four assistant turns exist."""
-    messages = _errand_messages(n_assistant_turns=4)
-    assert errand_tool_deltas(messages) == [{"content": "Errand complete."}]
+def test_tool_chain_tool_deltas_talk_after_four_turns():
+    """The tool chain ends by talking once four assistant turns exist."""
+    messages = _tool_chain_messages(n_assistant_turns=4)
+    assert tool_chain_tool_deltas(messages) == [{"content": "Tool chain complete."}]
 
 
-def test_errand_tool_deltas_complete_after_talk():
-    """The errand yields nothing once the talk turn is done."""
-    messages = _errand_messages(n_assistant_turns=5)
-    assert errand_tool_deltas(messages) is None
+def test_tool_chain_tool_deltas_complete_after_talk():
+    """The tool chain yields nothing once the talk turn is done."""
+    messages = _tool_chain_messages(n_assistant_turns=5)
+    assert tool_chain_tool_deltas(messages) is None
 
 
 def test_nonstream_tool_turn_returns_populated_tool_calls(running_server):
     """Non-stream tool requests return message.tool_calls with finish_reason tool_calls."""
     body = {
         "model": "openai/gpt-4o-mini",
-        "messages": [{"role": "user", "content": "Please run this errand."}],
+        "messages": [{"role": "user", "content": "Please demonstrate a tool chain."}],
         "tools": [{"type": "function", "function": {"name": "execute"}}],
         "stream": False,
     }
@@ -190,40 +190,41 @@ def test_nonstream_unknown_prompt_returns_text_stop(running_server):
 
 
 def test_nonstream_talk_turn_returns_text_stop(running_server):
-    """Non-stream completion turns after the errand return the final text."""
+    """Non-stream completion turns after the tool chain return the final text."""
     body = {
         "model": "openai/gpt-4o-mini",
-        "messages": _errand_messages(n_assistant_turns=4),
+        "messages": _tool_chain_messages(n_assistant_turns=4),
         "tools": [{"type": "function", "function": {"name": "execute"}}],
         "stream": False,
     }
     payload = _post(running_server, body)
     assert payload["choices"][0]["finish_reason"] == "stop"
-    assert payload["choices"][0]["message"]["content"] == "Errand complete."
+    assert payload["choices"][0]["message"]["content"] == "Tool chain complete."
 
 
-def _completed_errand_messages():
-    """History where the errand already finished and a new topic started."""
+def _completed_tool_chain_messages():
+    """History where the tool chain already finished and a new topic started."""
     return [
-        {"role": "user", "content": "Please run this errand."},
+        {"role": "user", "content": "Please demonstrate a tool chain."},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
-        {"role": "assistant", "content": "Errand complete."},
+        {"role": "assistant", "content": "Tool chain complete."},
         {"role": "user", "content": "Say hello."},
     ]
 
 
 def test_post_completion_prompt_falls_back_to_normal_reply(running_server):
-    """An unrelated prompt after a completed errand gets the normal fallback.
+    """An unrelated prompt after a completed tool chain gets the normal fallback.
 
-    The scenario must not stay latched: once "Errand complete." was delivered,
+    The scenario must not stay latched: once "Tool chain complete." was
+    delivered,
     a new topic returns the regular reply instead of repeating the completion.
     """
     body = {
         "model": "openai/gpt-4o-mini",
-        "messages": _completed_errand_messages(),
+        "messages": _completed_tool_chain_messages(),
         "tools": [{"type": "function", "function": {"name": "execute"}}],
         "stream": False,
     }
@@ -234,7 +235,7 @@ def test_post_completion_prompt_falls_back_to_normal_reply(running_server):
 
 def test_stream_tool_turn_terminates_with_tool_calls(running_server):
     """A streamed tool turn ends with finish_reason tool_calls, not stop."""
-    payloads = _post_sse(running_server, _tool_body(_errand_messages()))
+    payloads = _post_sse(running_server, _tool_body(_tool_chain_messages()))
     assert payloads[-1] == "[DONE]"
     terminal = json.loads(payloads[-2])
     assert terminal["choices"][0]["finish_reason"] == "tool_calls"
@@ -247,7 +248,7 @@ def test_stream_tool_turn_terminates_with_tool_calls(running_server):
 def test_stream_talk_turn_terminates_with_stop(running_server):
     """A streamed text turn ends with finish_reason stop."""
     payloads = _post_sse(
-        running_server, _tool_body(_errand_messages(n_assistant_turns=4))
+        running_server, _tool_body(_tool_chain_messages(n_assistant_turns=4))
     )
     assert payloads[-1] == "[DONE]"
     terminal = json.loads(payloads[-2])
@@ -258,7 +259,7 @@ def test_persist_part_one_starts_with_python_define():
     """Part one opens with the python define call at turn zero."""
     from tests.support.mock_openai_server import persist_tool_deltas
 
-    messages = [{"role": "user", "content": "persistence check part one: go"}]
+    messages = [{"role": "user", "content": "store values for later: go"}]
     deltas = persist_tool_deltas(messages)
     assert len(deltas) == 1
     function = deltas[0]["tool_calls"][0]["function"]
@@ -271,11 +272,11 @@ def test_persist_part_two_scoped_to_latest_prompt():
     from tests.support.mock_openai_server import persist_tool_deltas
 
     messages = [
-        {"role": "user", "content": "persistence check part one: go"},
+        {"role": "user", "content": "store values for later: go"},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": "values defined."},
-        {"role": "user", "content": "persistence check part two: go"},
+        {"role": "user", "content": "use the stored values: go"},
     ]
     deltas = persist_tool_deltas(messages)
     assert len(deltas) == 1
@@ -289,14 +290,14 @@ def test_persist_parts_complete_and_release():
     from tests.support.mock_openai_server import persist_tool_deltas
 
     part_one_done = [
-        {"role": "user", "content": "persistence check part one: go"},
+        {"role": "user", "content": "store values for later: go"},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
     ]
     assert persist_tool_deltas(part_one_done) == [{"content": "values defined."}]
     part_two_done = part_one_done + [
         {"role": "assistant", "content": "values defined."},
-        {"role": "user", "content": "persistence check part two: go"},
+        {"role": "user", "content": "use the stored values: go"},
         {"role": "assistant", "content": ""},
         {"role": "assistant", "content": ""},
     ]
