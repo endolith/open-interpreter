@@ -23,11 +23,6 @@ class Java(SubprocessLanguage):
         # Clean up output from javac and java
         return line.strip()
 
-    def detect_active_line(self, line):
-        if "##active_line" in line:
-            return int(line.split("##active_line")[1].split("##")[0])
-        return None
-
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line
 
