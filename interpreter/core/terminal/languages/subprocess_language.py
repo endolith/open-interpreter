@@ -8,6 +8,8 @@ import traceback
 
 from ..base_language import BaseLanguage
 
+_ACTIVE_LINE_MARKER_RE = re.compile(r"##active_line(\d+)##")
+
 
 class SubprocessLanguage(BaseLanguage):
     # Perl REPL uses a custom __OI_END__ block marker; text=True on Windows turns
@@ -22,7 +24,16 @@ class SubprocessLanguage(BaseLanguage):
         self.done = threading.Event()
 
     def detect_active_line(self, line):
-        return None
+        """
+        Return the line number from a complete numeric ##active_lineN## marker.
+
+        Command output can legitimately contain placeholder text such as
+        ##active_lineN##, so only complete numeric markers are control markers.
+        """
+        match = _ACTIVE_LINE_MARKER_RE.search(line)
+        if match is None:
+            return None
+        return int(match.group(1))
 
     def detect_end_of_execution(self, line):
         return None
@@ -175,7 +186,7 @@ class SubprocessLanguage(BaseLanguage):
                 if self.detect_active_line(line):
                     active_line = self.detect_active_line(line)
                     # Sometimes there's a little extra on the same line, so be sure to send that out
-                    line = re.sub(r"##active_line\d+##", "", line)
+                    line = _ACTIVE_LINE_MARKER_RE.sub("", line)
                     active_line_enabled = (
                         os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
                         == "true"
