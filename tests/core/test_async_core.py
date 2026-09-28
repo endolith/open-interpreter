@@ -924,7 +924,17 @@ class TestAsyncRespondProgress(TestCase):
             "content": "ran",
         }
 
-        self._respond_over([confirmation, console], run_code=True, auto_run=False)
+        # Bounded: a regression in the run_code grant would park on the approval
+        # wait instead of running, so an unbounded call would hang the suite.
+        worker = threading.Thread(
+            target=self._respond_over,
+            args=([confirmation, console],),
+            kwargs={"run_code": True, "auto_run": False},
+            daemon=True,
+        )
+        worker.start()
+        worker.join(timeout=10)
+        self.assertFalse(worker.is_alive())
 
         put_chunks = self._put_chunks()
         self.assertTrue(any(c.get("content") == "ran" for c in put_chunks))
@@ -990,6 +1000,10 @@ class TestAsyncRespondProgress(TestCase):
         nudges = [m["content"] for m in self.interpreter.messages if m.get("role") == "user"]
         self.assertEqual(len(nudges), 5)
         self.assertEqual(len(set(nudges)), 5)
+        # The prompts are messages; a missing or mistyped type would make the
+        # provider ignore them and retry a silent turn forever.
+        nudge_dicts = [m for m in self.interpreter.messages if m.get("role") == "user"]
+        self.assertTrue(all(m["type"] == "message" for m in nudge_dicts))
 
     def test_final_failure_emits_an_error_chunk_before_raising(self):
         """The give-up path still reports the failure on the queue.
@@ -1862,3 +1876,569 @@ class TestServerAuthMiddleware(TestCase):
                 headers={"X-API-KEY": "supersecret"},
             )
             self.assertEqual(response.status_code, 200)
+
+
+class TestAsyncInterpreterArgumentForwarding(TestCase):
+    """Pins that AsyncInterpreter.__init__ forwards arguments and exact defaults.
+
+    Mutation testing showed these lines survive untouched: dropping *args or
+    **kwargs, None-for-False swaps on the disarmed flags, and building the
+    embedded server for a different interpreter all pass the existing suite,
+    because nothing asserted the wiring itself rather than downstream effects.
+    """
+
+    def test_positional_arguments_reach_the_base_class(self):
+        """A transcript passed positionally must land on the base interpreter."""
+        messages = [{"role": "user", "type": "message", "content": "hi"}]
+
+        self.assertEqual(AsyncInterpreter(messages).messages, messages)
+
+    def test_keyword_arguments_reach_the_base_class(self):
+        """Keyword settings such as auto_run must reach the base interpreter."""
+        self.assertTrue(AsyncInterpreter(auto_run=True).auto_run)
+
+    def test_initial_flag_values_are_exactly_false(self):
+        """Disarmed flags start as False itself, not merely a falsy value.
+
+        None would behave the same everywhere these flags are read today, so
+        only an identity check pins the documented initial state against
+        None-for-False swaps.
+        """
+        interpreter = AsyncInterpreter()
+
+        self.assertIs(interpreter._approval_granted, False)
+        self.assertIs(interpreter.print, False)
+        self.assertIs(interpreter.context_mode, False)
+
+    def test_server_is_built_for_this_interpreter(self):
+        """The embedded server must close over this interpreter, not None."""
+        with mock.patch("interpreter.core.async_core.Server") as server_cls:
+            interpreter = AsyncInterpreter()
+
+        server_cls.assert_called_once_with(interpreter)
+        self.assertIs(interpreter.server, server_cls.return_value)
+
+
+class TestServerConfigIdentity(TestCase):
+    """Pins that the uvicorn config serves this app and stays the live object."""
+
+    def test_config_serves_this_apps_routes(self):
+        """uvicorn.Config must wrap this server's FastAPI app, not None."""
+        server = Server(AsyncInterpreter())
+
+        self.assertIs(server.config.app, server.app)
+
+    def test_uvicorn_server_wraps_the_live_config(self):
+        """The running server must wrap the config object the properties expose."""
+        server = Server(AsyncInterpreter())
+
+        self.assertIs(server.uvicorn_server.config, server.config)
+
+
+class TestAsyncRespondApprovalValues(TestCase):
+    """Pins the values carried through the approval handshake.
+
+    The existing approval tests prove the handshake pauses and resumes; they
+    never assert what is recorded while it waits (the pending payload, its
+    digest, the reset grant flag) or what a denial leaves behind, so mutations
+    to those values survived.
+    """
+
+    def setUp(self):
+        """An interpreter whose respond output lands on a mock sync queue."""
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.auto_run = False
+        self.mock_q = mock.MagicMock()
+        self.interpreter.output_queue = mock.MagicMock(sync_q=self.mock_q)
+
+    def _confirmation_payload(self):
+        """The code payload used by the approval-value tests."""
+        return {"format": "python", "content": "print(1)"}
+
+    def _wait_for_pending_confirmation(self, timeout=5):
+        """Block until respond() parks on the approval wait, then return."""
+        import time
+
+        for _ in range(int(timeout / 0.01)):
+            if self.interpreter.pending_confirmation is not None:
+                return
+            time.sleep(0.01)
+        self.fail("respond() never reached the approval wait")
+
+    def test_approval_wait_exposes_the_payload_digest_and_a_denied_grant(self):
+        """While parked, the payload, its digest, and a False grant are visible.
+
+        A client approving over the socket reads exactly these fields, so a
+        mutation that records the wrong payload, skips the digest, or leaves a
+        stale grant would approve the wrong code or skip the wait silently.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": self._confirmation_payload(),
+        }
+
+        def fake_store():
+            """Yield the single confirmation that parks respond()."""
+            yield confirmation
+
+        with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
+            worker = threading.Thread(target=self.interpreter.respond, daemon=True)
+            worker.start()
+            self._wait_for_pending_confirmation()
+
+            self.assertEqual(
+                self.interpreter.pending_confirmation, self._confirmation_payload()
+            )
+            self.assertEqual(
+                self.interpreter.pending_confirmation_digest,
+                confirmation_digest(self._confirmation_payload()),
+            )
+            self.assertIs(self.interpreter._approval_granted, False)
+
+            self.assertTrue(self.interpreter._approve_pending_confirmation())
+            worker.join(timeout=10)
+            self.assertFalse(worker.is_alive())
+
+        self.assertIsNone(self.interpreter.pending_confirmation)
+        self.assertIsNone(self.interpreter.pending_confirmation_digest)
+
+    def test_denied_approval_closes_the_stream_with_two_complete_markers(self):
+        """A denial emits the pre-wait marker plus the denial marker, then stops.
+
+        The first marker was already sent before the wait began; the second one
+        is what tells the client the turn ended without running anything.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": self._confirmation_payload(),
+        }
+
+        def fake_store():
+            """Yield the single confirmation that parks respond()."""
+            yield confirmation
+
+        with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
+            worker = threading.Thread(target=self.interpreter.respond, daemon=True)
+            worker.start()
+            self._wait_for_pending_confirmation()
+
+            self.interpreter._approval_granted = False
+            self.interpreter._approval_event.set()
+            worker.join(timeout=10)
+            self.assertFalse(worker.is_alive())
+
+        put_chunks = [call.args[0] for call in self.mock_q.put.call_args_list]
+        self.assertEqual(put_chunks[-2:], [complete_message, complete_message])
+        self.assertIsNone(self.interpreter._respond_iterator)
+
+    def test_approval_of_a_lone_confirmation_completes_without_retry(self):
+        """An approved turn with no trailing chunks is done: sent, not retried.
+
+        The confirmation chunk itself sets the sent flag, so a run that ends
+        right after approval must close instead of nudging an empty model.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": self._confirmation_payload(),
+        }
+
+        def fake_store():
+            """Yield only the confirmation, then go silent."""
+            yield confirmation
+
+        with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
+            with mock.patch("interpreter.core.async_core.time.sleep"):
+                worker = threading.Thread(
+                    target=self.interpreter.respond, daemon=True
+                )
+                worker.start()
+                self._wait_for_pending_confirmation()
+
+                self.assertTrue(self.interpreter._approve_pending_confirmation())
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+
+        nudges = [
+            m
+            for m in self.interpreter.messages
+            if m.get("role") == "user"
+        ]
+        self.assertEqual(nudges, [])
+        self.assertIn(complete_message, [call.args[0] for call in self.mock_q.put.call_args_list])
+
+
+class TestAsyncRespondDisplay(TestCase):
+    """Pins the terminal rendering of streamed chunks when print is on.
+
+    With self.print False (the default) this whole block is dead code, so every
+    branch — code fences, message text, the active-line skip, the image notice,
+    and the ascii pipeline — survived mutation testing unasserted.
+    """
+
+    def setUp(self):
+        """An interpreter that prints instead of staying silent, queue mocked."""
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.print = True
+        self.interpreter.auto_run = False
+        self.mock_q = mock.MagicMock()
+        self.interpreter.output_queue = mock.MagicMock(sync_q=self.mock_q)
+
+    def _printed_output_of(self, chunks):
+        """Run respond() over the chunks and return everything printed."""
+        import contextlib
+        import io
+
+        def fake_store():
+            """Yield the canned chunks as the stored response stream."""
+            yield from chunks
+
+        buffer = io.StringIO()
+        with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
+            with contextlib.redirect_stdout(buffer):
+                self.interpreter.respond()
+        return buffer.getvalue()
+
+    def test_code_start_prints_an_opening_fence(self):
+        """A code start chunk opens a fenced block naming the language."""
+        chunk = {
+            "type": "code",
+            "role": "computer",
+            "format": "python",
+            "start": True,
+        }
+
+        self.assertIn("```python", self._printed_output_of([chunk]))
+
+    def test_code_end_prints_a_closing_fence(self):
+        """A code end chunk closes the fenced block it opened."""
+        chunk = {
+            "type": "code",
+            "role": "computer",
+            "format": "python",
+            "end": True,
+        }
+
+        self.assertIn("```", self._printed_output_of([chunk]))
+
+    def test_message_content_is_printed_verbatim(self):
+        """A plain message chunk reaches the terminal unchanged."""
+        chunk = {"type": "message", "role": "assistant", "content": "hello there"}
+
+        self.assertIn("hello there", self._printed_output_of([chunk]))
+
+    def test_non_ascii_content_is_stripped_to_ascii(self):
+        """The ascii pipeline drops characters the terminal cannot show."""
+        chunk = {
+            "type": "console",
+            "role": "computer",
+            "format": "output",
+            "content": "h\u00e9llo w\u00f6rld",
+        }
+
+        printed = self._printed_output_of([chunk])
+
+        self.assertIn("hllo wrld", printed)
+        self.assertNotIn("\u00e9", printed)
+
+    def test_active_line_chunks_are_not_printed(self):
+        """Live execution line markers never reach the terminal text."""
+        chunk = {
+            "type": "console",
+            "role": "computer",
+            "format": "active_line",
+            "content": "line 5",
+        }
+
+        self.assertEqual(self._printed_output_of([chunk]), "")
+
+    def test_image_chunks_print_a_placeholder_instead_of_bytes(self):
+        """Base64 image data is replaced by a short notice, never dumped raw."""
+        chunk = {
+            "type": "console",
+            "role": "computer",
+            "format": "base64.png",
+            "content": "iVBORw0KGgo=",
+        }
+
+        printed = self._printed_output_of([chunk])
+
+        self.assertIn("[An image was produced]", printed)
+        self.assertNotIn("iVBORw0KGgo=", printed)
+
+    def test_debug_mode_logs_each_chunk(self):
+        """With debug on, every chunk is echoed to the log line by line."""
+        import contextlib
+        import io
+
+        chunk = {
+            "type": "console",
+            "role": "computer",
+            "format": "output",
+            "content": "debugged",
+        }
+        self.interpreter.debug = True
+
+        def fake_store():
+            """Yield the single chunk the debug log must echo."""
+            yield chunk
+
+        buffer = io.StringIO()
+        with mock.patch.object(self.interpreter, "_respond_and_store", fake_store):
+            with contextlib.redirect_stdout(buffer):
+                self.interpreter.respond()
+
+        self.assertIn("produced this chunk", buffer.getvalue())
+
+
+class TestOpenAIGeneratorRunCodePath(TestCase):
+    """Pins openai_compatible_generator with run_code=True (the "yes" turn).
+
+    When the user confirms code execution, the generator streams the stored
+    turn verbatim as SSE frames: messages as content frames, code as fenced
+    frames, anything else as nothing. Mutation testing showed all three
+    branches survive because no test posts a "yes" turn and reads the frames.
+    """
+
+    def setUp(self):
+        """A TestClient with auth open, pointed at a fresh interpreter."""
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("INTERPRETER_API_KEY", None)
+        from fastapi.testclient import TestClient
+
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.auto_run = False
+        self.client = TestClient(Server(self.interpreter).app)
+
+    def _sse_payloads(self, text):
+        """Parse the data: lines of an SSE body back into payload dicts."""
+        payloads = []
+        for line in text.splitlines():
+            if line.startswith("data: "):
+                payloads.append(json.loads(line[len("data: "):]))
+        return payloads
+
+    def _post_yes_turn(self, chunks):
+        """POST a "yes" reply while the stored turn yields the chunks."""
+        self.interpreter.messages = [
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "print(1)",
+            }
+        ]
+
+        def fake_store():
+            """Yield the canned stored-turn chunks."""
+            yield from chunks
+
+        with mock.patch.object(
+            self.interpreter, "_respond_and_store", fake_store
+        ):
+            response = self.client.post(
+                "/openai/chat/completions",
+                json={
+                    "messages": [{"role": "user", "content": "yes"}],
+                    "stream": True,
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        return self._sse_payloads(response.text)
+
+    def test_message_chunks_become_content_frames_with_envelope(self):
+        """A message chunk becomes one frame carrying the chunk envelope."""
+        payloads = self._post_yes_turn(
+            [{"type": "message", "role": "assistant", "content": "hello"}]
+        )
+
+        self.assertEqual(len(payloads), 1)
+        frame = payloads[0]
+        self.assertEqual(frame["object"], "chat.completion.chunk")
+        self.assertEqual(frame["model"], "open-interpreter")
+        self.assertEqual(frame["choices"][0]["delta"]["content"], "hello")
+        self.assertEqual(frame["id"], 0)
+
+    def test_code_chunks_become_fenced_frames_in_order(self):
+        """A code turn streams as fence-open, body, fence-close frames."""
+        chunks = [
+            {"type": "code", "role": "computer", "format": "python", "start": True},
+            {
+                "type": "code",
+                "role": "computer",
+                "format": "python",
+                "content": "x = 1",
+            },
+            {"type": "code", "role": "computer", "format": "python", "end": True},
+        ]
+
+        payloads = self._post_yes_turn(chunks)
+
+        self.assertEqual(
+            [p["choices"][0]["delta"]["content"] for p in payloads],
+            ["```python\n", "x = 1", "\n```\n"],
+        )
+        self.assertEqual([p["id"] for p in payloads], [0, 1, 2])
+
+    def test_chunks_without_displayable_content_emit_no_frames(self):
+        """Status and progress chunks pass through silently on the stream."""
+        payloads = self._post_yes_turn(
+            [{"type": "status", "role": "server", "content": "working"}]
+        )
+
+        self.assertEqual(payloads, [])
+
+
+class TestOpenAIGeneratorChatPath(TestCase):
+    """Pins openai_compatible_generator with run_code False/None (chat turns).
+
+    A plain chat message is retried across the fixed prompt list until chunks
+    arrive: confirmations surface as an approval prompt, silent prompts are
+    retried, and the stop flag suppresses everything. None of this was posted
+    through the endpoint before, so the whole branch survived.
+    """
+
+    def setUp(self):
+        """A TestClient with auth open, pointed at a fresh interpreter."""
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("INTERPRETER_API_KEY", None)
+        from fastapi.testclient import TestClient
+
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.auto_run = False
+        self.client = TestClient(Server(self.interpreter).app)
+
+    def _post_chat(self):
+        """POST a plain chat message and return the parsed SSE payloads."""
+        response = self.client.post(
+            "/openai/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payloads = []
+        for line in response.text.splitlines():
+            if line.startswith("data: "):
+                payloads.append(json.loads(line[len("data: "):]))
+        return payloads
+
+    def test_confirmation_is_surfaced_as_an_approval_prompt(self):
+        """A confirmation chunk becomes the exact approval question, once."""
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+        self.interpreter.chat = mock.MagicMock(return_value=iter([confirmation]))
+
+        payloads = self._post_chat()
+
+        self.assertEqual(
+            [p["choices"][0]["delta"]["content"] for p in payloads],
+            ["Do you want to run this code?"],
+        )
+        self.assertEqual(self.interpreter.chat.call_count, 1)
+
+    def test_silent_prompts_are_retried_until_chunks_arrive(self):
+        """Empty prompts yield nothing and fall through to the next prompt."""
+        message = {"type": "message", "role": "assistant", "content": "second"}
+        self.interpreter.chat = mock.MagicMock(
+            side_effect=[iter([]), iter([message])]
+        )
+
+        payloads = self._post_chat()
+
+        self.assertEqual(
+            [p["choices"][0]["delta"]["content"] for p in payloads], ["second"]
+        )
+        asked = [
+            call.kwargs["message"]
+            for call in self.interpreter.chat.call_args_list
+        ]
+        self.assertEqual(asked[0], ".")
+        self.assertEqual(asked[1], "Just say something, anything.")
+        for call in self.interpreter.chat.call_args_list:
+            self.assertTrue(call.kwargs["stream"])
+            self.assertTrue(call.kwargs["display"])
+
+    def test_fully_silent_prompts_yield_an_empty_stream(self):
+        """When every prompt stays silent, the stream carries no frames."""
+        self.interpreter.chat = mock.MagicMock(return_value=iter([]))
+
+        payloads = self._post_chat()
+
+        self.assertEqual(payloads, [])
+        self.assertEqual(self.interpreter.chat.call_count, 6)
+
+    def test_stop_set_during_streaming_suppresses_frames(self):
+        """A stop raised while streaming drops the in-flight chunks silently."""
+        interpreter = self.interpreter
+
+        def stop_then_yield(**kwargs):
+            """Raise the stop flag just before handing over a chunk."""
+            interpreter.stop_event.set()
+            return iter(
+                [{"type": "message", "role": "assistant", "content": "too late"}]
+            )
+
+        self.interpreter.chat = mock.MagicMock(side_effect=stop_then_yield)
+
+        payloads = self._post_chat()
+
+        self.assertEqual(payloads, [])
+
+
+class TestWebSocketAcknowledgedUnsentMessage(TestCase):
+    """Pins that an acknowledged unsent message is dropped after sending.
+
+    send_message returns True once the client acks, and send_output pops the
+    message on True. A mutation turning the loop's break into a bare return
+    makes every acknowledged send report failure, so the message stays queued
+    and is re-sent forever — unobservable unless the queue is asserted.
+    """
+
+    def test_acknowledged_unsent_message_is_dropped_after_send(self):
+        """A pre-acknowledged queued message leaves the queue after delivery."""
+        import asyncio
+
+        with mock.patch.dict(os.environ):
+            os.environ.pop("INTERPRETER_API_KEY", None)
+            from fastapi.testclient import TestClient
+
+            interpreter = AsyncInterpreter()
+            interpreter.require_acknowledge = True
+
+            async def hang_output():
+                """Park the output poll so only the queued message is sent."""
+                await asyncio.sleep(3600)
+
+            interpreter.output = hang_output
+            interpreter.input = mock.AsyncMock()
+            message = {
+                "id": "k1",
+                "type": "message",
+                "role": "server",
+                "content": "hi",
+            }
+            interpreter.unsent_messages.append(message)
+            interpreter.acknowledged_outputs.append("k1")
+
+            client = TestClient(Server(interpreter).app)
+            with client.websocket_connect("/") as ws:
+                ws.send_text(json.dumps({"auth": "not-checked"}))
+                # The queued message may arrive before the auth reply: the
+                # send loop starts emitting the moment the socket connects.
+                frames = [ws.receive_json(), ws.receive_json()]
+                self.assertIn({"auth": True}, frames)
+                received = next(f for f in frames if f.get("id") == "k1")
+                self.assertEqual(received["content"], "hi")
+
+        self.assertEqual(list(interpreter.unsent_messages), [])
