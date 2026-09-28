@@ -767,3 +767,41 @@ def test_merge_flushes_accumulated_text_on_image(interpreter, tmp_path):
     # "b" is the last user text message, so it gets the template before joining.
     assert result[0] == {"role": "user", "content": "a\nUser: b"}
     assert result[1]["content"][0]["type"] == "image_url"
+
+
+def test_non_string_console_content_is_coerced_to_str(interpreter):
+    """A function-calling console chunk with non-str content is str()-ed before use.
+
+    A list payload would otherwise reach .strip() and raise, so it is str()-ed
+    first. (Changing the checked expression to type(None) is an equivalent
+    mutant here: non-str content coerces either way, and str content is
+    unchanged.)
+    """
+    interpreter.debug = True
+    message = {
+        "role": "assistant",
+        "type": "console",
+        "format": "output",
+        "content": ["line one", "line two"],
+    }
+
+    result = convert_to_openai_messages(
+        [message], function_calling=True, interpreter=interpreter
+    )
+
+    assert result[0]["content"] == str(["line one", "line two"])
+
+
+def test_image_message_without_format_key_raises_keyerror(interpreter):
+    """An image chunk with no "format" key fails with a KeyError today.
+
+    The code reads message["format"] before its own "format not in message"
+    guard, so the intended "Format of the image is not specified." message is
+    currently unreachable and a KeyError surfaces instead. This pins that
+    behavior deliberately; if the guard is ever fixed, this test should change
+    to expect the descriptive exception.
+    """
+    message = {"role": "user", "type": "image", "content": "/tmp/pic.png"}
+
+    with pytest.raises(KeyError):
+        convert_to_openai_messages([message], vision=True, interpreter=interpreter)
