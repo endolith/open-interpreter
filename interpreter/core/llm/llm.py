@@ -119,6 +119,10 @@ class Llm:
         self.api_base = None
         self.api_key = None
         self.api_version = None
+        # Extra HTTP headers merged into every litellm request (e.g. a gateway's
+        # session or tenant header). OI could not send custom headers at all before
+        # this; a few providers reject requests that omit one.
+        self.extra_headers = None
         self._is_loaded = False
 
         # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
@@ -509,6 +513,8 @@ Continuing...
             params["api_base"] = self.api_base
         if self.api_version:
             params["api_version"] = self.api_version
+        if self.extra_headers:
+            params["extra_headers"] = self.extra_headers
         if self.max_tokens:
             params["max_tokens"] = self.max_tokens
         if self.temperature:
