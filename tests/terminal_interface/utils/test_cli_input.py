@@ -15,3 +15,27 @@ def test_multiline_input():
     with mock.patch("builtins.input", side_effect=lines):
         result = cli_input()
     assert result == 'start """\nline one\nline two\nend """'
+
+
+def test_prompt_is_forwarded_to_input():
+    """cli_input passes its prompt argument straight to input().
+
+    Callers supply the prompt text; dropping or wrapping it would show the
+    wrong prompt while still reading the right value.
+    """
+    with mock.patch("builtins.input", return_value="ok") as inp:
+        cli_input("Enter something: ")
+
+    assert inp.call_args.args == ("Enter something: ",)
+
+
+def test_default_prompt_is_empty_string():
+    """Omitting the prompt calls input("") rather than input(None).
+
+    input(None) prints "None" as the prompt on some platforms, so the default
+    must be the empty string.
+    """
+    with mock.patch("builtins.input", return_value="ok") as inp:
+        cli_input()
+
+    assert inp.call_args.args == ("",)

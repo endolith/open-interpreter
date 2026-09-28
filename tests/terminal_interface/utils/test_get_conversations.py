@@ -25,3 +25,25 @@ def test_get_conversations_returns_empty_when_no_json(monkeypatch, tmp_path):
     )
 
     assert get_conversations() == []
+
+
+def test_get_conversations_reads_the_conversations_subdirectory(monkeypatch, tmp_path):
+    """get_conversations asks storage for the "conversations" subdirectory.
+
+    The subdirectory name is what routes the listing to the right folder; a
+    changed or dropped argument would list a different (or the root) directory.
+    """
+    seen = {}
+
+    def fake_storage_path(subdirectory):
+        seen["subdirectory"] = subdirectory
+        return str(tmp_path)
+
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.utils.get_conversations.get_storage_path",
+        fake_storage_path,
+    )
+
+    get_conversations()
+
+    assert seen["subdirectory"] == "conversations"

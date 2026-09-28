@@ -114,3 +114,76 @@ def test_module_imports_tolerate_missing_optional_deps(monkeypatch):
         # rebinds the real tiktoken and cost_per_token imports, then reload.
         builtins.__import__ = real_import
         importlib.reload(ct)
+
+
+def test_count_tokens_defaults_to_gpt4_and_empty_text():
+    """The defaults are text="" and model="gpt-4".
+
+    Callers may omit either argument; the default model must be the real
+    "gpt-4" (not a sentinel or wrong case) and the default text empty, or a bare
+    call would tokenize the wrong thing.
+    """
+    mock_encoder = mock.Mock()
+    mock_encoder.encode.return_value = [1]
+    with mock.patch.object(ct, "tiktoken") as mock_tiktoken:
+        mock_tiktoken.encoding_for_model.return_value = mock_encoder
+        ct.count_tokens()
+
+    mock_tiktoken.encoding_for_model.assert_called_once_with("gpt-4")
+    mock_encoder.encode.assert_called_once_with("")
+
+
+def test_count_tokens_forwards_text_and_model():
+    """count_tokens encodes exactly the text it was given with the model's encoder.
+
+    The text (not None) and the model (not None) are what tie the count to the
+    input; dropping either would count the wrong payload.
+    """
+    mock_encoder = mock.Mock()
+    mock_encoder.encode.return_value = [1, 2]
+    with mock.patch.object(ct, "tiktoken") as mock_tiktoken:
+        mock_tiktoken.encoding_for_model.return_value = mock_encoder
+        assert ct.count_tokens("payload", model="gpt-3.5-turbo") == 2
+
+    mock_tiktoken.encoding_for_model.assert_called_once_with("gpt-3.5-turbo")
+    mock_encoder.encode.assert_called_once_with("payload")
+
+
+def test_count_tokens_unknown_model_uses_gpt4_encoder_and_warns(capsys):
+    """An unknown model warns then falls back to the gpt-4 encoder by name.
+
+    The fallback encoder must be asked for "gpt-4" specifically; a wrapped or
+    case-changed literal would raise inside the fallback and silently return 0.
+    """
+    mock_encoder = mock.Mock()
+    mock_encoder.encode.return_value = [1, 2, 3]
+    with mock.patch.object(ct, "tiktoken") as mock_tiktoken:
+        mock_tiktoken.encoding_for_model.side_effect = [
+            KeyError("unknown"),
+            mock_encoder,
+        ]
+        assert ct.count_tokens("hi", model="not-a-model") == 3
+
+    assert "Could not find tokenizer" in capsys.readouterr().out
+    assert mock_tiktoken.encoding_for_model.call_args_list[-1].args == ("gpt-4",)
+
+
+def test_token_cost_defaults():
+    """token_cost defaults to tokens=0 and model="gpt-4" and forwards them.
+
+    The default token count and the default model are passed to cost_per_token;
+    a shifted default would compute the cost of a different request.
+    """
+    with mock.patch.object(ct, "cost_per_token", return_value=(0.5, 0)) as cpt:
+        ct.token_cost()
+
+    cpt.assert_called_once_with(model="gpt-4", prompt_tokens=0)
+
+
+def test_token_cost_forwards_tokens_and_model():
+    """token_cost passes the given token count and model to cost_per_token."""
+    with mock.patch.object(ct, "cost_per_token", return_value=(0.5, 0)) as cpt:
+        ct.token_cost(tokens=42, model="gpt-3.5-turbo")
+
+    cpt.assert_called_once_with(model="gpt-3.5-turbo", prompt_tokens=42)
+
