@@ -10,7 +10,23 @@ This is the classic/develop branch which is a mess. Don't bother running tests a
 
 Any feature branches that target `classic/develop` should have a `develop/` prefix.  Most changes should just be committed directly to `classic/develop`, though.
 
-There is now a vibe-coded fork at remote `velinxs/rework` using more advanced LLMs.  It will likely eventually be merged into `main`, just like the `classic/develop` branch, and may be useful to pick ideas from in the meantime.  If asked to fix something, see if the rework branch already fixes it, and borrow the changes (with attribution).
+This repo has ~130 configured remotes. The ones that matter:
+- `origin`   = `endolith/open-interpreter` — this fork, the merge target.
+- `upstream` = `OpenInterpreter/open-interpreter` — now an unrelated Rust Codex fork; ignore it.
+- `velinxs`  = `velinxs/open-interpreter` — a vibe-coded fork using more advanced LLMs.
+
+The interesting branch is **`rework` on the `velinxs` remote** — there is no `rework` on
+`origin`, so `git fetch origin rework` fails. To use it:
+
+    git ls-remote velinxs rework                    # cheap existence check, no fetch
+    git fetch velinxs rework                        # creates refs/remotes/velinxs/rework
+    git show velinxs/rework:interpreter/core/respond.py   # read one file, no checkout
+    gh api repos/velinxs/open-interpreter/contents/interpreter/core/respond.py?ref=rework --jq .content | base64 -d
+
+Don't dump `git remote -v` (130+ lines); target the remote you need.
+
+`rework` will likely eventually be merged into `main`, just like `classic/develop`. If asked to
+fix something, check whether `rework` already fixes it, and borrow the change with attribution.
 
 ## Code change guidelines
 
