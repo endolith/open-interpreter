@@ -595,6 +595,7 @@ Use """ to write multi-line messages.
             and not interpreter.llm.model.lower().startswith("deepseek/")
             and not interpreter.llm.model.lower().startswith("dashscope-us/")
             and not interpreter.llm.model.lower().startswith("dashscope-intl/")
+            and not interpreter.llm.model.lower().startswith("opencode_go/")
             and not interpreter.llm.model.lower().startswith("ollama")
             and not interpreter.llm.model.lower().startswith("jan")
             and not interpreter.llm.model.lower().startswith("local")

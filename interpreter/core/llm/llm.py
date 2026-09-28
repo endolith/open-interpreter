@@ -65,6 +65,36 @@ class AccessDeniedError(Exception):
 # changes within a session and a network round-trip per probe is wasteful.
 _openrouter_model_entries = {}
 
+# OpenCode Go serves its catalog over three different wire formats, and a model
+# sent to the wrong one is not necessarily rejected -- the gateway can answer
+# with a different model entirely. OI only speaks chat completions, so these are
+# the Go models we must refuse rather than silently mis-route.
+#   /v1/chat/completions  the rest (GLM, Kimi, DeepSeek, MiMo, Hy3, ...)
+#   /v1/messages          Anthropic wire format
+#   /v1/responses         OpenAI Responses wire format
+# Source: https://opencode.ai/docs/go/ (endpoint table), which also serves the
+# live list at https://opencode.ai/zen/go/v1/models.
+_OPENCODE_GO_DEFAULT_BASE = "https://opencode.ai/zen/go/v1"
+_OPENCODE_GO_MESSAGES_MODELS = frozenset(
+    {
+        "minimax-m2.5",
+        "minimax-m2.7",
+        "minimax-m3",
+        "qwen3.8-flash",
+        *(f"qwen3.{n}-{tier}" for n in range(5, 9) for tier in ("plus", "max")),
+    }
+)
+_OPENCODE_GO_RESPONSES_MODELS = frozenset(
+    {
+        "grok-4.6",
+        "grok-4.7",
+        "gpt-5.6-luna",
+        "gpt-6-luna",
+        "muse-spark-1.2-contributor",
+        "muse-spark-1.3-contributor",
+    }
+)
+
 # Models already warned about during this process when both a reasoning_effort and
 # include_reasoning: false are configured. That combination cannot take effect (a
 # disabled model does not think), and providers ignore the effort rather than
@@ -123,6 +153,9 @@ class Llm:
         # session or tenant header). OI could not send custom headers at all before
         # this; a few providers reject requests that omit one.
         self.extra_headers = None
+        # Set when the opencode_go/ prefix is in use; adds the gateway's required
+        # x-opencode-session header per request.
+        self._is_opencode_go = False
         # Set when the hosted `i` model is selected; distinguishes it from an
         # arbitrary model string that happens to route to api.openinterpreter.com.
         self._is_hosted_i_model = False
@@ -524,8 +557,15 @@ Continuing...
             params["api_base"] = self.api_base
         if self.api_version:
             params["api_version"] = self.api_version
-        if self.extra_headers:
-            params["extra_headers"] = self.extra_headers
+        if self.extra_headers or self._is_opencode_go:
+            # Copied per request so the session header tracks conversation_id
+            # across a %reset, and so the caller's own dict is never mutated.
+            headers = dict(self.extra_headers or {})
+            if self._is_opencode_go:
+                headers.setdefault(
+                    "x-opencode-session", self.interpreter.conversation_id
+                )
+            params["extra_headers"] = headers
         if self.max_tokens:
             params["max_tokens"] = self.max_tokens
         if self.temperature:
@@ -712,6 +752,52 @@ Continuing...
             if model_name.startswith("qwen3.5") and self.supports_vision is None:
                 self.supports_vision = True
             # Route through OpenAI-compatible formatting for DashScope's compatible endpoint.
+            self.model = f"openai/{model_name}"
+
+        # OpenCode Go (OpenAI-compatible chat completions). Like DashScope, the
+        # prefix is rewritten to openai/<model> because the gateway speaks the
+        # OpenAI wire format, but the key is NOT optional: the rewritten
+        # openai/ route would otherwise fall back to an ambient OPENAI_API_KEY and
+        # send that credential to opencode.ai. Fail loudly instead of leaking it.
+        if model_lower.startswith("opencode_go/"):
+            model_name = self.model.split("/", 1)[1].lower()
+            if (
+                model_name in _OPENCODE_GO_MESSAGES_MODELS
+                or model_name in _OPENCODE_GO_RESPONSES_MODELS
+            ):
+                wire_format = (
+                    "Anthropic messages"
+                    if model_name in _OPENCODE_GO_MESSAGES_MODELS
+                    else "OpenAI responses"
+                )
+                raise ValueError(
+                    f"The OpenCode Go model '{model_name}' is only served over the "
+                    f"{wire_format} API, which Open Interpreter does not speak. "
+                    "Sending it to /chat/completions does not fail cleanly -- the "
+                    "gateway may answer with a different model. Pick a Go model "
+                    "served over chat completions (deepseek-*, glm-*, kimi-*, "
+                    "mimo-*), or use a client with full OpenCode Go support."
+                )
+            if self.api_base is None:
+                self.api_base = os.environ.get(
+                    "OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE
+                )
+            if self.api_key is None:
+                self.api_key = os.environ.get("OPENCODE_GO_API_KEY")
+            if not self.api_key:
+                raise ValueError(
+                    "The opencode_go/ model prefix requires an OpenCode Go API key. "
+                    "Set OPENCODE_GO_API_KEY, or set llm.api_key in your profile. "
+                    "(Reusing OPENAI_API_KEY is not supported -- it is a different "
+                    "credential and would be rejected by the gateway.)"
+                )
+            # Go rejects requests with no x-opencode-session. A stable per-
+            # conversation id keeps its provider routing and prompt cache warm
+            # across turns; an unset value would be replaced per request, which
+            # passes the check but earns no caching. The value is filled in per
+            # request (see run()) rather than stored here, so that it tracks
+            # conversation_id when %reset mints a new one.
+            self._is_opencode_go = True
             self.model = f"openai/{model_name}"
 
         # DeepSeek API (OpenAI-compatible). Keep deepseek/<model> for LiteLLM routing.
