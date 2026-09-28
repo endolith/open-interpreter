@@ -118,6 +118,28 @@ def respond(interpreter):
     always_retry_provider_errors = False
     temporary_provider_error_retries = 0
     last_temporary_provider_error_signature = None
+    temporary_retry_status_active = False
+
+    def clear_temporary_retry_status():
+        """
+        End the in-place retry line before anything else writes to the terminal.
+
+        The retry status is written with a leading carriage return and no trailing
+        newline so repeated retries update in place. If a retry then succeeds, the
+        next thing drawn is usually a Rich Live display (the Thinking panel); without
+        terminating the line first, that panel renders on the same row and its border
+        is drawn twice, wrapped and offset.
+        """
+        nonlocal temporary_retry_status_active
+        nonlocal temporary_provider_error_retries
+        nonlocal last_temporary_provider_error_signature
+        if not temporary_retry_status_active:
+            return
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        temporary_retry_status_active = False
+        temporary_provider_error_retries = 0
+        last_temporary_provider_error_signature = None
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -162,9 +184,11 @@ def respond(interpreter):
         if interpreter.messages[-1]["type"] not in ("code", "edit"):  # If it is, we run below
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
+                    clear_temporary_retry_status()
                     yield {"role": "assistant", **chunk}
 
             except litellm.exceptions.BudgetExceededError:
+                clear_temporary_retry_status()
                 interpreter.display_message(
                     f"""> Max budget exceeded
 
@@ -214,9 +238,11 @@ def respond(interpreter):
                         == last_temporary_provider_error_signature
                     ):
                         temporary_provider_error_retries += 1
+                        temporary_retry_status_active = True
                         _render_temporary_retry_status(temporary_provider_error_retries)
                         time.sleep(2)
                         continue
+                    clear_temporary_retry_status()
                     # Format with Rich Panel with red border for errors
                     # Check if this is an error with JSON structure that can be parsed
                     if "{" in error_str and "}" in error_str:
@@ -313,6 +339,7 @@ def respond(interpreter):
                     if is_temporary_error:
                         last_temporary_provider_error_signature = temporary_error_signature
                         temporary_provider_error_retries += 1
+                        temporary_retry_status_active = True
                         _render_temporary_retry_status(temporary_provider_error_retries)
                         time.sleep(2)
                         continue
@@ -346,6 +373,7 @@ def respond(interpreter):
                     interpreter._stopped_retrying = True
                     return
 
+                clear_temporary_retry_status()
                 if (
                     interpreter.offline == False
                     and ("auth" in error_message or
@@ -418,10 +446,7 @@ def respond(interpreter):
                     raise
 
             else:
-                if temporary_provider_error_retries > 0:
-                    print("")
-                temporary_provider_error_retries = 0
-                last_temporary_provider_error_signature = None
+                clear_temporary_retry_status()
 
         # Inject image from view_image tool call (tool appends result first, then we add user image)
         pending_path = getattr(interpreter, "_pending_view_image_path", None)
