@@ -28,3 +28,29 @@ def test_format_preserves_newlines():
     formatted = format_to_recipient(text, "assistant")
     _, parsed = parse_for_recipient(formatted)
     assert parsed == text
+
+
+def test_content_containing_a_colon_is_preserved():
+    """Content with its own colon survives intact rather than being cut at that colon.
+
+    The payload was parsed with an unbounded split, keeping only the field
+    before the content's first colon, so a URL, timestamp, Windows path or dict
+    repr was silently truncated ("http://example.com" came back as "http").
+    Any chunk the terminal routes through parse_for_recipient is affected.
+    """
+    tagged = format_to_recipient("http://example.com", "assistant")
+    recipient, content = parse_for_recipient(tagged)
+    assert recipient == "assistant"
+    assert content == "http://example.com"
+
+
+def test_a_truncated_wrapper_is_treated_as_plain_content():
+    """Text that opens like a tag but never closes is not parsed as one.
+
+    Streamed content arrives in fragments, so a half-written wrapper is
+    expected; parsing it would route a partial message to the wrong place.
+    """
+    assert parse_for_recipient("@@@RECIPIENT:assistant@@@CONTENT:half") == (
+        None,
+        "@@@RECIPIENT:assistant@@@CONTENT:half",
+    )
