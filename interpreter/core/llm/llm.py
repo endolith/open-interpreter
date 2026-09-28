@@ -123,6 +123,9 @@ class Llm:
         # session or tenant header). OI could not send custom headers at all before
         # this; a few providers reject requests that omit one.
         self.extra_headers = None
+        # Set when the hosted `i` model is selected; distinguishes it from an
+        # arbitrary model string that happens to route to api.openinterpreter.com.
+        self._is_hosted_i_model = False
         self._is_loaded = False
 
         # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
@@ -208,12 +211,20 @@ class Llm:
         # Setup our model endpoint
         if model == "i":
             model = "openai/i"
-            if not hasattr(self.interpreter, "conversation_id"):  # Only do this once
+            self._is_hosted_i_model = True
+            # Set defaults without clobbering explicit user/profile values. This
+            # used to be guarded by `if not hasattr(self.interpreter,
+            # "conversation_id")`, which conflated "haven't configured this yet"
+            # with "no conversation id" -- now that the id always exists, that
+            # guard would silently skip the whole block.
+            if self.context_window is None:
                 self.context_window = 7000
+            if self.api_key is None:
                 self.api_key = "x"
+            if self.max_tokens is None:
                 self.max_tokens = 1000
+            if self.api_base is None:
                 self.api_base = "https://api.openinterpreter.com/v0"
-                self.interpreter.conversation_id = str(uuid.uuid4())
 
         # Detect function support
         if self.supports_functions == None:
@@ -519,7 +530,10 @@ Continuing...
             params["max_tokens"] = self.max_tokens
         if self.temperature:
             params["temperature"] = self.temperature
-        if hasattr(self.interpreter, "conversation_id"):
+        # `conversation_id` is a body field only the hosted `i` API understands
+        # (see fixed_litellm_completions, which disables drop_params for it).
+        # Other providers get the id via a header instead, if they want it at all.
+        if self._is_hosted_i_model and hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
 
         if auxiliary_title_request:
@@ -851,7 +865,10 @@ def fixed_litellm_completions(**params):
         # Kinda hacky, but this helps sometimes
         params["stop"] = ["<|assistant|>", "<|end|>", "<|eot_id|>"]
 
-    if params.get("model") == "i" and "conversation_id" in params:
+    # The hosted `i` model was rewritten to the OpenAI-compatible "openai/i" by
+    # the time params reach here, so match that spelling -- the old `== "i"` check
+    # never fired and conversation_id was silently stripped by drop_params.
+    if params.get("model") == "openai/i" and "conversation_id" in params:
         litellm.drop_params = (
             False  # If we don't do this, litellm will drop this param!
         )

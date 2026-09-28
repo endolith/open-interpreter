@@ -8,6 +8,7 @@ import re
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime
 
 from ..terminal_interface.local_setup import local_setup
@@ -195,6 +196,12 @@ class OpenInterpreter:
         self.conversation_filename = conversation_filename
         self.conversation_history_path = conversation_history_path
         self._conversation_title_upgraded = False
+        # Identifies one conversation for as long as it lasts. OI has no session
+        # store, so this is minted per process and re-minted by reset(). The `i`
+        # model sends it in the request body; providers that key prompt caching or
+        # routing on a per-conversation id (e.g. OpenCode Go's x-opencode-session)
+        # read it as a header.
+        self.conversation_id = str(uuid.uuid4())
 
         # OS control mode related attributes
         self.os = os
@@ -905,6 +912,11 @@ class OpenInterpreter:
         self.messages = []
         self.last_messages_count = 0
         self.llm.last_completion_usage = None
+        # A reset clears the message history, so it also starts a new conversation
+        # id. Providers that key prompt caching or routing on a per-conversation
+        # session (e.g. OpenCode Go's x-opencode-session) would otherwise keep
+        # treating the fresh, unrelated history as a continuation of the old one.
+        self.conversation_id = str(uuid.uuid4())
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.
