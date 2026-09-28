@@ -6,7 +6,11 @@ This repo (`endolith/open-interpreter`) is the community-maintained home of OI C
 
 ## Development setup
 
-This is the classic/develop branch which is a mess. Don't bother running tests and stuff, those only work in the main branch.
+This is the classic/develop branch which is a mess. Don't bother running tests and stuff, those only work in the main branch.  Features from this branch will eventually be merged into `main`.
+
+Any feature branches that target `classic/develop` should have a `develop/` prefix.  Most changes should just be committed directly to `classic/develop`, though.
+
+There is now a vibe-coded fork at remote `velinxs/rework` using more advanced LLMs.  It will likely eventually be merged into `main`, just like the `classic/develop` branch, and may be useful to pick ideas from in the meantime.  If asked to fix something, see if the rework branch already fixes it, and borrow the changes (with attribution).
 
 ## Code change guidelines
 
