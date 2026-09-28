@@ -152,6 +152,9 @@ class Llm:
         # session or tenant header). OI could not send custom headers at all before
         # this; a few providers reject requests that omit one.
         self.extra_headers = None
+        # Set when the hosted `i` model is selected; distinguishes it from an
+        # arbitrary model string that happens to route to api.openinterpreter.com.
+        self._is_hosted_i_model = False
         self._is_loaded = False
 
         # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
@@ -237,11 +240,21 @@ class Llm:
         # The free, hosted `i` model was shut down. Fail loudly instead of
         # silently pointing at a dead endpoint.
         if model == "i":
-            raise ValueError(
-                "The hosted `i` model has been removed. "
-                "Please choose a different model, e.g. `interpreter --model gpt-4o` "
-                "or `interpreter --local` for a local model."
-            )
+            model = "openai/i"
+            self._is_hosted_i_model = True
+            # Set defaults without clobbering explicit user/profile values. This
+            # used to be guarded by `if not hasattr(self.interpreter,
+            # "conversation_id")`, which conflated "haven't configured this yet"
+            # with "no conversation id" -- now that the id always exists, that
+            # guard would silently skip the whole block.
+            if self.context_window is None:
+                self.context_window = 7000
+            if self.api_key is None:
+                self.api_key = "x"
+            if self.max_tokens is None:
+                self.max_tokens = 1000
+            if self.api_base is None:
+                self.api_base = "https://api.openinterpreter.com/v0"
 
         # Detect function support
         if self.supports_functions == None:
@@ -547,13 +560,11 @@ Continuing...
             params["max_tokens"] = self.max_tokens
         if self.temperature is not None:
             params["temperature"] = self.temperature
-        if self.reasoning_effort:
-            params["reasoning_effort"] = self.reasoning_effort
-            if model.startswith("openrouter/"):
-                extra_body = params.setdefault("extra_body", {})
-                extra_body.setdefault("reasoning", {})["effort"] = (
-                    self.reasoning_effort
-                )
+        # `conversation_id` is a body field only the hosted `i` API understands
+        # (see fixed_litellm_completions, which disables drop_params for it).
+        # Other providers get the id via a header instead, if they want it at all.
+        if self._is_hosted_i_model and hasattr(self.interpreter, "conversation_id"):
+            params["conversation_id"] = self.interpreter.conversation_id
 
         if auxiliary_title_request:
             # Avoid huge reasoning streams and hung streams with no wall clock (OpenRouter etc.).
@@ -900,7 +911,15 @@ def fixed_litellm_completions(**params):
         # Kinda hacky, but this helps sometimes
         params["stop"] = ["<|assistant|>", "<|end|>", "<|eot_id|>"]
 
-    litellm.drop_params = True
+    # The hosted `i` model was rewritten to the OpenAI-compatible "openai/i" by
+    # the time params reach here, so match that spelling -- the old `== "i"` check
+    # never fired and conversation_id was silently stripped by drop_params.
+    if params.get("model") == "openai/i" and "conversation_id" in params:
+        litellm.drop_params = (
+            False  # If we don't do this, litellm will drop this param!
+        )
+    else:
+        litellm.drop_params = True
 
     params["model"] = params["model"].replace(":latest", "")
 
