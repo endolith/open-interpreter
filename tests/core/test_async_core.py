@@ -2347,6 +2347,97 @@ class TestOpenAIGeneratorChatPath(TestCase):
         )
         self.assertEqual(self.interpreter.chat.call_count, 1)
 
+    def test_confirmation_frame_carries_the_full_chunk_envelope(self):
+        """The approval frame is a complete chat.completion.chunk, not just text.
+
+        Clients switch on `object` and read `model`/`id`/`created` to render a
+        stream, so the confirmation frame has its own envelope that must match
+        the message frames' — the existing test only read its content.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+        self.interpreter.chat = mock.MagicMock(return_value=iter([confirmation]))
+
+        frame = self._post_chat()[0]
+
+        self.assertEqual(
+            set(frame), {"id", "object", "created", "model", "choices"}
+        )
+        self.assertEqual(frame["object"], "chat.completion.chunk")
+        self.assertEqual(frame["model"], "open-interpreter")
+        self.assertIsInstance(frame["created"], (int, float))
+        self.assertEqual(
+            frame["choices"], [{"delta": {"content": "Do you want to run this code?"}}]
+        )
+
+    def test_chat_message_frame_carries_the_full_chunk_envelope(self):
+        """A streamed chat message frame names itself and its source model.
+
+        This is the second copy of the streaming logic (the post-prompt loop),
+        separate from the run-code path, so its envelope has to be pinned too —
+        a renamed `choices`/`delta` key would break every non-code client.
+        """
+        message = {"type": "message", "role": "assistant", "content": "only"}
+        self.interpreter.chat = mock.MagicMock(return_value=iter([message]))
+
+        frame = self._post_chat()[0]
+
+        self.assertEqual(
+            set(frame), {"id", "object", "created", "model", "choices"}
+        )
+        self.assertEqual(frame["id"], 0)
+        self.assertEqual(frame["object"], "chat.completion.chunk")
+        self.assertEqual(frame["model"], "open-interpreter")
+        self.assertIsInstance(frame["created"], (int, float))
+        self.assertEqual(frame["choices"], [{"delta": {"content": "only"}}])
+
+    def test_chat_code_chunks_stream_as_fenced_frames(self):
+        """A code turn streams fence-open, body and fence-close frames in order.
+
+        The chat path reimplements the run-code path's fenced rendering; only the
+        run-code copy was covered, so a dropped fence or reordered frame here
+        would go unnoticed.
+        """
+        chunks = [
+            {"type": "code", "role": "computer", "format": "python", "start": True},
+            {"type": "code", "role": "computer", "format": "python", "content": "x = 1"},
+            {"type": "code", "role": "computer", "format": "python", "end": True},
+        ]
+        self.interpreter.chat = mock.MagicMock(return_value=iter(chunks))
+
+        payloads = self._post_chat()
+
+        self.assertEqual(
+            [p["choices"][0]["delta"]["content"] for p in payloads],
+            ["```python\n", "x = 1", "\n```\n"],
+        )
+        self.assertEqual([p["id"] for p in payloads], [0, 1, 2])
+
+    def test_retry_prompt_sequence_is_exact(self):
+        """Every silent prompt is tried in the documented order before giving up.
+
+        The prompts escalate as the model stays silent; repeating or dropping one
+        would change how many attempts a silent provider gets and what it sees.
+        """
+        self.interpreter.chat = mock.MagicMock(return_value=iter([]))
+
+        self._post_chat()
+
+        self.assertEqual(
+            [call.kwargs["message"] for call in self.interpreter.chat.call_args_list],
+            [
+                ".",
+                "Just say something, anything.",
+                "Hello? Answer please.",
+                "Are you there?",
+                "Can you respond?",
+                "Please reply.",
+            ],
+        )
+
     def test_silent_prompts_are_retried_until_chunks_arrive(self):
         """Empty prompts yield nothing and fall through to the next prompt."""
         message = {"type": "message", "role": "assistant", "content": "second"}
@@ -2442,3 +2533,486 @@ class TestWebSocketAcknowledgedUnsentMessage(TestCase):
                 self.assertEqual(received["content"], "hi")
 
         self.assertEqual(list(interpreter.unsent_messages), [])
+
+
+class TestAsyncInterpreterInitialState(TestCase):
+    """Pins the exact initial state AsyncInterpreter.__init__ sets up.
+
+    Mutation testing found the constructor's fields survive with any falsy
+    stand-in: None, "" and 0 behave the same until later code takes an identity
+    or type branch. These pin the documented initial values with identity and
+    type checks instead of truthiness.
+    """
+
+    def test_control_fields_start_as_none_not_a_falsy_stand_in(self):
+        """respond_thread, output_queue and the digest start as None; the queue is a deque.
+
+        Other code compares these with `is None` before use — the input path
+        checks `respond_thread is not None` then calls is_alive(), and output()
+        creates the queue only when it is None — so "" would take the wrong
+        branch and crash, and unsent_messages has to be a real deque so the
+        send loop can popleft it.
+        """
+        from collections import deque
+
+        interpreter = AsyncInterpreter()
+
+        self.assertIsNone(interpreter.respond_thread)
+        self.assertIsNone(interpreter.output_queue)
+        self.assertIsNone(interpreter.pending_confirmation_digest)
+        self.assertIsInstance(interpreter.unsent_messages, deque)
+
+    def test_id_defaults_to_a_timestamp_and_honours_the_env_var(self):
+        """The instance id is a numeric timestamp unless INTERPRETER_ID is set.
+
+        The id is handed to clients; dropping the timestamp default would make
+        every instance anonymous, and reading a renamed variable would ignore
+        the deployment-provided id even when the operator set it.
+        """
+        with mock.patch.dict(os.environ):
+            os.environ.pop("INTERPRETER_ID", None)
+            self.assertIsInstance(AsyncInterpreter().id, float)
+
+            os.environ["INTERPRETER_ID"] = "deployment-7"
+            self.assertEqual(AsyncInterpreter().id, "deployment-7")
+
+    def test_require_acknowledge_parses_the_env_var_case_insensitively(self):
+        """INTERPRETER_REQUIRE_ACKNOWLEDGE gates ack tracking with a case-insensitive match.
+
+        The flag decides whether the server waits for client acknowledgements, so
+        a renamed variable or an exact-case comparison would silently disable a
+        delivery guarantee the operator asked for.
+        """
+        with mock.patch.dict(os.environ):
+            os.environ.pop("INTERPRETER_REQUIRE_ACKNOWLEDGE", None)
+            self.assertIs(AsyncInterpreter().require_acknowledge, False)
+
+            os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "TRUE"
+            self.assertIs(AsyncInterpreter().require_acknowledge, True)
+
+            os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "false"
+            self.assertIs(AsyncInterpreter().require_acknowledge, False)
+
+
+class TestCancelPendingApprovalValue(TestCase):
+    """Pins the exact value a cancel records.
+
+    The event set is asserted by the existing tests, but they use assertFalse,
+    which a None stand-in also satisfies — only an identity check pins that a
+    cancelled approval is specifically denied rather than merely falsy.
+    """
+
+    def test_cancel_records_an_exact_false_not_a_falsy_stand_in(self):
+        """Cancel leaves _approval_granted as False itself, and sets the event.
+
+        Code distinguishes a cancelled approval from a granted one by the flag's
+        value, so a None stand-in would compare false but lose the documented
+        False the caller switches on.
+        """
+        interpreter = AsyncInterpreter()
+        interpreter._approval_granted = True
+
+        interpreter._cancel_pending_approval()
+
+        self.assertIs(interpreter._approval_granted, False)
+        self.assertTrue(interpreter._approval_event.is_set())
+
+
+class TestAsyncOutputQueue(TestCase):
+    """Pins that output() lazily creates its queue and then reuses it.
+
+    The output() round trip is how responses leave the interpreter, and these
+    two lines had no test reaching them: a queue created on every call would
+    blackhole anything already queued, and skipping creation would raise instead
+    of waiting.
+    """
+
+    def test_missing_queue_is_created_and_then_awaited(self):
+        """With no queue set, output() installs a janus queue and blocks on it.
+
+        A mutant that assigned None instead of a queue would raise
+        AttributeError on the None queue; the timeout below proves it instead
+        waits on a real queue.
+        """
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+        interpreter.output_queue = None
+
+        async def exercise():
+            """Await output() briefly, then report the queue it installed."""
+            try:
+                await asyncio.wait_for(interpreter.output(), timeout=0.05)
+            except asyncio.TimeoutError:
+                pass
+            return interpreter.output_queue
+
+        queue = asyncio.run(exercise())
+
+        self.assertIsInstance(queue, janus.Queue)
+
+    def test_existing_queue_is_reused_not_replaced(self):
+        """A queued message is returned and the queue object is unchanged.
+
+        Replacing a present queue (the `== None` inversion) would drop the queued
+        message and leave the consumer waiting on an empty queue, so both the
+        returned value and the object identity are pinned.
+        """
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+        queue = janus.Queue()
+        interpreter.output_queue = queue
+        queue.sync_q.put("payload")
+
+        result = asyncio.run(asyncio.wait_for(interpreter.output(), timeout=1))
+
+        self.assertEqual(result, "payload")
+        self.assertIs(interpreter.output_queue, queue)
+
+
+class TestServerRunSocketProbe(TestCase):
+    """Pins the LAN-IP probe run() performs when bound to 0.0.0.0.
+
+    The probe opens a UDP socket and connects it to a public address to learn the
+    machine's outbound IP, then prints it. It only runs for 0.0.0.0, and the
+    existing test only checked the printed text, so every socket argument could
+    mutate without notice.
+    """
+
+    def test_probe_uses_ipv4_udp_and_connects_to_port_80(self):
+        """The probe socket is AF_INET/SOCK_DGRAM and connects to the DNS host on :80.
+
+        The socket has to be datagram (a stream connect could block) and the
+        address family right for the printed IP to be IPv4; pinning the port
+        keeps the documented Google-DNS target the comment describes.
+        """
+        import contextlib
+        import io
+
+        server = Server(AsyncInterpreter())
+        server.uvicorn_server.run = mock.Mock()
+        server.config.host = "0.0.0.0"
+        fake_socket = mock.Mock()
+        fake_socket.getsockname.return_value = ("192.168.1.50", 4321)
+
+        with mock.patch(
+            "interpreter.core.async_core.socket.socket", return_value=fake_socket
+        ) as socket_cls:
+            with contextlib.redirect_stdout(io.StringIO()):
+                server.run()
+
+        socket_cls.assert_called_once_with(socket.AF_INET, socket.SOCK_DGRAM)
+        fake_socket.connect.assert_called_once_with(("8.8.8.8", 80))
+        fake_socket.close.assert_called_once_with()
+
+
+class TestOpenAINonStreamingCompletion(TestCase):
+    """Pins the non-streaming branch of POST /openai/chat/completions.
+
+    When a request omits `stream`, the endpoint answers with a single
+    chat.completion object rather than an SSE stream. No test exercised that
+    branch, so the default stream flag, the default model name and the response
+    envelope were all free to mutate — a non-streaming client would get an SSE
+    body or a null model.
+    """
+
+    def setUp(self):
+        """A TestClient with auth open, pointed at a fresh interpreter."""
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("INTERPRETER_API_KEY", None)
+        from fastapi.testclient import TestClient
+
+        self.interpreter = AsyncInterpreter()
+        self.client = TestClient(Server(self.interpreter).app)
+
+    def _post(self, **extra):
+        """POST a plain user turn without `stream` and return the response."""
+        body = {"messages": [{"role": "user", "content": "hi"}]}
+        body.update(extra)
+        return self.client.post("/openai/chat/completions", json=body)
+
+    def _stub_chat(self, content="canned"):
+        """Make interpreter.chat return one assistant message with the content."""
+        self.interpreter.chat = mock.MagicMock(
+            return_value=[{"role": "assistant", "type": "message", "content": content}]
+        )
+
+    def test_absent_stream_returns_a_single_completion_object(self):
+        """A request without `stream` gets one JSON chat.completion object.
+
+        The default must stay False: a mutated default of True would return an
+        SSE body where the client expects JSON, and the model name has to be the
+        documented default rather than null.
+        """
+        self._stub_chat("canned")
+
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/json", response.headers["content-type"])
+        payload = response.json()
+        self.assertEqual(payload["object"], "chat.completion")
+        self.assertEqual(payload["id"], "200")
+        self.assertEqual(payload["model"], "default-model")
+        self.assertIsInstance(payload["created"], (int, float))
+        self.assertEqual(
+            payload["choices"],
+            [{"message": {"role": "assistant", "content": "canned"}}],
+        )
+
+    def test_request_model_is_echoed_back(self):
+        """An explicit model is passed through to the response untouched."""
+        self._stub_chat("x")
+
+        response = self._post(model="gpt-4o-mini")
+
+        self.assertEqual(response.json()["model"], "gpt-4o-mini")
+
+
+class TestAsyncInputCommandGaps(TestCase):
+    """Pins command-handling details the existing command tests leave open.
+
+    The existing go/stop tests cover the happy paths, so pinned here is the exact
+    bookkeeping: which messages are consumed, how a digest is split, that a bare
+    "go" approves any pending payload, that an end chunk really starts a respond
+    thread, and the exact error chunk a refused command emits.
+    """
+
+    def setUp(self):
+        """An interpreter with a mocked output queue and a live mock respond thread."""
+        self.interpreter = AsyncInterpreter()
+        self.interpreter.auto_run = False
+        self.interpreter.output_queue = mock.MagicMock()
+        self.interpreter.output_queue.sync_q = mock.MagicMock()
+        self.interpreter.respond_thread = mock.MagicMock()
+        self.interpreter.respond_thread.is_alive.return_value = True
+
+    def _feed_command(self, command):
+        """Feed start/content/end chunks for one user command."""
+        import asyncio
+
+        async def run():
+            """Drive interpreter.input over the three command chunks."""
+            await self.interpreter.input(
+                {"role": "user", "type": "command", "start": True}
+            )
+            await self.interpreter.input(
+                {"role": "user", "type": "command", "content": command}
+            )
+            await self.interpreter.input(
+                {"role": "user", "type": "command", "end": True}
+            )
+
+        asyncio.run(run())
+
+    def _puts(self):
+        """The raw chunk objects put on the sync output queue, in order."""
+        return [
+            call.args[0]
+            for call in self.interpreter.output_queue.sync_q.put.call_args_list
+        ]
+
+    def _errors(self):
+        """The error-type chunks put on the sync output queue, in order."""
+        return [chunk for chunk in self._puts() if chunk.get("type") == "error"]
+
+    def test_bare_go_approves_any_pending_confirmation(self):
+        """A bare "go" grants the pending approval without a digest check.
+
+        The digest is optional for clients that accept whatever is pending, so an
+        empty-string stand-in for the "no digest" sentinel must not turn "go" into
+        a refusal.
+        """
+        payload = {"format": "python", "content": "print(1)"}
+        self.interpreter.pending_confirmation = payload
+        self.interpreter.pending_confirmation_digest = confirmation_digest(payload)
+
+        self._feed_command("go")
+
+        self.assertEqual(self._errors(), [])
+        self.assertIs(self.interpreter._approval_granted, True)
+
+    def test_go_digest_keeps_everything_after_the_first_colon(self):
+        """go:<digest> takes the whole remainder, not the first or last field.
+
+        Digests are hex today, but the split must not truncate or reorder the
+        token: a client echoing a digest containing a colon would otherwise be
+        refused or approved against the wrong part.
+        """
+        self.interpreter.pending_confirmation = {"format": "python", "content": "x"}
+        self.interpreter.pending_confirmation_digest = "aa:bb:cc"
+
+        self._feed_command("go:aa:bb:cc")
+
+        self.assertEqual(self._errors(), [])
+        self.assertIs(self.interpreter._approval_granted, True)
+
+    def test_handling_a_command_removes_only_that_command(self):
+        """The command chunk is popped, leaving earlier transcript entries intact.
+
+        Dropping extra messages would silently delete the user's previous turn
+        every time a go/stop command is processed.
+        """
+        kept = {"role": "user", "type": "message", "content": "earlier turn"}
+        self.interpreter.messages = [kept]
+        self.interpreter.pending_confirmation = {"format": "python", "content": "x"}
+        self.interpreter.pending_confirmation_digest = "d"
+
+        self._feed_command("go:d")
+
+        self.assertEqual(self.interpreter.messages, [kept])
+
+    def test_refused_command_emits_the_exact_server_error_chunk(self):
+        """A mismatched approval emits one server/error chunk plus the complete marker.
+
+        Clients key off `role`, `type` and the complete marker to close the turn,
+        so a renamed field would leave them waiting; the chunk shape is the
+        contract, not just the message text.
+        """
+        self._feed_command("go:whatever")
+
+        self.assertEqual(
+            self._puts(),
+            [
+                {
+                    "role": "server",
+                    "type": "error",
+                    "content": "No pending code approval matches that request.",
+                },
+                complete_message,
+            ],
+        )
+
+    def test_end_chunk_starts_a_respond_thread_with_run_code_none(self):
+        """An end chunk spawns Thread(target=respond, args=(None,)) and starts it.
+
+        run_code begins as None so respond() defaults it to auto_run; dropping
+        the target or the args would spawn a thread that never responds, or one
+        bound to the wrong flag.
+        """
+        import asyncio
+
+        self.interpreter.messages = [
+            {"role": "user", "type": "message", "content": "turn"}
+        ]
+        self.interpreter.respond_thread = None
+
+        with mock.patch(
+            "interpreter.core.async_core.threading.Thread"
+        ) as thread_cls:
+            asyncio.run(
+                self.interpreter.input({"role": "user", "type": "message", "end": True})
+            )
+
+        kwargs = thread_cls.call_args.kwargs
+        # Bound methods are recreated per attribute access, so compare by equality
+        # (same function and instance) rather than identity.
+        self.assertEqual(kwargs["target"], self.interpreter.respond)
+        self.assertEqual(kwargs["args"], (None,))
+        thread_cls.return_value.start.assert_called_once_with()
+
+
+class TestAsyncRespondGrantedTurnSecondConfirmation(TestCase):
+    """Pins that only the first confirmation under a granted turn runs silently.
+
+    respond(run_code=True) is the "yes" turn: the first confirmation is the user
+    authorising execution, but a second confirmation in the same turn is new code
+    and must still pause. A mutation that kept the grant alive would run every
+    later confirmation without approval.
+    """
+
+    def test_second_confirmation_under_a_granted_turn_still_pauses(self):
+        """The first confirmation is consumed, the second parks for approval.
+
+        run_code must drop back to False after the first confirmation; leaving it
+        truthy would auto-approve the second payload, executing code the user
+        never saw.
+        """
+        first = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": {"format": "python", "content": "first"},
+        }
+        second = {
+            "type": "confirmation",
+            "role": "computer",
+            "content": {"format": "python", "content": "second"},
+        }
+        interpreter = AsyncInterpreter()
+        interpreter.auto_run = False
+        interpreter.output_queue = mock.MagicMock(sync_q=mock.MagicMock())
+
+        def store():
+            """Yield the two confirmations in one response stream."""
+            yield first
+            yield second
+
+        import time
+
+        with mock.patch.object(interpreter, "_respond_and_store", store):
+            worker = threading.Thread(
+                target=interpreter.respond, args=(True,), daemon=True
+            )
+            worker.start()
+            for _ in range(500):
+                if interpreter.pending_confirmation is not None:
+                    break
+                time.sleep(0.01)
+
+            self.assertEqual(
+                interpreter.pending_confirmation, {"format": "python", "content": "second"}
+            )
+            self.assertTrue(interpreter._approve_pending_confirmation())
+            worker.join(timeout=10)
+            self.assertFalse(worker.is_alive())
+
+
+class TestConfirmationDigestValues(TestCase):
+    """Pins the exact digest a confirmation payload hashes to.
+
+    The digest is the approval token: the UI shows it, the client echoes it back
+    as `go:<digest>`, and a mismatch refuses execution. Existing tests only
+    checked that a digest is stable and that a wrong string is rejected; nothing
+    pinned the digest's inputs, so dropping the language or the code from the
+    hash left approvals bound to half the payload.
+    """
+
+    def test_digest_hashes_language_and_code_together(self):
+        """The digest is sha256 of "language\\0code" over the payload's fields.
+
+        Pinning the exact value fixes the on-the-wire approval token clients
+        round-trip; an omitted field or changed separator would make different
+        code payloads share a digest (or valid ones stop matching).
+        """
+        payload = {"format": "python", "content": "print(1)"}
+
+        self.assertEqual(
+            confirmation_digest(payload),
+            hashlib.sha256(b"python\x00print(1)").hexdigest(),
+        )
+
+    def test_language_and_code_each_change_the_digest(self):
+        """Changing either field changes the digest, and missing fields hash as "".
+
+        A payload hashed without its language or without its code would collide
+        with a different payload's digest, letting one approval authorise code
+        the reviewer never saw.
+        """
+        base = {"format": "python", "content": "print(1)"}
+
+        self.assertNotEqual(
+            confirmation_digest(base),
+            confirmation_digest({"format": "java", "content": "print(1)"}),
+        )
+        self.assertNotEqual(
+            confirmation_digest(base),
+            confirmation_digest({"format": "python", "content": "print(2)"}),
+        )
+        self.assertEqual(
+            confirmation_digest({}),
+            confirmation_digest({"format": "", "content": ""}),
+        )
+
