@@ -28,6 +28,27 @@ Don't dump `git remote -v` (130+ lines); target the remote you need.
 `rework` will likely eventually be merged into `main`, just like `classic/develop`. If asked to
 fix something, check whether `rework` already fixes it, and borrow the change with attribution.
 
+## Model providers
+
+Prefixes that route to a specific provider are wired in `Llm.load()`
+(`interpreter/core/llm/llm.py`), next to the dashscope and deepseek blocks:
+
+- `openai/…`, `openrouter/…`, `anthropic/…` etc. — resolved by LiteLLM itself, no OI code.
+- `dashscope-us/`, `dashscope-intl/`, `deepseek/` — OI sets `api_base`/`api_key` from env vars.
+- `opencode_go/…` — as above, plus a required `x-opencode-session` header, a hard
+  requirement on `OPENCODE_GO_API_KEY` (never `OPENAI_API_KEY`), and a refusal for the
+  Go models that are not served over chat completions. See `docs/settings/all-settings.mdx`.
+- `i` — Open Interpreter's own hosted model, special-cased in `Llm.run()`.
+
+Two things to know before adding another prefix:
+
+- Rewriting a model onto `openai/…` makes LiteLLM resolve an unset `api_key` from the
+  environment, so an ambient `OPENAI_API_KEY` gets sent as `Authorization: Bearer` to
+  whatever `api_base` says. A prefix with its own credential must set `api_key`
+  explicitly or fail loudly.
+- `start_terminal_interface.py` has a hardcoded allowlist of prefixes that must not be
+  re-prefixed when `--api_base` is set; a new prefix needs adding there too.
+
 ## Code change guidelines
 
 ### Testing

@@ -199,10 +199,67 @@ llm:
 
 </CodeGroup>
 
+### Extra Headers
+
+Some gateways require provider-specific HTTP headers, or use them for routing and
+prompt caching. Set them here and they are sent with every request to your model.
+
+<CodeGroup>
+
+```bash Terminal
+interpreter.llm.extra_headers = {"X-Tenant": "acme"}
+```
+
+```python Python
+interpreter.llm.extra_headers = {"X-Tenant": "acme"}
+```
+
+```yaml Profile
+llm:
+  extra_headers:
+    X-Tenant: acme
+```
+
+</CodeGroup>
+
+### OpenCode Go
+
+Use an OpenCode Go subscription by prefixing the model with `opencode_go/`. Set
+`OPENCODE_GO_API_KEY` to your key from [opencode.ai](https://opencode.ai/docs/go/)
+(not your OpenAI key — it is a different credential).
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --model opencode_go/deepseek-v4-flash
+```
+
+```python Python
+interpreter.llm.model = "opencode_go/deepseek-v4-flash"
+```
+
+```yaml Profile
+llm:
+  model: opencode_go/deepseek-v4-flash
+```
+
+</CodeGroup>
+
+Open Interpreter sends the `x-opencode-session` header Go requires, using a
+stable per-conversation id so provider routing and prompt caching stay warm. A
+`%reset` starts a new conversation and therefore a new session id.
+
+Go serves each model over one specific endpoint. Open Interpreter speaks chat
+completions, so the DeepSeek, GLM, Kimi, MiMo and Hy3 families work. MiniMax and
+Qwen models are only served over Anthropic messages, and Grok/GPT-5.6-Luna over
+the OpenAI responses API; selecting one of those raises an error rather than
+letting the gateway quietly answer with a different model.
+
+Override the default base URL with `OPENCODE_GO_API_BASE` or `llm.api_base`.
+
 ### API Version
 
 Optionally set the API version to use with your selected model. (This will override environment variables)
-
 <CodeGroup>
 
 ```bash Terminal
