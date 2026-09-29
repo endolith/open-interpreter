@@ -85,6 +85,24 @@ class WebToolboxError(Exception):
         return [f"WebToolboxError: {self}"]
 
 
+class GuidedAttributeError(AttributeError):
+    """AttributeError with a compact Jupyter traceback.
+
+    The result objects below guide callers toward the right method when an
+    attribute is missing (e.g. page methods called on hit lists). A plain
+    AttributeError renders in the kernel as a full traceback — file frames,
+    the chained KeyError, the Cell line — burying the one-line guidance and
+    flooding both the terminal and the LLM context. Defining
+    _render_traceback_ (honored by IPython, same mechanism as
+    WebToolboxError above) collapses it to the message alone, while the
+    exception remains an AttributeError for except-clauses.
+    """
+
+    def _render_traceback_(self):
+        # Keep the familiar "AttributeError:" prefix, not the subclass name.
+        return [f"AttributeError: {self}"]
+
+
 # Default per-backend wait: every network call is bounded so a stalled
 # backend fails fast and auto-select moves on instead of hanging the session.
 # Tunable via profile settings (interpreter.web_timeout /
@@ -167,7 +185,7 @@ class ResultItem(dict):
     def __getattr__(self, name):
         """Allow attribute-style access (item.title), including aliases."""
         if name in ("fetch", "search_page"):
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'ResultItem' object has no method '{name}'. Page methods live "
                 f"on the result object, not on items: use result.{name}(i), "
                 f"e.g. result.fetch(0). See result.keys()."
@@ -175,7 +193,7 @@ class ResultItem(dict):
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'ResultItem' object has no attribute '{name}'. "
                 "Use item.title, item['title'], or item.get('title'). See item.keys()."
             ) from exc
@@ -183,7 +201,7 @@ class ResultItem(dict):
 
 def _no_page_method_error(cls_name, name, fetch_example):
     """Redirect find()/links() called on hit-lists toward page methods."""
-    return AttributeError(
+    return GuidedAttributeError(
         f"'{cls_name}' object has no '{name}' — that searches page content, "
         f"not hit lists. Open a hit first: page = {fetch_example}, then "
         "page.find(term) / page.links(), or use result.search_page(i, query) "
@@ -257,7 +275,7 @@ class SearchResult(dict):
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'SearchResult' object has no attribute '{name}'. "
                 "Use attribute access (e.g. result.results). See result.keys()."
             ) from exc
@@ -309,9 +327,10 @@ class FetchResult(dict):
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'FetchResult' object has no attribute '{name}'. "
-                "Use attribute access (e.g. result.content). See result.keys()."
+                "Try page.content, page.find(term), page.search_page(query), "
+                "or page.links(). See page.keys()."
             ) from exc
 
     def _get_content(self):
@@ -338,6 +357,36 @@ class FetchResult(dict):
             if max_results is not None and len(snippets) >= max_results:
                 break
         return snippets
+
+    def search_page(self, query, max_results=5, context_chars=500, **kwargs):
+        """
+        Search within this already-fetched page (no network call).
+
+        Same shape as web.search_page(url, query): returns a PageSearchResult
+        with .matches (items: .snippet or ['snippet']), so code written
+        against either works unchanged. Prefer this over re-fetching when the
+        page is already in hand; prefer web.search_page(url, query) when it
+        is not (backend semantic search costs fewer tokens than a full fetch).
+
+        Args:
+            query (str): Term to find in the fetched content (case-insensitive).
+            max_results (int): Max passages to return (default: 5).
+            context_chars (int): Per-passage character budget (default: 500).
+                `context=` is accepted as an alias.
+        """
+        context = kwargs.pop("context", context_chars)
+        snippets = self.find(query, context=context, max_results=max_results)
+        matches = [ResultItem({"snippet": s}) for s in snippets]
+        # Zero matches is a legitimate result (term not on page), not an error.
+        return PageSearchResult(
+            {
+                "url": self.get("url", ""),
+                "query": query,
+                "matches": matches,
+                "backend": "local",
+            },
+            web=None,
+        )
 
     def links(self):
         """
@@ -381,7 +430,7 @@ class FetchResult(dict):
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]{cached_tag}"]
             lines.append("  Keys: results[list of ResultItem: .title/.content or ['title']; snippet→content], raw_response[dict], backend[str]")
-            lines.append("  → result.results[i]['content'] | result.find(term) | result.links()")
+            lines.append("  → result.results[i]['content'] | result.find(term) | result.search_page(query) | result.links()")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
                 url = r.get("url", "")
@@ -406,7 +455,7 @@ class FetchResult(dict):
                 + (f", {extra_keys}" if extra_keys else "")
                 + ", backend[str]"
             )
-            lines.append("  → result.content | result.find(term) | result.links()")
+            lines.append("  → result.content | result.find(term) | result.search_page(query) | result.links()")
             if title:
                 lines.append(f"  \"{title}\"")
             else:
@@ -432,7 +481,7 @@ class AnswerResult(dict):
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'AnswerResult' object has no attribute '{name}'. "
                 "Use attribute access (e.g. result.sources). See result.keys()."
             ) from exc
@@ -479,7 +528,7 @@ class StructuredOutputResult(dict):
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'StructuredOutputResult' object has no attribute '{name}'. "
                 "Use attribute access (e.g. result.structured_output). See result.keys()."
             ) from exc
@@ -538,7 +587,7 @@ class PageSearchResult(dict):
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError(
+            raise GuidedAttributeError(
                 f"'PageSearchResult' object has no attribute '{name}'. "
                 "Use attribute access (e.g. result.matches). See result.keys()."
             ) from exc
@@ -2383,7 +2432,7 @@ class Web:
         if not is_multi_url and not backend and url in self._fetch_cache:
             cached = self._fetch_cache[url]
             cached._cached = True
-            print("→ result.content | result.find(term) | result.links()")
+            print("→ result.content | result.find(term) | result.search_page(query) | result.links()")
             return cached
 
         if backend:
@@ -2409,9 +2458,9 @@ class Web:
             if not is_multi_url:
                 self._fetch_cache[url] = fetch_result
             if is_multi_url:
-                print("→ result.results[i]['content'] | result.find(term) | result.links()")
+                print("→ result.results[i]['content'] | result.find(term) | result.search_page(query) | result.links()")
             else:
-                print("→ result.content | result.find(term) | result.links()")
+                print("→ result.content | result.find(term) | result.search_page(query) | result.links()")
             return fetch_result
 
         backends_to_try = ["vanshul", "serper", "linkup", "tavily"]
@@ -2438,9 +2487,9 @@ class Web:
                 if not is_multi_url:
                     self._fetch_cache[url] = fetch_result
                 if is_multi_url:
-                    print("→ result.results[i]['content'] | result.find(term) | result.links()")
+                    print("→ result.results[i]['content'] | result.find(term) | result.search_page(query) | result.links()")
                 else:
-                    print("→ result.content | result.find(term) | result.links()")
+                    print("→ result.content | result.find(term) | result.search_page(query) | result.links()")
                 return fetch_result
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
