@@ -442,7 +442,64 @@ def process_messages(messages, model=None):
         i += 1
 
     processed_messages = merge_consecutive_assistant_messages(processed_messages)
-    return merge_consecutive_user_messages(processed_messages)
+    processed_messages = merge_consecutive_user_messages(processed_messages)
+    return answer_dangling_tool_calls(processed_messages)
+
+
+def answer_dangling_tool_calls(messages):
+    """Give every unanswered ``tool_calls`` entry a ``tool`` response.
+
+    The loop above repairs a tool *response* with no matching call. This handles
+    the opposite: a call with no response. That state is what a turn interrupted
+    mid-execution leaves in the history -- the model emitted a call, the user
+    stopped it before the result was stored, and a later turn (notably the first
+    one after ``--conversations`` resumes a session) replays that assistant
+    message. Every OpenAI-compatible validator requires each ``tool_calls`` entry
+    to be followed by a ``tool`` message with the same ``tool_call_id``, so the
+    replayed request is rejected as invalid (a 400) before the model sees any of
+    it. Nothing about the conversation is wrong; the history is simply unfinished.
+
+    The inserted response says the call was interrupted. It must not read as a
+    successful result, or the model will reason from an outcome that never
+    happened.
+    """
+    answered = {
+        m.get("tool_call_id")
+        for m in messages
+        if m.get("role") == "tool" and m.get("tool_call_id")
+    }
+    repaired = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        repaired.append(message)
+        index += 1
+        if not message.get("tool_calls"):
+            continue
+        # Responses to this call sit in the tool messages that immediately
+        # follow it; carry them through first so synthetic ones land after the
+        # real results rather than in front of them.
+        real = []
+        while index < len(messages) and messages[index].get("role") == "tool":
+            real.append(messages[index])
+            index += 1
+        repaired.extend(real)
+        for call in message["tool_calls"]:
+            call_id = call.get("id")
+            if not call_id or call_id in answered:
+                continue
+            answered.add(call_id)
+            repaired.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": (
+                        "Interrupted: this tool call was never executed. Its result "
+                        "does not exist. Re-issue the call if you still need it."
+                    ),
+                }
+            )
+    return repaired
 
 
 def build_request_tools(interpreter, messages=None):
