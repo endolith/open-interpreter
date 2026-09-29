@@ -29,9 +29,15 @@ class _FakeInterpreter:
     def __init__(self, llm):
         self.llm = llm
         self.messages = [{"role": "user", "type": "message", "content": "hi"}]
+        self.system_message = "You are an assistant."
+        self.custom_instructions = None
         self.offline = False
         self.os = False
         self.verbose = False
+        self.loop = False
+        self.loop_message = "Proceed."
+        self.loop_breakers = ["The task is done."]
+        self._stopped_retrying = False
 
     def display_message(self, message):
         pass
@@ -187,6 +193,48 @@ def test_value_error_is_shown_without_traceback_or_retry_prompt(capsys, panels):
     assert "OPENAI_API_KEY" not in output.replace("OPENCODE_GO_API_KEY", ""), (
         "generic OpenAI reset instructions have nothing to do with this error"
     )
+
+
+def test_value_error_signals_the_interface_to_stop_not_retry(capsys, panels):
+    """A config ValueError must end the turn in a way the interactive loop honours.
+
+    Nothing is stored to interpreter.messages when no assistant text is produced,
+    so the message list still looks like "a user message waiting to be served",
+    and the terminal interface re-runs the same turn on its next iteration:
+    with a permanent misconfiguration, that is a new "Configuration error"
+    panel forever. The provider-error paths signal exit by setting
+    interpreter._stopped_retrying, which the interface honours by popping the
+    undelivered message and exiting. A turn that can never succeed must do the
+    same; plain `return` was a real regression that ran this loop on a user.
+    """
+    error = ValueError(
+        "The opencode_go/ model prefix requires an OpenCode Go API key. "
+        "Set OPENCODE_GO_API_KEY, or set llm.api_key in your profile."
+    )
+    llm = _FakeLlm([error])
+    interpreter = _FakeInterpreter(llm)
+
+    list(respond(interpreter))
+
+    assert interpreter._stopped_retrying is True, "a turn that cannot proceed must tell the interactive loop to stop"
+
+
+def test_respond_resets_stale_stop_flag_at_turn_start(capsys, panels):
+    """A stop flag left over from a previous failed turn must not kill the next one.
+
+    The flag is consumed by the terminal interface after the turn it was set in.
+    If a second turn starts while the flag is still True (the interface skipped
+    its cleanup, or a library user drives turns manually), an entirely healthy
+    turn would be reported as a refusal. respond() is the only writer, so it
+    starts every turn with the flag False.
+    """
+    llm = _FakeLlm([[{"type": "message", "content": "all good"}]])
+    interpreter = _FakeInterpreter(llm)
+    interpreter._stopped_retrying = True  # stale, from the previous turn
+
+    list(respond(interpreter))
+
+    assert interpreter._stopped_retrying is False, "a healthy turn must clear a stale stop flag, not inherit it"
 
 
 def test_value_error_quits_instead_of_prompting_for_retry(capsys, panels):
