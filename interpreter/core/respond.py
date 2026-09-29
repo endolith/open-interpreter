@@ -119,6 +119,10 @@ def respond(interpreter):
     temporary_provider_error_retries = 0
     last_temporary_provider_error_signature = None
     temporary_retry_status_active = False
+    # A stale True from a previous turn would make the terminal interface exit
+    # after an unrelated, healthy turn; this function is the only writer, so a
+    # turn always starts clean.
+    interpreter._stopped_retrying = False
 
     def clear_temporary_retry_status():
         """
@@ -195,6 +199,18 @@ def respond(interpreter):
                 # messages like "requires an OpenCode Go API key" contain
                 # "api key", which would otherwise reach the generic OPENAI_API_
                 # KEY advice below -- advice for the wrong credential entirely.
+                #
+                # No assistant text is produced, so nothing is stored to
+                # interpreter.messages and the last message is still the
+                # undelivered user turn. In the interactive terminal interface,
+                # a turn that ends that way is re-served automatically on the
+                # next loop iteration (it looks like a message "passed in"
+                # ahead of time), which repeats this panel forever.
+                # _stopped_retrying is that loop's off switch: the interface
+                # pops the undelivered message and exits, which is the right
+                # outcome for a fix-it-outside-of-OI problem -- retrying inside
+                # the session cannot help.
+                interpreter._stopped_retrying = True
                 clear_temporary_retry_status()
                 error_str = str(e)
                 yield {"type": "stop_live_display"}
