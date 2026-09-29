@@ -187,7 +187,28 @@ def respond(interpreter):
                     clear_temporary_retry_status()
                     yield {"role": "assistant", **chunk}
 
-            except litellm.exceptions.BudgetExceededError:
+            except ValueError as e:
+                # Misconfiguration, not an API failure: OI raises ValueError when
+                # a model's required setup is missing (e.g. the opencode_go/
+                # prefix checks for a key). The message names the fix, so render
+                # it alone. Raising instead would print a full traceback, and
+                # messages like "requires an OpenCode Go API key" contain
+                # "api key", which would otherwise reach the generic OPENAI_API_
+                # KEY advice below -- advice for the wrong credential entirely.
+                clear_temporary_retry_status()
+                error_str = str(e)
+                yield {"type": "stop_live_display"}
+                print("")  # Newline so panel top border is not cut off
+                rich_print(
+                    Panel(
+                        Markdown(error_str),
+                        border_style="red",
+                        title="Configuration error",
+                        title_align="left",
+                    )
+                )
+                print("")  # Add space after error
+                return
                 clear_temporary_retry_status()
                 interpreter.display_message(
                     f"""> Max budget exceeded
