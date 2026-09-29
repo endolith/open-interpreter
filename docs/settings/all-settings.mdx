@@ -226,11 +226,12 @@ llm:
 
 Use an OpenCode Go subscription by prefixing the model with `opencode_go/`. Set
 `OPENCODE_GO_API_KEY` to your key from [opencode.ai](https://opencode.ai/docs/go/)
-(not your OpenAI key — it is a different credential). A key saved in your profile
-as `llm.api_key` also works; if both are set, `OPENCODE_GO_API_KEY` wins. Note
-that a Go key starts with `sk-` just like an OpenAI one, so the two cannot be
-told apart automatically — if a request fails with `Invalid API key.`, check
-that the key in your profile really is the Go one.
+(not your OpenAI key — it is a different credential). A Go key saved in your
+profile as `llm.api_key` also works, and a key already there in Go's `oc_sk_…`
+shape is kept; anything else is replaced by the environment variable, or refused
+with an error naming what to set. Note that Go keys and OpenAI keys look nothing
+alike (`oc_sk_…` versus `sk-…`), so a key saved for another provider is never sent
+to the Go gateway.
 
 <CodeGroup>
 
@@ -245,7 +246,7 @@ interpreter.llm.model = "opencode_go/deepseek-v4-flash"
 ```yaml Profile
 llm:
   model: opencode_go/deepseek-v4-flash
-  api_key: sk-...
+  api_key: oc_sk_...
 ```
 
 </CodeGroup>

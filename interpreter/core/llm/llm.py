@@ -135,26 +135,21 @@ def _is_opencode_go_base(api_base):
 
 
 def _is_opencode_go_key(api_key):
-    """Whether an already-configured api_key is shaped like an OpenCode credential.
+    """Whether an already-configured api_key is shaped like an OpenCode Go credential.
 
-    OpenCode issues Zen/Go keys as ``sk-`` followed by 64 characters (see the
-    console's ``Key.create`` in anomalyco/opencode, and anomalyco/opencode#40343,
-    where a Go key is described as "sk-... API key from the Zen console"). An
-    earlier version of this assumed an ``oc_`` prefix and consequently treated
-    every real Go key as foreign, so a key saved in a profile was discarded and
-    the user was told to set ``OPENCODE_GO_API_KEY`` instead -- the profile path
-    documented in docs/settings/all-settings.mdx could not work.
+    Go keys start with ``oc_`` (``oc_sk_...``). Anything else is assumed to belong
+    to another provider, so that stale keys from the profile -- an OpenAI key left
+    there by OI's onboarding, for example -- cannot be sent to the gateway instead
+    of OPENCODE_GO_API_KEY. Sending a foreign key yields exactly ``Invalid API
+    key.``, which blames the Go key that never arrived.
 
-    ``oc_`` is still accepted: it is accepted by the gateway, and profiles
-    written when that was assumed may hold such a value.
-
-    Note the limit of prefix matching here: ``sk-`` is also OpenAI's own format,
-    so this cannot actually tell a Go key from an OpenAI one. It only rejects
-    keys that are neither shape. That asymmetry is deliberate -- wrongly
-    rejecting a valid Go key blocks a working configuration, while a genuinely
-    foreign key still fails with the gateway's own clear "Invalid API key."
+    The ``oc_`` prefix is what makes this test work at all: ``sk-`` is the format
+    shared by OpenAI, Anthropic, DashScope and *Zen*, so an ``sk-`` key here is
+    never assumed to be a Go key. Do not "fix" this to accept ``sk-`` on the
+    strength of a source about Zen credentials -- that is a different product, and
+    accepting ``sk-`` would hand every foreign key straight to the gateway.
     """
-    return bool(api_key) and api_key.lower().startswith(("sk-", "oc_"))
+    return bool(api_key) and api_key.lower().startswith(("oc_",))
 
 # Models already warned about during this process when both a reasoning_effort and
 # include_reasoning: false are configured. That combination cannot take effect (a
@@ -850,23 +845,22 @@ Continuing...
             go_base = os.environ.get("OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE)
             if self.api_base is None or not _is_opencode_go_base(self.api_base):
                 self.api_base = go_base
-            # Precedence is: an explicit OPENCODE_GO_API_KEY, then a Go-shaped key
-            # already in the profile, then a loud failure.
-            #
-            # The shape test cannot be the deciding vote. Go keys are `sk-`, and so
-            # are OpenAI, Anthropic and DashScope keys, so no prefix separates a
-            # Go credential from a foreign one -- the original design assumed they
-            # differed (an `oc_` prefix), which silently discarded every real Go
-            # key saved in a profile. A weak signal must therefore never override
-            # an explicit choice: when the environment variable is set it wins,
-            # and a profile key is only discarded when it is not recognisable at
-            # all, which leaves the loud error below rather than a 401 from the
-            # gateway blaming a key the user believes they set correctly.
-            env_key = os.environ.get("OPENCODE_GO_API_KEY")
-            if env_key:
-                self.api_key = env_key
-            elif not _is_opencode_go_key(self.api_key):
-                self.api_key = None
+            # Same reasoning as api_base: the profile may still hold an api_key
+            # saved for a different provider (often an OpenAI key from OI's
+            # onboarding). Sending that to the Go gateway produces exactly
+            # "Invalid API key." at 401, which blames the Go key the user set
+            # via the environment but never reaches the gateway. An explicit
+            # OPENCODE_GO_API_KEY therefore wins over a non-Go-shaped profile
+            # key; a Go-shaped key the user put in the profile is kept.
+            if self.api_key is None or not _is_opencode_go_key(self.api_key):
+                env_key = os.environ.get("OPENCODE_GO_API_KEY")
+                if env_key:
+                    self.api_key = env_key
+                # Without an override, a non-Go-shaped profile key cannot be
+                # sent to the gateway; leaving it in place would repeat the
+                # "Invalid API key." failure the check above exists to prevent.
+                elif self.api_key is not None and not _is_opencode_go_key(self.api_key):
+                    self.api_key = None
             if not self.api_key:
                 raise ValueError(
                     "The opencode_go/ model prefix requires an OpenCode Go API key. "
