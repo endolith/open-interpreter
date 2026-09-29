@@ -10,7 +10,13 @@ class R(SubprocessLanguage):
 
     def __init__(self):
         super().__init__()
-        self.start_cmd = ["R", "-q", "--vanilla"]  # Start R in quiet and vanilla mode
+        # --no-echo stops R echoing each line of input back on stdout. R echoes
+        # even when stdin is a plain pipe, and the echoes interleave with real
+        # output (markers, printed values, the end marker) rather than preceding
+        # it, so they cannot be filtered afterwards by skipping a line count --
+        # any fixed count either eats real output or leaks an echo. Suppressing
+        # the echo at the source is what makes the output stream unambiguous.
+        self.start_cmd = ["R", "-q", "--vanilla", "--no-echo"]
 
     def preprocess_code(self, code):
         """
@@ -36,7 +42,7 @@ class R(SubprocessLanguage):
         processed_code = "\n".join(processed_lines)
 
         # Wrap in a tryCatch for error handling and add end of execution marker
-        processed_code = f"""
+        return f"""
 tryCatch({{
 {processed_code}
 }}, error=function(e){{
@@ -44,18 +50,11 @@ tryCatch({{
 }})
 cat("##end_of_execution##\\n");
 """
-        # Count the number of lines of processed_code
-        # (R echoes all code back for some reason, but we can skip it if we track this!)
-        self.code_line_count = len(processed_code.split("\n")) - 1
-
-        return processed_code
 
     def line_postprocessor(self, line):
-        # If the line count attribute is set and non-zero, decrement and skip the line
-        if hasattr(self, "code_line_count") and self.code_line_count > 0:
-            self.code_line_count -= 1
-            return None
-
+        # A bare R continuation prompt carries no output of ours. With --no-echo
+        # these should not appear at all, but dropping them is cheap insurance
+        # for an R build that ignores the flag.
         if re.match(r"^(\s*>>>\s*|\s*\.\.\.\s*|\s*>\s*|\s*\+\s*|\s*)$", line):
             return None
         if "R version" in line:  # Startup message
