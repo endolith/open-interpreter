@@ -61,6 +61,51 @@ def test_api_base_is_overridable(monkeypatch):
     assert interpreter.llm.api_base == "https://proxy.local/v1"
 
 
+def test_stale_api_base_from_another_provider_is_replaced(monkeypatch):
+    """A leftover api_base must not capture the Go key.
+
+    Regression test for a real failure: with `api_base: https://api.openai.com/v1`
+    left in default.yaml (or a previous `--api_base`), the model was still
+    rewritten to openai/<model> but the request went to OpenAI, which answered
+    `AuthenticationError: OpenAIException - Invalid API key` -- an error that
+    names neither Go nor the actual cause. The prefix identifies the provider,
+    so a base belonging to a different one is replaced.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_go")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_base = "https://api.openai.com/v1"
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "https://opencode.ai/zen/go/v1"
+
+
+def test_stale_local_api_base_is_kept_and_documented(monkeypatch):
+    """A localhost base is deliberately NOT replaced, unlike OpenAI's.
+
+    A localhost base is ambiguous: it is either a local model server left over
+    from an earlier setup (LM Studio, Ollama) or a deliberate proxy in front of
+    Go. There is no way to tell the two apart, and overriding it would break the
+    second case silently. So localhost is preserved, and if it is wrong the
+    gateway's own error names the host that was actually contacted -- unlike the
+    OpenAI case, where a 401 blamed the key. Set OPENCODE_GO_API_BASE to
+    override explicitly.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_go")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_base = "http://localhost:1234/v1"
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "http://localhost:1234/v1"
+
+
+def test_explicit_go_base_beats_stale_foreign_base(monkeypatch):
+    """OPENCODE_GO_API_BASE is honoured even when another base is already set."""
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_go")
+    monkeypatch.setenv("OPENCODE_GO_API_BASE", "https://opencode.ai/zen/go/v2")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_base = "https://api.openai.com/v1"
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "https://opencode.ai/zen/go/v2"
+
+
 def test_session_header_carries_the_conversation_id(monkeypatch):
     """Go rejects requests without x-opencode-session, so it is set from the id.
 
