@@ -182,51 +182,50 @@ def test_openai_key_is_not_used_for_go(monkeypatch):
 
 
 def test_stale_profile_key_is_replaced_by_env_key(monkeypatch):
-    """An explicit OPENCODE_GO_API_KEY wins over whatever the profile holds.
+    """A stale foreign api_key in the profile loses to OPENCODE_GO_API_KEY.
 
-    Regression test for the second half of the reported failure: with a key left
-    in default.yaml from another provider, the original `if self.api_key is None`
-    guard kept it and the Go gateway rejected it with `Invalid API key.` -- which
-    blames the Go key that was never sent.
-
-    This was originally written to assert that the environment wins only over a
-    *non-Go-shaped* profile key, on the assumption that Go keys carry an `oc_`
-    prefix and could be told apart from an OpenAI `sk-` key. That premise is
-    wrong: Go keys are `sk-` plus 64 characters, and every other major provider
-    uses `sk-` too, so the two cannot be distinguished by shape. The rule is
-    therefore stated unconditionally -- an explicit environment key wins -- which
-    is both predictable and what the documentation promises.
+    Regression test for the second half of the reported failure: with
+    `llm.api_key: sk-…` (an OpenAI key saved by OI's onboarding) still in
+    default.yaml, the original `if self.api_key is None` guard kept it, and the
+    Go gateway rejected it with exactly `Invalid API key.` -- which blames the
+    Go key that was never sent. The environment override now wins over a
+    non-Go-shaped profile key.
     """
-    monkeypatch.setenv("OPENCODE_GO_API_KEY", "sk-from-env")
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
-    interpreter.llm.api_key = "sk-" + "9" * 64
-
+    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
     interpreter.llm.load()
+    assert interpreter.llm.api_key == "oc_sk_from_env"
 
-    assert interpreter.llm.api_key == "sk-from-env"
+
+def test_go_shaped_profile_key_is_kept(monkeypatch):
+    """A profile key that is already OpenCode-shaped is deliberate config, kept.
+
+    This is the inverse of the test above, and it is the case that would break if
+    the environment override were allowed to clobber a key the user saved on
+    purpose.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "oc_sk_from_profile"
+    interpreter.llm.load()
+    assert interpreter.llm.api_key == "oc_sk_from_profile"
 
 
-def test_unrecognised_profile_key_without_env_key_fails_loudly(monkeypatch):
-    """No OPENCODE_GO_API_KEY and an unrecognisable profile key: refuse, never send.
+def test_foreign_profile_key_without_env_key_fails_loudly(monkeypatch):
+    """No OPENCODE_GO_API_KEY and a foreign profile key: refuse, never send it.
 
-    The key is not shaped like any provider credential, so sending it would earn
-    the same `Invalid API key.` failure while burying the real problem. Clearing
-    it and raising names the actual fix instead.
-
-    Renamed and re-keyed from the earlier version of this test: it treated
-    `sk-…` as the foreign shape, which was based on the incorrect belief that Go
-    keys do not start with `sk-`. Since they do, `sk-` is now a *recognised*
-    shape and the case is covered by
-    test_go_key_from_profile_is_kept; what is left to test is a key that is not
-    a credential of any recognisable form.
+    The profile key belongs to another provider. Falling back to it would send
+    it to the Go gateway and produce the exact `Invalid API key.` failure again;
+    clearing it and raising names the actual problem instead.
     """
     monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
-    interpreter.llm.api_key = "not-a-recognised-credential"
+    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
 
     with pytest.raises(ValueError, match="requires an OpenCode Go API key"):
         interpreter.llm.load()
-    assert interpreter.llm.api_key is None
+    assert interpreter.llm.api_key != "sk-stale-openai-key-from-profile"
 
 
 @pytest.mark.parametrize(
@@ -263,22 +262,22 @@ def test_chat_completions_models_are_accepted(monkeypatch):
 
 
 def test_real_go_key_shape_is_recognised():
-    """Go keys are `sk-` + 64 chars, so a real key must not be treated as foreign.
+    """Go keys are `oc_sk_…`, and that shape is what makes the guard work.
 
-    This predicate decides whether a key already in the profile is kept or
-    discarded as belonging to another provider. It previously only recognised an
-    `oc_` prefix, which OpenCode does not issue: the console's `Key.create`
-    produces `sk-` plus 64 characters, and anomalyco/opencode#40343 describes a
-    Go key as "sk-... API key from the Zen console". The effect was that a valid
-    Go key saved in a profile was discarded and the user was told to set
-    OPENCODE_GO_API_KEY instead, so the profile route could never work.
+    The `oc_` prefix is the only thing separating a Go credential from a foreign
+    one here, because `sk-` is the format shared by OpenAI, Anthropic, DashScope
+    and Zen. A source describing Zen keys as `sk-` plus 64 characters
+    (anomalyco/opencode#40343, and the console's `Key.create` reported in
+    anomalyco/opencode#44948) is about a *different product*: accepting `sk-`
+    here would hand every foreign profile key straight to the gateway, which is
+    the failure this guard exists to prevent.
     """
     from interpreter.core.llm.llm import _is_opencode_go_key
 
-    assert _is_opencode_go_key("sk-" + "a" * 64) is True
-    # Still accepted, for profiles written while the oc_ assumption held.
-    assert _is_opencode_go_key("oc_sk_abc123") is True
-    # Only a key that is neither shape is rejected.
+    assert _is_opencode_go_key("oc_sk_" + "a" * 64) is True
+    # Zen/OpenAI-style keys are deliberately NOT Go keys here.
+    assert _is_opencode_go_key("sk-" + "a" * 64) is False
+    assert _is_opencode_go_key("sk-proj-abc") is False
     assert _is_opencode_go_key("") is False
     assert _is_opencode_go_key(None) is False
 
@@ -291,7 +290,7 @@ def test_go_key_from_profile_is_kept(monkeypatch):
     variable also being set.
     """
     monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
-    key = "sk-" + "b" * 64
+    key = "oc_sk_" + "b" * 64
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
     interpreter.llm.api_key = key
 
@@ -301,11 +300,10 @@ def test_go_key_from_profile_is_kept(monkeypatch):
 
 
 def test_no_key_at_all_still_fails_loudly(monkeypatch):
-    """Widening the accepted key shapes must not turn into a silent default.
+    """The empty case is what carries the guarantee that no key is never sent.
 
-    Refusing when there is genuinely no key is the whole point of the check; the
-    prefix test only rejects foreign-looking keys, so the empty case is what
-    carries the guarantee.
+    The shape test only rejects foreign-looking keys; refusing outright when
+    there is genuinely no key is the whole point of the check.
     """
     monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
