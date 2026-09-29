@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from interpreter.core.toolbox.web.web import Web, ResultItem, StructuredOutputResult, WebToolboxError
 
+
 class TestWebToolbox(unittest.TestCase):
     def setUp(self):
         self.mock_toolbox = MagicMock()
@@ -17,32 +18,36 @@ class TestWebToolbox(unittest.TestCase):
             # Mock LinkupClient
             with patch("linkup.LinkupClient") as MockClient:
                 mock_instance = MockClient.return_value
-                
+
                 # Mock successful response
                 mock_response = MagicMock()
                 mock_response.structured_output = {
                     "author_last_name": "Vaswani",
                     "year": 2017,
-                    "title": "Attention is All You Need"
+                    "title": "Attention is All You Need",
                 }
                 mock_response.sources = [
-                    {"title": "Paper on arXiv", "url": "https://arxiv.org/abs/1706.03762", "snippet": "We propose a new simple network architecture..."}
+                    {
+                        "title": "Paper on arXiv",
+                        "url": "https://arxiv.org/abs/1706.03762",
+                        "snippet": "We propose a new simple network architecture...",
+                    }
                 ]
                 mock_instance.search.return_value = mock_response
-                
+
                 # Define schema
                 schema = {
                     "type": "object",
                     "properties": {
                         "author_last_name": {"type": "string"},
                         "year": {"type": "integer"},
-                        "title": {"type": "string"}
-                    }
+                        "title": {"type": "string"},
+                    },
                 }
-                
+
                 # Call the method
                 result = self.web.structured_output("Attention is All You Need", schema=schema)
-                
+
                 # Verify call parameters
                 MockClient.assert_called_once_with(api_key="fake_key")
                 mock_instance.search.assert_called_once()
@@ -50,7 +55,7 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertEqual(call_kwargs["output_type"], "structured")
                 # Backend receives JSON string for dict schemas
                 self.assertEqual(call_kwargs["structured_output_schema"], json.dumps(schema))
-                
+
                 # Verify result structure
                 self.assertIsInstance(result, StructuredOutputResult)
                 self.assertEqual(result["structured_output"]["author_last_name"], "Vaswani")
@@ -65,8 +70,10 @@ class TestWebToolbox(unittest.TestCase):
             # Mock a Pydantic-like model by inheriting from a real one if available
             try:
                 from pydantic import BaseModel
+
                 class MockModel(BaseModel):
                     test: str
+
                 original_schema = MockModel
             except ImportError:
                 # Fallback to a mock that doesn't inherit but simulates the behavior
@@ -74,15 +81,16 @@ class TestWebToolbox(unittest.TestCase):
                     @staticmethod
                     def model_json_schema():
                         return {"type": "object", "properties": {"test": {"type": "string"}}}
+
                 original_schema = MockModel
-            
+
             with patch("linkup.LinkupClient") as MockClient:
                 mock_instance = MockClient.return_value
                 mock_instance.search.return_value = MagicMock(structured_output={"test": "val"}, sources=[])
-                
+
                 # Call with pydantic-like object
                 result = self.web.structured_output("query", schema=original_schema)
-                
+
                 # Verify call parameters - Linkup SDK receives the class itself
                 call_kwargs = mock_instance.search.call_args.kwargs
                 self.assertEqual(call_kwargs["structured_output_schema"], original_schema)
@@ -95,10 +103,7 @@ class TestWebToolbox(unittest.TestCase):
                 self.web.structured_output("test", schema={"name": "string"})
             # It might raise the specific ApiKeyError message or the aggregate No backends message
             err_msg = str(context.exception)
-            self.assertTrue(
-                "No structured output backends are working" in err_msg or 
-                "LINKUP_API_KEY" in err_msg
-            )
+            self.assertTrue("No structured output backends are working" in err_msg or "LINKUP_API_KEY" in err_msg)
 
     def test_check_backend_available_vanshul_always_true(self):
         """Verify the keyless vanshul fetch backend reports available even with no env keys."""
@@ -121,10 +126,12 @@ class TestWebToolbox(unittest.TestCase):
 
     def test_fetch_vanshul_metadata_failure_still_returns_content(self):
         """Verify a metadata failure degrades to an empty title instead of failing the fetch."""
+
         def fake_call(name, args, **kw):
             if name == "fetch_markdown":
                 return "Some content"
             raise WebToolboxError("metadata failed")
+
         with patch.object(self.web, "_vanshul_mcp_call", side_effect=fake_call):
             result = self.web.fetch("https://example.com", backend="vanshul")
             self.assertEqual(result["content"], "Some content")
@@ -178,7 +185,12 @@ class TestWebToolbox(unittest.TestCase):
                 mock_instance = MockClient.return_value
                 mock_instance.extract.return_value = {
                     "results": [
-                        {"url": "https://example.com", "title": "Example", "content": "Rate limits apply.", "score": 0.9}
+                        {
+                            "url": "https://example.com",
+                            "title": "Example",
+                            "content": "Rate limits apply.",
+                            "score": 0.9,
+                        }
                     ],
                     "failed_results": [],
                 }
@@ -208,8 +220,12 @@ class TestWebToolbox(unittest.TestCase):
 
     def test_search_page_auto_falls_through_to_vanshul(self):
         """Verify auto-select falls from tavily failure through to keyless vanshul."""
-        payload = {"url": "https://example.com/", "query": "hello", "count": 1,
-                   "matches": [{"heading": None, "snippet": "Hello world", "score": 1}]}
+        payload = {
+            "url": "https://example.com/",
+            "query": "hello",
+            "count": 1,
+            "matches": [{"heading": None, "snippet": "Hello world", "score": 1}],
+        }
         with patch.dict(os.environ, {}, clear=True):
             with patch.object(self.web, "_search_page_tavily", side_effect=WebToolboxError("down")):
                 with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
@@ -220,6 +236,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_page_search_result_fetch_returns_full_page(self):
         """Verify PageSearchResult.fetch() retrieves the full page the passages came from."""
         from interpreter.core.toolbox.web.web import FetchResult
+
         payload = {"url": "https://example.com/", "query": "q", "count": 0, "matches": []}
         full = FetchResult({"url": "https://example.com/", "title": "T", "content": "full", "backend": "vanshul"})
         with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
@@ -279,8 +296,11 @@ class TestWebToolbox(unittest.TestCase):
     def test_item_bound_fetch_and_search_page(self):
         """Verify hits carry bound fetch()/search_page() over their own URL, data untouched."""
         from interpreter.core.toolbox.web.web import (
-            AnswerResult, SearchResult, StructuredOutputResult,
+            AnswerResult,
+            SearchResult,
+            StructuredOutputResult,
         )
+
         web = MagicMock()
         web.fetch.return_value = "PAGE"
         web.search_page.return_value = "PASSAGES"
@@ -303,13 +323,23 @@ class TestWebToolbox(unittest.TestCase):
     def test_find_links_redirect_to_pages(self):
         """Verify result.find()/links() point at page methods instead of generic guidance."""
         from interpreter.core.toolbox.web.web import (
-            AnswerResult, PageSearchResult, SearchResult, StructuredOutputResult,
+            AnswerResult,
+            PageSearchResult,
+            SearchResult,
+            StructuredOutputResult,
         )
+
         cases = [
             (SearchResult({"results": [], "backend": "x"}, web=self.web), "result.fetch(i)"),
             (AnswerResult({"answer": "a", "sources": [], "backend": "x"}, web=self.web), "result.fetch(i)"),
-            (StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "x"}, web=self.web), "result.fetch(i)"),
-            (PageSearchResult({"url": "http://a", "query": "q", "matches": [], "backend": "x"}, web=self.web), "result.fetch()"),
+            (
+                StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "x"}, web=self.web),
+                "result.fetch(i)",
+            ),
+            (
+                PageSearchResult({"url": "http://a", "query": "q", "matches": [], "backend": "x"}, web=self.web),
+                "result.fetch()",
+            ),
         ]
         for obj, hint in cases:
             for method in ("find", "links"):
@@ -322,8 +352,12 @@ class TestWebToolbox(unittest.TestCase):
 
     def test_search_page_matches_support_attribute_access(self):
         """Verify page-search passages support match.snippet as well as match['snippet']."""
-        payload = {"url": "https://example.com/", "query": "q", "count": 1,
-                   "matches": [{"heading": "H", "snippet": "S", "score": 2}]}
+        payload = {
+            "url": "https://example.com/",
+            "query": "q",
+            "count": 1,
+            "matches": [{"heading": "H", "snippet": "S", "score": 2}],
+        }
         with patch.object(self.web, "_vanshul_mcp_call", return_value=payload):
             result = self.web.search_page("https://example.com", "q", backend="vanshul")
             match = result.matches[0]
@@ -340,11 +374,14 @@ class TestWebToolbox(unittest.TestCase):
                 mock_instance.search.return_value = MagicMock(structured_output={}, sources=[])
                 self.web.structured_output("Apple Inc", schema={"name": "string", "founded": "integer"})
                 sent = mock_instance.search.call_args.kwargs["structured_output_schema"]
-                self.assertEqual(json.loads(sent), {
-                    "type": "object",
-                    "properties": {"name": {"type": "string"}, "founded": {"type": "integer"}},
-                    "required": ["name", "founded"],
-                })
+                self.assertEqual(
+                    json.loads(sent),
+                    {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}, "founded": {"type": "integer"}},
+                        "required": ["name", "founded"],
+                    },
+                )
 
     def test_structured_output_simple_map_invalid_type(self):
         """Verify an unknown type name fails fast locally instead of as a backend 400."""
@@ -402,6 +439,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_search_result_search_page_delegates(self):
         """Verify SearchResult.search_page(i, query) searches within that result's URL."""
         from interpreter.core.toolbox.web.web import SearchResult
+
         result = SearchResult(
             {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
             web=self.web,
@@ -413,6 +451,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_answer_result_search_page_delegates(self):
         """Verify AnswerResult.search_page(i, query) searches within that source's URL."""
         from interpreter.core.toolbox.web.web import AnswerResult
+
         result = AnswerResult(
             {"answer": "A", "sources": [{"title": "T", "url": "http://b", "snippet": "S"}], "backend": "linkup"},
             web=self.web,
@@ -424,6 +463,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_structured_result_search_page_no_sources(self):
         """Verify StructuredOutputResult.search_page raises helpfully when there are no sources."""
         from interpreter.core.toolbox.web.web import StructuredOutputResult
+
         result = StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "linkup"}, web=self.web)
         with self.assertRaises(WebToolboxError):
             result.search_page(0, "query")
@@ -431,6 +471,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_fetch_auto_tries_vanshul_first(self):
         """Verify fetch auto-select tries the leanest keyless backend before keyed ones."""
         from interpreter.core.toolbox.web.web import FetchResult
+
         with patch.dict(os.environ, {"SERPER_API_KEY": "fake"}, clear=True):
             with patch.object(self.web, "_fetch_vanshul", side_effect=WebToolboxError("down")) as mock_v:
                 made = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "serper"})
@@ -444,29 +485,34 @@ class TestWebToolbox(unittest.TestCase):
                             mock_l.assert_not_called()
                             mock_t.assert_not_called()
 
-
     def test_search_page_auto_prefers_tavily(self):
         """Verify search_page auto-select prefers semantic (tavily) over keyword (vanshul)."""
         with patch.dict(os.environ, {"TAVILY_API_KEY": "fake"}, clear=True):
-            with patch.object(self.web, "_search_page_tavily", return_value={
-                "url": "https://example.com", "query": "q", "matches": [], "raw_response": {},
-            }) as mock_t:
+            with patch.object(
+                self.web,
+                "_search_page_tavily",
+                return_value={
+                    "url": "https://example.com",
+                    "query": "q",
+                    "matches": [],
+                    "raw_response": {},
+                },
+            ) as mock_t:
                 with patch.object(self.web, "_search_page_vanshul") as mock_v:
                     result = self.web.search_page("https://example.com", "paraphrased query")
                     self.assertEqual(result["backend"], "tavily")
                     mock_t.assert_called_once()
                     mock_v.assert_not_called()
 
-
     def test_fetch_prepends_missing_scheme(self):
         """Verify schemeless URLs gain https:// before reaching any backend."""
         from interpreter.core.toolbox.web.web import FetchResult
+
         page = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "vanshul"})
         with patch.object(self.web, "_fetch_vanshul", return_value=dict(page)) as mock_fetch:
             result = self.web.fetch("example.com", backend="vanshul")
             self.assertEqual(result["url"], "https://example.com")
             mock_fetch.assert_called_once_with("https://example.com", timeout=30)
-
 
     def test_fetch_rejects_malformed_urls(self):
         """Verify malformed URLs raise helpfully instead of reaching backends."""
@@ -487,10 +533,10 @@ class TestWebToolbox(unittest.TestCase):
             self.web.search_page(2, "q", backend="vanshul")
         self.assertIn("result.search_page(2", str(context.exception))
 
-
     def test_fetch_cache_shared_across_scheme_forms(self):
         """Verify schemeless and https:// forms of a URL share one cache entry."""
         from interpreter.core.toolbox.web.web import FetchResult
+
         made = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "vanshul"})
         with patch.object(self.web, "_fetch_vanshul", return_value=dict(made)) as mock_fetch:
             first = self.web.fetch("example.com")
@@ -498,7 +544,6 @@ class TestWebToolbox(unittest.TestCase):
             self.assertEqual(first["content"], "hi")
             self.assertTrue(second._cached)
             self.assertEqual(mock_fetch.call_count, 1)
-
 
     def test_search_page_validates_url(self):
         """Verify search_page rejects malformed URLs and prepends a missing scheme."""
@@ -510,14 +555,12 @@ class TestWebToolbox(unittest.TestCase):
             posargs, _ = mock_call.call_args
             self.assertEqual(posargs[1]["url"], "https://example.com")
 
-
     def test_fetch_vanshul_error_text_raises(self):
         """Verify service error text (e.g. 'Error: Upstream returned 530') raises, never content."""
         with patch.object(self.web, "_vanshul_mcp_call", return_value="Error: Upstream returned 530"):
             with self.assertRaises(WebToolboxError) as context:
                 self.web.fetch("https://example.com", backend="vanshul")
             self.assertIn("Vanshul could not fetch", str(context.exception))
-
 
     def test_search_page_vanshul_error_text_raises(self):
         """Verify service error text from search_page raises instead of shape errors."""
@@ -526,48 +569,59 @@ class TestWebToolbox(unittest.TestCase):
                 self.web.search_page("https://example.com", "q", backend="vanshul")
             self.assertIn("Vanshul could not search", str(context.exception))
 
-
     def test_links_inline_title_and_parens(self):
         """Verify links() strips optional titles and keeps balanced parens in URLs."""
         from interpreter.core.toolbox.web.web import FetchResult
-        page = FetchResult({
-            "url": "https://en.wikipedia.org/wiki/X",
-            "title": "",
-            "content": '[Python](https://en.wikipedia.org/wiki/Python_(programming_language) "Python") and [A](http://a)',
-            "backend": "tavily",
-        })
-        self.assertEqual(page.links(), [
-            ("Python", "https://en.wikipedia.org/wiki/Python_(programming_language)"),
-            ("A", "http://a"),
-        ])
 
+        page = FetchResult(
+            {
+                "url": "https://en.wikipedia.org/wiki/X",
+                "title": "",
+                "content": '[Python](https://en.wikipedia.org/wiki/Python_(programming_language) "Python") and [A](http://a)',
+                "backend": "tavily",
+            }
+        )
+        self.assertEqual(
+            page.links(),
+            [
+                ("Python", "https://en.wikipedia.org/wiki/Python_(programming_language)"),
+                ("A", "http://a"),
+            ],
+        )
 
     def test_links_reference_style(self):
         """Verify links() resolves [text][ref] via [ref]: url definitions."""
         from interpreter.core.toolbox.web.web import FetchResult
-        page = FetchResult({
-            "url": "https://example.com",
-            "title": "",
-            "content": "See [docs][d] and [home][]\n\n[d]: https://example.com/docs\n[home]: https://example.com/",
-            "backend": "serper",
-        })
-        self.assertEqual(page.links(), [
-            ("docs", "https://example.com/docs"),
-            ("home", "https://example.com/"),
-        ])
 
+        page = FetchResult(
+            {
+                "url": "https://example.com",
+                "title": "",
+                "content": "See [docs][d] and [home][]\n\n[d]: https://example.com/docs\n[home]: https://example.com/",
+                "backend": "serper",
+            }
+        )
+        self.assertEqual(
+            page.links(),
+            [
+                ("docs", "https://example.com/docs"),
+                ("home", "https://example.com/"),
+            ],
+        )
 
     def test_links_reference_uses_without_definitions(self):
         """Verify dangling [text][ref] uses (serper strips definitions) yield no phantom links."""
         from interpreter.core.toolbox.web.web import FetchResult
-        page = FetchResult({
-            "url": "https://example.com",
-            "title": "",
-            "content": "See [docs][21] for details.",
-            "backend": "serper",
-        })
-        self.assertEqual(page.links(), [])
 
+        page = FetchResult(
+            {
+                "url": "https://example.com",
+                "title": "",
+                "content": "See [docs][21] for details.",
+                "backend": "serper",
+            }
+        )
+        self.assertEqual(page.links(), [])
 
     def test_fetch_linkup_old_sdk_guard(self):
         """Verify a linkup-sdk without fetch support raises an upgrade hint, not an auth error."""
@@ -583,6 +637,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_fetch_list_index_guides(self):
         """Verify fetch([0, 1]) fails with guidance toward one-at-a-time fetching."""
         from interpreter.core.toolbox.web.web import SearchResult
+
         result = SearchResult(
             {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
             web=self.web,
@@ -596,6 +651,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_fetch_string_index_guides(self):
         """Verify a non-integer index raises WebToolboxError, not TypeError."""
         from interpreter.core.toolbox.web.web import AnswerResult
+
         result = AnswerResult(
             {"answer": "A", "sources": [{"title": "T", "url": "http://b", "snippet": "S"}], "backend": "linkup"},
             web=self.web,
@@ -608,8 +664,13 @@ class TestWebToolbox(unittest.TestCase):
     def test_fetch_out_of_range_guides(self):
         """Verify an out-of-range index names the valid range instead of leaking IndexError."""
         from interpreter.core.toolbox.web.web import StructuredOutputResult
+
         result = StructuredOutputResult(
-            {"structured_output": {}, "sources": [{"title": "T", "url": "http://c", "snippet": "S"}], "backend": "linkup"},
+            {
+                "structured_output": {},
+                "sources": [{"title": "T", "url": "http://c", "snippet": "S"}],
+                "backend": "linkup",
+            },
             web=self.web,
         )
         with self.assertRaises(WebToolboxError) as context:
@@ -619,6 +680,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_fetch_bool_index_rejected(self):
         """Verify bool is not silently accepted as an integer index."""
         from interpreter.core.toolbox.web.web import SearchResult
+
         result = SearchResult(
             {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
             web=self.web,
@@ -629,11 +691,15 @@ class TestWebToolbox(unittest.TestCase):
     def test_search_repr_steers_to_methods(self):
         """Verify the repr funnels agents into fetch(i)/search_page(i) without pasting URLs."""
         from interpreter.core.toolbox.web.web import SearchResult
+
         result = SearchResult(
-            {"results": [
-                {"title": "T1", "url": "https://example.com/a/b?c=d", "snippet": "S1"},
-                {"title": "T2", "url": "https://example.org/e", "snippet": "S2"},
-            ], "backend": "serper"},
+            {
+                "results": [
+                    {"title": "T1", "url": "https://example.com/a/b?c=d", "snippet": "S1"},
+                    {"title": "T2", "url": "https://example.org/e", "snippet": "S2"},
+                ],
+                "backend": "serper",
+            },
             web=self.web,
         )
         text = repr(result)
@@ -668,6 +734,7 @@ class TestWebToolbox(unittest.TestCase):
         """Verify the thread guard returns fast values, propagates errors, and times out stalls."""
         import time
         from interpreter.core.toolbox.web.web import _run_with_timeout
+
         self.assertEqual(_run_with_timeout(lambda: 42, 5, "Test"), 42)
         with self.assertRaises(ValueError):
             _run_with_timeout(lambda: (_ for _ in ()).throw(ValueError("boom")), 5, "Test")
@@ -682,6 +749,7 @@ class TestWebToolbox(unittest.TestCase):
         with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
             with patch("linkup.LinkupClient") as MockClient:
                 import time
+
                 mock_instance = MockClient.return_value
                 mock_instance.search.side_effect = lambda **kw: time.sleep(30)
                 started = time.time()
@@ -695,6 +763,7 @@ class TestWebToolbox(unittest.TestCase):
         with patch.dict(os.environ, {"SERPAPI_API_KEY": "fake_key"}):
             with patch("serpapi.GoogleSearch") as MockSearch:
                 import time
+
                 mock_instance = MockSearch.return_value
                 mock_instance.get_dict.side_effect = lambda: time.sleep(30)
                 started = time.time()
@@ -706,6 +775,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_timeout_threaded_to_requests_backend(self):
         """Verify the public timeout reaches the requests call and defaults to 30."""
         from interpreter.core.toolbox.web.web import DEFAULT_TIMEOUT
+
         self.assertEqual(DEFAULT_TIMEOUT, 30)
         with patch.dict(os.environ, {"SERPER_API_KEY": "fake_key"}):
             with patch("interpreter.core.toolbox.web.web.requests.post") as mock_post:
@@ -719,6 +789,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_timeout_hidden_from_signatures(self):
         """Verify timeout costs models zero tokens: absent from all public signatures."""
         import inspect
+
         for method in ("search", "answer", "structured_output", "fetch", "search_page"):
             with self.subTest(method=method):
                 self.assertNotIn("timeout", inspect.signature(getattr(self.web, method)).parameters)
@@ -726,6 +797,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_timeout_from_profile_setting(self):
         """Verify the toolbox profile value drives the backend wait without a parameter."""
         from interpreter.core.toolbox.web.web import FetchResult
+
         made = FetchResult({"url": "https://example.com", "title": "", "content": "hi", "backend": "vanshul"})
         self.web.toolbox.web_timeout = 7
         try:
@@ -738,6 +810,7 @@ class TestWebToolbox(unittest.TestCase):
     def test_timeout_invalid_profile_falls_back(self):
         """Verify garbage profile values degrade to defaults instead of crashing."""
         from interpreter.core.toolbox.web.web import DEFAULT_ANSWER_TIMEOUT, DEFAULT_TIMEOUT
+
         self.web.toolbox.web_timeout = "soon"
         self.web.toolbox.web_answer_timeout = None
         try:
@@ -753,6 +826,111 @@ class TestWebToolbox(unittest.TestCase):
             with patch.object(self.web, "_answer_linkup", return_value={"answer": "a", "sources": []}) as mock_a:
                 self.web.answer("What is the answer?")
                 self.assertEqual(mock_a.call_args.kwargs["timeout"], 120)
+
+    def test_fetch_result_search_page_returns_passages(self):
+        """Verify page.search_page(term, context_chars=...) searches fetched content locally.
+
+        A fetched page has no backend to ask, so search_page() scans the content
+        already in hand and returns the same PageSearchResult shape as
+        web.search_page(url, query) — .matches with attribute access — instead
+        of raising AttributeError for a method that only exists on hit lists.
+        """
+        from interpreter.core.toolbox.web.web import FetchResult, PageSearchResult
+
+        page = FetchResult(
+            {
+                "url": "https://example.com/docs",
+                "title": "Docs",
+                "content": "Python is great. Set PATH first. Agent home is /x. Python again here.",
+                "backend": "vanshul",
+            }
+        )
+        result = page.search_page("python", context_chars=300)
+        self.assertIsInstance(result, PageSearchResult)
+        self.assertEqual(result["backend"], "local")
+        self.assertEqual(result["query"], "python")
+        self.assertTrue(len(result.matches) >= 1)
+        match = result.matches[0]
+        self.assertIn("python", match.snippet.lower())
+        self.assertIn("python", match["snippet"].lower())
+
+    def test_fetch_result_search_page_caps_and_empty(self):
+        """Verify local page search honors max_results and treats no match as empty, not error."""
+        from interpreter.core.toolbox.web.web import FetchResult
+
+        content = " ".join(f"python fact number {i}" for i in range(20))
+        page = FetchResult({"url": "https://example.com/", "title": "T", "content": content, "backend": "serper"})
+        capped = page.search_page("python", max_results=2)
+        self.assertEqual(len(capped.matches), 2)
+        empty = page.search_page("xyzzy-no-such-term", context_chars=300)
+        self.assertEqual(empty.matches, [])
+
+    def test_fetch_result_search_page_multi_page(self):
+        """Verify local page search spans multi-URL fetch results, not just single pages."""
+        from interpreter.core.toolbox.web.web import FetchResult
+
+        page = FetchResult(
+            {
+                "results": [
+                    {"title": "A", "url": "https://a.example/", "content": "nothing relevant here"},
+                    {"title": "B", "url": "https://b.example/", "content": "the PATH variable matters"},
+                ],
+                "backend": "tavily",
+            }
+        )
+        result = page.search_page("PATH")
+        self.assertTrue(len(result.matches) >= 1)
+        self.assertIn("path", result.matches[0].snippet.lower())
+
+    def test_guided_attribute_errors_render_compactly(self):
+        """Verify misdirected attribute access shows one line, not a full traceback.
+
+        The kernel renders msg["traceback"] verbatim, and IPython honors
+        _render_traceback_ on the exception instance — the same mechanism
+        WebToolboxError uses. Every guided AttributeError below must therefore
+        stay an AttributeError for except-clauses while rendering as a single
+        line with no file frames, so neither the terminal nor the LLM context
+        is flooded.
+        """
+        from interpreter.core.toolbox.web.web import (
+            AnswerResult,
+            FetchResult,
+            GuidedAttributeError,
+            PageSearchResult,
+            SearchResult,
+            StructuredOutputResult,
+            _no_page_method_error,
+        )
+
+        holders = [
+            SearchResult({"results": [], "backend": "x"}, web=self.web),
+            FetchResult({"url": "https://example.com/", "content": "hi", "backend": "x"}),
+            AnswerResult({"answer": "a", "sources": [], "backend": "x"}, web=self.web),
+            StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "x"}, web=self.web),
+            PageSearchResult({"url": "http://a", "query": "q", "matches": [], "backend": "x"}, web=self.web),
+        ]
+        cases = []
+        for holder in holders:
+            try:
+                holder.nope
+            except AttributeError as error:
+                cases.append(error)
+            else:
+                self.fail(f"{type(holder).__name__}.nope should raise AttributeError")
+        for error in cases:
+            with self.subTest(error=str(error)[:60]):
+                self.assertIsInstance(error, AttributeError)
+                self.assertIsInstance(error, GuidedAttributeError)
+                rendered = error._render_traceback_()
+                self.assertEqual(len(rendered), 1)
+                line = rendered[0]
+                self.assertTrue(line.startswith("AttributeError:"))
+                for fragment in ("Traceback", "File ", "Cell In", "KeyError"):
+                    self.assertNotIn(fragment, line)
+        redirect = _no_page_method_error("SearchResult", "find", "result.fetch(i)")
+        self.assertIsInstance(redirect, AttributeError)
+        self.assertEqual(len(redirect._render_traceback_()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
