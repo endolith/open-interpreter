@@ -24,9 +24,7 @@ def test_computer_role_description_image_becomes_user():
             "recipient": "assistant",
         }
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=None
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=None)
     assert len(out) == 1
     assert out[0]["role"] == "user"
     assert "screenshot" in out[0]["content"]
@@ -42,11 +40,7 @@ def test_html_skips_png_when_not_vision():
     chunks = list(html_lang.run("<b>edited</b>"))
     image_chunks = [c for c in chunks if c.get("type") == "image"]
     assert image_chunks == []
-    assistant_chunks = [
-        c
-        for c in chunks
-        if c.get("recipient") == "assistant" and c.get("type") == "console"
-    ]
+    assistant_chunks = [c for c in chunks if c.get("recipient") == "assistant" and c.get("type") == "console"]
     assert any("```html" in c.get("content", "") for c in assistant_chunks)
 
 
@@ -75,7 +69,7 @@ def test_react_compatible_code_yields_html_for_user():
     user_html = [c for c in chunks if c.get("recipient") == "user" and c.get("format") == "html"]
     assert len(user_html) == 1
     assert "Hello, edit!" in user_html[0]["content"]
-    assert "type=\"text/babel\"" in user_html[0]["content"]
+    assert 'type="text/babel"' in user_html[0]["content"]
 
 
 def test_reasoning_content_propagates_to_all_tool_calls_in_multi_code_turn():
@@ -96,9 +90,7 @@ def test_reasoning_content_propagates_to_all_tool_calls_in_multi_code_turn():
         {"role": "assistant", "type": "code", "format": "python", "content": "print('B')"},
         {"role": "computer", "type": "console", "format": "output", "content": "B"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 2
     assert all(m["reasoning_content"] == "Plan. \n\n" for m in function_calls)
@@ -121,9 +113,7 @@ def test_tool_loop_reasoning_replaced_per_llm_call():
         {"role": "assistant", "type": "code", "format": "python", "content": "print('B')"},
         {"role": "computer", "type": "console", "format": "output", "content": "B"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 2
     assert function_calls[0]["reasoning_content"] == "R1. \n\n"
@@ -145,9 +135,7 @@ def test_post_stream_reasoning_backfills_earlier_assistant_messages():
         {"role": "assistant", "type": "message", "format": "reasoning", "content": "Computed 2+2. \n\n"},
         {"role": "computer", "type": "console", "format": "output", "content": "4"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert function_calls[0]["reasoning_content"] == "Computed 2+2. \n\n"
@@ -169,9 +157,7 @@ def test_whitespace_only_assistant_separator_is_dropped():
         {"role": "assistant", "type": "message", "content": "\n\n"},
         {"role": "user", "type": "message", "content": "Proceed."},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     for m in out:
         if m["role"] == "assistant":
             assert m.get("tool_calls") or str(m.get("content", "")).strip(), (
@@ -193,9 +179,7 @@ def test_whitespace_separator_does_not_break_reasoning_propagation():
         {"role": "assistant", "type": "message", "content": "\n\n"},
         {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert function_calls[0]["reasoning_content"] == "Plan. \n\n"
@@ -216,9 +200,7 @@ def test_user_message_boundary_resets_pending_reasoning():
         {"role": "user", "type": "message", "content": "compute"},
         {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert "reasoning_content" not in function_calls[0]
@@ -373,6 +355,81 @@ class _FakeStrictDeepSeekInterpreter(_FakeInterpreter):
         model = "openrouter/~deepseek/deepseek-v4-flash-latest"
 
 
+class _FakeOpenAIDeepSeekInterpreter(_FakeInterpreter):
+    """Stand-in for a DeepSeek model reached via the openai/ spelling.
+
+    This is what Llm.load() produces for the opencode_go/ prefix, which is
+    rewritten to openai/<model> because the OpenCode Go gateway speaks the
+    OpenAI wire format. The model is still DeepSeek, so it is subject to the
+    same strict validation and must get the modern shape.
+    """
+
+    class llm:
+        model = "openai/deepseek-v4.1-flash"
+
+
+DEEPSEEK_ROUTE_INTERPRETERS = [
+    _FakeStrictDeepSeekInterpreter,
+    _FakeOpenAIDeepSeekInterpreter,
+]
+
+
+def test_deepseek_via_openai_spelling_uses_modern_tool_calls():
+    """A DeepSeek model behind the opencode_go/ rewrite must get the modern shape.
+
+    Llm.load() rewrites opencode_go/<model> to openai/<model> for the gateway,
+    so this route was never recognized as DeepSeek and kept emitting legacy
+    function_call/function messages to a provider that rejects them. The
+    gateway answered with a bodiless 400 on every tool-calling turn, and the
+    legacy shape then had to be translated downstream, which is where the
+    malformed tool_call/tool-response histories came from.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+    ]
+    out = convert_to_openai_messages(
+        messages,
+        function_calling=True,
+        vision=False,
+        interpreter=_FakeOpenAIDeepSeekInterpreter(),
+    )
+
+    assert not any("function_call" in m for m in out), "the deprecated field is rejected by strict DeepSeek validators"
+    assert not any(m.get("role") == "function" for m in out), (
+        "a legacy function result leaves the tool message unpaired"
+    )
+    calls = [m for m in out if m.get("tool_calls")]
+    assert len(calls) == 1
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(outputs) == 1
+    assert outputs[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
+
+
+def test_openai_routes_without_deepseek_keep_legacy_function_call():
+    """Genuine OpenAI models on the same openai/ spelling are unaffected.
+
+    The fix matches on the model name rather than the prefix, so an actual
+    OpenAI model routed the same way must keep the legacy output it always had;
+    some providers reject the modern shape or expect the old one.
+    """
+
+    class _OpenAIGpt(_FakeInterpreter):
+        class llm:
+            model = "openai/gpt-4o"
+
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+    ]
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_OpenAIGpt())
+
+    assert not any(m.get("tool_calls") for m in out)
+    assert any(m.get("role") == "function" for m in out)
+
+
 def test_strict_deepseek_route_uses_modern_tool_calls():
     """Strict DeepSeek routes must never see legacy function_call or function roles.
 
@@ -448,9 +505,7 @@ def test_strict_route_unpaired_code_falls_back_to_text():
     texts = [
         m
         for m in out
-        if m.get("role") == "assistant"
-        and not m.get("tool_calls")
-        and "print('B')" in str(m.get("content", ""))
+        if m.get("role") == "assistant" and not m.get("tool_calls") and "print('B')" in str(m.get("content", ""))
     ]
     assert len(texts) == 1
     assert "```python" in texts[0]["content"]
@@ -468,11 +523,7 @@ def test_non_deepseek_route_keeps_legacy_function_call():
         {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
         {"role": "computer", "type": "console", "format": "output", "content": "A"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     assert sum("function_call" in m for m in out) == 1
     assert not any(m.get("tool_calls") for m in out)
-    assert any(
-        m.get("role") == "function" and m.get("name") == "execute" for m in out
-    )
+    assert any(m.get("role") == "function" and m.get("name") == "execute" for m in out)
