@@ -181,6 +181,48 @@ def test_openai_key_is_not_used_for_go(monkeypatch):
     assert interpreter.llm.api_key != "sk-unrelated-openai-key"
 
 
+def test_stale_profile_key_is_replaced_by_env_key(monkeypatch):
+    """A stale foreign api_key in the profile loses to OPENCODE_GO_API_KEY.
+
+    Regression test for the second half of the reported failure: with
+    `llm.api_key: sk-…` (an OpenAI key saved by OI's onboarding) still in
+    default.yaml, the original `if self.api_key is None` guard kept it, and the
+    Go gateway rejected it with exactly `Invalid API key.` -- which blames the
+    Go key that was never sent. The environment override now wins over a
+    non-Go-shaped profile key.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
+    interpreter.llm.load()
+    assert interpreter.llm.api_key == "oc_sk_from_env"
+
+
+def test_go_shaped_profile_key_is_kept(monkeypatch):
+    """A profile key that is already OpenCode-shaped is deliberate config, kept."""
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "oc_sk_from_profile"
+    interpreter.llm.load()
+    assert interpreter.llm.api_key == "oc_sk_from_profile"
+
+
+def test_foreign_profile_key_without_env_key_fails_loudly(monkeypatch):
+    """No OPENCODE_GO_API_KEY and a foreign profile key: refuse, never send it.
+
+    The profile key belongs to another provider. Falling back to it would send
+    it to the Go gateway and produce the exact `Invalid API key.` failure again;
+    clearing it and raising names the actual problem instead.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
+
+    with pytest.raises(ValueError, match="requires an OpenCode Go API key"):
+        interpreter.llm.load()
+    assert interpreter.llm.api_key != "sk-unrelated-openai-key"
+
+
 @pytest.mark.parametrize(
     "model",
     ["minimax-m3", "qwen3.6-plus", "qwen3.8-max", "grok-4.6", "gpt-5.6-luna"],

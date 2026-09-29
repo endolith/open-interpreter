@@ -113,6 +113,18 @@ def _is_opencode_go_base(api_base):
     host = base.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
     return host in ("localhost", "127.0.0.1", "::1")
 
+
+def _is_opencode_go_key(api_key):
+    """Whether an already-configured api_key is shaped like an OpenCode credential.
+
+    OpenCode issues keys starting with ``oc_`` (``oc_sk_...``). Anything else is
+    assumed to belong to another provider, so that stale keys from the profile --
+    an OpenAI key left there by OI's onboarding, for example -- cannot be sent
+    to the gateway instead of OPENCODE_GO_API_KEY. Sending a foreign key yields
+    exactly ``Invalid API key.``, which blames the Go key that never arrived.
+    """
+    return bool(api_key) and api_key.lower().startswith(("oc_",))
+
 # Models already warned about during this process when both a reasoning_effort and
 # include_reasoning: false are configured. That combination cannot take effect (a
 # disabled model does not think), and providers ignore the effort rather than
@@ -807,8 +819,22 @@ Continuing...
             go_base = os.environ.get("OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE)
             if self.api_base is None or not _is_opencode_go_base(self.api_base):
                 self.api_base = go_base
-            if self.api_key is None:
-                self.api_key = os.environ.get("OPENCODE_GO_API_KEY")
+            # Same reasoning as api_base: the profile may still hold an api_key
+            # saved for a different provider (often an OpenAI key from OI's
+            # onboarding). Sending that to the Go gateway produces exactly
+            # "Invalid API key." at 401, which blames the Go key the user set
+            # via the environment but never reaches the gateway. An explicit
+            # OPENCODE_GO_API_KEY therefore wins over a non-Go-shaped profile
+            # key; a Go-shaped key the user put in the profile is kept.
+            if self.api_key is None or not _is_opencode_go_key(self.api_key):
+                env_key = os.environ.get("OPENCODE_GO_API_KEY")
+                if env_key:
+                    self.api_key = env_key
+                # Without an override, a non-Go-shaped profile key cannot be
+                # sent to the gateway; leaving it in place would repeat the
+                # "Invalid API key." failure the check above exists to prevent.
+                elif self.api_key is not None and not _is_opencode_go_key(self.api_key):
+                    self.api_key = None
             if not self.api_key:
                 raise ValueError(
                     "The opencode_go/ model prefix requires an OpenCode Go API key. "
