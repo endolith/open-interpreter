@@ -1044,8 +1044,19 @@ def fixed_litellm_completions(**params):
         _extra_body.get("include_reasoning") is False
         or params.get("include_reasoning") is False
     )
+    # opencode_go/ DeepSeek models reach here already rewritten to
+    # "openai/deepseek-..." (Llm.load() maps the prefix onto the OpenAI wire
+    # format for the gateway), so matching only "deepseek/" and "openrouter/"
+    # missed them entirely. The gateway relays DeepSeek with the same thinking
+    # mode, so a request carrying tools and an assistant tool_calls message
+    # without reasoning_content comes back as a bare
+    # 400 {'model': 'deepseek-v4.1-flash'} with no explanation. Only DeepSeek
+    # model names are matched, so plain openai/ models (gpt-*, o3, ...) are
+    # untouched.
     _uses_deepseek_reasoning_history = _model.startswith("deepseek/") or (
         _model.startswith("openrouter/") and "deepseek" in _model.lower()
+    ) or (
+        _model.startswith("openai/") and "deepseek" in _model.lower()
     )
     if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
         # DeepSeek's thinking mode docs require that, for requests carrying `tools`,
