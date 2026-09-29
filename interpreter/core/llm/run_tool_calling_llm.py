@@ -269,29 +269,36 @@ def merge_consecutive_user_messages(messages):
 
 
 def _pending_tool_call_id(processed_messages):
-    """Id of a tool_call in the trailing assistant that has no response yet.
+    """Id of a tool_call from the current turn that has no response yet.
 
     Every tool_call must be answered by exactly one tool message, and in order.
     When a result arrives whose call is the immediately preceding assistant entry
-    (or entries) but has not been answered, that call is the one it belongs to --
-    the request is merely ordered unusually, not missing anything. Returning that
-    id lets callers pair the result with the real call instead of inventing a
-    second one.
+    but has not been answered, that call is the one it belongs to -- the request
+    is merely ordered unusually, not missing anything. Returning that id lets
+    callers pair the result with the real call instead of inventing a second
+    one.
+
+    Only the current turn is considered. Models routinely reuse the same id on
+    every turn (typically "toolu_1"), so a response from an earlier turn would
+    otherwise make the current call look already-answered and cause a spurious
+    synthetic call. The turn starts at the last user message, which is also
+    where the provider's own ordering rules begin.
     """
-    answered = {
-        m.get("tool_call_id")
-        for m in processed_messages
-        if m.get("role") == "tool"
-    }
-    for entry in reversed(processed_messages):
+    turn_start = 0
+    for i in range(len(processed_messages) - 1, -1, -1):
+        if processed_messages[i].get("role") == "user":
+            turn_start = i
+            break
+    turn = processed_messages[turn_start:]
+
+    answered = {m.get("tool_call_id") for m in turn if m.get("role") == "tool"}
+    for entry in reversed(turn):
         calls = entry.get("tool_calls") or []
         if calls:
             for call in calls:
                 if call.get("id") not in answered:
                     return call.get("id")
             return None
-        # Stop at a non-assistant boundary: an unanswered call further back is
-        # not reachable from here (its result would be out of order anyway).
         if entry.get("role") == "assistant":
             return None
     return None
@@ -344,10 +351,16 @@ def process_messages(messages, model=None):
             # request would carry two tool_calls and one tool response, which every
             # OpenAI-compatible endpoint rejects. Pairing it with the real call is
             # both correct and what the provider expects.
-            if _pending_tool_call_id(processed_messages) is not None:
-                message["role"] = "tool"
-                message["tool_call_id"] = _pending_tool_call_id(processed_messages)
-                processed_messages.append(message)
+            pending_id = _pending_tool_call_id(processed_messages)
+            if pending_id is not None:
+                # Copy rather than mutate: callers reuse these message dicts for
+                # later requests, and rewriting a stored result in place (a
+                # tool_call_id that belonged to a previous turn) corrupts the
+                # history for every turn after this one.
+                paired = dict(message)
+                paired["role"] = "tool"
+                paired["tool_call_id"] = pending_id
+                processed_messages.append(paired)
                 i += 1
                 continue
 
