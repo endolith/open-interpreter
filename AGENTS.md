@@ -6,9 +6,15 @@ This repo (`endolith/open-interpreter`) is the community-maintained home of OI C
 
 ## Development setup
 
-This is the classic/develop branch which is a mess. Don't bother running tests and stuff, those only work in the main branch.  Features from this branch will eventually be merged into `main`.
+Features from this branch will eventually be merged into `main`.
 
 Any feature branches that target `classic/develop` should have a `develop/` prefix.  Most changes should just be committed directly to `classic/develop`, though.
+
+Tests **do** run on this branch — run them. The suite has pre-existing failures
+and skips that are unrelated to any change under review, so capture a baseline
+before you claim a failure is not yours. Most of these unit tests were written
+after the fact, assuming the code was correct, so treat a surprising failure as
+possibly a bad test rather than a regression (see Testing below).
 
 This repo has ~130 configured remotes. The ones that matter:
 - `origin`   = `endolith/open-interpreter` — this fork, the merge target.
@@ -27,6 +33,45 @@ Don't dump `git remote -v` (130+ lines); target the remote you need.
 
 `rework` will likely eventually be merged into `main`, just like `classic/develop`. If asked to
 fix something, check whether `rework` already fixes it, and borrow the change with attribution.
+
+## Codebase map
+
+- `interpreter/terminal_interface/start_terminal_interface.py:main` — CLI entry
+  (`interpreter` command). Parses args, builds the `Interpreter`, starts it.
+- `interpreter/terminal_interface/terminal_interface.py` — the interactive REPL
+  (chat loop, confirmations, display). `%`-commands in `magic_commands.py`;
+  first-run contribution prompts in `contributing_conversations.py`; profiles
+  (`--profile os`, `--local`, …) in `profiles/defaults` +
+  `validate_llm_settings.py`.
+- `interpreter/core/core.py` — the `Interpreter` object (config, `chat()`).
+- `interpreter/core/respond.py` — the respond loop (LLM chunks → code blocks →
+  execution → approval). `_respond_and_store` is the seam most tests patch.
+- `interpreter/core/llm/` — LiteLLM wrapper (`llm.py`; see Model providers above),
+  streaming runners (`run_tool_calling_llm.py`, `run_function_calling_llm.py`,
+  `run_text_llm.py`), message conversion in `utils/`
+  (`convert_to_openai_messages`, `merge_deltas`, `parse_partial_json`).
+- `interpreter/core/async_core.py` — the async HTTP/WebSocket server
+  (`AsyncInterpreter`, `Server`, `create_router`; FastAPI + janus queues + worker
+  threads). Owns the approval handshake (`pending_confirmation`, `_approval_event`),
+  the output queue, and the OpenAI-compatible endpoints. Largest under-covered
+  file; `docs/ROADMAP.md` Phase 1b has the workflow (pin behaviour first, flip
+  pins in the fix PR).
+- `interpreter/core/computer/` — execution backends. Shell/Python/etc. go through
+  `terminal/languages/subprocess_language.py`); desktop control lives in
+  `core/toolbox/` (`mouse/`, `keyboard/`, `display/`, `vision/`, `mail/`, `sms/`,
+  `calendar/`, `contacts/`, `clipboard/`, `files/`, `browser/`, `web/`, `os/`) and
+  is the mostly-uncovered OS-integration cluster. `interpreter/computer_use/` at
+  top level is the deprecated Anthropic demo — excluded from coverage, do not
+  touch. **There is no `core/computer/` on this branch**; that layout is `main`'s.
+- `interpreter/core/utils/` — small helpers (`truncate_output`, `prompt_choice`
+  for y/n prompts, telemetry). `prompt_choice` takes only exact single letters
+  and re-prompts on anything else.
+- `interpreter/core/tools/file_edit.py` — file-editing tool.
+- `scripts/wtf.py` — standalone "fix my last terminal error" CLI.
+- **Dead or fragile live code**: `Skills.run()` (in `core/toolbox/skills`),
+  `api.openinterpreter.com` callers, `aifs`-based search, torch-based icon
+  grounding. macOS-only (AppleScript/DB-gated): mail, sms, calendar, contacts.
+  Moondream/EasyOCR vision is **not** present here — that is `main`.
 
 ## Model providers
 
