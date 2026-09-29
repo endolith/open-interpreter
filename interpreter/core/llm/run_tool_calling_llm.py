@@ -268,6 +268,35 @@ def merge_consecutive_user_messages(messages):
     return merged
 
 
+def _pending_tool_call_id(processed_messages):
+    """Id of a tool_call in the trailing assistant that has no response yet.
+
+    Every tool_call must be answered by exactly one tool message, and in order.
+    When a result arrives whose call is the immediately preceding assistant entry
+    (or entries) but has not been answered, that call is the one it belongs to --
+    the request is merely ordered unusually, not missing anything. Returning that
+    id lets callers pair the result with the real call instead of inventing a
+    second one.
+    """
+    answered = {
+        m.get("tool_call_id")
+        for m in processed_messages
+        if m.get("role") == "tool"
+    }
+    for entry in reversed(processed_messages):
+        calls = entry.get("tool_calls") or []
+        if calls:
+            for call in calls:
+                if call.get("id") not in answered:
+                    return call.get("id")
+            return None
+        # Stop at a non-assistant boundary: an unanswered call further back is
+        # not reachable from here (its result would be out of order anyway).
+        if entry.get("role") == "assistant":
+            return None
+    return None
+
+
 def process_messages(messages, model=None):
     processed_messages = []
     last_tool_id = 0
@@ -305,12 +334,42 @@ def process_messages(messages, model=None):
                 )
 
         elif message.get("role") == "function":
-            # This handles orphaned function responses
+            # This handles orphaned function responses: a result whose originating
+            # call is missing from the request, so some providers reject it
+            # ("tool" messages must follow an assistant with tool_calls).
+            #
+            # First, check whether the call actually IS present but out of order --
+            # a trailing result whose assistant entry is the previous message. The
+            # common case, and fabricating a call for it would double-count: the
+            # request would carry two tool_calls and one tool response, which every
+            # OpenAI-compatible endpoint rejects. Pairing it with the real call is
+            # both correct and what the provider expects.
+            if _pending_tool_call_id(processed_messages) is not None:
+                message["role"] = "tool"
+                message["tool_call_id"] = _pending_tool_call_id(processed_messages)
+                processed_messages.append(message)
+                i += 1
+                continue
+
             last_tool_id += 1
             tool_id = generate_tool_id(last_tool_id, model)
+            # The generated id must not collide with one already present in this
+            # request. last_tool_id only counts calls we converted, so it restarts
+            # from 1 for the first orphan and can reproduce an id the model itself
+            # issued (typically "toolu_1"). Ids must be unique or the gateway
+            # rejects the whole request. Bump until free.
+            taken = {
+                call.get("id")
+                for entry in processed_messages
+                for call in (entry.get("tool_calls") or [])
+            }
+            while tool_id in taken:
+                last_tool_id += 1
+                tool_id = generate_tool_id(last_tool_id, model)
 
-            # Add a tool call before this orphaned tool response. Providers like Alibaba require
-            # function.arguments to be valid JSON; use execute-shaped payload to avoid API errors.
+            # Genuinely orphaned: nothing in the request made this call, so
+            # synthesize one. Providers like Alibaba require function.arguments
+            # to be valid JSON; use an execute-shaped payload to avoid API errors.
             processed_messages.append(
                 {
                     "role": "assistant",
