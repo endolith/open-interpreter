@@ -16,6 +16,21 @@ before you claim a failure is not yours. Most of these unit tests were written
 after the fact, assuming the code was correct, so treat a surprising failure as
 possibly a bad test rather than a regression (see Testing below).
 
+**CI does not run for this branch.** `.github/workflows/python-package.yml`
+triggers only on `push` and `pull_request` against `main`, so pushing to
+`classic/develop` runs nothing. The "CI is green" line in the done checklist
+cannot be satisfied here by pushing — do not claim it is. Verify locally instead:
+
+    python -m ruff check interpreter tests     # the exact lint gate CI runs
+    python -m pytest -m "not integration" -q
+
+Note that this lint gate does **not** currently pass on `classic/develop`, for
+reasons that predate any current work: 6 pre-existing `F821`/`F601` errors in
+`core/toolbox/display/display.py`, `core/toolbox/display/point/point.py`, and
+`terminal_interface/terminal_interface.py`. If you need CI green for a change
+here, that cleanup is a separate piece of work — do not fold it into an
+unrelated commit.
+
 This repo has ~130 configured remotes. The ones that matter:
 - `origin`   = `endolith/open-interpreter` — this fork, the merge target.
 - `upstream` = `OpenInterpreter/open-interpreter` — now an unrelated Rust Codex fork; ignore it.
