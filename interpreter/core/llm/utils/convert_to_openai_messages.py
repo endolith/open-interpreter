@@ -91,14 +91,27 @@ def _use_modern_tool_calls(interpreter) -> bool:
     content or tool_calls must be set", 400). OpenAI still accepts the legacy
     shape, so only strict DeepSeek routes get the modern format; everything
     else keeps the legacy output unchanged.
+
+    The openai/ spelling must be included: Llm.load() rewrites the
+    opencode_go/ prefix to openai/<model> because the OpenCode Go gateway
+    speaks the OpenAI wire format, so a DeepSeek model served that way arrives
+    here as "openai/deepseek-...". Matching only the deepseek/ and openrouter/
+    prefixes made those requests emit the legacy shape to a provider that
+    rejects it, which surfaced as a bodiless 400 on every tool-calling turn --
+    and, because the resulting function/function_call pair needs translating in
+    process_messages, that translation is what produced the malformed
+    tool_call/tool-response histories. As with the reasoning_content pass, the
+    match is on the model name so genuine OpenAI models are unaffected.
     """
     try:
         model = getattr(getattr(interpreter, "llm", None), "model", "") or ""
     except Exception:
         return False
     m = model.lower()
-    return m.startswith("deepseek/") or (
-        m.startswith("openrouter/") and "deepseek" in m
+    return (
+        m.startswith("deepseek/")
+        or (m.startswith("openrouter/") and "deepseek" in m)
+        or (m.startswith("openai/") and "deepseek" in m)
     )
 
 
