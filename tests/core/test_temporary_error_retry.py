@@ -81,6 +81,76 @@ def panels(monkeypatch):
     return recorded
 
 
+def _bodiless_400():
+    """A provider 400 that arrived with no body at all, as some gateways send."""
+    return litellm.BadRequestError(
+        message="OpenAIException - Error code: 400",
+        model="m",
+        llm_provider="openai",
+        response=type("R", (), {"status_code": 400, "headers": {}})(),
+    )
+
+
+def test_bodiless_400_is_retried_once_without_asking_the_user(capsys, panels):
+    """A 400 with an empty body is retried automatically instead of prompting.
+
+    The OpenCode Go gateway rejects some otherwise valid requests with a bare
+    "Error code: 400" and no body, and the identical request succeeds on a
+    retry. Prompting "Retry? (y/a/n)" for that is pure friction -- the user
+    learns nothing from the error and the answer is always the same -- so
+    respond() retries once on its own and only surfaces the error if that
+    fails too.
+    """
+    llm = _FakeLlm([_bodiless_400(), [{"type": "message", "content": "hi"}]])
+
+    interpreter = _first_reply(llm)
+
+    assert llm.calls == 2, "one failed attempt plus one automatic retry"
+    assert interpreter._stopped_retrying is False, "a recovered turn is not a refusal"
+    output = capsys.readouterr().out
+    assert "Retry?" not in output, "the user must not be asked to retry an unexplainable error"
+
+
+def test_bodiless_400_stops_after_one_retry(capsys, panels):
+    """A persistently bodiless 400 is surfaced, not retried forever.
+
+    The automatic retry is deliberately bounded. A gateway that rejects every
+    attempt must produce an error panel and hand control back, otherwise the
+    turn loops indefinitely against a provider that will never accept it.
+    """
+    llm = _FakeLlm([_bodiless_400(), _bodiless_400(), _bodiless_400()])
+
+    interpreter = _FakeInterpreter(llm)
+    list(respond(interpreter))
+
+    assert llm.calls == 2, f"exactly one automatic retry, got {llm.calls} attempts"
+    output = capsys.readouterr().out + "".join(panels)
+    assert "Error code: 400" in output, "the user must be told the request was rejected"
+
+
+def test_descriptive_400_is_not_auto_retried(capsys, panels):
+    """A 400 that explains itself is a real complaint and stays actionable.
+
+    When the body names a cause (a rejected field, a bad tool schema), retrying
+    the identical request cannot help and would only hide the message the user
+    needs. Only genuinely empty bodies are treated as transient.
+    """
+    error = litellm.BadRequestError(
+        message="Error code: 400 - unsupported parameter: 'reasoning_effort'",
+        model="m",
+        llm_provider="openai",
+        response=type("R", (), {"status_code": 400, "headers": {}})(),
+    )
+    llm = _FakeLlm([error])
+
+    interpreter = _FakeInterpreter(llm)
+    list(respond(interpreter))
+
+    assert llm.calls == 1, "an explained error must not be retried automatically"
+    output = capsys.readouterr().out + "".join(panels)
+    assert "unsupported parameter" in output, "the explanation must reach the user"
+
+
 def _first_reply(llm):
     """Drive respond() until the LLM finally yields assistant text, then stop."""
     interpreter = _FakeInterpreter(llm)
