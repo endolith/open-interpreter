@@ -527,3 +527,65 @@ def test_non_deepseek_route_keeps_legacy_function_call():
     assert sum("function_call" in m for m in out) == 1
     assert not any(m.get("tool_calls") for m in out)
     assert any(m.get("role") == "function" and m.get("name") == "execute" for m in out)
+
+
+class _FakeGoInterpreter(_FakeInterpreter):
+    """Stand-in for any model reached through the opencode_go/ prefix.
+
+    Llm.load() rewrites the prefix to openai/<model>, so the route cannot be
+    recognised from the model name. These models deliberately do not contain
+    "deepseek": the earlier fix keyed on that and so left every other Go model
+    emitting the legacy shape the gateway rejects.
+    """
+
+    class llm:
+        model = "openai/space-bunny-free"
+        _is_opencode_go = True
+
+
+def test_opencode_go_route_uses_modern_tool_calls_for_any_model():
+    """Every model on the Go route needs modern tool_calls, not just DeepSeek ones.
+
+    The gateway rejects an assistant message carrying the deprecated
+    `function_call` field with empty content and no `tool_calls` key, and it
+    does so for all of the models it serves. The fix that added "openai/" to the
+    DeepSeek name match was not enough: a model like space-bunny-free reaches
+    this code as plain "openai/space-bunny-free" and got the legacy shape, so
+    every tool-calling turn failed with a 400 from the gateway.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "powershell", "content": "Get-Date"},
+        {"role": "computer", "type": "console", "format": "output", "content": "ok"},
+    ]
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeGoInterpreter())
+
+    assert not any("function_call" in m for m in out)
+    assert not any(m.get("role") == "function" for m in out)
+    calls = [m for m in out if m.get("tool_calls")]
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(calls) == 1 and len(outputs) == 1
+    assert outputs[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
+
+
+def test_plain_openai_models_are_unaffected_by_the_go_route():
+    """A real OpenAI route must not inherit the Go rule from the shared prefix.
+
+    Both arrive as "openai/...", so the decision has to come from the route flag
+    rather than the name -- otherwise every OpenAI request changes shape.
+    """
+
+    class _OpenAIGpt(_FakeInterpreter):
+        class llm:
+            model = "openai/gpt-4o"
+            _is_opencode_go = False
+
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+    ]
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_OpenAIGpt())
+
+    assert not any(m.get("tool_calls") for m in out)
+    assert any(m.get("role") == "function" for m in out)
