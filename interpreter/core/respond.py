@@ -70,6 +70,42 @@ def _stdin_is_interactive():
         return False
 
 
+def _is_bodiless_400(error):
+    """Whether this is a 400 that arrived with no explanation at all.
+
+    Some gateways answer a request they will not accept with a bare
+    "Error code: 400" and an empty body -- no message, no field list, nothing
+    to act on. Observed on the OpenCode Go relay for valid requests that then
+    succeed on an identical retry, which is why this is retried rather than
+    surfaced. A 400 that *does* carry a body is a real, deterministic complaint
+    (bad tool schema, unsupported field) and is left to the error panel, where
+    the user can act on it.
+    """
+    if not isinstance(error, litellm.exceptions.BadRequestError):
+        return False
+    message = str(error)
+    if "error code: 400" not in message.lower():
+        return False
+    # A body shows up as JSON in the message; if there is one, this is a genuine
+    # complaint and must not be treated as transient.
+    if "{" in message:
+        return False
+    # Prose after the status is also a real complaint (e.g. "unsupported
+    # parameter: 'reasoning_effort'"). Bodiless means the status is all there is:
+    # strip the exception/provider prefixes and require nothing meaningful left.
+    remainder = message
+    for noise in (
+        "litellm.BadRequestError:",
+        "BadRequestError:",
+        "OpenAIException -",
+        "OpenAIException:",
+        "Error code: 400",
+        "error code: 400",
+    ):
+        remainder = remainder.replace(noise, " ")
+    return not remainder.strip(" -:.,")
+
+
 def _is_temporary_provider_error(error):
     error_message = str(error).lower()
     temporary_markers = (
@@ -119,6 +155,9 @@ def respond(interpreter):
     temporary_provider_error_retries = 0
     last_temporary_provider_error_signature = None
     temporary_retry_status_active = False
+    # Bounded so a provider that keeps rejecting the same request cannot spin
+    # the loop forever. Past this, the error is shown and the user decides.
+    bodiless_400_retries = 0
     # A stale True from a previous turn would make the terminal interface exit
     # after an unrelated, healthy turn; this function is the only writer, so a
     # turn always starts clean.
@@ -264,6 +303,15 @@ def respond(interpreter):
                     getattr(openai, "OpenAIError", Exception),
                 )):
                     is_temporary_error = _is_temporary_provider_error(e)
+                    # A bodiless 400 is retried automatically: the same request
+                    # succeeds on a retry, so asking the user to press "y" every
+                    # time is pure friction. Bounded, and only when the gateway
+                    # gave us nothing to act on.
+                    is_bodiless_400 = (
+                        _is_bodiless_400(e) and bodiless_400_retries < 1
+                    )
+                    if is_bodiless_400:
+                        is_temporary_error = True
                     panel_border_style = "yellow" if is_temporary_error else "red"
                     panel_title = "Warning" if is_temporary_error else "Error"
                     temporary_error_signature = (
@@ -273,8 +321,13 @@ def respond(interpreter):
                         is_temporary_error
                         and temporary_error_signature
                         == last_temporary_provider_error_signature
-                    ):
+                    ) or is_bodiless_400:
                         temporary_provider_error_retries += 1
+                        if is_bodiless_400:
+                            bodiless_400_retries += 1
+                            interpreter.display_message(
+                                "> The provider rejected that request without saying why; retrying once."
+                            )
                         temporary_retry_status_active = True
                         _render_temporary_retry_status(temporary_provider_error_retries)
                         time.sleep(2)
