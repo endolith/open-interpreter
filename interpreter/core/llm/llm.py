@@ -516,6 +516,17 @@ Continuing...
             "stream": True,
         }
 
+        # The Go route is OpenAI-compatible but is not OpenAI. LiteLLM chooses how
+        # to build the request from the provider it infers, and it has no
+        # opencode_go provider, so hand it the two facts separately: the bare
+        # model name it should put on the wire, and the protocol to speak.
+        # Everything above this point branches on the truthful self.model, which
+        # is what makes those decisions correct; this is the only place the lie
+        # would have been told.
+        if self._is_opencode_go:
+            params["model"] = model.split("/", 1)[1]
+            params["custom_llm_provider"] = "openai"
+
         # Forward the debug-logging preference to fixed_litellm_completions, which
         # is a module-level function without access to this Llm instance. It pops
         # this key before handing params to litellm, so it never reaches the wire.
@@ -881,7 +892,24 @@ Continuing...
             if model_name in _OPENCODE_GO_VISION_MODELS and self.supports_vision is None:
                 self.supports_vision = True
             self._is_opencode_go = True
-            self.model = f"openai/{model_name}"
+            # self.model deliberately keeps the opencode_go/ prefix.
+            #
+            # It used to be rewritten to openai/<model> here, because that is how
+            # OI told LiteLLM to use an OpenAI-compatible endpoint. The problem is
+            # that self.model then served two purposes at once: the LiteLLM
+            # routing key *and* OI's record of which model the user asked for.
+            # Everything downstream that branches on provider read the routing
+            # key and was told a lie, so opencode_go/space-bunny-free looked
+            # exactly like openai/gpt-4o. That single overloading caused a
+            # series of silent misroutings -- a wrong tool-call format, a missing
+            # reasoning field, vision being turned off -- each of which looked
+            # like an unrelated bug.
+            #
+            # The two roles are now separate. self.model stays truthful, and the
+            # wire name plus provider are passed to LiteLLM explicitly in run()
+            # via custom_llm_provider. Verified against the gateway: the outgoing
+            # request is identical to the rewritten form.
+            self.model = f"opencode_go/{model_name}"
 
         # DeepSeek API (OpenAI-compatible). Keep deepseek/<model> for LiteLLM routing.
         if model_lower.startswith("deepseek/"):
@@ -1076,19 +1104,20 @@ def fixed_litellm_completions(**params):
         _extra_body.get("include_reasoning") is False
         or params.get("include_reasoning") is False
     )
-    # opencode_go/ DeepSeek models reach here already rewritten to
-    # "openai/deepseek-..." (Llm.load() maps the prefix onto the OpenAI wire
-    # format for the gateway), so matching only "deepseek/" and "openrouter/"
-    # missed them entirely. The gateway relays DeepSeek with the same thinking
-    # mode, so a request carrying tools and an assistant tool_calls message
-    # without reasoning_content comes back as a bare
-    # 400 {'model': 'deepseek-v4.1-flash'} with no explanation. Only DeepSeek
-    # model names are matched, so plain openai/ models (gpt-*, o3, ...) are
-    # untouched.
+    # The opencode_go/ prefix is still present in the model string here, so a
+    # DeepSeek model on that route matches directly. It previously needed an
+    # "openai/" alternative because load() rewrote the prefix away and hid the
+    # route; the wire name is now applied only in the params sent to LiteLLM.
+    #
+    # The gateway relays DeepSeek with the same thinking mode, so a request
+    # carrying tools and an assistant tool_calls message without reasoning_content
+    # comes back as a bare 400 {'model': 'deepseek-v4.1-flash'} with no
+    # explanation. Only DeepSeek model names are matched, so plain openai/ models
+    # (gpt-*, o3, ...) and the non-DeepSeek Go models are untouched.
     _uses_deepseek_reasoning_history = _model.startswith("deepseek/") or (
         _model.startswith("openrouter/") and "deepseek" in _model.lower()
     ) or (
-        _model.startswith("openai/") and "deepseek" in _model.lower()
+        _model.startswith("opencode_go/") and "deepseek" in _model.lower()
     )
     if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
         # DeepSeek's thinking mode docs require that, for requests carrying `tools`,

@@ -41,12 +41,36 @@ def _request_params(interpreter):
     return captured
 
 
-def test_prefix_rewrites_to_openai_compatible_model(monkeypatch):
-    """opencode_go/<model> becomes openai/<model> with Go's base URL, like DashScope."""
+def test_model_name_keeps_the_go_prefix(monkeypatch):
+    """self.model must stay truthful; the wire name is a separate concern.
+
+    It used to be rewritten to openai/<model> here, which overloaded one field
+    with two jobs -- LiteLLM's routing key and OI's record of what the user
+    asked for -- so every provider gate downstream read a lie and an
+    opencode_go/ model was indistinguishable from an OpenAI one. The rewrite now
+    happens per request, in the params, where it belongs.
+    """
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch, OPENCODE_GO_API_KEY="k")
     interpreter.llm.load()
-    assert interpreter.llm.model == "openai/deepseek-v4-flash"
+    assert interpreter.llm.model == "opencode_go/deepseek-v4-flash"
     assert interpreter.llm.api_base == "https://opencode.ai/zen/go/v1"
+
+
+def test_request_carries_the_bare_name_and_explicit_provider(monkeypatch):
+    """LiteLLM gets the bare model name plus the protocol to speak with.
+
+    Both facts are needed: it infers the request format from the provider, and it
+    has no opencode_go provider, so an unknown prefix is an error. Sending the
+    bare name with custom_llm_provider produces the same wire request as the old
+    rewritten form, verified against the gateway.
+    """
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.load()
+    params = _request_params(interpreter)
+
+    assert params["model"] == "space-bunny-free"
+    assert params["custom_llm_provider"] == "openai"
+    assert params["api_base"] == "https://opencode.ai/zen/go/v1"
 
 
 def test_api_base_is_overridable(monkeypatch):
@@ -252,7 +276,7 @@ def test_chat_completions_models_are_accepted(monkeypatch):
     for model in ("deepseek-v4-pro", "glm-5.1", "kimi-k2.6", "mimo-v2.5"):
         interpreter = _configure(f"opencode_go/{model}", monkeypatch)
         interpreter.llm.load()
-        assert interpreter.llm.model == f"openai/{model}"
+        assert interpreter.llm.model == f"opencode_go/{model}"
 
 
 # --- Key shape, and the Go catalog -----------------------------------------
@@ -425,4 +449,6 @@ def test_every_documented_chat_model_loads(model, monkeypatch):
 
     interpreter.llm.load()
 
-    assert interpreter.llm.model == f"openai/{model}"
+    # The prefix survives load, so the route stays visible to every gate that
+    # branches on the model name.
+    assert interpreter.llm.model == f"opencode_go/{model}"

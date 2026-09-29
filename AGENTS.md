@@ -97,15 +97,26 @@ Prefixes that route to a specific provider are wired in `Llm.load()`
 - `openai/…`, `openrouter/…`, `anthropic/…` etc. — resolved by LiteLLM itself, no OI code.
 - `dashscope-us/`, `dashscope-intl/`, `deepseek/` — OI sets `api_base`/`api_key` from env vars.
 - `opencode_go/…` — as above, plus a required `x-opencode-session` header, a hard
-  requirement on `OPENCODE_GO_API_KEY` (never `OPENAI_API_KEY`), and a refusal for the
-  Go models that are not served over chat completions. See `docs/settings/all-settings.mdx`.
+  requirement on `OPENCODE_GO_API_KEY` (never `OPENAI_API_KEY`), a refusal for the
+  Go models that are not served over chat completions, and a hardcoded answer for
+  the one vision-capable model. See `docs/settings/all-settings.mdx`.
 - `i` — Open Interpreter's own hosted model, special-cased in `Llm.run()`.
 
-Two things to know before adding another prefix:
+Three things to know before adding another prefix:
 
-- Rewriting a model onto `openai/…` makes LiteLLM resolve an unset `api_key` from the
-  environment, so an ambient `OPENAI_API_KEY` gets sent as `Authorization: Bearer` to
-  whatever `api_base` says. A prefix with its own credential must set `api_key`
+- **Do not rewrite the model name to make LiteLLM route it.** `self.model` is
+  read by every provider gate in the codebase — tool-call format, reasoning
+  padding, vision, secret sanitising — so overwriting it with a different
+  provider's name makes all of them decide wrongly and quietly. `opencode_go/`
+  used to be rewritten to `openai/<model>`, and that single overloading caused a
+  run of unrelated-looking misroutings. The correct shape is: keep `self.model`
+  truthful, and pass the wire name plus `custom_llm_provider` in the params
+  inside `run()`. LiteLLM has no `opencode_go` provider, so both parts are
+  needed. The outgoing request is identical to the rewritten form — verified
+  against the gateway.
+- Pointing a model at an `api_base` makes LiteLLM resolve an unset `api_key` from
+  the environment, so an ambient `OPENAI_API_KEY` gets sent as `Authorization:
+  Bearer` to that host. A prefix with its own credential must set `api_key`
   explicitly or fail loudly.
 - `start_terminal_interface.py` has a hardcoded allowlist of prefixes that must not be
   re-prefixed when `--api_base` is set; a new prefix needs adding there too.

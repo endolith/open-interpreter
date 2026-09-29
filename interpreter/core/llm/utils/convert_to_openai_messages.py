@@ -92,18 +92,18 @@ def _use_modern_tool_calls(interpreter) -> bool:
     serves, not only the DeepSeek ones. So the whole opencode_go/ route gets the
     modern shape, while genuinely legacy-tolerant providers keep what they had.
 
-    The route cannot be recognised from the model name. Llm.load() rewrites
-    opencode_go/<model> to openai/<model> because the gateway speaks the OpenAI
-    wire format, so a Go model arrives here looking like a plain OpenAI one --
-    openai/space-bunny-free is no more recognisable than openai/gpt-4o. The
-    route flag set during load is the only reliable signal, so ask the Llm
-    rather than the name.
+    The Go route is recognised by the opencode_go/ prefix, which load() leaves
+    intact: it used to rewrite the prefix to openai/<model>, and every gate in
+    the codebase that branched on the model name then saw a plain OpenAI model
+    and got the wrong answer. self.model now carries the route, so the name is
+    enough and the _is_opencode_go flag is a belt-and-braces check for the case
+    where a caller has already rewritten it.
 
     Matching on the name for the DeepSeek cases stays: those routes are
-    identified by prefix because they are not ours to flag. openai/ is included
-    there so a DeepSeek model reached through the Go rewrite is caught even if
-    the route flag is absent, and the name is checked so genuine OpenAI models
-    are unaffected.
+    identified by prefix because they are not ours to flag. Genuine openai/
+    models are unaffected, which is the property the old "openai/" alternative
+    could not provide -- it matched any OpenAI route with "deepseek" in the
+    name, whatever the base URL.
     """
     llm = getattr(interpreter, "llm", None)
     try:
@@ -116,7 +116,7 @@ def _use_modern_tool_calls(interpreter) -> bool:
     return (
         m.startswith("deepseek/")
         or (m.startswith("openrouter/") and "deepseek" in m)
-        or (m.startswith("openai/") and "deepseek" in m)
+        or (m.startswith("opencode_go/") and "deepseek" in m)
     )
 
 
