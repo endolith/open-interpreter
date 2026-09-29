@@ -58,10 +58,7 @@ def test_dashscope_intl_load_rewrites_to_openai_compatible(interpreter, monkeypa
 
     assert interpreter.llm.model == "openai/qwen3-max"
     assert interpreter.llm.api_key == "sk-test-dashscope"
-    assert (
-        interpreter.llm.api_base
-        == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    )
+    assert interpreter.llm.api_base == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 
 def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatch):
@@ -78,10 +75,7 @@ def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatc
 
     assert interpreter.llm.model == "openai/qwen3.5-plus"
     assert interpreter.llm.api_key == "sk-test-dashscope"
-    assert (
-        interpreter.llm.api_base
-        == "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
-    )
+    assert interpreter.llm.api_base == "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
     assert interpreter.llm.supports_vision is True
 
 
@@ -95,8 +89,7 @@ class _FakeOpenRouterResponse:
     def json(self):
         return {
             "data": [
-                {"id": mid, "architecture": {"input_modalities": mods}}
-                for mid, mods in self.modalities_by_id.items()
+                {"id": mid, "architecture": {"input_modalities": mods}} for mid, mods in self.modalities_by_id.items()
             ]
         }
 
@@ -108,9 +101,7 @@ def stub_openrouter_registry(monkeypatch):
     monkeypatch.setattr(
         llm_mod,
         "run_text_llm",
-        lambda self, params: iter(
-            [("message", {"role": "assistant", "type": "message", "content": "stubbed"})]
-        ),
+        lambda self, params: iter([("message", {"role": "assistant", "type": "message", "content": "stubbed"})]),
     )
     return monkeypatch
 
@@ -123,15 +114,11 @@ def _run_one_turn(interpreter):
     next(interpreter.llm.run(messages))
 
 
-def test_openrouter_qwen37_vision_detected_when_registry_stale(
-    interpreter, stub_openrouter_registry
-):
+def test_openrouter_qwen37_vision_detected_when_registry_stale(interpreter, stub_openrouter_registry):
     stub_openrouter_registry.setattr(
         requests,
         "get",
-        lambda *a, **k: _FakeOpenRouterResponse(
-            {"qwen/qwen3.7-plus": ["text", "image"]}
-        ),
+        lambda *a, **k: _FakeOpenRouterResponse({"qwen/qwen3.7-plus": ["text", "image"]}),
     )
 
     interpreter.llm.model = "openrouter/qwen/qwen3.7-plus"
@@ -143,15 +130,11 @@ def test_openrouter_qwen37_vision_detected_when_registry_stale(
     assert interpreter.llm.supports_vision is True
 
 
-def test_openrouter_qwen37_text_only_not_vision(
-    interpreter, stub_openrouter_registry
-):
+def test_openrouter_qwen37_text_only_not_vision(interpreter, stub_openrouter_registry):
     stub_openrouter_registry.setattr(
         requests,
         "get",
-        lambda *a, **k: _FakeOpenRouterResponse(
-            {"qwen/qwen3.7-max": ["text"]}
-        ),
+        lambda *a, **k: _FakeOpenRouterResponse({"qwen/qwen3.7-max": ["text"]}),
     )
 
     interpreter.llm.model = "openrouter/qwen/qwen3.7-max"
@@ -163,9 +146,7 @@ def test_openrouter_qwen37_text_only_not_vision(
     assert interpreter.llm.supports_vision is False
 
 
-def test_openrouter_vision_helper_skips_non_openrouter_models(
-    interpreter, stub_openrouter_registry
-):
+def test_openrouter_vision_helper_skips_non_openrouter_models(interpreter, stub_openrouter_registry):
     interpreter.llm.model = "deepseek/deepseek-v4-flash"
     interpreter.llm.supports_vision = None
     interpreter.llm._is_loaded = False
@@ -340,6 +321,60 @@ def test_deepseek_reasoning_does_not_leak_across_user_turn(
     )
     assert out[2]["reasoning_content"] == "Greet. \n\n"
     assert out[4]["reasoning_content"] == "."
+
+
+def test_deepseek_reasoning_padded_for_opencode_go_route(capture_deepseek_params):
+    """DeepSeek behind the OpenCode Go gateway also needs reasoning_content.
+
+    Llm.load() rewrites opencode_go/deepseek-* to "openai/deepseek-*" (the
+    gateway speaks the OpenAI wire format), so the guard that matched only
+    "deepseek/" and "openrouter/" let these requests through unpadded. The
+    gateway relays DeepSeek with the same thinking mode, and a request that
+    carries tools plus an assistant tool_calls message without the field comes
+    back as a bare "400 {'model': 'deepseek-v4.1-flash'}" with no explanation.
+    """
+    out = capture_deepseek_params(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "try cmd"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": "{}"},
+                    }
+                ],
+            },
+        ],
+        model="openai/deepseek-v4.1-flash",
+    )
+    assert out[2]["reasoning_content"] == "."
+
+
+def test_deepseek_reasoning_padding_skipped_for_other_openai_models(
+    capture_deepseek_params,
+):
+    """Non-DeepSeek models on the openai/ route must not get reasoning_content.
+
+    The opencode_go/ fix matches on the model name, not just the prefix, so
+    genuine OpenAI models routed through the same "openai/" spelling (and
+    arbitrary api_base overrides) must stay untouched — some reject unknown
+    message keys. Matching is by substring, as it already is for openrouter/,
+    so a name containing "deepseek" is treated as DeepSeek-family.
+    """
+    for model in ("openai/gpt-4o", "openai/o3-mini", "openai/glm-4.6"):
+        out = capture_deepseek_params(
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "Hello!"},
+            ],
+            model=model,
+        )
+        assert "reasoning_content" not in out[2], model
 
 
 def test_deepseek_reasoning_padding_skipped_for_non_deepseek_models(
