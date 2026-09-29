@@ -1,12 +1,18 @@
 """Tests for tool_call/tool-response pairing in process_messages.
 
-Every OpenAI-compatible endpoint requires a strict invariant: each tool_call
-must be answered by exactly one tool message carrying its id, and ids must be
-unique. A request that breaks either is rejected outright. On the OpenCode Go
-relay the rejection is a bare "400" with no body, and the identical retry then
-succeeds -- because by then the offending entry has been consumed, so the fault
-looked intermittent when it was deterministic.
+Every OpenAI-compatible endpoint requires a strict invariant, scoped to each
+turn: every tool_call must be answered by exactly one tool message carrying its
+id, and ids must be unique *within that turn*. Models routinely reuse the same
+id on every turn (typically "toolu_1"), so id reuse across turns is normal and
+must not be treated as a collision.
+
+A request that breaks the per-turn invariant is rejected outright. On the
+OpenCode Go relay the rejection is a bare "400", and because the offending entry
+was consumed by the time the user retried, the fault looked intermittent while
+being deterministic.
 """
+
+import json
 
 from interpreter.core.llm.run_tool_calling_llm import process_messages
 
@@ -19,18 +25,38 @@ def _tool_call(call_id, code="print(1)"):
     }
 
 
+def _turns(processed):
+    """Split a processed message list into turns, each starting at a user message."""
+    turns, current = [], []
+    for message in list(processed) + [{"role": "user", "content": "__end__"}]:
+        if message.get("role") == "user":
+            if current:
+                turns.append(current)
+            current = []
+        else:
+            current.append(message)
+    return turns
+
+
 def _assert_well_formed(processed):
-    """Every tool_call has exactly one response, ids unique and in order."""
-    calls = [call for m in processed for call in (m.get("tool_calls") or [])]
-    responses = [m for m in processed if m.get("role") == "tool"]
-    call_ids = [call["id"] for call in calls]
-    assert len(call_ids) == len(set(call_ids)), f"duplicate tool_call ids: {call_ids}"
-    assert len(calls) == len(responses), (
-        f"{len(calls)} tool_calls but {len(responses)} tool responses; every call must be answered exactly once"
-    )
-    assert {m["tool_call_id"] for m in responses} == set(call_ids), (
-        "each response must reference a call that exists in the request"
-    )
+    """Per turn: one response per call, and unique ids within the turn.
+
+    Uniqueness is checked per turn, not globally. The same id on two different
+    turns is normal (models reuse "toolu_1" every turn); a duplicate inside one
+    turn is what providers reject.
+    """
+    for index, turn in enumerate(_turns(processed)):
+        calls = [call for m in turn for call in (m.get("tool_calls") or [])]
+        responses = [m for m in turn if m.get("role") == "tool"]
+        call_ids = [call["id"] for call in calls]
+        assert len(call_ids) == len(set(call_ids)), f"turn {index}: duplicate tool_call ids {call_ids}"
+        assert len(calls) == len(responses), (
+            f"turn {index}: {len(calls)} tool_calls but {len(responses)} tool "
+            "responses; every call must be answered exactly once"
+        )
+        assert {m["tool_call_id"] for m in responses} == set(call_ids), (
+            f"turn {index}: each response must reference a call in the same turn"
+        )
 
 
 def test_out_of_order_function_result_pairs_with_real_call():
@@ -63,6 +89,83 @@ def test_out_of_order_function_result_pairs_with_real_call():
     assert len(assistant[0]["tool_calls"]) == 1, "no second synthetic call may be invented for an already-present one"
     assert processed[-1]["tool_call_id"] == "toolu_1", "the result must reference the real call id"
     assert "Automated tool call" not in processed[-1].get("content", "")
+
+
+def test_id_reused_across_turns_does_not_trigger_a_synthetic_call():
+    """A result is paired with the CURRENT turn's call even when the id repeats.
+
+    Models reuse the same tool_call id on every turn (typically "toolu_1"), so
+    the previous turn's response for that id is already in the request when the
+    new result arrives. Matching on "has this id been answered anywhere?" made
+    the current call look already-answered, so a spurious synthetic call was
+    appended and the real call left unanswered -- the exact shape the gateway
+    rejects, and it recurred on every turn after the first tool call.
+    """
+    processed = process_messages(
+        [
+            {"role": "user", "content": "py hello world"},
+            {"role": "assistant", "content": "", "tool_calls": [_tool_call("toolu_1")]},
+            {"role": "tool", "tool_call_id": "toolu_1", "content": "hello"},
+            {"role": "assistant", "content": "done"},
+            {"role": "user", "content": "again in cmd"},
+            {"role": "assistant", "content": "", "tool_calls": [_tool_call("toolu_1", "echo hi")]},
+            {"role": "function", "name": "execute", "content": "cmd output"},
+        ],
+        model="openai/deepseek-v4.1-flash",
+    )
+
+    _assert_well_formed(processed)
+    for message in processed:
+        for call in message.get("tool_calls") or []:
+            assert "Automated tool call" not in call["function"]["arguments"], (
+                "the current turn's call must be paired, not duplicated"
+            )
+
+
+def test_consecutive_turns_all_stay_paired():
+    """Every turn of a multi-turn tool session remains individually well formed."""
+    messages = []
+    for i, (code, output) in enumerate([("print(1)", "hello"), ("echo hi", "cmd out"), ("Write-Output x", "ps out")]):
+        messages += [
+            {"role": "user", "content": f"turn {i}"},
+            {"role": "assistant", "content": "", "tool_calls": [_tool_call("toolu_1", code)]},
+            {"role": "function", "name": "execute", "content": output},
+            {"role": "assistant", "content": "ok"},
+        ]
+
+    processed = process_messages(messages, model="openai/deepseek-v4.1-flash")
+
+    assert len(_turns(processed)) == 3
+    _assert_well_formed(processed)
+    synthesized = [
+        call
+        for message in processed
+        for call in (message.get("tool_calls") or [])
+        if "Automated tool call" in call["function"]["arguments"]
+    ]
+    assert not synthesized, "no turn may need a synthetic call"
+
+
+def test_process_messages_does_not_mutate_its_input():
+    """Caller-owned message dicts must come back untouched.
+
+    process_messages() rewrites role and tool_call_id in place, and the same
+    dicts are reused for the next request. Mutating them writes this turn's
+    pairing into stored history, so a later turn sends a tool_call_id that
+    belongs to an earlier turn and the request is invalid from then on.
+    """
+    messages = [
+        {"role": "user", "content": "again in cmd"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("toolu_1")]},
+        {"role": "function", "name": "execute", "content": "cmd output"},
+    ]
+    snapshot = json.loads(json.dumps(messages, sort_keys=True))
+
+    process_messages(messages, model="openai/deepseek-v4.1-flash")
+
+    assert json.loads(json.dumps(messages, sort_keys=True)) == snapshot, (
+        "process_messages must not modify the messages it is given"
+    )
 
 
 def test_truly_orphaned_function_result_still_synthesizes_a_call():
