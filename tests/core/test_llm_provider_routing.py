@@ -326,12 +326,14 @@ def test_deepseek_reasoning_does_not_leak_across_user_turn(
 def test_deepseek_reasoning_padded_for_opencode_go_route(capture_deepseek_params):
     """DeepSeek behind the OpenCode Go gateway also needs reasoning_content.
 
-    Llm.load() rewrites opencode_go/deepseek-* to "openai/deepseek-*" (the
-    gateway speaks the OpenAI wire format), so the guard that matched only
-    "deepseek/" and "openrouter/" let these requests through unpadded. The
-    gateway relays DeepSeek with the same thinking mode, and a request that
+    The gateway relays DeepSeek with the same thinking mode, and a request that
     carries tools plus an assistant tool_calls message without the field comes
     back as a bare "400 {'model': 'deepseek-v4.1-flash'}" with no explanation.
+
+    The opencode_go/ prefix used to be rewritten to openai/deepseek-* before
+    this point, which is why the guard originally needed an "openai/"
+    alternative. The prefix is now kept in self.model, so the route matches
+    directly, and the rewrite is applied only to the params sent to LiteLLM.
     """
     out = capture_deepseek_params(
         [
@@ -349,7 +351,7 @@ def test_deepseek_reasoning_padded_for_opencode_go_route(capture_deepseek_params
                 ],
             },
         ],
-        model="openai/deepseek-v4.1-flash",
+        model="opencode_go/deepseek-v4.1-flash",
     )
     assert out[2]["reasoning_content"] == "."
 
@@ -359,11 +361,11 @@ def test_deepseek_reasoning_padding_skipped_for_other_openai_models(
 ):
     """Non-DeepSeek models on the openai/ route must not get reasoning_content.
 
-    The opencode_go/ fix matches on the model name, not just the prefix, so
-    genuine OpenAI models routed through the same "openai/" spelling (and
+    The opencode_go/ guard matches its own prefix, so genuine OpenAI models (and
     arbitrary api_base overrides) must stay untouched — some reject unknown
-    message keys. Matching is by substring, as it already is for openrouter/,
-    so a name containing "deepseek" is treated as DeepSeek-family.
+    message keys. Matching is by substring within the prefix, as it already is
+    for openrouter/, so a Go model with "deepseek" in its name is treated as
+    DeepSeek-family.
     """
     for model in ("openai/gpt-4o", "openai/o3-mini", "openai/glm-4.6"):
         out = capture_deepseek_params(

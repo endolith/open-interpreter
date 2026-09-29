@@ -355,34 +355,35 @@ class _FakeStrictDeepSeekInterpreter(_FakeInterpreter):
         model = "openrouter/~deepseek/deepseek-v4-flash-latest"
 
 
-class _FakeOpenAIDeepSeekInterpreter(_FakeInterpreter):
-    """Stand-in for a DeepSeek model reached via the openai/ spelling.
+class _FakeGoDeepSeekInterpreter(_FakeInterpreter):
+    """Stand-in for a DeepSeek model reached via the opencode_go/ prefix.
 
-    This is what Llm.load() produces for the opencode_go/ prefix, which is
-    rewritten to openai/<model> because the OpenCode Go gateway speaks the
-    OpenAI wire format. The model is still DeepSeek, so it is subject to the
-    same strict validation and must get the modern shape.
+    Llm.load() used to rewrite that prefix to openai/<model> because the gateway
+    speaks the OpenAI wire format, which hid the route from every gate that
+    branches on the model name. The prefix is now kept, so the route is visible
+    again and this is simply a DeepSeek model on it.
     """
 
     class llm:
-        model = "openai/deepseek-v4.1-flash"
+        model = "opencode_go/deepseek-v4.1-flash"
+        _is_opencode_go = True
 
 
 DEEPSEEK_ROUTE_INTERPRETERS = [
     _FakeStrictDeepSeekInterpreter,
-    _FakeOpenAIDeepSeekInterpreter,
+    _FakeGoDeepSeekInterpreter,
 ]
 
 
-def test_deepseek_via_openai_spelling_uses_modern_tool_calls():
-    """A DeepSeek model behind the opencode_go/ rewrite must get the modern shape.
+def test_deepseek_on_the_go_route_uses_modern_tool_calls():
+    """A DeepSeek model on the Go route must get the modern shape.
 
-    Llm.load() rewrites opencode_go/<model> to openai/<model> for the gateway,
-    so this route was never recognized as DeepSeek and kept emitting legacy
-    function_call/function messages to a provider that rejects them. The
-    gateway answered with a bodiless 400 on every tool-calling turn, and the
-    legacy shape then had to be translated downstream, which is where the
-    malformed tool_call/tool-response histories came from.
+    When the prefix was rewritten away, this route was never recognized as
+    DeepSeek and kept emitting legacy function_call/function messages to a
+    provider that rejects them. The gateway answered with a bodiless 400 on
+    every tool-calling turn, and the legacy shape then had to be translated
+    downstream, which is where the malformed tool_call/tool-response histories
+    came from.
     """
     messages = [
         {"role": "user", "type": "message", "content": "run it"},
@@ -393,7 +394,7 @@ def test_deepseek_via_openai_spelling_uses_modern_tool_calls():
         messages,
         function_calling=True,
         vision=False,
-        interpreter=_FakeOpenAIDeepSeekInterpreter(),
+        interpreter=_FakeGoDeepSeekInterpreter(),
     )
 
     assert not any("function_call" in m for m in out), "the deprecated field is rejected by strict DeepSeek validators"
@@ -532,14 +533,14 @@ def test_non_deepseek_route_keeps_legacy_function_call():
 class _FakeGoInterpreter(_FakeInterpreter):
     """Stand-in for any model reached through the opencode_go/ prefix.
 
-    Llm.load() rewrites the prefix to openai/<model>, so the route cannot be
-    recognised from the model name. These models deliberately do not contain
-    "deepseek": the earlier fix keyed on that and so left every other Go model
-    emitting the legacy shape the gateway rejects.
+    The prefix survives load, so the route is recognisable from the model name.
+    These models deliberately do not contain "deepseek": an earlier fix keyed on
+    that and so left every other Go model emitting the legacy shape the gateway
+    rejects.
     """
 
     class llm:
-        model = "openai/space-bunny-free"
+        model = "opencode_go/space-bunny-free"
         _is_opencode_go = True
 
 
