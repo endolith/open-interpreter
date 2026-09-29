@@ -255,7 +255,11 @@ Qwen models are only served over Anthropic messages, and Grok/GPT-5.6-Luna over
 the OpenAI responses API; selecting one of those raises an error rather than
 letting the gateway quietly answer with a different model.
 
-Override the default base URL with `OPENCODE_GO_API_BASE` or `llm.api_base`.
+Override the default base URL with `OPENCODE_GO_API_BASE` or `llm.api_base`. A
+base URL left over from a different provider (an `api_base` in your profile, or
+a previous `--api_base`) is replaced automatically, so a stale setting cannot
+send your Go key to the wrong host. A `localhost` base is kept, since it is
+usually a proxy you set up on purpose.
 
 ### API Version
 

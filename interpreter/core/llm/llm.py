@@ -95,6 +95,24 @@ _OPENCODE_GO_RESPONSES_MODELS = frozenset(
     }
 )
 
+
+def _is_opencode_go_base(api_base):
+    """Whether an already-configured api_base is OpenCode Go's own.
+
+    Used to tell "the user pointed this model at Go on purpose" (keep it) apart
+    from "a base left over from another provider" (replace it), so that a stale
+    api_base cannot send the Go key to a host that will reject it. Anything
+    local, another vendor, or plain OpenAI is treated as not-Go; localhost is
+    always allowed so a proxy in front of Go still works.
+    """
+    if not api_base:
+        return False
+    base = api_base.lower()
+    if "opencode" in base or "zen/go" in base:
+        return True
+    host = base.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    return host in ("localhost", "127.0.0.1", "::1")
+
 # Models already warned about during this process when both a reasoning_effort and
 # include_reasoning: false are configured. That combination cannot take effect (a
 # disabled model does not think), and providers ignore the effort rather than
@@ -778,10 +796,17 @@ Continuing...
                     "served over chat completions (deepseek-*, glm-*, kimi-*, "
                     "mimo-*), or use a client with full OpenCode Go support."
                 )
-            if self.api_base is None:
-                self.api_base = os.environ.get(
-                    "OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE
-                )
+            # The prefix names the provider, so a base URL left over from another
+            # provider (a local model in default.yaml, a previous --api_base, an
+            # OPENAI_API_BASE) must not silently take over: the Go key would be
+            # sent to that host and OpenAI would reject it with a confusing
+            # "Invalid API key" instead of a request ever reaching opencode.ai.
+            # An explicit Go override still wins, and so does an api_base the
+            # user set for this model on purpose -- only a base that is
+            # demonstrably a *different* provider is replaced.
+            go_base = os.environ.get("OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE)
+            if self.api_base is None or not _is_opencode_go_base(self.api_base):
+                self.api_base = go_base
             if self.api_key is None:
                 self.api_key = os.environ.get("OPENCODE_GO_API_KEY")
             if not self.api_key:
