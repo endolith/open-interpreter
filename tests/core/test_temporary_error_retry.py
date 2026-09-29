@@ -1,5 +1,8 @@
+import io
+
 import litellm
 import pytest
+from rich.console import Console
 
 import interpreter.core.respond as respond_mod
 from interpreter.core.respond import respond
@@ -52,9 +55,20 @@ def _auth_error():
 
 @pytest.fixture
 def panels(monkeypatch):
-    """Record the Rich error panels respond() prints, and skip the 2s retry sleeps."""
+    """Record the Rich error panels respond() prints, rendered to plain text.
+
+    Rich passes a Panel object to rich_print; rendering it through a Console is
+    the only way to see the title/body the user actually sees, since str(Panel)
+    is just a repr.
+    """
     recorded = []
-    monkeypatch.setattr(respond_mod, "rich_print", recorded.append)
+
+    def _render_to_text(renderable):
+        console = Console(file=io.StringIO(), width=80, legacy_windows=False, force_terminal=False)
+        console.print(renderable)
+        recorded.append(console.file.getvalue())
+
+    monkeypatch.setattr(respond_mod, "rich_print", _render_to_text)
     monkeypatch.setattr(respond_mod, "assemble_system_message", lambda interpreter: "system")
     monkeypatch.setattr(respond_mod, "_stdin_is_interactive", lambda: False)
     monkeypatch.setattr(respond_mod.time, "sleep", lambda seconds: None)
@@ -141,3 +155,64 @@ def test_new_error_panel_after_retry_starts_on_a_fresh_line(capsys, panels):
     output = capsys.readouterr().out
     _assert_retry_status_is_terminated(output)
     assert len(panels) == 2, "both the 429 and the auth error should be reported"
+
+
+def test_value_error_is_shown_without_traceback_or_retry_prompt(capsys, panels):
+    """A required-setting ValueError is rendered as its own message, cleanly.
+
+    OI raises ValueError for missing setup (e.g. the opencode_go/ prefix without
+    OPENCODE_GO_API_KEY). Printing the exception directly would unfold a long
+    traceback at the user; worse, the message says "requires an ... API key",
+    which the generic auth handler matches on "api key" and answers with advice
+    about resetting OPENAI_API_KEY -- the wrong credential entirely.
+    """
+    error = ValueError(
+        "The opencode_go/ model prefix requires an OpenCode Go API key. "
+        "Set OPENCODE_GO_API_KEY, or set llm.api_key in your profile."
+    )
+    llm = _FakeLlm([error])
+
+    try:
+        list(respond(_FakeInterpreter(llm)))
+    except ValueError:
+        pytest.fail("ValueError from a required-setting check must not escape respond()")
+
+    output = capsys.readouterr().out + "".join(panels)
+    assert "Configuration error" in output, "the message should render in its own panel"
+    assert "OPENCODE_GO_API_KEY" in output, "the actionable instruction should survive rendering"
+    assert "Traceback" not in output, "misconfiguration is not a crash; no traceback"
+    assert "There might be an issue with your API key(s)" not in output, (
+        "the generic OPENAI_API_KEY auth advice must not show for a known misconfiguration"
+    )
+    assert "OPENAI_API_KEY" not in output.replace("OPENCODE_GO_API_KEY", ""), (
+        "generic OpenAI reset instructions have nothing to do with this error"
+    )
+
+
+def test_value_error_quits_instead_of_prompting_for_retry(capsys, panels):
+    """A config ValueError terminates the turn; retrying cannot fix missing setup.
+
+    Retrying a provider error makes sense because the upstream outage may clear.
+    No amount of retries creates an API key, so prompting y/a/n (or looping in
+    stdin mode) would ask the user to repeat a known-impossible action.
+    """
+    error = ValueError(
+        "The opencode_go/ model prefix requires an OpenCode Go API key. "
+        "Set OPENCODE_GO_API_KEY, or set llm.api_key in your profile."
+    )
+    # respond() calls _stdin_is_interactive() only when it wants to prompt for
+    # retry; a third call would prove retry prompting happened. Record calls
+    # instead so the test fails loudly if a prompt is attempted.
+    calls = []
+    monkeypatched = panels
+    original_is_interactive = respond_mod._stdin_is_interactive
+    respond_mod._stdin_is_interactive = lambda: calls.append(True) or False  # never interactive, just observed
+
+    try:
+        list(respond(_FakeInterpreter(_FakeLlm([error]))))
+    finally:
+        respond_mod._stdin_is_interactive = original_is_interactive
+
+    output = capsys.readouterr().out
+    assert "Retry?" not in output, "a missing key is not retryable"
+    assert not calls, "respond() must not consult stdin for a retry prompt here"
