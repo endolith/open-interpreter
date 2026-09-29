@@ -9,6 +9,10 @@ import traceback
 from ..base_language import BaseLanguage
 
 _ACTIVE_LINE_MARKER_RE = re.compile(r"##active_line(\d+)##")
+# Block-terminating markers. Both are stripped from the line that carries them so
+# neither reaches the user as literal text.
+_END_OF_EXECUTION_RE = re.compile(r"##end_of_execution##")
+_EXECUTION_ERROR_RE = re.compile(r"##execution_error##")
 
 
 class SubprocessLanguage(BaseLanguage):
@@ -199,13 +203,20 @@ class SubprocessLanguage(BaseLanguage):
                                 "content": active_line,
                             }
                         )
-                    if line:
+                    # The marker is usually printed on a line of its own, so what
+                    # is left after removing it is just the newline that
+                    # terminated it. A whitespace-only remainder carries no
+                    # output and would show up as a stray blank line.
+                    if line.strip():
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
                 elif self.detect_end_of_execution(line):
-                    # Sometimes there's a little extra on the same line, so be sure to send that out
-                    line = line.replace("##end_of_execution##", "").strip()
+                    # Both markers end the block, so both must be stripped. An
+                    # error marker that reaches the user verbatim reads as
+                    # protocol noise rather than the error itself.
+                    line = _END_OF_EXECUTION_RE.sub("", line)
+                    line = _EXECUTION_ERROR_RE.sub("", line).strip()
                     if line:
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
