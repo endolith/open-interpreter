@@ -85,26 +85,31 @@ def _user_ts(message, messages, *, _now=None):
 def _use_modern_tool_calls(interpreter) -> bool:
     """Whether to emit modern tool_calls/tool messages instead of legacy function_call/function.
 
-    Strict validators (DeepSeek, especially via OpenRouter's relay) reject an
-    assistant message that carries the deprecated ``function_call`` field with
-    empty content and no ``tool_calls`` key ("Invalid assistant message:
-    content or tool_calls must be set", 400). OpenAI still accepts the legacy
-    shape, so only strict DeepSeek routes get the modern format; everything
-    else keeps the legacy output unchanged.
+    Strict validators reject an assistant message that carries the deprecated
+    ``function_call`` field with empty content and no ``tool_calls`` key
+    ("Invalid assistant message: content or tool_calls must be set", 400). The
+    OpenCode Go gateway does exactly this, and it does so for *every* model it
+    serves, not only the DeepSeek ones. So the whole opencode_go/ route gets the
+    modern shape, while genuinely legacy-tolerant providers keep what they had.
 
-    The openai/ spelling must be included: Llm.load() rewrites the
-    opencode_go/ prefix to openai/<model> because the OpenCode Go gateway
-    speaks the OpenAI wire format, so a DeepSeek model served that way arrives
-    here as "openai/deepseek-...". Matching only the deepseek/ and openrouter/
-    prefixes made those requests emit the legacy shape to a provider that
-    rejects it, which surfaced as a bodiless 400 on every tool-calling turn --
-    and, because the resulting function/function_call pair needs translating in
-    process_messages, that translation is what produced the malformed
-    tool_call/tool-response histories. As with the reasoning_content pass, the
-    match is on the model name so genuine OpenAI models are unaffected.
+    The route cannot be recognised from the model name. Llm.load() rewrites
+    opencode_go/<model> to openai/<model> because the gateway speaks the OpenAI
+    wire format, so a Go model arrives here looking like a plain OpenAI one --
+    openai/space-bunny-free is no more recognisable than openai/gpt-4o. The
+    route flag set during load is the only reliable signal, so ask the Llm
+    rather than the name.
+
+    Matching on the name for the DeepSeek cases stays: those routes are
+    identified by prefix because they are not ours to flag. openai/ is included
+    there so a DeepSeek model reached through the Go rewrite is caught even if
+    the route flag is absent, and the name is checked so genuine OpenAI models
+    are unaffected.
     """
+    llm = getattr(interpreter, "llm", None)
     try:
-        model = getattr(getattr(interpreter, "llm", None), "model", "") or ""
+        if getattr(llm, "_is_opencode_go", False):
+            return True
+        model = getattr(llm, "model", "") or ""
     except Exception:
         return False
     m = model.lower()
