@@ -182,45 +182,51 @@ def test_openai_key_is_not_used_for_go(monkeypatch):
 
 
 def test_stale_profile_key_is_replaced_by_env_key(monkeypatch):
-    """A stale foreign api_key in the profile loses to OPENCODE_GO_API_KEY.
+    """An explicit OPENCODE_GO_API_KEY wins over whatever the profile holds.
 
-    Regression test for the second half of the reported failure: with
-    `llm.api_key: sk-…` (an OpenAI key saved by OI's onboarding) still in
-    default.yaml, the original `if self.api_key is None` guard kept it, and the
-    Go gateway rejected it with exactly `Invalid API key.` -- which blames the
-    Go key that was never sent. The environment override now wins over a
-    non-Go-shaped profile key.
+    Regression test for the second half of the reported failure: with a key left
+    in default.yaml from another provider, the original `if self.api_key is None`
+    guard kept it and the Go gateway rejected it with `Invalid API key.` -- which
+    blames the Go key that was never sent.
+
+    This was originally written to assert that the environment wins only over a
+    *non-Go-shaped* profile key, on the assumption that Go keys carry an `oc_`
+    prefix and could be told apart from an OpenAI `sk-` key. That premise is
+    wrong: Go keys are `sk-` plus 64 characters, and every other major provider
+    uses `sk-` too, so the two cannot be distinguished by shape. The rule is
+    therefore stated unconditionally -- an explicit environment key wins -- which
+    is both predictable and what the documentation promises.
     """
-    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "sk-from-env")
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
-    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
+    interpreter.llm.api_key = "sk-" + "9" * 64
+
     interpreter.llm.load()
-    assert interpreter.llm.api_key == "oc_sk_from_env"
+
+    assert interpreter.llm.api_key == "sk-from-env"
 
 
-def test_go_shaped_profile_key_is_kept(monkeypatch):
-    """A profile key that is already OpenCode-shaped is deliberate config, kept."""
-    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
-    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
-    interpreter.llm.api_key = "oc_sk_from_profile"
-    interpreter.llm.load()
-    assert interpreter.llm.api_key == "oc_sk_from_profile"
+def test_unrecognised_profile_key_without_env_key_fails_loudly(monkeypatch):
+    """No OPENCODE_GO_API_KEY and an unrecognisable profile key: refuse, never send.
 
+    The key is not shaped like any provider credential, so sending it would earn
+    the same `Invalid API key.` failure while burying the real problem. Clearing
+    it and raising names the actual fix instead.
 
-def test_foreign_profile_key_without_env_key_fails_loudly(monkeypatch):
-    """No OPENCODE_GO_API_KEY and a foreign profile key: refuse, never send it.
-
-    The profile key belongs to another provider. Falling back to it would send
-    it to the Go gateway and produce the exact `Invalid API key.` failure again;
-    clearing it and raising names the actual problem instead.
+    Renamed and re-keyed from the earlier version of this test: it treated
+    `sk-…` as the foreign shape, which was based on the incorrect belief that Go
+    keys do not start with `sk-`. Since they do, `sk-` is now a *recognised*
+    shape and the case is covered by
+    test_go_key_from_profile_is_kept; what is left to test is a key that is not
+    a credential of any recognisable form.
     """
     monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
     interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
-    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
+    interpreter.llm.api_key = "not-a-recognised-credential"
 
     with pytest.raises(ValueError, match="requires an OpenCode Go API key"):
         interpreter.llm.load()
-    assert interpreter.llm.api_key != "sk-unrelated-openai-key"
+    assert interpreter.llm.api_key is None
 
 
 @pytest.mark.parametrize(
@@ -248,3 +254,177 @@ def test_chat_completions_models_are_accepted(monkeypatch):
         interpreter = _configure(f"opencode_go/{model}", monkeypatch)
         interpreter.llm.load()
         assert interpreter.llm.model == f"openai/{model}"
+
+
+# --- Key shape, and the Go catalog -----------------------------------------
+#
+# Both of these came out of reading the published docs rather than the code, and
+# both contradicted what the code assumed. See the two docstrings below.
+
+
+def test_real_go_key_shape_is_recognised():
+    """Go keys are `sk-` + 64 chars, so a real key must not be treated as foreign.
+
+    This predicate decides whether a key already in the profile is kept or
+    discarded as belonging to another provider. It previously only recognised an
+    `oc_` prefix, which OpenCode does not issue: the console's `Key.create`
+    produces `sk-` plus 64 characters, and anomalyco/opencode#40343 describes a
+    Go key as "sk-... API key from the Zen console". The effect was that a valid
+    Go key saved in a profile was discarded and the user was told to set
+    OPENCODE_GO_API_KEY instead, so the profile route could never work.
+    """
+    from interpreter.core.llm.llm import _is_opencode_go_key
+
+    assert _is_opencode_go_key("sk-" + "a" * 64) is True
+    # Still accepted, for profiles written while the oc_ assumption held.
+    assert _is_opencode_go_key("oc_sk_abc123") is True
+    # Only a key that is neither shape is rejected.
+    assert _is_opencode_go_key("") is False
+    assert _is_opencode_go_key(None) is False
+
+
+def test_go_key_from_profile_is_kept(monkeypatch):
+    """End to end: a real-shaped Go key in a profile survives load.
+
+    This is the path docs/settings/all-settings.mdx tells users to take ("set
+    llm.api_key in your profile"), so it has to work without the environment
+    variable also being set.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    key = "sk-" + "b" * 64
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = key
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == key
+
+
+def test_no_key_at_all_still_fails_loudly(monkeypatch):
+    """Widening the accepted key shapes must not turn into a silent default.
+
+    Refusing when there is genuinely no key is the whole point of the check; the
+    prefix test only rejects foreign-looking keys, so the empty case is what
+    carries the guarantee.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = None
+
+    with pytest.raises(ValueError, match="requires an OpenCode Go API key"):
+        interpreter.llm.load()
+
+
+def test_vision_capable_go_model_is_detected(monkeypatch):
+    """A Go model that takes images must not have them turned into text.
+
+    LiteLLM has no entry for the `openai/<go-model>` spelling, so its vision
+    probe returns False for every Go model. Without an explicit answer, OI
+    renders images to text descriptions up front, so the capability is lost
+    silently, with no error to notice.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/deepseek-v4-flash-vision-exp", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.supports_vision is True
+
+
+def test_non_vision_go_model_is_left_to_auto_detection(monkeypatch):
+    """Only the published vision model is hardcoded; others are not guessed.
+
+    Claiming vision for a model that does not have it produces the mirror-image
+    failure -- raw image parts sent to a text-only model.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.supports_vision is None
+
+
+# The endpoint split below is transcribed from the table in opencode.ai/docs/go
+# (retrieved 2026-09-29). The live catalog is GET /zen/go/v1/models; this copy
+# exists because OI must refuse an unsupported model before making a request.
+MESSAGES_MODELS = {
+    "minimax-m2.5",
+    "minimax-m2.7",
+    "minimax-m3",
+    "qwen3.6-plus",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.8-flash",
+    "qwen3.8-max",
+}
+
+RESPONSES_MODELS = {
+    "grok-4.6",
+    "grok-4.7",
+    "gpt-5.6-luna",
+    "gpt-6-luna",
+    "muse-spark-1.2-contributor",
+    "muse-spark-1.3-contributor",
+}
+
+CHAT_COMPLETIONS_MODELS = {
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "kimi-k2.6",
+    "kimi-k2.7-code",
+    "kimi-k3",
+    "longcat-2.0",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-v4-pro",
+    "deepseek-v4.1-flash",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro",
+    "hy3",
+    "hy4-preview",
+    "space-bunny-free",
+}
+
+
+def test_guard_lists_match_the_published_endpoint_table():
+    """The three lists must partition the documented catalog exactly.
+
+    An earlier version generated the Qwen ids with a range comprehension, which
+    invented models that do not exist (qwen3.5-plus, qwen3.6-max, qwen3.8-plus)
+    while the range drifted out of step with the catalog. Explicit sets cannot
+    drift that way without a deliberate edit, and this test fails if one of them
+    is edited inconsistently with the docs.
+    """
+    from interpreter.core.llm.llm import (
+        _OPENCODE_GO_MESSAGES_MODELS,
+        _OPENCODE_GO_RESPONSES_MODELS,
+    )
+
+    assert set(_OPENCODE_GO_MESSAGES_MODELS) == MESSAGES_MODELS
+    assert set(_OPENCODE_GO_RESPONSES_MODELS) == RESPONSES_MODELS
+    # No model may be in two lists, or the refusal would be ambiguous.
+    assert not MESSAGES_MODELS & RESPONSES_MODELS
+    assert not MESSAGES_MODELS & CHAT_COMPLETIONS_MODELS
+    assert not RESPONSES_MODELS & CHAT_COMPLETIONS_MODELS
+
+
+@pytest.mark.parametrize("model", sorted(CHAT_COMPLETIONS_MODELS))
+def test_every_documented_chat_model_loads(model, monkeypatch):
+    """Each chat-completions model in the catalog resolves to its openai/ form.
+
+    Parametrised over the whole catalog so a newly documented model cannot be
+    added to the guard lists without also being checked here, and so a model that
+    is wrongly listed as unsupported fails loudly instead of being refused at
+    request time.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure(f"opencode_go/{model}", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.model == f"openai/{model}"

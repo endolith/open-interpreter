@@ -226,7 +226,11 @@ llm:
 
 Use an OpenCode Go subscription by prefixing the model with `opencode_go/`. Set
 `OPENCODE_GO_API_KEY` to your key from [opencode.ai](https://opencode.ai/docs/go/)
-(not your OpenAI key — it is a different credential).
+(not your OpenAI key — it is a different credential). A key saved in your profile
+as `llm.api_key` also works; if both are set, `OPENCODE_GO_API_KEY` wins. Note
+that a Go key starts with `sk-` just like an OpenAI one, so the two cannot be
+told apart automatically — if a request fails with `Invalid API key.`, check
+that the key in your profile really is the Go one.
 
 <CodeGroup>
 
@@ -241,6 +245,7 @@ interpreter.llm.model = "opencode_go/deepseek-v4-flash"
 ```yaml Profile
 llm:
   model: opencode_go/deepseek-v4-flash
+  api_key: sk-...
 ```
 
 </CodeGroup>
@@ -250,10 +255,18 @@ stable per-conversation id so provider routing and prompt caching stay warm. A
 `%reset` starts a new conversation and therefore a new session id.
 
 Go serves each model over one specific endpoint. Open Interpreter speaks chat
-completions, so the DeepSeek, GLM, Kimi, MiMo and Hy3 families work. MiniMax and
-Qwen models are only served over Anthropic messages, and Grok/GPT-5.6-Luna over
-the OpenAI responses API; selecting one of those raises an error rather than
-letting the gateway quietly answer with a different model.
+completions, so the DeepSeek, GLM, Kimi, MiMo, LongCat and Hy families work.
+MiniMax and Qwen models are only served over Anthropic messages, and Grok,
+GPT-5.6-Luna, GPT-6-Luna and Muse Spark over the OpenAI responses API; selecting
+one of those raises an error rather than letting the gateway quietly answer with
+a different model.
+
+LiteLLM does not know these model ids, so Open Interpreter answers for the ones
+whose capability would otherwise be silently wrong: `deepseek-v4-flash-vision-exp`
+is treated as vision-capable, and without that its images would be replaced by
+text descriptions with no error. Other Go models are left to auto-detection.
+`GET https://opencode.ai/zen/go/v1/models` returns the live catalog if you want
+to confirm what is currently served.
 
 Override the default base URL with `OPENCODE_GO_API_BASE` or `llm.api_base`. A
 base URL left over from a different provider (an `api_base` in your profile, or

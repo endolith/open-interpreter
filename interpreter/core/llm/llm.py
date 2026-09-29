@@ -75,13 +75,23 @@ _openrouter_model_entries = {}
 # Source: https://opencode.ai/docs/go/ (endpoint table), which also serves the
 # live list at https://opencode.ai/zen/go/v1/models.
 _OPENCODE_GO_DEFAULT_BASE = "https://opencode.ai/zen/go/v1"
+# Go models that are NOT served over /chat/completions, keyed by the wire format
+# they do use. Taken from the endpoint table in opencode.ai/docs/go (retrieved
+# 2026-09-29); the live catalog is also at GET https://opencode.ai/zen/go/v1/models.
+# LiteLLM has no entry for these ids, so OI has to carry the fact itself.
+#
+# Everything else in the Go catalog -- glm-*, kimi-*, mimo-*, longcat-*, hy*,
+# deepseek-v4*, space-bunny-free -- is chat/completions and works unmodified.
 _OPENCODE_GO_MESSAGES_MODELS = frozenset(
     {
         "minimax-m2.5",
         "minimax-m2.7",
         "minimax-m3",
+        "qwen3.6-plus",
+        "qwen3.7-max",
+        "qwen3.7-plus",
         "qwen3.8-flash",
-        *(f"qwen3.{n}-{tier}" for n in range(5, 9) for tier in ("plus", "max")),
+        "qwen3.8-max",
     }
 )
 _OPENCODE_GO_RESPONSES_MODELS = frozenset(
@@ -92,6 +102,16 @@ _OPENCODE_GO_RESPONSES_MODELS = frozenset(
         "gpt-6-luna",
         "muse-spark-1.2-contributor",
         "muse-spark-1.3-contributor",
+    }
+)
+# Go models that accept image input. LiteLLM's registry does not know the Go
+# ids, so `litellm.supports_vision` returns False for all of them and OI would
+# silently render images to text descriptions instead of sending them -- a
+# capability loss with no error. Only "vision" in the published name marks a Go
+# model as multimodal, so the list is deliberately small rather than guessed.
+_OPENCODE_GO_VISION_MODELS = frozenset(
+    {
+        "deepseek-v4-flash-vision-exp",
     }
 )
 
@@ -117,13 +137,24 @@ def _is_opencode_go_base(api_base):
 def _is_opencode_go_key(api_key):
     """Whether an already-configured api_key is shaped like an OpenCode credential.
 
-    OpenCode issues keys starting with ``oc_`` (``oc_sk_...``). Anything else is
-    assumed to belong to another provider, so that stale keys from the profile --
-    an OpenAI key left there by OI's onboarding, for example -- cannot be sent
-    to the gateway instead of OPENCODE_GO_API_KEY. Sending a foreign key yields
-    exactly ``Invalid API key.``, which blames the Go key that never arrived.
+    OpenCode issues Zen/Go keys as ``sk-`` followed by 64 characters (see the
+    console's ``Key.create`` in anomalyco/opencode, and anomalyco/opencode#40343,
+    where a Go key is described as "sk-... API key from the Zen console"). An
+    earlier version of this assumed an ``oc_`` prefix and consequently treated
+    every real Go key as foreign, so a key saved in a profile was discarded and
+    the user was told to set ``OPENCODE_GO_API_KEY`` instead -- the profile path
+    documented in docs/settings/all-settings.mdx could not work.
+
+    ``oc_`` is still accepted: it is accepted by the gateway, and profiles
+    written when that was assumed may hold such a value.
+
+    Note the limit of prefix matching here: ``sk-`` is also OpenAI's own format,
+    so this cannot actually tell a Go key from an OpenAI one. It only rejects
+    keys that are neither shape. That asymmetry is deliberate -- wrongly
+    rejecting a valid Go key blocks a working configuration, while a genuinely
+    foreign key still fails with the gateway's own clear "Invalid API key."
     """
-    return bool(api_key) and api_key.lower().startswith(("oc_",))
+    return bool(api_key) and api_key.lower().startswith(("sk-", "oc_"))
 
 # Models already warned about during this process when both a reasoning_effort and
 # include_reasoning: false are configured. That combination cannot take effect (a
@@ -819,22 +850,23 @@ Continuing...
             go_base = os.environ.get("OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE)
             if self.api_base is None or not _is_opencode_go_base(self.api_base):
                 self.api_base = go_base
-            # Same reasoning as api_base: the profile may still hold an api_key
-            # saved for a different provider (often an OpenAI key from OI's
-            # onboarding). Sending that to the Go gateway produces exactly
-            # "Invalid API key." at 401, which blames the Go key the user set
-            # via the environment but never reaches the gateway. An explicit
-            # OPENCODE_GO_API_KEY therefore wins over a non-Go-shaped profile
-            # key; a Go-shaped key the user put in the profile is kept.
-            if self.api_key is None or not _is_opencode_go_key(self.api_key):
-                env_key = os.environ.get("OPENCODE_GO_API_KEY")
-                if env_key:
-                    self.api_key = env_key
-                # Without an override, a non-Go-shaped profile key cannot be
-                # sent to the gateway; leaving it in place would repeat the
-                # "Invalid API key." failure the check above exists to prevent.
-                elif self.api_key is not None and not _is_opencode_go_key(self.api_key):
-                    self.api_key = None
+            # Precedence is: an explicit OPENCODE_GO_API_KEY, then a Go-shaped key
+            # already in the profile, then a loud failure.
+            #
+            # The shape test cannot be the deciding vote. Go keys are `sk-`, and so
+            # are OpenAI, Anthropic and DashScope keys, so no prefix separates a
+            # Go credential from a foreign one -- the original design assumed they
+            # differed (an `oc_` prefix), which silently discarded every real Go
+            # key saved in a profile. A weak signal must therefore never override
+            # an explicit choice: when the environment variable is set it wins,
+            # and a profile key is only discarded when it is not recognisable at
+            # all, which leaves the loud error below rather than a 401 from the
+            # gateway blaming a key the user believes they set correctly.
+            env_key = os.environ.get("OPENCODE_GO_API_KEY")
+            if env_key:
+                self.api_key = env_key
+            elif not _is_opencode_go_key(self.api_key):
+                self.api_key = None
             if not self.api_key:
                 raise ValueError(
                     "The opencode_go/ model prefix requires an OpenCode Go API key. "
@@ -848,6 +880,12 @@ Continuing...
             # passes the check but earns no caching. The value is filled in per
             # request (see run()) rather than stored here, so that it tracks
             # conversation_id when %reset mints a new one.
+            # LiteLLM does not know the openai/<go-model> spelling, so its vision
+            # probe reports False for every Go model; without this a Go model
+            # that does take images would have them replaced by text
+            # descriptions, silently and without an error.
+            if model_name in _OPENCODE_GO_VISION_MODELS and self.supports_vision is None:
+                self.supports_vision = True
             self._is_opencode_go = True
             self.model = f"openai/{model_name}"
 
