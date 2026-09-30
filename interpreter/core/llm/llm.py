@@ -171,6 +171,10 @@ _OPENCODE_GO_MODEL_LIMITS = {
     "qwen3.8-flash": (1000000, 131072),
     "qwen3.8-max": (1000000, 131072),
     "space-bunny-free": (1048576, 524288),
+    # Dropped from the live catalog as superseded by glm-5.2/5.3, but still
+    # listed in the published endpoint table, so it keeps a real limit instead of
+    # falling back to 8000 for a model that is plainly large.
+    "glm-5.1": (1000000, 131072),
 }
 
 # Process-lifetime cache: model name -> (context_window, max_output). Fetching is
@@ -442,13 +446,27 @@ class Llm:
 
         # Detect function support
         if self.supports_functions == None:
-            try:
-                if litellm.supports_function_calling(model):
-                    self.supports_functions = True
-                else:
+            # Every Go model is a coding model served over /chat/completions, and
+            # the gateway's whole purpose is agent traffic, so all of them take
+            # tools. Asking litellm.supports_function_calling instead returns
+            # False for all of them -- it has no entry for these ids under any
+            # spelling -- and that is not a harmless miss: a False here does not
+            # merely disable a feature, it selects run_text_llm() instead of the
+            # tool-calling runner, so no tool schema is ever sent and the model
+            # has to hand back fenced code blocks instead of tool calls. That is
+            # the worst version of this bug class, because it looks like the
+            # model is just being awkward with tools rather than like a
+            # misconfiguration.
+            if self._is_opencode_go:
+                self.supports_functions = True
+            else:
+                try:
+                    if litellm.supports_function_calling(model):
+                        self.supports_functions = True
+                    else:
+                        self.supports_functions = False
+                except:
                     self.supports_functions = False
-            except:
-                self.supports_functions = False
 
         # Detect vision support
         if self.supports_vision == None:

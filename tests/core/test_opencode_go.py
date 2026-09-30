@@ -581,3 +581,69 @@ def test_non_go_providers_do_not_use_the_go_catalog(monkeypatch):
 
     assert interpreter.llm.context_window == expected
     assert interpreter.llm._is_opencode_go is False
+
+
+# --- Function calling --------------------------------------------------------
+#
+# The most damaging of the "LiteLLM has no entry" misses, because it does not
+# merely disable a feature: a False selects the text runner instead of the
+# tool-calling one.
+
+
+def test_go_models_support_function_calling(monkeypatch):
+    """Every Go model must take the tool-calling path.
+
+    litellm.supports_function_calling returns False for all of them, having no
+    entry under any spelling. Taking that at face value routes the model into
+    run_text_llm(): no tool schema is sent, and the model has to hand back
+    fenced code blocks instead of tool calls. That reads as the model being
+    awkward with tools rather than as a misconfiguration, which is why it can
+    go unnoticed.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    for model in ("space-bunny-free", "deepseek-v4.1-flash", "glm-5.1", "kimi-k2.6"):
+        interpreter = _configure(f"opencode_go/{model}", monkeypatch)
+        interpreter.llm.load()
+
+        assert interpreter.llm.supports_functions is None, (
+            "load() must not decide this; it is resolved on the first request"
+        )
+        params = _request_params(interpreter)
+        assert "tools" in params, f"{model} was sent no tool schema"
+        tool_names = {tool["function"]["name"] for tool in params["tools"]}
+        assert "execute" in tool_names
+
+
+def test_non_go_models_still_ask_litellm(monkeypatch):
+    """The Go answer must not be applied to other providers.
+
+    A blanket True would send a tool schema to a model that cannot use one, or
+    to a provider that rejects unknown keys.
+    """
+    interpreter = _configure("openai/gpt-4o", monkeypatch)
+    interpreter.llm._is_loaded = True
+    interpreter.llm._is_opencode_go = False
+    interpreter.llm.context_window = 128_000
+    interpreter.llm.max_tokens = 4_096
+
+    params = _request_params(interpreter)
+
+    # gpt-4o does support tools, so the outcome matches -- what matters is that
+    # it was decided by litellm rather than by the Go branch.
+    assert interpreter.llm._is_opencode_go is False
+    assert "tools" in params
+
+
+def test_explicit_supports_functions_false_is_respected(monkeypatch):
+    """A user who turns tools off must stay off.
+
+    The Go branch only fills in an unset value, the same rule as the context
+    window; overriding it would make the flag impossible to disable.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+    interpreter.llm.supports_functions = False
+
+    params = _request_params(interpreter)
+
+    assert "tools" not in params
