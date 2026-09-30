@@ -278,6 +278,35 @@ def test_chat_completion_image_url_without_base64_raises(client_no_raise):
     assert response.status_code == 500
 
 
+def test_chat_completion_list_content_while_code_is_pending(client_no_raise, interpreter):
+    """
+    Parts-list content sent while a code block awaits approval is handled, not 500.
+
+    The approval test called .lower() on the request content, which is str or a
+    list of OpenAI content parts. A vision-capable client answering "Do you want
+    to run this code?" sends the list form, so the endpoint raised AttributeError
+    at exactly the moment the user was trying to reply to the confirmation.
+    """
+    interpreter.messages = [
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "print(1)",
+        }
+    ]
+    interpreter.chat = mock.MagicMock(
+        return_value=[{"role": "assistant", "content": "ok"}]
+    )
+
+    response = client_no_raise.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": [{"type": "text", "text": "yes"}]}]},
+    )
+
+    assert response.status_code == 200
+
+
 def test_chat_completion_stream_run_code(client, server_pair):
     """Streaming a 'yes' after a code message streams chunks from _respond_and_store."""
     _, interpreter = server_pair
