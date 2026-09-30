@@ -266,8 +266,16 @@ LiteLLM does not know these model ids, so Open Interpreter answers for the ones
 whose capability would otherwise be silently wrong: `deepseek-v4-flash-vision-exp`
 is treated as vision-capable, and without that its images would be replaced by
 text descriptions with no error. Other Go models are left to auto-detection.
-`GET https://opencode.ai/zen/go/v1/models` returns the live catalog if you want
-to confirm what is currently served.
+
+The context window is looked up from the model catalog rather than assumed.
+OpenCode Go's own `/zen/go/v1/models` endpoint returns ids only, so Open
+Interpreter reads the upstream catalog that OpenCode itself renders `/models`
+from, and falls back to a copy of it if that is unreachable. Without this,
+LiteLLM knows nothing about these ids and every Go conversation is trimmed to an
+8000-token window regardless of the model's real size — 8,000 against
+`space-bunny-free`'s 1,048,576. Anything you set yourself with `context_window`
+or `max_tokens` still takes precedence. `GET https://opencode.ai/zen/go/v1/models`
+lists what is currently served.
 
 Override the default base URL with `OPENCODE_GO_API_BASE` or `llm.api_base`. A
 base URL left over from a different provider (an `api_base` in your profile, or

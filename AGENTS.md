@@ -114,6 +114,16 @@ Three things to know before adding another prefix:
   inside `run()`. LiteLLM has no `opencode_go` provider, so both parts are
   needed. The outgoing request is identical to the rewritten form — verified
   against the gateway.
+- **A provider prefix that LiteLLM does not know needs its metadata supplied
+  explicitly.** LiteLLM has no entry for these ids, so anything it would
+  otherwise answer (context window, vision support, tool-call format) comes back
+  as a miss. A miss is worse than an answer when the consequence is silent: an
+  unknown context window means trimming to 8000 tokens, and unknown vision means
+  images replaced by text descriptions. `opencode_go/` hardcodes the endpoint
+  split and the one vision-capable model, and reads context/output limits from
+  the upstream catalog (`models.dev`, provider `opencode-go`) with a static copy
+  as fallback. Note the gateway's own `/zen/go/v1/models` returns ids only — it
+  carries no limits, which is why the upstream catalog is used instead.
 - Pointing a model at an `api_base` makes LiteLLM resolve an unset `api_key` from
   the environment, so an ambient `OPENAI_API_KEY` gets sent as `Authorization:
   Bearer` to that host. A prefix with its own credential must set `api_key`

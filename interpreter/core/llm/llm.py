@@ -115,6 +115,131 @@ _OPENCODE_GO_VISION_MODELS = frozenset(
     }
 )
 
+# Where the Go catalog's metadata comes from, and why not the gateway itself.
+#
+# The gateway does expose GET /zen/go/v1/models, but that response is an
+# OpenAI-shaped list of ids only: no context window, no per-model endpoint. The
+# upstream catalog that OpenCode itself renders /models from is models.dev, which
+# does carry `limit.context` and `limit.output` for the opencode-go provider. The
+# same conclusion is reached independently in other clients of this gateway,
+# which keep a static context-window table *and* consult models.dev, precisely
+# because the gateway omits the numbers.
+#
+# So: models.dev is the source of truth, fetched once per process and cached in
+# memory, and the table below is the offline fallback. The fallback is not
+# decoration -- this lookup runs during load(), so an unreachable or
+# rate-limited catalog must not block a conversation, and a wrong context window
+# is far less harmful than none.
+_MODELS_DEV_URL = "https://models.dev/api.json"
+_MODELS_DEV_PROVIDER = "opencode-go"
+_MODELS_DEV_TIMEOUT = 5.0
+
+# Context and output limits for the Go catalog, from models.dev (retrieved
+# 2026-09-29). Only consulted when the live catalog cannot be reached, so a
+# network failure costs accuracy rather than correctness.
+_OPENCODE_GO_MODEL_LIMITS = {
+    "deepseek-v4-flash": (1000000, 384000),
+    "deepseek-v4-flash-vision-exp": (1000000, 384000),
+    "deepseek-v4-pro": (1000000, 384000),
+    "deepseek-v4.1-flash": (1000000, 384000),
+    "glm-5.2": (1000000, 131072),
+    "glm-5.3": (1000000, 131072),
+    "glm-5.3-flash": (1000000, 131072),
+    "gpt-5.6-luna": (1050000, 128000),
+    "gpt-6-luna": (1050000, 128000),
+    "grok-4.5": (500000, 500000),
+    "grok-4.6": (500000, 500000),
+    "grok-4.7": (500000, 500000),
+    "hy3": (256000, 128000),
+    "hy4-preview": (1024000, 64000),
+    "kimi-k2.6": (262144, 65536),
+    "kimi-k2.7-code": (262144, 262144),
+    "kimi-k3": (1048576, 131072),
+    "longcat-2.0": (1000000, 131072),
+    "longcat-2.5-preview-free": (1000000, 131072),
+    "mimo-v2.5": (1000000, 128000),
+    "mimo-v2.5-pro": (1048576, 128000),
+    "mimo-v2.6-flash": (1048576, 131072),
+    "mimo-v2.6-pro": (1048576, 131072),
+    "minimax-m2.7": (204800, 131072),
+    "minimax-m3": (1000000, 131072),
+    "muse-spark-1.2-contributor": (1048576, 131072),
+    "muse-spark-1.3-contributor": (1048576, 131072),
+    "qwen3.6-plus": (1000000, 65536),
+    "qwen3.7-max": (1000000, 65536),
+    "qwen3.7-plus": (1000000, 65536),
+    "qwen3.8-flash": (1000000, 131072),
+    "qwen3.8-max": (1000000, 131072),
+    "space-bunny-free": (1048576, 524288),
+}
+
+# Process-lifetime cache: model name -> (context_window, max_output). Fetching is
+# deliberately not repeated per request; the catalog changes on the scale of
+# weeks, not seconds. Underscore-prefixed because tests reset it to exercise the
+# offline fallback.
+_opencode_go_limits_cache = None
+
+
+def _fetch_opencode_go_model_limits():
+    """Read the Go catalog's context/output limits from models.dev.
+
+    Returns a dict keyed by model id, or None if the catalog could not be read.
+    Never raises: this runs during load() and a conversation must not fail
+    because a third-party metadata site is down, rate-limiting, or unreachable
+    from a restricted network.
+    """
+    try:
+        import json
+        import urllib.request
+
+        # models.dev 403s a default urllib User-Agent, so identify the client.
+        request = urllib.request.Request(
+            _MODELS_DEV_URL, headers={"User-Agent": "open-interpreter"}
+        )
+        with urllib.request.urlopen(request, timeout=_MODELS_DEV_TIMEOUT) as response:
+            catalog = json.load(response)
+        provider = (catalog or {}).get(_MODELS_DEV_PROVIDER) or {}
+        models = provider.get("models") or {}
+        limits = {}
+        for model_id, meta in models.items():
+            limit = (meta or {}).get("limit") or {}
+            context, output = limit.get("context"), limit.get("output")
+            if isinstance(context, int) and context > 0:
+                limits[model_id] = (context, output if isinstance(output, int) else None)
+        return limits or None
+    except Exception:
+        return None
+
+
+def _opencode_go_model_limits():
+    """Every Go model's limits, from the live catalog, fetched at most once.
+
+    Without this, load() falls through to litellm.get_model_info, which knows
+    nothing about these ids under any spelling, and the conversation is silently
+    trimmed to an 8000-token window. For space-bunny-free that is 8000 against
+    a real 1,048,576 -- a hundredfold over-trim that discards history the model
+    could have used. The user is never asked to know this number; the catalog
+    carries it.
+    """
+    global _opencode_go_limits_cache
+    if _opencode_go_limits_cache is None:
+        _opencode_go_limits_cache = _fetch_opencode_go_model_limits() or {}
+    return _opencode_go_limits_cache
+
+
+def _opencode_go_limits_for(model_name):
+    """(context_window, max_output) for a Go model id, or (None, None).
+
+    An explicit context_window or max_tokens set by the user always wins; this
+    only fills in what they left unset.
+    """
+    limits = _opencode_go_model_limits()
+    found = limits.get(model_name) or _OPENCODE_GO_MODEL_LIMITS.get(model_name)
+    if not found:
+        return None, None
+    context, output = found
+    return context, output
+
 
 def _is_opencode_go_base(api_base):
     """Whether an already-configured api_base is OpenCode Go's own.
@@ -984,7 +1109,23 @@ Continuing...
 
         # Validate LLM should be moved here!!
 
-        if self.context_window == None:
+        # A Go model resolves from the catalog first. litellm.get_model_info knows
+        # nothing about these ids under any spelling, so without this the
+        # conversation is trimmed to an 8000-token default regardless of how large
+        # the model actually is.
+        if self._is_opencode_go:
+            _go_context, go_output = _opencode_go_limits_for(
+                self.model.split("/", 1)[1]
+            )
+            if self.context_window is None and _go_context:
+                self.context_window = _go_context
+            if self.max_tokens is None:
+                # Mirror the generic rule below: a fifth of the window, capped by
+                # the model's real output limit when the catalog states one.
+                if self.context_window:
+                    _output_budget = min(int(self.context_window * 0.2), go_output or 0)
+                    self.max_tokens = _output_budget or None
+        elif self.context_window == None:
             try:
                 model_info = litellm.get_model_info(model=self.model)
                 self.context_window = model_info["max_input_tokens"]

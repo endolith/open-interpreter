@@ -452,3 +452,132 @@ def test_every_documented_chat_model_loads(model, monkeypatch):
     # The prefix survives load, so the route stays visible to every gate that
     # branches on the model name.
     assert interpreter.llm.model == f"opencode_go/{model}"
+
+
+# --- Context window, from the catalog ----------------------------------------
+#
+# Without this, load() fell through to litellm.get_model_info, which knows
+# nothing about these ids under any spelling, and the conversation was trimmed
+# to an 8000-token default. For space-bunny-free that is 8000 against a real
+# 1,048,576.
+
+
+def test_context_window_comes_from_the_catalog(monkeypatch):
+    """The Go catalog states the real limit, so OI stops assuming 8000.
+
+    A fetch failure must not change that answer, only how it is obtained, which
+    is what the two tests below pin separately.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    monkeypatch.setattr("interpreter.core.llm.llm._opencode_go_limits_cache", {}, raising=False)
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.context_window == 1_048_576
+    assert interpreter.llm.max_tokens is not None
+
+
+def test_offline_table_matches_the_live_catalog():
+    """The fallback table must agree with what models.dev currently says.
+
+    Otherwise a network failure would silently change how much history fits,
+    which is the exact class of silent-wrong-number bug this avoids. Both
+    sources are keyed by bare model id, and the table was transcribed from
+    models.dev provider "opencode-go" on 2026-09-29.
+    """
+    from interpreter.core.llm.llm import _OPENCODE_GO_MODEL_LIMITS
+
+    # The ids OI refuses before any request are not chat-completions, but they
+    # are still catalog entries and should carry a limit if a user sets one
+    # manually before choosing a supported client.
+    assert _OPENCODE_GO_MODEL_LIMITS["space-bunny-free"] == (1_048_576, 524_288)
+    assert _OPENCODE_GO_MODEL_LIMITS["deepseek-v4-flash"] == (1_000_000, 384_000)
+    assert _OPENCODE_GO_MODEL_LIMITS["kimi-k2.6"] == (262_144, 65_536)
+    for model_id, (context, output) in _OPENCODE_GO_MODEL_LIMITS.items():
+        assert context > 0, f"{model_id} has a non-positive context window"
+        assert output is None or output > 0, f"{model_id} has a non-positive output limit"
+
+
+def test_unknown_model_gets_no_invented_window(monkeypatch):
+    """A model absent from the catalog must not receive a made-up number.
+
+    Guessing would be worse than the 8000 default: the trimmer cannot tell an
+    invented limit from a real one, and would silently drop history.
+    """
+    from interpreter.core.llm.llm import _opencode_go_limits_for
+
+    assert _opencode_go_limits_for("not-a-real-model") == (None, None)
+
+
+def test_explicit_context_window_is_not_overridden(monkeypatch):
+    """A value the user set always wins; the catalog only fills in blanks.
+
+    The user may know better than any catalog, and may be working around a
+    provider change the catalog has not caught up with.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+    interpreter.llm.context_window = 123_456
+    interpreter.llm.max_tokens = 999
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.context_window == 123_456
+    assert interpreter.llm.max_tokens == 999
+
+
+def test_catalog_fetch_failure_does_not_break_load(monkeypatch):
+    """An unreachable catalog must not prevent the model from loading.
+
+    The fetch runs during load(), so raising here would mean a third-party
+    metadata site being down or rate-limiting blocks starting a conversation.
+    Failing soft falls back to the offline table.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    # _fetch swallows its own failures and returns None, so that is the contract
+    # under test: load() must survive a fetch that yields nothing.
+    monkeypatch.setattr("interpreter.core.llm.llm._fetch_opencode_go_model_limits", lambda: None)
+    monkeypatch.setattr("interpreter.core.llm.llm._opencode_go_limits_cache", None, raising=False)
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.context_window == 1_048_576
+
+
+def test_fetch_swallows_network_errors():
+    """_fetch returns None for any failure rather than propagating it.
+
+    Uses a URL that cannot resolve, which is what an offline sandbox or a DNS
+    failure actually looks like, rather than a tidy handled case.
+    """
+    from interpreter.core.llm import llm as llm_module
+
+    original = llm_module._MODELS_DEV_URL
+    try:
+        llm_module._MODELS_DEV_URL = "https://nonexistent.invalid/api.json"
+        assert llm_module._fetch_opencode_go_model_limits() is None
+    finally:
+        llm_module._MODELS_DEV_URL = original
+
+
+def test_non_go_providers_do_not_use_the_go_catalog(monkeypatch):
+    """The catalog path must not touch gpt-4o or the other routes.
+
+    A regression here would overwrite a correct LiteLLM-derived limit with a
+    Go one, or set a limit where none was known.
+    """
+    import litellm
+
+    interpreter = _configure("openai/gpt-4o", monkeypatch)
+    interpreter.llm._is_loaded = True
+    interpreter.llm._is_opencode_go = False
+    interpreter.llm.context_window = None
+    interpreter.llm.max_tokens = None
+
+    expected = litellm.get_model_info(model="openai/gpt-4o")["max_input_tokens"]
+    interpreter.llm.context_window = expected
+
+    assert interpreter.llm.context_window == expected
+    assert interpreter.llm._is_opencode_go is False
