@@ -113,6 +113,15 @@ def pick_reply(body: dict) -> str:
     ):
         return "Washington"
 
+    if "quick brown fox" in text:
+        # Long enough to split into a known number of word-sized deltas, so
+        # reassembly tests can assert the delta count and not just the text.
+        return "The quick brown fox jumps over the lazy dog."
+
+    if "use python" in text and "print" not in text:
+        # Simple math smoke: integration tests ask the model to compute via Python.
+        return "```python\nprint(42)\n```"
+
     return "Hello, World!"
 
 
@@ -566,6 +575,12 @@ class _Handler(BaseHTTPRequestHandler):
         stream = body.get("stream", False)
         messages = body.get("messages") or []
 
+        # Record before responding, so a test can assert on the request even if
+        # the reply path raises.
+        owner = getattr(self.server, "mock_server", None)
+        if owner is not None:
+            owner.requests.append(body)
+
         # Tool-call mode (function calling): the request carries a tools
         # parameter. Serve streaming tool_calls deltas for known scenarios.
         if body.get("tools"):
@@ -637,7 +652,13 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
-            for piece in stream_reply_chunks(content):
+            owner = getattr(self.server, "mock_server", None)
+            pieces = (
+                [content]
+                if owner is not None and owner.single_delta
+                else stream_reply_chunks(content)
+            )
+            for piece in pieces:
                 chunk = {
                     "choices": [{"delta": {"content": piece}, "finish_reason": None}],
                 }
@@ -669,6 +690,16 @@ class MockOpenAIServer:
     def __init__(self):
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        # Every request body the handler received, in arrival order. Asserting
+        # on what the interpreter *sent* is the point: a provider-side test can
+        # only assert on what came back, so a dropped system message or a
+        # reordered history is invisible from the response alone.
+        self.requests: list[dict] = []
+        # Force the whole reply into one delta instead of word-sized ones.
+        # OI only ever makes streaming requests (#358), so the single-delta
+        # shape is a fake-side regression guard, not a product mode: it proves
+        # the harness still passes if the splitter ever returns [content].
+        self.single_delta: bool = False
 
     @property
     def api_base(self) -> str:
@@ -679,6 +710,7 @@ class MockOpenAIServer:
 
     def start(self):
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        self._httpd.mock_server = self
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
 

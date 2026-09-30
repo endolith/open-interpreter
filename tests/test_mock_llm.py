@@ -2,7 +2,7 @@ import pytest
 
 from interpreter import OpenInterpreter
 from tests.helpers import require_bash_compatible_shell
-from tests.support.mock_openai_server import MockOpenAIServer
+from tests.support.mock_openai_server import MockOpenAIServer, stream_reply_chunks
 
 
 pytestmark = pytest.mark.mock_llm
@@ -425,3 +425,121 @@ def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
     messages = interpreter.chat("Say hello.", display=False, stream=False, blocking=True)
 
     assert messages[-1]["content"] == "Hello, World!"
+
+
+_SENTENCE = "The quick brown fox jumps over the lazy dog."
+
+
+def _user_texts(request: dict) -> list[str]:
+    """User message contents from a recorded request, in the order sent."""
+    return [
+        m["content"]
+        for m in request.get("messages", [])
+        if m.get("role") == "user" and isinstance(m.get("content"), str)
+    ]
+
+
+@pytest.mark.timeout(60)
+def test_every_request_starts_with_the_system_message(mock_llm_server):
+    """No request reaches the provider without the system message first.
+
+    Nothing raises when the system message is dropped — the model simply stops
+    being told what it is and how to behave, and every later request inherits
+    the loss. Asserting on the request rather than the response is what makes
+    this visible: a provider-side test can only see what came back.
+    """
+    interpreter = _mock_interpreter(mock_llm_server)
+
+    interpreter.chat(
+        "just the words hello, world", display=False, stream=False, blocking=True
+    )
+
+    assert mock_llm_server.requests, "expected the provider to be called at least once"
+    for request in mock_llm_server.requests:
+        messages = request.get("messages") or []
+        assert messages[0]["role"] == "system", (
+            "system message must be first, got "
+            f"{[m.get('role') for m in messages]}"
+        )
+        assert messages[0].get("content"), "system message must not be empty"
+
+
+@pytest.mark.timeout(60)
+def test_a_plain_reply_ends_the_run_after_exactly_one_request(mock_llm_server):
+    """A reply needing no execution produces one request, not a runaway loop.
+
+    If the loop asks again after such a reply, every turn of a real session pays
+    for it, and the extra requests all carry full history, so the cost compounds.
+    """
+    interpreter = _mock_interpreter(mock_llm_server)
+
+    interpreter.chat(
+        "just the words hello, world", display=False, stream=False, blocking=True
+    )
+
+    assert len(mock_llm_server.requests) == 1, (
+        "a plain reply needs no follow-up, got "
+        f"{len(mock_llm_server.requests)} requests"
+    )
+
+
+@pytest.mark.timeout(60)
+def test_second_turn_carries_first_turn_history_in_order(mock_llm_server):
+    """Turn two repeats turn one's user text verbatim, in sequence.
+
+    Out-of-order or dropped history is the bug class where both halves of the
+    system pass individually and the join is wrong: every message is
+    well-formed, and only the sequence the model sees is off.
+    """
+    interpreter = _mock_interpreter(mock_llm_server)
+
+    first = "hello, world please"
+    second = "hello, world again"
+    interpreter.chat(first, display=False, stream=False, blocking=True)
+    interpreter.chat(second, display=False, stream=False, blocking=True)
+
+    assert len(mock_llm_server.requests) >= 2
+    sent = _user_texts(mock_llm_server.requests[-1])
+    assert sent[0] == first
+    assert sent[1] == second
+    assert sent.index(first) < sent.index(second), "history must stay in turn order"
+
+
+@pytest.mark.timeout(60)
+def test_a_streamed_plain_reply_reassembles_into_one_message(mock_llm_server):
+    """Word-sized deltas arriving over the wire become one clean message.
+
+    Since #363 the mock streams prose as multiple content deltas, so this
+    exercises real reassembly. The delta count is asserted as well as the final
+    text: a correct final message is compatible with a dropped middle delta if
+    something downstream compensates, so the text alone would not catch it.
+    """
+    assert len(stream_reply_chunks(_SENTENCE)) == 9
+    interpreter = _mock_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        "say the quick brown fox", display=False, stream=False, blocking=True
+    )
+
+    assistant = [m for m in messages if m.get("role") == "assistant"]
+    assert len(assistant) == 1
+    assert assistant[0]["content"] == _SENTENCE
+
+
+@pytest.mark.timeout(60)
+def test_a_single_delta_reply_reassembles_to_the_same_message(mock_llm_server):
+    """The whole reply as one delta yields the identical message.
+
+    OI only ever makes streaming requests (#358), so this is not a product mode
+    but a fake-side regression guard: if the splitter regressed to [content] or
+    a future fake stopped splitting, the streamed test above would still pass
+    while only one arrival shape was ever exercised.
+    """
+    interpreter = _mock_interpreter(mock_llm_server)
+    mock_llm_server.single_delta = True
+
+    messages = interpreter.chat(
+        "say the quick brown fox", display=False, stream=False, blocking=True
+    )
+
+    assert messages[-1]["content"] == _SENTENCE
