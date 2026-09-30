@@ -17,10 +17,13 @@ See https://opencode.ai/docs/go/ for the full endpoint table.
 
 from interpreter import interpreter
 
-# Pick any Go model served over /chat/completions.
-interpreter.llm.model = "opencode_go/deepseek-v4-flash"
+# Pick any Go model served over /chat/completions. `deepseek-v4.1-flash` is the
+# one most likely to already be in LiteLLM's registry, so it is the least likely
+# to need anything answered for it locally.
+interpreter.llm.model = "opencode_go/deepseek-v4.1-flash"
 
-# Go's own catalog defines the context window; these are only here as overrides
-# if the model is unknown to LiteLLM.
-interpreter.llm.context_window = 128000
-interpreter.llm.max_tokens = 4096
+# Deliberately no context_window or max_tokens here. Go's real limits are read
+# from the model catalog at load time, and an override in this file would win
+# over the catalog and silently over-trim the conversation. An earlier version
+# of this profile hardcoded 128000, which is 8x smaller than the model above
+# actually allows.
