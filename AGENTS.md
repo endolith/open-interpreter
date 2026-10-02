@@ -32,24 +32,6 @@ tests` reports 6 standing `F821`/`F601` errors in
 regression to chase, and do not fold drive-by cleanups of it into an unrelated
 commit.
 
-This repo has ~130 configured remotes. The ones that matter:
-- `origin`   = `endolith/open-interpreter` — this fork, the merge target.
-- `upstream` = `OpenInterpreter/open-interpreter` — now an unrelated Rust Codex fork; ignore it.
-- `velinxs`  = `velinxs/open-interpreter` — a vibe-coded fork using more advanced LLMs.
-
-The interesting branch is **`rework` on the `velinxs` remote** — there is no `rework` on
-`origin`, so `git fetch origin rework` fails. To use it:
-
-    git ls-remote velinxs rework                    # cheap existence check, no fetch
-    git fetch velinxs rework                        # creates refs/remotes/velinxs/rework
-    git show velinxs/rework:interpreter/core/respond.py   # read one file, no checkout
-    gh api repos/velinxs/open-interpreter/contents/interpreter/core/respond.py?ref=rework --jq .content | base64 -d
-
-Don't dump `git remote -v` (130+ lines); target the remote you need.
-
-`rework` will likely eventually be merged into `main`, just like `classic/develop`. If asked to
-fix something, check whether `rework` already fixes it, and borrow the change with attribution.
-
 ## Codebase map
 
 - `interpreter/terminal_interface/start_terminal_interface.py:main` — CLI entry
