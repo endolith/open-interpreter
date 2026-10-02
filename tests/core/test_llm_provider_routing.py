@@ -155,13 +155,18 @@ class _FakeOpenRouterResponse:
 
 @pytest.fixture
 def stub_openrouter_registry(monkeypatch):
-    """Simulate a stale LiteLLM registry and a stubbed provider call."""
+    """Simulate a stale LiteLLM registry and a stubbed provider call.
+
+    Both runners are stubbed because Llm.run() picks run_tool_calling_llm
+    whenever the model supports functions. Stubbing only run_text_llm let these
+    tests make a real completion request to OpenRouter/DeepSeek -- failing with
+    401 offline, and spending money if a provider key is set in the shell.
+    """
     monkeypatch.setattr(litellm, "supports_vision", lambda model: False)
-    monkeypatch.setattr(
-        llm_mod,
-        "run_text_llm",
-        lambda self, params: iter([("message", {"role": "assistant", "type": "message", "content": "stubbed"})]),
-    )
+    def stub(self, params):
+        return iter([("message", {"role": "assistant", "type": "message", "content": "stubbed"})])
+    monkeypatch.setattr(llm_mod, "run_text_llm", stub)
+    monkeypatch.setattr(llm_mod, "run_tool_calling_llm", stub)
     return monkeypatch
 
 
