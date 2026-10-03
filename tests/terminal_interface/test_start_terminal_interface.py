@@ -415,3 +415,146 @@ def test_start_terminal_interface_disable_telemetry_env(monkeypatch):
     start_terminal_interface(interpreter)
 
     assert interpreter.disable_telemetry is True
+
+
+def _profile_applying(**settings):
+    """Build a profile() stand-in that writes settings onto the interpreter.
+
+    A real profile file sets attributes on the interpreter it is handed, so a
+    plain pass-through mock cannot show whether later code overwrites them.
+    """
+
+    def _apply(interp, profile_name):
+        for name, value in settings.items():
+            setattr(interp, name, value)
+        return interp
+
+    return _apply
+
+
+def test_start_terminal_interface_profile_safe_mode_survives_argparse_default(
+    monkeypatch,
+):
+    """A profile's safe_mode survives when no --safe_mode flag is passed.
+
+    The argparse default used to be applied after the profile loaded, silently
+    turning safe mode back off on every launch.
+    """
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(
+        sti, "profile", mock.Mock(side_effect=_profile_applying(safe_mode="ask"))
+    )
+    monkeypatch.setattr(sys, "argv", ["oi"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.safe_mode == "ask"
+
+
+def test_start_terminal_interface_profile_disable_telemetry_survives_default(
+    monkeypatch,
+):
+    """A profile's disable_telemetry survives when neither flag nor env var is set.
+
+    The argparse default (False) used to re-enable telemetry after the profile
+    had disabled it.
+    """
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.delenv("DISABLE_TELEMETRY", raising=False)
+    monkeypatch.setattr(
+        sti,
+        "profile",
+        mock.Mock(side_effect=_profile_applying(disable_telemetry=True)),
+    )
+    monkeypatch.setattr(sys, "argv", ["oi"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.disable_telemetry is True
+
+
+def test_start_terminal_interface_telemetry_env_false_keeps_profile_choice(monkeypatch):
+    """An explicit DISABLE_TELEMETRY=false does not re-enable telemetry a profile disabled."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setenv("DISABLE_TELEMETRY", "false")
+    monkeypatch.setattr(
+        sti,
+        "profile",
+        mock.Mock(side_effect=_profile_applying(disable_telemetry=True)),
+    )
+    monkeypatch.setattr(sys, "argv", ["oi"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.disable_telemetry is True
+
+
+def test_start_terminal_interface_safe_mode_flag_overrides_profile(monkeypatch):
+    """An explicitly passed --safe_mode still beats the profile's value."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(
+        sti, "profile", mock.Mock(side_effect=_profile_applying(safe_mode="ask"))
+    )
+    monkeypatch.setattr(sys, "argv", ["oi", "--safe_mode", "off"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.safe_mode == "off"
+
+
+def test_start_terminal_interface_disable_telemetry_flag_overrides_profile(monkeypatch):
+    """An explicitly passed --disable_telemetry beats a profile that leaves telemetry on."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.delenv("DISABLE_TELEMETRY", raising=False)
+    monkeypatch.setattr(
+        sti,
+        "profile",
+        mock.Mock(side_effect=_profile_applying(disable_telemetry=False)),
+    )
+    monkeypatch.setattr(sys, "argv", ["oi", "--disable_telemetry"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.disable_telemetry is True
+
+
+def test_start_terminal_interface_safe_mode_flag_disables_auto_run(monkeypatch):
+    """`-y --safe_mode ask` does not auto-run, so code is still scanned and approved.
+
+    The guard used to run before any flag was applied, so it never saw the
+    safe_mode the user asked for.
+    """
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "-y", "--safe_mode", "ask"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.safe_mode == "ask"
+    assert interpreter.auto_run is False
+
+
+def test_start_terminal_interface_profile_safe_mode_disables_auto_run(monkeypatch):
+    """A profile's safe_mode turns off auto_run requested with `-y`.
+
+    The guard used to run before the profile loaded, so a profile's safe_mode
+    could never switch auto_run off.
+    """
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(
+        sti, "profile", mock.Mock(side_effect=_profile_applying(safe_mode="auto"))
+    )
+    monkeypatch.setattr(sys, "argv", ["oi", "-y"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.auto_run is False
+
+
+def test_start_terminal_interface_safe_mode_off_leaves_auto_run_on(monkeypatch):
+    """`-y` with safe mode off still auto-runs, so the guard has not been inverted."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "-y", "--safe_mode", "off"])
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.auto_run is True
