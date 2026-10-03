@@ -1,9 +1,19 @@
-"""Minimal per-OS CI smokes: real subprocess / path behavior not covered by mocks.
+"""Per-OS tests for real subprocess / path behavior not covered by mocks.
 
 Linux CI runs the full unit suite (see test_language_subprocess.py for language
-e2e). Windows and macOS CI jobs run only tests marked ``windows_ci`` or
-``darwin_ci`` here — cmd.exe, PowerShell, AppleScript, and related quirks from
+e2e). The Windows and macOS jobs also run the full suite, and the ``windows_ci``
+and ``darwin_ci`` marks below pick out the handful of tests that are meaningful
+only on that OS — cmd.exe, PowerShell, AppleScript, and related quirks from
 cross-platform test development.
+
+That breadth is deliberate and was not free. A test that passes on Linux says
+nothing about whether it passes on Windows: before 2026-10-03 the Windows and
+macOS jobs ran only their own marked tests, 9 and 10 of ~890, so a test that
+broke only on another platform was never executed there and could not fail
+anything. That is how ``test_display_output_cli_base64_without_dot_defaults_to_png``
+reached ``main`` while removing a temp file that was still open — Windows raises
+``PermissionError`` for that, Linux does not. The first run of the full selection
+surfaced five such failures, all fixed in #381.
 """
 
 import os
