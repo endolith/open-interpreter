@@ -6,11 +6,12 @@ e2e). The Windows and macOS *smoke* jobs run only tests marked ``windows_ci`` or
 cross-platform test development.
 
 Those smoke jobs are not the whole story: separate ``*-broad`` jobs run the main
-suite on Windows and macOS too, currently with ``continue-on-error`` so they
-report failures without blocking a merge. That asymmetry is deliberate and
-temporary — a test that only ever runs on Linux cannot fail the Linux job, so an
-unmarked Windows-only breakage (removing a temp file while it is still open, for
-instance) would otherwise reach ``main`` unnoticed.
+suite on Windows and macOS too, and both are blocking as of 2026-10-03. That
+coverage is deliberate and was not free: a test that only ever runs on Linux
+cannot fail the Linux job, so an unmarked Windows-only breakage (removing a temp
+file while it is still open, for instance) would otherwise reach ``main``
+unnoticed. The first run of those jobs surfaced five such failures, fixed in
+#381.
 """
 
 import os

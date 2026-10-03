@@ -129,12 +129,12 @@ jobs:
           pytest -m darwin_ci -v
 
   test-windows-broad:
-    name: Windows broad (non-blocking)
+    name: Windows broad
     # Runs the main suite on Windows, not just the windows_ci-marked tests.
-    # continue-on-error keeps this informational until the known failures are
-    # triaged; see docs/ROADMAP.md Phase 1.
+    # Blocking since 2026-10-03: the first green run (after #381 fixed the five
+    # failures these jobs surfaced) was 1191 passed, 0 failed. An unmarked test
+    # that only broke on Windows could not fail CI before these existed.
     if: github.event_name != 'workflow_dispatch'
-    continue-on-error: true
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,11 +152,10 @@ jobs:
           pytest -m "not integration and not darwin_ci" -q
 
   test-macos-broad:
-    name: macOS broad (non-blocking)
-    # Same purpose as test-windows-broad: find the tests that only pass on
-    # Linux because nothing has ever run them on macOS.
+    name: macOS broad
+    # Same purpose as test-windows-broad: 1190 passed, 0 failed on the first
+    # green run, so these are blocking too.
     if: github.event_name != 'workflow_dispatch'
-    continue-on-error: true
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
