@@ -110,18 +110,24 @@ def test_display_output_cli_base64_without_dot_defaults_to_png(monkeypatch):
 
     def capture_open(path):
         opened["path"] = path
-        os.remove(path)
 
     monkeypatch.setattr(
         "interpreter.terminal_interface.utils.display_output.open_file",
         capture_open,
     )
 
-    display_output_cli(
-        {"type": "image", "format": "base64", "content": base64.b64encode(b"x").decode()}
-    )
+    try:
+        display_output_cli(
+            {"type": "image", "format": "base64", "content": base64.b64encode(b"x").decode()}
+        )
 
-    assert opened["path"].endswith(".png")
+        assert opened["path"].endswith(".png")
+    finally:
+        # Removed here rather than inside capture_open: display_output_cli calls
+        # open_file from inside the NamedTemporaryFile block, so the file is
+        # still open on Windows and os.remove raises PermissionError there.
+        if "path" in opened and os.path.exists(opened["path"]):
+            os.remove(opened["path"])
 
 
 def test_display_output_cli_path_image_opens_the_file_directly(monkeypatch):
@@ -243,4 +249,9 @@ def test_display_output_jupyter_html_and_javascript(monkeypatch):
 
     html.assert_called_once_with("<b>x</b>")
     js.assert_called_once_with("1")
-    assert display.call_count == 2
+    # Assert the wrapped objects and their order, not just how many times
+    # display was called: a count passes even if display received the wrong
+    # objects, or the javascript wrapped before the html.
+    display.assert_has_calls(
+        [mock.call(html.return_value), mock.call(js.return_value)]
+    )

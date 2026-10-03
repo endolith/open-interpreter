@@ -95,22 +95,40 @@ def test_head_and_tail_are_each_half_the_limit():
     assert result.endswith("012\n[...]\n789")
     assert head == "012" and tail == "789"
 def test_retruncation_strips_a_matching_previous_banner():
-    """Re-truncating the same text keeps a single banner and the ellipsis.
+    """Re-truncating the same text strips the old banner instead of nesting it.
 
-    The strip branch removes the old banner when it matches the freshly built
-    one; the shape of a re-truncated result is one banner plus the middle
-    ellipsis. The strip branch's own effect is not separable from the length
-    check through the public function, so this pins the observable shape.
+    The banner text embeds both the total character count and the per-end
+    figure, so it is only stripped when the second call rebuilds a byte-identical
+    banner: same max_output_chars, and an input whose length still matches the
+    count in the old banner. The earlier version of this test re-truncated with a
+    larger limit, so no truncation happened at all and both assertions were
+    trivially true.
+
+    The length is found by fixed-point iteration rather than hard-coded, so the
+    test keeps working if the banner wording or length ever changes.
     """
-    data = "z" * 4000
-    first = truncate_output(data, max_output_chars=200)
+    max_output_chars = 200
 
-    # Re-truncating the same text produces the same banner, so the first one is
-    # stripped rather than kept.
-    second = truncate_output(first, max_output_chars=len(first) + 700)
+    # Truncating produces len(banner) + max_output_chars + len("\\n[...]\\n").
+    # Iterate until that equals the input length, so re-truncating rebuilds the
+    # same banner and the strip branch is reached.
+    length = 400
+    for _ in range(50):
+        first = truncate_output("z" * length, max_output_chars=max_output_chars)
+        if len(first) == length:
+            break
+        length += len(first) - length
 
+    assert len(first) == length, "could not find a self-consistent truncated length"
+
+    second = truncate_output(first, max_output_chars=max_output_chars)
+
+    # The old banner is removed and a fresh one added, so re-truncating is
+    # idempotent. Had the banner not matched, it would survive inside the new
+    # head and appear twice.
+    assert second == first
     assert second.count("Output truncated") == 1
-    assert "[...]" in second
+    assert second.count("[...]") == 1
 
 
 def test_truncation_separator_is_exactly_bracket_ellipsis():
@@ -122,8 +140,10 @@ def test_truncation_separator_is_exactly_bracket_ellipsis():
     data = "q" * 100
     result = truncate_output(data, max_output_chars=10)
 
-    assert "\n[...]\n" in result
-    assert "XX\n[...]\nXX" not in result
+    # Pin the whole head + separator + tail rather than a substring: excluding
+    # one specific wrapper still lets any other malformed separator through.
+    # max_output_chars=10 splits evenly, so each end keeps 5 characters.
+    assert result.endswith("qqqqq\n[...]\nqqqqq")
 
 
 def test_default_add_scrollbars_is_false():

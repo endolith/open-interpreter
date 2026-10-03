@@ -67,16 +67,21 @@ def test_lazy_import_default_is_optional():
     assert lazy_import("this_module_definitely_does_not_exist_xyz") is None
 
 
-def test_lazy_import_registers_the_module_in_sys_modules():
+def test_lazy_import_registers_the_module_in_sys_modules(monkeypatch):
     """The imported module is cached under its name in sys.modules.
 
     lazy_import's whole point is a single lookup; a mutation that stored None
     (module -> None, sys.modules[name] -> None) would make the second call
     return the wrong object and defeat the cache.
+
+    Uses a module that is not already in sys.modules, so the call has to take
+    the registration branch instead of returning an existing entry. "json" is
+    imported by pytest itself, which left that branch unreached here.
     """
     import sys
 
-    name = "json"
+    name = "fractions"
+    monkeypatch.delitem(sys.modules, name, raising=False)
     module = lazy_import(name)
 
     assert sys.modules[name] is module
@@ -122,17 +127,34 @@ def test_extension_is_appended_as_a_dot_suffix(tmp_path, monkeypatch):
     cleanup_temporary_file(path)
 
 
-def test_lazy_import_defers_loading():
-    """lazy_import wraps the module's loader in a LazyLoader.
+def test_lazy_import_defers_loading(tmp_path, monkeypatch):
+    """lazy_import does not execute the module body until an attribute is read.
 
-    The module is bound for lazy loading rather than executed eagerly; a mutated
-    loader (LazyLoader(None), spec.loader = None) would fail to import the
-    module's contents on first attribute access.
+    The earlier version of this test only checked the module's contents work,
+    which passes identically for eager and deferred loading and so pinned
+    nothing about deferral. Here the module body has an observable side effect
+    (it writes a marker file), which lets the test assert the body has *not*
+    run after lazy_import and *has* run once an attribute is touched.
     """
-    name = "fractions"
-    import sys as _sys
+    import sys
 
-    _sys.modules.pop(name, None)
+    marker = tmp_path / "executed.marker"
+    module_dir = tmp_path / "probe"
+    module_dir.mkdir()
+    (module_dir / "oi_lazy_probe.py").write_text(
+        "import pathlib\n"
+        f"pathlib.Path({str(marker)!r}).write_text('executed')\n"
+        "VALUE = 42\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(module_dir))
+
+    name = "oi_lazy_probe"
+    monkeypatch.delitem(sys.modules, name, raising=False)
+
     module = lazy_import(name)
-    assert module.Fraction(1, 2) == module.Fraction(1, 2)
+    assert not marker.exists(), "module body ran during lazy_import; loading was eager"
+
+    assert module.VALUE == 42
+    assert marker.exists(), "reading an attribute did not execute the module body"
 

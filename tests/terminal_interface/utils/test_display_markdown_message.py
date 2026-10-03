@@ -48,9 +48,17 @@ def test_rule_line_renders_a_white_rule():
 
 
 def test_blank_lines_print_empty(capsys):
-    """Blank lines are printed as empty lines, not rendered as markdown."""
+    """Blank lines are printed as empty lines, not rendered as markdown.
+
+    Asserts the exact line structure rather than a newline count: two non-empty
+    lines already produce two newlines, so a count check would still pass if the
+    blank line between them were dropped or rendered as markdown. Lines are
+    stripped because Rich pads rendered output to the console width, which says
+    nothing about the content.
+    """
     dmm.display_markdown_message("a\n\nb")
-    assert capsys.readouterr().out.count("\n") >= 2
+    lines = capsys.readouterr().out.splitlines()
+    assert [line.strip() for line in lines] == ["a", "", "b"]
 
 
 def test_single_tag_line_gets_a_trailing_blank_line(capsys):
