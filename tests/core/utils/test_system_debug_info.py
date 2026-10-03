@@ -14,9 +14,15 @@ def test_get_python_version_matches_current_interpreter():
 
 
 def test_get_os_version_includes_platform_name():
-    """get_os_version includes the platform.system() name (e.g. Linux, Darwin)."""
+    """get_os_version names the OS it is running on.
+
+    platform.system() is the internal name, which is "Darwin" on macOS, while
+    platform.platform() -- what this function returns, and what a human reading
+    a bug report wants -- leads with "macOS". Accept either token: the contract
+    is that the OS is identifiable, not that one particular spelling is used.
+    """
     os_version = system_debug_info.get_os_version()
-    assert platform.system() in os_version
+    assert platform.system() in os_version or "macOS" in os_version
 
 
 def test_get_ram_info_format():
