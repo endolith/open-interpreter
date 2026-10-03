@@ -124,6 +124,9 @@ def convert_to_openai_messages(
                     # If no vision, we only support the format of "description"
                     continue
 
+                if "format" not in message:
+                    raise Exception("Format of the image is not specified.")
+
                 if "base64" in message["format"]:
                     # Extract the extension from the format, default to 'png' if not specified
                     if "." in message["format"]:
