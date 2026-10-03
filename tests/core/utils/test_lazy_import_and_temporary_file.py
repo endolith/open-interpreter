@@ -106,12 +106,13 @@ def test_extension_defaults_to_no_suffix(tmp_path, monkeypatch):
 
     The suffix is f".{extension}" when extension is truthy and "" otherwise; a
     mutation that appended ".None" or dropped the conditional would create
-    misnamed files.
+    misnamed files. Asserting the extracted suffix is empty rather than the
+    absence of two specific endings, so an unrelated appended suffix is caught
+    too.
     """
     monkeypatch.chdir(tmp_path)
     path = create_temporary_file("x")
-    assert not path.endswith(".")
-    assert not path.endswith(".None")
+    assert os.path.splitext(path)[1] == ""
     cleanup_temporary_file(path)
 
 
