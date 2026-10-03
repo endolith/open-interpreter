@@ -80,12 +80,26 @@ def respond(interpreter):
             len(interpreter.messages) > 0
         ), "User message was not passed in. You need to pass in at least one message."
 
+        # Did the LLM add anything to the conversation this time around? An
+        # empty reply is stored nowhere, so the transcript is unchanged and
+        # re-prompting would send the identical request again, forever.
+        llm_made_progress = True
+
         if (
             interpreter.messages[-1]["type"] != "code"
         ):  # If it is, we should run the code (we do below)
+            transcript_before_llm = (
+                len(interpreter.messages),
+                interpreter.messages[-1].get("content"),
+            )
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
+
+                llm_made_progress = (
+                    len(interpreter.messages),
+                    interpreter.messages[-1].get("content"),
+                ) != transcript_before_llm
 
             except litellm.exceptions.BudgetExceededError:
                 interpreter.display_message(
@@ -422,6 +436,7 @@ def respond(interpreter):
 
             if (
                 interpreter.loop
+                and llm_made_progress
                 and interpreter.messages
                 and interpreter.messages[-1].get("role", "") == "assistant"
                 and not any(
