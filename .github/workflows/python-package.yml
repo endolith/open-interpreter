@@ -93,11 +93,11 @@ jobs:
 
   test-windows:
     name: Windows
-    # Runs the main suite on Windows, not just the windows_ci-marked tests, so
-    # that a test which only breaks on Windows fails here rather than passing
-    # because nothing has ever executed it. windows_ci marks the handful of
-    # tests that are meaningful only here (cmd.exe, PowerShell, USERPROFILE);
-    # they run in this job too, since it selects everything except darwin_ci.
+    # Runs the main suite, not just the windows_ci-marked tests, so that a test
+    # which passes on Linux but breaks on Windows fails here instead of never
+    # being executed anywhere that could catch it. windows_ci marks the handful
+    # of tests meaningful only here (cmd.exe, PowerShell, USERPROFILE); they run
+    # in this job too, since it selects everything except darwin_ci.
     # 1191 passed, 0 failed as of 2026-10-03, when this replaced a 9-test
     # windows_ci-only smoke job.
     if: github.event_name != 'workflow_dispatch'
