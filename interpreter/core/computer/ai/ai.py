@@ -100,7 +100,11 @@ def query_map_chunks(chunks, llm, query):
 
 
 def query_reduce_chunks(responses, llm, chunk_size, query):
-    """Reduce query responses in a while loop."""
+    """Reduce query responses to a single answer.
+
+    Each pass groups the responses into chunks that fit the model and
+    summarizes each chunk, so the list shrinks until one answer is left.
+    """
     while len(responses) > 1:
         chunks = chunk_responses(responses, chunk_size, llm)
 
@@ -110,7 +114,15 @@ def query_reduce_chunks(responses, llm, chunk_size, query):
                 executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks)
             )
 
-    return summaries[0]
+        if len(summaries) >= len(responses):
+            # No progress: every response was already too large to share a
+            # chunk, so repeating the pass would summarize the same shapes
+            # forever. Merge what is left in one final call instead.
+            return fast_llm(llm, query, "\n\n".join(summaries))
+
+        responses = summaries
+
+    return responses[0] if responses else None
 
 
 class Ai:
