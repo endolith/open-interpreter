@@ -54,3 +54,18 @@ def test_end_marker_without_prefix_is_not_parsed():
     assert recipient is None
     assert parsed == content
 
+def test_content_containing_a_colon_is_preserved():
+    """Content with its own colon survives intact rather than being cut at that colon.
+
+    The payload was parsed with an unbounded split, keeping only the field
+    before the content's first colon, so a URL, timestamp, Windows path or dict
+    repr was silently truncated ("http://example.com" came back as "http").
+    Any chunk the terminal routes through parse_for_recipient is affected.
+
+    The truncated-wrapper case is already covered by
+    test_recipient_prefix_without_end_marker_is_not_parsed.
+    """
+    tagged = format_to_recipient("http://example.com", "assistant")
+    recipient, content = parse_for_recipient(tagged)
+    assert recipient == "assistant"
+    assert content == "http://example.com"
