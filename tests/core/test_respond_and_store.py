@@ -35,6 +35,28 @@ def test_respond_and_store_skips_ephemeral_review_chunks():
     assert len(interpreter.messages) == 1
 
 
+def test_respond_and_store_preserves_verbose():
+    """`verbose` stays on through a turn, so per-turn diagnostics can actually print.
+
+    `_respond_and_store` used to unset `verbose` before streaming, which silently
+    disabled `--verbose`, `%verbose true` and `OpenInterpreter(verbose=True)` for
+    everything that reads the flag during a turn (and left it off afterwards).
+    """
+    interpreter = OpenInterpreter(verbose=True)
+    interpreter.messages = []
+    seen = []
+
+    def fake_respond(_interpreter):
+        seen.append(_interpreter.verbose)
+        yield {"role": "assistant", "type": "message", "content": "hi"}
+
+    with mock.patch("interpreter.core.core.respond", fake_respond):
+        list(interpreter._respond_and_store())
+
+    assert seen == [True]
+    assert interpreter.verbose is True
+
+
 def test_respond_and_store_truncates_console_output():
     """Console output stored via _respond_and_store is truncated to interpreter.max_output."""
     interpreter = OpenInterpreter()
