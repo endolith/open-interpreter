@@ -92,7 +92,14 @@ jobs:
           path: coverage.xml
 
   test-windows:
-    name: Windows CI smoke
+    name: Windows
+    # Runs the main suite on Windows, not just the windows_ci-marked tests, so
+    # that a test which only breaks on Windows fails here rather than passing
+    # because nothing has ever executed it. windows_ci marks the handful of
+    # tests that are meaningful only here (cmd.exe, PowerShell, USERPROFILE);
+    # they run in this job too, since it selects everything except darwin_ci.
+    # 1191 passed, 0 failed as of 2026-10-03, when this replaced a 9-test
+    # windows_ci-only smoke job.
     if: github.event_name != 'workflow_dispatch'
     runs-on: windows-latest
     steps:
@@ -104,57 +111,17 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - name: Install and run Windows-only tests
-        shell: bash
-        run: |
-          uv pip install --system -e ".[server,dev]"
-          pytest -m windows_ci -v
-
-  test-macos:
-    name: macOS CI smoke
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
-      - name: Install and run macOS-only tests
-        run: |
-          uv pip install --system -e ".[server,dev]"
-          pytest -m darwin_ci -v
-
-  test-windows-broad:
-    name: Windows broad
-    # Runs the main suite on Windows, not just the windows_ci-marked tests.
-    # Blocking since 2026-10-03: the first green run (after #381 fixed the five
-    # failures these jobs surfaced) was 1191 passed, 0 failed. An unmarked test
-    # that only broke on Windows could not fail CI before these existed.
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
-      - name: Install and run the broad suite
+      - name: Install and test
         shell: bash
         run: |
           uv pip install --system -e ".[server,dev]"
           pytest -m "not integration and not darwin_ci" -q
 
-  test-macos-broad:
-    name: macOS broad
-    # Same purpose as test-windows-broad: 1190 passed, 0 failed on the first
-    # green run, so these are blocking too.
+  test-macos:
+    name: macOS
+    # As above for macOS; darwin_ci marks the AppleScript and platform-specific
+    # tests, which this job also covers. 1190 passed, 0 failed as of 2026-10-03,
+    # replacing a 10-test darwin_ci-only smoke job.
     if: github.event_name != 'workflow_dispatch'
     runs-on: macos-latest
     steps:
@@ -166,7 +133,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-      - name: Install and run the broad suite
+      - name: Install and test
         run: |
           uv pip install --system -e ".[server,dev]"
           pytest -m "not integration and not windows_ci" -q
