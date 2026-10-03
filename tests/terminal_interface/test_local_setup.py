@@ -1,3 +1,4 @@
+import os
 from unittest import mock
 
 import inquirer
@@ -179,6 +180,16 @@ def test_local_setup_llamafile_launches_existing_model(monkeypatch):
     monkeypatch.setattr("os.path.exists", lambda _p: True)
     monkeypatch.setattr("os.listdir", lambda _d: ["tiny.llamafile"])
 
+    # On macOS the llamafile branch probes for Xcode via subprocess.run, which
+    # runs the real binary when unmocked. Stub it so the test is not dependent on
+    # what the host has installed. subprocess.run delegates to subprocess.Popen,
+    # which this test patches with a plain Mock, so leaving run unmocked makes
+    # the probe raise TypeError instead of returning a status.
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.local_setup.subprocess.run",
+        mock.Mock(return_value=mock.Mock(returncode=0)),
+    )
+
     process = mock.Mock()
     process.stdout = iter(["llama server listening at http://localhost:8080\n"])
     popen = mock.Mock(return_value=process)
@@ -205,9 +216,12 @@ def test_local_setup_llamafile_launches_existing_model(monkeypatch):
     assert interpreter.llm.api_key == "dummy"
     assert interpreter.llm.temperature == 0
     assert interpreter.llm.context_window == 8000
-    # The selected llamafile path is launched with the server flags.
+    # The selected llamafile path is launched with the server flags. Built with
+    # os.path.join because the production code joins, so the separator is
+    # whatever the platform uses.
+    model_path = os.path.join("/tmp/oi", "models", "tiny.llamafile")
     popen.assert_called_once_with(
-        '"/tmp/oi/models/tiny.llamafile" --nobrowser -ngl 9999',
+        f'"{model_path}" --nobrowser -ngl 9999',
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -263,7 +277,9 @@ def test_local_setup_llamafile_downloads_new_model(monkeypatch):
     assert result is interpreter
     assert interpreter.llm.model == "openai/local"
     assert interpreter.llm.api_base == "http://localhost:8080/v1"
-    model_path = "/tmp/oi/models/Phi-3-mini-4k-instruct.Q4_K_M.llamafile"
+    model_path = os.path.join(
+        "/tmp/oi", "models", "Phi-3-mini-4k-instruct.Q4_K_M.llamafile"
+    )
     # wget downloads the selected model's URL to the models directory.
     download.assert_called_once_with(
         "https://huggingface.co/Mozilla/Phi-3-mini-4k-instruct-llamafile/resolve/main/Phi-3-mini-4k-instruct.Q4_K_M.llamafile?download=true",

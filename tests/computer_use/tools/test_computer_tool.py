@@ -200,7 +200,13 @@ def test_call_key_hotkey_uses_pyautogui():
     """Modifier-combined keys are dispatched through pyautogui.hotkey on non-macOS platforms."""
     tool = _make_tool()
     shot = mock.AsyncMock(return_value=ToolResult(output="shot"))
-    with mock.patch.object(tool, "screenshot", new=shot):
+    # The production code sends hotkeys through AppleScript when
+    # platform.system() is Darwin, so pin the platform: without this the test
+    # asserts the pyautogui path on macOS, where it can never run.
+    with (
+        mock.patch("platform.system", return_value="Linux"),
+        mock.patch.object(tool, "screenshot", new=shot),
+    ):
         asyncio.run(tool(action="key", text="ctrl+c"))
     _computer.pyautogui.hotkey.assert_called_once_with("ctrl", "c")
 
