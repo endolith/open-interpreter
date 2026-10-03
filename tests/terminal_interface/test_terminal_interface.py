@@ -140,6 +140,30 @@ def test_terminal_interface_dispatches_magic_command():
     interpreter.chat.assert_not_called()
 
 
+def test_terminal_interface_failing_magic_command_returns_to_prompt(tmp_path):
+    """A magic command that raises reports the error and asks for input again.
+
+    Magic commands are dispatched outside the render loop's try/except, so an
+    ordinary mistake -- %load_message on a path that does not exist -- used to
+    escape chat() and end the process, taking the session's unsaved history
+    with it. The real handler is used here so the whole escape path is covered.
+    """
+    interpreter = _intro_interpreter()
+    missing = tmp_path / "nope.json"
+
+    with mock.patch(
+        "builtins.input",
+        side_effect=[f"%load_message {missing}", KeyboardInterrupt()],
+    ) as prompt:
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert prompt.call_count == 2
+    displayed = [call[0][0] for call in interpreter.display_message.call_args_list]
+    assert any("FileNotFoundError" in message for message in displayed)
+    interpreter.chat.assert_not_called()
+
+
 def test_terminal_interface_local_command_hint(capsys):
     """terminal_interface points `interpreter --local` users back to the CLI."""
     interpreter = _intro_interpreter()
@@ -477,6 +501,39 @@ def test_terminal_interface_uses_injected_message_in_interactive_mode():
 
     assert interpreter.messages == []
     chat.assert_called_once_with("injected command", display=False, stream=True)
+
+
+def test_terminal_interface_empty_reply_does_not_resend_message():
+    """An empty reply returns to the prompt instead of re-sending the message.
+
+    chat() stores the user's message before the model answers, so a turn that
+    stores no assistant message leaves a history of exactly one user message --
+    the same shape as an "i {command}" injection. Detecting that shape inside the
+    loop re-sent the message with no input() in between, so a model that kept
+    returning nothing was billed in a tight loop with nothing shown to the user.
+    """
+    interpreter = _intro_interpreter()
+
+    def chat(message, display=False, stream=True):
+        """Emulate a turn with an empty completion: the user message is all that is stored."""
+        interpreter.messages.append(
+            {"role": "user", "type": "message", "content": message}
+        )
+        if interpreter.chat.call_count > 2:
+            # Without the fix this loops forever; fail instead of hanging.
+            raise AssertionError("message re-sent without asking for input")
+        return iter([])
+
+    interpreter.chat = mock.Mock(side_effect=chat)
+
+    with mock.patch(
+        "builtins.input", side_effect=["hello", KeyboardInterrupt()]
+    ) as prompt:
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert interpreter.chat.call_count == 1
+    assert prompt.call_count == 2
 
 
 def test_terminal_interface_multi_line_uses_cli_input():
