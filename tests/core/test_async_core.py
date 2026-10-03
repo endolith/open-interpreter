@@ -1976,9 +1976,19 @@ class TestAsyncRespondApprovalValues(TestCase):
         return {"format": "python", "content": "print(1)"}
 
     def _wait_for_pending_confirmation(self, timeout=5):
-        """Block until respond() parks on the approval wait, then return."""
+        """Block until respond() is parked on the approval wait, then return.
+
+        Waits for complete_message as well as pending_confirmation. respond()
+        sets pending_confirmation first, then clears _approval_event, then puts
+        complete_message before blocking on the event. A caller that approves as
+        soon as the payload appears can land before that clear, have the grant
+        erased, and leave the worker waiting until its join times out --
+        complete_message is the signal that the clear has already happened.
+        """
         wait_until(
-            lambda: self.interpreter.pending_confirmation is not None,
+            lambda: self.interpreter.pending_confirmation is not None
+            and complete_message
+            in [call.args[0] for call in self.mock_q.put.call_args_list],
             "respond() never reached the approval wait",
             fail=self.fail,
             timeout=timeout,
