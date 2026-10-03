@@ -45,3 +45,79 @@ def test_send_telemetry_swallows_errors():
         side_effect=Exception("network"),
     ):
         telemetry.send_telemetry("test_event")
+
+
+def test_send_telemetry_payload_shape():
+    """The POST body carries the exact PostHog fields the endpoint expects.
+
+    api_key, event, properties, and distinct_id are the capture contract; a
+    renamed or dropped field would silently stop all telemetry while the
+    existing assertions (event/properties only) still passed.
+    """
+    with mock.patch("interpreter.core.utils.telemetry.requests.post") as post:
+        telemetry.send_telemetry("shape_event", {"k": "v"})
+
+    payload = json.loads(post.call_args.kwargs["data"])
+    assert set(payload) == {"api_key", "event", "properties", "distinct_id"}
+    assert payload["api_key"].startswith("phc_")
+    assert payload["distinct_id"] == telemetry.user_id
+
+
+def test_send_telemetry_posts_to_posthog_with_json_headers():
+    """The request targets the PostHog capture URL with a JSON content type.
+
+    A wrong URL or missing Content-Type would make PostHog reject the payload;
+    the URL and headers were never asserted.
+    """
+    with mock.patch("interpreter.core.utils.telemetry.requests.post") as post:
+        telemetry.send_telemetry("url_event")
+
+    args, kwargs = post.call_args
+    assert args[0] == "https://app.posthog.com/capture"
+    assert kwargs["headers"] == {"Content-Type": "application/json"}
+
+
+def test_send_telemetry_defaults_properties_to_empty_dict():
+    """Omitting properties sends an empty object that still gains oi_version.
+
+    The default has to be a fresh dict; a None or list default would raise on
+    the oi_version assignment or send the wrong JSON type.
+    """
+    with mock.patch("interpreter.core.utils.telemetry.requests.post") as post:
+        telemetry.send_telemetry("no_props")
+
+    payload = json.loads(post.call_args.kwargs["data"])
+    assert payload["properties"]["oi_version"] == telemetry.version("open-interpreter")
+
+
+def test_send_telemetry_merges_caller_properties_without_dropping_version():
+    """Caller properties are preserved alongside the injected oi_version.
+
+    The version is added into the caller's dict; a mutation that replaced the
+    dict instead of updating it would discard the caller's fields.
+    """
+    with mock.patch("interpreter.core.utils.telemetry.requests.post") as post:
+        telemetry.send_telemetry("merge_event", {"a": 1, "b": 2})
+
+    props = json.loads(post.call_args.kwargs["data"])["properties"]
+    assert props["a"] == 1
+    assert props["b"] == 2
+    assert "oi_version" in props
+
+
+def test_get_or_create_uuid_falls_back_to_idk_on_error(tmp_path, monkeypatch):
+    """An unwritable cache path falls back to the literal "idk" instead of raising.
+
+    Telemetry is non-blocking, so a filesystem error must yield the sentinel id
+    rather than propagate; the bare except returning "idk" is the whole guard.
+    """
+    patch_expanduser(monkeypatch, telemetry, tmp_path)
+    # Point HOME at a path under a file so makedirs fails.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    monkeypatch.setattr(
+        telemetry.os.path, "expanduser", lambda path: str(blocker / "home")
+    )
+
+    assert telemetry.get_or_create_uuid() == "idk"
+

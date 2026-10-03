@@ -133,6 +133,44 @@ def test_linux_no_active_window_returns_none():
         assert get_active_window() is None
 
 
+def test_darwin_window_query_uses_the_quartz_constants():
+    """macOS queries windows with the on-screen option and null window id.
+
+    CGWindowListCopyWindowInfo takes (option, relativeToWindow); swapping in
+    None for either constant would change which windows are enumerated, and the
+    existing tests passed anything because the stub ignored its arguments.
+    """
+    seen = {}
+
+    def record(option, window_id):
+        seen["option"] = option
+        seen["window_id"] = window_id
+        return []
+
+    appkit = SimpleNamespace(
+        NSWorkspace=SimpleNamespace(
+            sharedWorkspace=lambda: SimpleNamespace(
+                activeApplication=lambda: {"NSApplicationName": "Safari"}
+            )
+        )
+    )
+    quartz = SimpleNamespace(
+        CGWindowListCopyWindowInfo=record,
+        kCGNullWindowID="NULL-WINDOW",
+        kCGWindowListOptionOnScreenOnly="ON-SCREEN-ONLY",
+    )
+    with (
+        mock.patch("platform.system", return_value="Darwin"),
+        mock.patch.dict(sys.modules, {"AppKit": appkit, "Quartz": quartz}),
+    ):
+        get_active_window()
+
+    assert seen == {
+        "option": "ON-SCREEN-ONLY",
+        "window_id": "NULL-WINDOW",
+    }
+
+
 def test_unsupported_platform_exits(capsys):
     """An unrecognized platform prints a message and exits nonzero.
 
