@@ -21,6 +21,26 @@ from interpreter.core.async_core import (
 )
 
 
+def wait_until(predicate, timeout_message, *, fail, timeout=5):
+    """Block until predicate() is truthy, or fail with timeout_message.
+
+    Waits on a threading.Event rather than time.sleep because the approval tests
+    patch interpreter.core.async_core.time.sleep, which is the shared time
+    module: a time.sleep poll returns instantly and burns all its iterations
+    before the worker thread is ever scheduled.
+
+    Exceeding the timeout calls fail() rather than returning, so a caller cannot
+    fall through to an assertion that reports a confusing None mismatch instead
+    of the real problem.
+    """
+    poll = threading.Event()
+    for _ in range(int(timeout / 0.01)):
+        if predicate():
+            return
+        poll.wait(0.01)
+    fail(timeout_message)
+
+
 class TestServerConstruction(TestCase):
     """
     Tests to make sure that the underlying server is configured correctly when constructing
@@ -1957,16 +1977,12 @@ class TestAsyncRespondApprovalValues(TestCase):
 
     def _wait_for_pending_confirmation(self, timeout=5):
         """Block until respond() parks on the approval wait, then return."""
-        # Waits on a threading.Event rather than time.sleep: the tests that call
-        # this patch interpreter.core.async_core.time.sleep, which is the shared
-        # time module, so a time.sleep poll would return instantly and exhaust
-        # its iterations before the worker thread is ever scheduled.
-        poll = threading.Event()
-        for _ in range(int(timeout / 0.01)):
-            if self.interpreter.pending_confirmation is not None:
-                return
-            poll.wait(0.01)
-        self.fail("respond() never reached the approval wait")
+        wait_until(
+            lambda: self.interpreter.pending_confirmation is not None,
+            "respond() never reached the approval wait",
+            fail=self.fail,
+            timeout=timeout,
+        )
 
     def test_approval_wait_exposes_the_payload_digest_and_a_denied_grant(self):
         """While parked, the payload, its digest, and a False grant are visible.
@@ -2953,17 +2969,25 @@ class TestAsyncRespondGrantedTurnSecondConfirmation(TestCase):
             yield first
             yield second
 
-        import time
-
         with mock.patch.object(interpreter, "_respond_and_store", store):
             worker = threading.Thread(
                 target=interpreter.respond, args=(True,), daemon=True
             )
             worker.start()
-            for _ in range(500):
-                if interpreter.pending_confirmation is not None:
-                    break
-                time.sleep(0.01)
+            # Wait for the second payload specifically, and only once respond()
+            # has finished parking on it. It sets pending_confirmation before it
+            # clears _approval_event and then blocks, so approving as soon as the
+            # field is non-None can land before that clear and have the grant
+            # erased -- which would wedge the worker. complete_message is the
+            # signal that the clear has already happened.
+            wait_until(
+                lambda: interpreter.pending_confirmation
+                == {"format": "python", "content": "second"}
+                and complete_message
+                in [call.args[0] for call in interpreter.output_queue.sync_q.put.call_args_list],
+                "respond() never parked on the second confirmation",
+                fail=self.fail,
+            )
 
             self.assertEqual(
                 interpreter.pending_confirmation, {"format": "python", "content": "second"}
