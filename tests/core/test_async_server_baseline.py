@@ -233,3 +233,96 @@ print("COMPLETED")
         "endpoint subprocess did not report completion "
         f"(stdout={result.stdout!r} stderr={result.stderr!r})"
     )
+
+
+def test_send_output_is_cancelled_when_the_client_disconnects():
+    """A client that disconnects with nothing queued must not leave a parked consumer.
+
+    send_output() blocks on `await output()` when the queue is empty, and only
+    rechecks the socket at the top of its loop. With gather() waiting for both
+    coroutines, a disconnect returned receive_input() while send_output() stayed
+    parked on the shared queue forever. The next item put by any turn then woke
+    that dead consumer first (janus notifies the oldest waiter), which stole the
+    item before noticing the socket was gone — one message swallowed per stale
+    connection, growing with server uptime.
+
+    Here the queue is empty and never fed, so a parked send_output() never
+    returns on its own: the endpoint must cancel it when receive_input() ends,
+    or the coroutine hangs. Run in a subprocess with a hard OS timeout, since a
+    hang cannot be caught by an in-process wait_for.
+    """
+
+    import subprocess
+    import sys
+
+    script = """
+import asyncio
+import os
+from collections import deque
+
+os.environ["INTERPRETER_REQUIRE_AUTH"] = "False"
+
+from interpreter.core.async_core import AsyncInterpreter, Server
+from starlette.routing import WebSocketRoute
+from starlette.websockets import WebSocketState
+
+
+async def run_endpoint():
+    interpreter = AsyncInterpreter()
+    interpreter.require_acknowledge = False
+    interpreter.unsent_messages = deque()  # nothing queued, so send_output parks
+
+    server = Server(interpreter)
+    endpoint = next(
+        r.endpoint
+        for r in server.app.routes
+        if isinstance(r, WebSocketRoute) and r.path == "/"
+    )
+
+    class DisconnectingWebSocket:
+        def __init__(self):
+            self.headers = {}
+            self.client_state = WebSocketState.CONNECTED
+
+        async def accept(self):
+            pass
+
+        async def receive(self):
+            # The client drops immediately; receive_input() returns.
+            return {"type": "websocket.disconnect"}
+
+        async def send_text(self, data):
+            pass
+
+        async def send_bytes(self, data):
+            pass
+
+    # If send_output() is not cancelled it parks on the empty queue forever and
+    # this never returns.
+    await asyncio.wait_for(endpoint(DisconnectingWebSocket()), timeout=8)
+
+
+asyncio.run(run_endpoint())
+print("COMPLETED")
+"""
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        raise AssertionError(
+            "endpoint did not return after the client disconnected — "
+            "send_output was left parked on the queue"
+        )
+
+    assert result.returncode == 0, (
+        f"endpoint subprocess failed: rc={result.returncode} "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "COMPLETED" in result.stdout, (
+        f"endpoint did not report completion (stdout={result.stdout!r} stderr={result.stderr!r})"
+    )
