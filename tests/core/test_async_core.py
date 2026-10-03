@@ -1957,12 +1957,15 @@ class TestAsyncRespondApprovalValues(TestCase):
 
     def _wait_for_pending_confirmation(self, timeout=5):
         """Block until respond() parks on the approval wait, then return."""
-        import time
-
+        # Waits on a threading.Event rather than time.sleep: the tests that call
+        # this patch interpreter.core.async_core.time.sleep, which is the shared
+        # time module, so a time.sleep poll would return instantly and exhaust
+        # its iterations before the worker thread is ever scheduled.
+        poll = threading.Event()
         for _ in range(int(timeout / 0.01)):
             if self.interpreter.pending_confirmation is not None:
                 return
-            time.sleep(0.01)
+            poll.wait(0.01)
         self.fail("respond() never reached the approval wait")
 
     def test_approval_wait_exposes_the_payload_digest_and_a_denied_grant(self):
