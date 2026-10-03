@@ -228,6 +228,59 @@ def test_auth_requires_review_layer(monkeypatch):
         list(run_tool_calling_llm(llm, {"messages": []}))
 
 
+def test_content_sharing_a_delta_with_the_tool_call_is_yielded_as_a_message():
+    """Text packed into the same delta as the tool call is streamed as an assistant message.
+
+    Providers that collapse a turn into one message (litellm's ollama_chat and
+    Gemini builders) send the assistant's prose and its tool call in a single
+    delta. Rebuilding the delta from the tool call alone dropped that prose, so
+    the explanation before the code was never displayed or stored. Regression
+    test for #316.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "content": "I'll print one for you.",
+                    "tool_calls": [
+                        _tool_call("execute", '{"language": "python", "code": "print(1)"}')
+                    ],
+                }
+            )
+        ]
+    )
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "I'll print one for you."},
+        {"type": "code", "format": "python", "content": "print(1)"},
+    ]
+
+
+def test_review_verdict_sharing_a_delta_with_the_tool_call_counts_as_a_review(monkeypatch):
+    """A judge verdict delivered with the tool call satisfies the authentication guard.
+
+    A collapsed message gives no ordering between the text and the call, so the
+    verdict tags — not the position — mark it as a review. The code is still
+    emitted: holding the closing tag back in the review buffer must not skip
+    the rest of the chunk. Regression test for #316.
+    """
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "content": "<safe>fine</safe>",
+                    "tool_calls": [
+                        _tool_call("execute", '{"language": "python", "code": "print(1)"}')
+                    ],
+                }
+            )
+        ]
+    )
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
 def test_auth_no_tool_call_does_not_raise(monkeypatch):
     """With INTERPRETER_REQUIRE_AUTHENTICATION, a plain-text turn (no tool call) is fine."""
     monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
