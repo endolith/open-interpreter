@@ -128,6 +128,50 @@ jobs:
           uv pip install --system -e ".[server,dev]"
           pytest -m darwin_ci -v
 
+  test-windows-broad:
+    name: Windows broad (non-blocking)
+    # Runs the main suite on Windows, not just the windows_ci-marked tests.
+    # continue-on-error keeps this informational until the known failures are
+    # triaged; see docs/ROADMAP.md Phase 1.
+    if: github.event_name != 'workflow_dispatch'
+    continue-on-error: true
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - name: Install and run the broad suite
+        shell: bash
+        run: |
+          uv pip install --system -e ".[server,dev]"
+          pytest -m "not integration and not darwin_ci" -q
+
+  test-macos-broad:
+    name: macOS broad (non-blocking)
+    # Same purpose as test-windows-broad: find the tests that only pass on
+    # Linux because nothing has ever run them on macOS.
+    if: github.event_name != 'workflow_dispatch'
+    continue-on-error: true
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - name: Install and run the broad suite
+        run: |
+          uv pip install --system -e ".[server,dev]"
+          pytest -m "not integration and not windows_ci" -q
+
   codecov:
     name: Upload to Codecov
     needs: test-linux

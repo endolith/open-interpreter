@@ -1,9 +1,16 @@
 """Minimal per-OS CI smokes: real subprocess / path behavior not covered by mocks.
 
 Linux CI runs the full unit suite (see test_language_subprocess.py for language
-e2e). Windows and macOS CI jobs run only tests marked ``windows_ci`` or
+e2e). The Windows and macOS *smoke* jobs run only tests marked ``windows_ci`` or
 ``darwin_ci`` here — cmd.exe, PowerShell, AppleScript, and related quirks from
 cross-platform test development.
+
+Those smoke jobs are not the whole story: separate ``*-broad`` jobs run the main
+suite on Windows and macOS too, currently with ``continue-on-error`` so they
+report failures without blocking a merge. That asymmetry is deliberate and
+temporary — a test that only ever runs on Linux cannot fail the Linux job, so an
+unmarked Windows-only breakage (removing a temp file while it is still open, for
+instance) would otherwise reach ``main`` unnoticed.
 """
 
 import os
