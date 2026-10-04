@@ -43,7 +43,7 @@ def test_code_block_yields_code_chunks():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": ""},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -86,7 +86,7 @@ def test_code_block_exit_returns():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": ""},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -101,7 +101,7 @@ def test_empty_language_defaults_to_python():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": ""},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
