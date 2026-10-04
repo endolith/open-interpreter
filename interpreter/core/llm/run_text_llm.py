@@ -1,4 +1,28 @@
 def run_text_llm(llm, params):
+    """Stream an LLM's response as typed chunks, parsing code fences.
+
+    Takes an LLM wrapper and a params dict (passed to ``llm.completions``).
+    Yields chunks of two types:
+
+    - ``{"type": "message", "content": <str>}`` – plain text from the stream.
+    - ``{"type": "code", "format": <lang>, "content": <str>}`` – content from
+      inside fenced code blocks (`` ```<lang>``).
+
+    The first code delta strips the leading language line so language names do
+    not appear inside the yielded code body.  Subsequent deltas for the same
+    block are passed through unchanged, preventing repeated stripping from
+    corrupting code that contains the language name.
+
+    Args:
+        llm: Object with a ``completions`` method (yields API response dicts)
+             and an ``execution_instructions`` attribute (optional string prepended
+             to the system prompt).
+        params: Dict passed to ``llm.completions(**params)``; must contain a
+                ``messages`` list whose first element has a ``content`` field.
+
+    Yields:
+        Chunks as described above.
+    """
     ## Setup
 
     if llm.execution_instructions:
