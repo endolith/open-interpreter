@@ -28,7 +28,7 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
         return self._insert_cwd_marker(code, end_marker)
 
     def _cwd_marker_echo(self):
-        return '\necho "##oi_pwd##$PWD"'
+        return '\necho "##oi_cwd##$PWD"'
 
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line
