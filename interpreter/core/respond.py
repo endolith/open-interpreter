@@ -351,7 +351,13 @@ def respond(interpreter):
                     getattr(openai, "APIError", Exception),
                     getattr(openai, "OpenAIError", Exception),
                 )):
-                    is_temporary_error = _is_temporary_provider_error(e)
+                    # Kept separately from is_temporary_error below, which is
+                    # forced to False once the retry budget is spent. The prompt
+                    # needs the underlying nature of the fault -- throttle versus
+                    # misconfiguration -- to decide whether offering to exit makes
+                    # any sense.
+                    temporary_by_nature = _is_temporary_provider_error(e)
+                    is_temporary_error = temporary_by_nature
                     # Once the cap is reached, stop treating this as temporary
                     # so the error panel is shown and the manual retry path
                     # below takes over. Clearing the flag means a later
@@ -501,10 +507,28 @@ def respond(interpreter):
                         continue
 
                     if _stdin_is_interactive():
-                        retry_choice = prompt_choice(
-                            "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  ",
-                            ("y", "a", "n"),
-                        )
+                        # "n" stops retrying and returns to the prompt, which is
+                        # the right outcome for the recoverable case: a throttle
+                        # or an exhausted quota is fixed by refilling and waiting,
+                        # neither of which needs OI to be closed. "e" exists only
+                        # for faults no in-session action can fix -- a wrong key, a
+                        # model that does not exist -- where leaving is the point.
+                        #
+                        # Whether to offer "e" keys off the error's nature, not the
+                        # flag above: exhausting the retry budget forces
+                        # is_temporary_error to False even for a throttle, so by the
+                        # time we get here the flag no longer says which this was.
+                        recoverable = temporary_by_nature
+                        if recoverable:
+                            retry_choice = prompt_choice(
+                                "  Retry? (y = retry once, a = keep retrying, n = stop and return to the prompt)\n\n  ",
+                                ("y", "a", "n"),
+                            )
+                        else:
+                            retry_choice = prompt_choice(
+                                "  Retry? (y = retry once, a = keep retrying, n = stop and return to the prompt, e = exit)\n\n  ",
+                                ("y", "a", "n", "e"),
+                            )
 
                         if retry_choice == "a":
                             always_retry_provider_errors = True
@@ -515,10 +539,21 @@ def respond(interpreter):
                             interpreter.display_message("> Retrying...")
                             time.sleep(2)
                             continue
+                        if retry_choice == "n":
+                            # Deliberately does not set _stopped_retrying. The
+                            # turn ends and the interface prompts again with the
+                            # question still unanswered, so the next turn can pick
+                            # it up. Successive user messages are not a problem:
+                            # merge_consecutive_user_messages folds them for the
+                            # providers that reject runs of them.
+                            return
 
+                        # "e", or a recoverable error answered with a choice the
+                        # prompt did not offer.
                         interpreter._stopped_retrying = True
                         return
 
+                    # No one to ask. Exiting is the only option.
                     interpreter._stopped_retrying = True
                     return
 
