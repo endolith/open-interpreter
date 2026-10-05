@@ -974,8 +974,15 @@ def terminal_interface(interpreter, message):
             if interactive:
                 print("", flush=True)
 
-            # Only exit when the user chose "n" at the API retry prompt (not when
-            # they declined to run code). respond() sets _stopped_retrying in that case.
+            # Exit only when the user asked to. respond() sets _stopped_retrying
+            # when they choose "e" at the API retry prompt -- offered only for
+            # faults no in-session action fixes -- or when there is no interactive
+            # prompt to ask at all. Choosing "n" deliberately leaves this False so
+            # the loop prompts again with the question unanswered, which is how a
+            # throttle recovers: refill the account, carry on in the same session.
+            #
+            # The pop drops the question so the message that carried it cannot be
+            # mistaken for undelivered input and re-served on the next iteration.
             if (
                 interactive
                 and getattr(interpreter, "_stopped_retrying", False)
@@ -983,7 +990,7 @@ def terminal_interface(interpreter, message):
                 interpreter._stopped_retrying = False
                 if interpreter.messages and interpreter.messages[-1].get("role") == "user":
                     interpreter.messages.pop()
-                interpreter.display_message("\n\n`Stopped retrying. Exiting...`")
+                interpreter.display_message("\n\n`Exiting...`")
                 raise SystemExit(1)
 
             if not interactive:
