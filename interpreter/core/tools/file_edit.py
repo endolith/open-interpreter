@@ -17,6 +17,7 @@ In-place edit strategies (Windows cross-drive safety):
   - direct open: poke (binary), write (new files only).
 """
 
+import difflib
 import json
 import os
 import platform
@@ -681,6 +682,52 @@ def _raise_patch_failure(result, diff, target):
 # Dry-run previews (no file modifications)
 # ---------------------------------------------------------------------------
 
+def _read_text_for_diff(target):
+    """Read the target as text for diffing, or None if it is not decodable.
+
+    Binary targets (poke) never reach here, but a file can still hold bytes that
+    are not valid UTF-8, and difflib would either raise or produce mojibake. In
+    that case the caller falls back to showing the tool's raw output, which is
+    no worse than the previous behaviour.
+    """
+    try:
+        return Path(target).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def unified_edit_diff(target, new_text, *, context=3):
+    """Unified diff between the target's current content and `new_text`.
+
+    The dry run for most languages runs the tool *without* its in-place flag, so
+    what it prints is the entire edited file. Showing that verbatim means
+    re-reading a whole file to find the one line that changed, and it grows
+    without bound: a 4000-line file edited in one place buries the change. A
+    diff with a few lines of surrounding context shows the change and enough to
+    locate it, and shrinks to the same size whether the file is ten lines or ten
+    thousand.
+
+    Returns None when the content is undecodable or byte-identical to what is
+    already on disk, so the caller can fall back to the raw tool output.
+    """
+    original = _read_text_for_diff(target)
+    if original is None:
+        return None
+    if original == new_text:
+        return None
+    diff = difflib.unified_diff(
+        original.splitlines(keepends=True),
+        new_text.splitlines(keepends=True),
+        fromfile=Path(target).name,
+        tofile=Path(target).name,
+        n=context,
+    )
+    # splitlines(keepends=True) leaves the last line without a newline; without
+    # this the final line of the diff would run into the closing fence.
+    body = "".join(line if line.endswith("\n") else line + "\n" for line in diff)
+    return body or None
+
+
 def dry_run_edit(language, code, target):
     """Run the edit without modifying the file.
 
@@ -691,11 +738,41 @@ def dry_run_edit(language, code, target):
     if language == "poke" or language == "write":
         return None
 
-    def _preview(result, *, append_diff=None):
+    def _preview(result, *, append_diff=None, diff_against=None):
         out = _subprocess_text(result)
+        ok = result.returncode == 0
+        # Prefer the diff; fall through to raw output when it cannot be built.
+        #
+        # Diff the *unstripped* stdout. _subprocess_text() strips, which would
+        # drop the file's trailing newline and make the last line look changed
+        # even when the edit never touched it.
+        if ok and diff_against is not None:
+            raw = result.stdout
+            if isinstance(raw, bytes):
+                new_text = raw.decode("utf-8", errors="replace")
+            else:
+                new_text = raw or ""
+            preview = unified_edit_diff(diff_against, new_text)
+            if preview is not None:
+                return {"output": preview, "ok": True}
+            # An empty diff with a decodable target means the edit changed
+            # nothing. Say so in one line rather than falling through to the
+            # raw output, which is the entire file and hides that fact.
+            if _read_text_for_diff(diff_against) is not None:
+                return {
+                    "output": f"{language}: no changes (result is identical to the current file)",
+                    "ok": True,
+                }
+            # Not text at all. The raw output would decode with replacement
+            # characters, which looks like corruption rather than like a
+            # preview; say the preview is unavailable instead. The edit itself
+            # is unaffected -- the user still gets the y/n confirmation.
+            return {
+                "output": f"{language}: preview unavailable ({Path(diff_against).name} is not a text file)",
+                "ok": True,
+            }
         if not out:
             out = f"{language} exited with code {result.returncode}"
-        ok = result.returncode == 0
         # GNU patch --dry-run on success often only prints "checking file …"; include the diff.
         if ok and append_diff is not None and "@@" not in out:
             out = f"{out}\n\n{append_diff.strip()}" if out else append_diff.strip()
@@ -732,7 +809,7 @@ def dry_run_edit(language, code, target):
         finally:
             if os.path.isfile(script_path):
                 os.remove(script_path)
-        return _preview(result)
+        return _preview(result, diff_against=target)
 
     if language == "gawk":
         _validate_target(target, must_exist=True)
@@ -748,7 +825,7 @@ def dry_run_edit(language, code, target):
         finally:
             if os.path.isfile(prog_path):
                 os.remove(prog_path)
-        return _preview(result)
+        return _preview(result, diff_against=target)
 
     if language == "jq":
         _validate_target(target, must_exist=True)
@@ -764,7 +841,7 @@ def dry_run_edit(language, code, target):
         finally:
             if os.path.isfile(filter_path):
                 os.remove(filter_path)
-        return _preview(result)
+        return _preview(result, diff_against=target)
 
     if language == "yq":
         _validate_target(target, must_exist=True)
@@ -774,7 +851,7 @@ def dry_run_edit(language, code, target):
         yq = _resolve_yq()
         # Same stdout eval as run_yq; dry-run only shows output, never writes the file.
         result = _run_yq_eval(yq, expr, target)
-        return _preview(result)
+        return _preview(result, diff_against=target)
 
     if language == "comby":
         _validate_target(target, must_exist=True)
@@ -795,7 +872,8 @@ def dry_run_edit(language, code, target):
             output = _comby_rewritten_source(result.stdout).decode("utf-8", errors="replace")
         except RuntimeError as exc:
             return {"output": str(exc), "ok": False}
-        return {"output": output, "ok": True}
+        preview = unified_edit_diff(target, output)
+        return {"output": preview if preview is not None else output, "ok": True}
 
     return None
 

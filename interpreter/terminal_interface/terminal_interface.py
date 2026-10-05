@@ -63,15 +63,36 @@ except:
     pass
 
 
+def _looks_like_unified_diff(output):
+    """True if the preview body is a unified diff rather than a file's contents.
+
+    Most edit languages are dry-run *without* their in-place flag, so what the
+    tool prints is the whole rewritten file. Those previews are rendered as a
+    diff instead, which means the fence language has to follow the content
+    rather than the edit language: highlighting a diff as Python or YAML paints
+    every +/- line as ordinary code and throws away the one cue that says which
+    lines changed.
+    """
+    lines = output.splitlines()
+    return (
+        len(lines) >= 2
+        and lines[0].startswith("--- ")
+        and any(line.startswith("@@ ") for line in lines)
+    )
+
+
 def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True):
     if not output:
         return
     # File-format highlighting only for successful previews; errors are plain text.
-    fence_lang = (
-        syntax_lang_for_dry_run(target, edit_language)
-        if ok
-        else "text"
-    )
+    if ok and _looks_like_unified_diff(output):
+        fence_lang = "diff"
+    else:
+        fence_lang = (
+            syntax_lang_for_dry_run(target, edit_language)
+            if ok
+            else "text"
+        )
     fence = "````" if "```" in output else "```"
     block = f"{fence}{fence_lang}\n{output}\n{fence}"
     if interpreter.plain_text_display:
