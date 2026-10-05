@@ -33,6 +33,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install the external tools the edit-tool tests gate on
+        run: |
+          # These tests skip when the binary is absent, so relying on the runner
+          # image to happen to provide them turns coverage off with no signal --
+          # the edit suite went untested for `patch` until someone noticed the
+          # skips. Installed explicitly rather than assumed.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends patch gawk jq
+          # Required: a miss here is a real coverage hole, so fail the build.
+          for bin in sed gawk patch jq; do
+            if ! command -v "$bin" >/dev/null; then
+              echo "::error::required test binary missing, edit-tool coverage would silently skip: $bin"
+              exit 1
+            fi
+          done
+          # Optional: each needs a release download or an extra repo. Report
+          # rather than fail, so the skipped count in the log is explainable.
+          for bin in perl yq poke comby; do
+            if command -v "$bin" >/dev/null; then
+              echo "present: $bin"
+            else
+              echo "absent, tests will skip: $bin"
+            fi
+          done
+
       - name: Install and test
         run: |
           python -m pip install --upgrade pip
