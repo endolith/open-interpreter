@@ -10,11 +10,15 @@ Features from this branch will eventually be merged into `main`.
 
 Any feature branches that target `classic/develop` should have a `develop/` prefix.  Most changes should just be committed directly to `classic/develop`, though.
 
-Tests **do** run on this branch — run them. The suite has pre-existing failures
-and skips that are unrelated to any change under review, so capture a baseline
-before you claim a failure is not yours. Most of these unit tests were written
-after the fact, assuming the code was correct, so treat a surprising failure as
-possibly a bad test rather than a regression (see Testing below).
+Tests **do** run on this branch — run them. The suite is currently green
+(`python -m pytest -m "not integration"` — 583 passed, 0 failed), so a failure is
+yours until shown otherwise. Skips are expected and legitimate: they gate on
+things a given machine does not have (`pwsh`, `R`, `yq`, `gawk`, `patch`, `poke`,
+`comby`), and each says which.
+
+Most unit tests here were written after the fact by an AI, assuming the code was
+correct — so a surprising failure is more often a bad test than a regression (see
+Testing below). Check which before assuming either way.
 
 **CI does not run for this branch, and that is expected.**
 `.github/workflows/python-package.yml` triggers only on `push` and `pull_request`
@@ -25,12 +29,22 @@ that will never start, and do not claim one. Verify locally instead:
     python -m ruff check interpreter tests     # the same lint gate CI runs
     python -m pytest -m "not integration" -q
 
-For the same reason, the branch is not kept lint-clean: `ruff check interpreter
-tests` reports 6 standing `F821`/`F601` errors in
-`core/toolbox/display/display.py`, `core/toolbox/display/point/point.py`, and
-`terminal_interface/terminal_interface.py`. Treat that as the baseline, not as a
-regression to chase, and do not fold drive-by cleanups of it into an unrelated
-commit.
+The branch **is** lint-clean: `ruff check interpreter tests` passes, so any error it
+reports is one you introduced. That was not always true. Six standing
+`F821`/`F601` errors used to be documented here as an accepted baseline, and all
+six have since been fixed — and all six were real defects, not style:
+
+- `display.py` called `get_monitors()`, a name never imported (the module lazy-imports
+  `screeninfo`), so `toolbox.display.view()` raised `NameError` on every call.
+- `point.py` read `model_path` three times and never assigned it. It never fired
+  because `fast_model = True` made the block dead, so it sat latent behind a flag.
+- `terminal_interface.py`'s edit `extension_map` listed `cmd`/`bash` twice. The
+  duplicates agreed, so nothing broke — but disagreeing duplicates would have
+  silently changed which syntax highlighting the editor used.
+
+If you hit lint errors and believe they predate your work, check `git log` before
+dismissing them. Do not reintroduce the "standing baseline" framing to avoid a
+drive-by fix; give the fix its own commit instead.
 
 ## Codebase map
 
