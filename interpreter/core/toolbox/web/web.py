@@ -18,6 +18,7 @@ Supported backends:
 
 from __future__ import annotations
 
+import re
 import os
 import json
 import requests
@@ -33,6 +34,129 @@ def _default_locale_from_environment() -> Locale:
         return Locale.default("LC_CTYPE")
     except (UnknownLocaleError, TypeError, ValueError, OSError):
         return Locale.parse("en_US")
+
+
+# ISO 3166-1 alpha-2, and ISO 639-1. Split from a single string so the lists stay
+# readable and diffable; a set of literals would bury them.
+#
+# These exist to reject codes that are well-formed but not real. Without them,
+# "ZZ" is passed straight through: a shape check accepts it, the backend either
+# ignores it or answers 400, and the agent is told the API key is wrong when the
+# actual fault is a two-letter typo. A wrong country silently returning the
+# default region is the worse case -- localized results just come back for
+# somewhere else and nothing looks broken.
+_ISO_3166_1_ALPHA2 = frozenset(
+    """
+    AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL
+    BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU
+    CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA
+    GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID
+    IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA
+    LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR
+    MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG
+    PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ
+    SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT
+    TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW
+    """.split()
+)
+_ISO_639_1 = frozenset(
+    """
+    aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co
+    cr cs cu cv cy da de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl
+    gn gu gv ha he hi ho hr ht hu hy hz ia id ie ig ii ik io is it iu ja jv ka kg
+    ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv mg mh mi mk
+    ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps
+    pt qu rm rn ro ru rw sa sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta
+    te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za
+    zh zu
+    """.split()
+)
+
+
+def _reject_bad_country_code(country):
+    """Raise if a country code is not a real ISO 3166-1 alpha-2 code.
+
+    Called before any network request, so an unusable code is reported as a bad
+    argument rather than as a backend failure the agent cannot act on.
+    """
+    if not country:
+        return
+    code = " ".join(str(country).replace("\u00a0", " ").split()).strip()
+    if not code:
+        return
+    # Accept a full locale like "en_GB" and validate only the territory part.
+    parts = re.split(r"[_-]", code)
+    candidate = parts[-1].upper() if len(parts[-1]) == 2 else code.upper()
+    if candidate in _ISO_3166_1_ALPHA2:
+        return
+    if len(candidate) == 2:
+        # Any two-character candidate gets a near-miss suggestion, letters or
+        # not: a digit slipped into a code ("U5" for "UA") is the commonest
+        # typo and the closest match is the most useful thing to say about it.
+        suggestion = _closest_country_code(candidate)
+        detail = (
+            f" (did you mean {suggestion!r}?)" if suggestion else ""
+        )
+        if candidate.isalpha():
+            extra = " Do not pass a name or a language code here."
+        else:
+            extra = " Country codes are two letters, not digits."
+        raise WebToolboxError(
+            f"country_code {country!r} is not a valid ISO 3166-1 alpha-2 country "
+            f"code. Use a two-letter code such as 'US', 'GB' or 'FR'{detail}."
+            + extra
+        )
+    raise WebToolboxError(
+        f"country_code {country!r} is not a valid ISO 3166-1 alpha-2 country code. "
+        "Use a two-letter code such as 'US', 'GB' or 'FR', or omit it to use the "
+        "system locale."
+    )
+
+
+def _closest_country_code(code):
+    """A real country differing from `code` by one character, if one exists."""
+    for candidate in sorted(_ISO_3166_1_ALPHA2):
+        if sum(a != b for a, b in zip(code.upper(), candidate)) == 1:
+            return candidate
+    return None
+
+
+def _reject_bad_language_code(language):
+    """Raise if a language code is not a real ISO 639-1 code."""
+    if not language:
+        return
+    code = " ".join(str(language).replace("\u00a0", " ").split()).strip()
+    if not code:
+        return
+    parts = re.split(r"[_-]", code)
+    candidate = parts[0].lower() if len(parts[0]) == 2 else code.lower()
+    if candidate in _ISO_639_1:
+        return
+    if len(candidate) == 2 and candidate.isalpha():
+        raise WebToolboxError(
+            f"language_code {language!r} is not a valid ISO 639-1 language code. "
+            "Use a two-letter code such as 'en', 'es' or 'fr', or omit it to use "
+            "the system locale."
+        )
+    raise WebToolboxError(
+        f"language_code {language!r} is not a valid ISO 639-1 language code. Use a "
+        "two-letter code such as 'en', 'es' or 'fr'."
+    )
+
+
+def _reject_empty_query(query, method="search"):
+    """Raise a clear error for a blank query, before spending a request.
+
+    An empty query was passed through to the backend, which answered 400 and the
+    failure was reported as an API-key or connectivity problem -- sending the
+    agent to fix credentials when the fault was its own argument.
+    """
+    if query is None:
+        raise WebToolboxError(f"{method}: query is required")
+    if not str(query).strip():
+        raise WebToolboxError(
+            f"{method}: query is empty. Provide a non-empty search query."
+        )
 
 
 def _normalize_locale_language_for_hl(lang: str) -> str:
@@ -1469,6 +1593,13 @@ class Web:
                 engine="google_shopping"
             )
         """
+        # Argument validation first: an unusable code or a blank query must be
+        # reported as a bad argument, not as a backend failure the agent cannot
+        # act on (and never as "check your API key").
+        _reject_empty_query(query, "search")
+        _reject_bad_country_code(country_code)
+        _reject_bad_language_code(language_code)
+
         used_backend = None
 
         # Hidden power path: timeout stays out of the signature/docs so it
@@ -1756,6 +1887,7 @@ class Web:
             for source in result.sources:
                 print(f"- {source['title']}: {source['url']}")
         """
+        _reject_empty_query(question, "answer")
         if "?" not in question:
             print(f"⚠️  web.answer() AI expects a question ending in '?', not search terms.\n")
 
@@ -1842,6 +1974,7 @@ class Web:
             result = toolbox.web.structured_output("Attention is All You Need journal article", schema=schema)
             print(result.structured_output["author_last_name"])
         """
+        _reject_empty_query(query, "structured_output")
         import json
 
         timeout = kwargs.pop("timeout", self._web_timeout("answer"))
@@ -2538,6 +2671,7 @@ class Web:
             page = result.fetch()
             print(page.content[:500])
         """
+        _reject_empty_query(query, "search_page")
         url = _normalize_fetch_url(url)
         timeout = kwargs.pop("timeout", self._web_timeout())
         backend_methods = {
