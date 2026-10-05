@@ -334,3 +334,116 @@ def test_value_error_quits_instead_of_prompting_for_retry(capsys, panels):
     output = capsys.readouterr().out
     assert "Retry?" not in output, "a missing key is not retryable"
     assert not calls, "respond() must not consult stdin for a retry prompt here"
+
+
+def _model_unavailable_error():
+    """A gateway rejecting a model name that does not exist, as OpenCode Go does.
+
+    Returned as a 400, which is the status for a permanent client-side mistake, but
+    the wording ("Model is unavailable") is what the classification actually reads.
+    """
+    return litellm.BadRequestError(
+        message="OpenAIException - Upstream request failed: Model is unavailable.",
+        model="m",
+        llm_provider="openai",
+        response=type("R", (), {"status_code": 400, "headers": {}})(),
+    )
+
+
+def test_model_unavailable_is_not_treated_as_a_temporary_fault():
+    """A model that does not exist stays unavailable; retrying cannot conjure it.
+
+    "unavailable" used to be a bare substring match on the whole error, so this
+    permanent condition was classified transient and retried forever. That is what
+    turned a model typo into an unkillable loop: the retry kept the Rich Live
+    display up, which reads stdin in raw mode, so Ctrl-C arrived as a keystroke
+    rather than a signal and the user could not escape it.
+    """
+    assert respond_mod._is_temporary_provider_error(_model_unavailable_error()) is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # Genuinely transient phrasings that must keep retrying. "temporarily
+        # unavailable" was already caught by the "temporarily" marker; the rest
+        # only worked because of the bare "unavailable" match this change removes.
+        "503 service unavailable",
+        "Service unavailable, please retry",
+        "The upstream provider is temporarily unavailable",
+        # Plain transient signals, unaffected by the change.
+        "Provider returned error 429, temporarily rate-limited",
+        "upstream overloaded, try again later",
+    ],
+)
+def test_genuinely_transient_failures_are_still_temporary(message):
+    """Dropping the bare "unavailable" match must not cost us real retries.
+
+    Each phrasing here would stop matching if the temporary-unavailability phrases
+    were narrowed too far, silently turning a blip into an error the user has to
+    acknowledge.
+    """
+    assert respond_mod._is_temporary_provider_error(Exception(message)) is True
+
+
+def test_model_unavailable_is_surfaced_not_retried(capsys, panels):
+    """The permanent model error reaches the user after one attempt.
+
+    End-to-end guard on the same bug: the classifier is correct in isolation, but
+    the loop must also stop calling the provider, since the infinite loop the user
+    hit was the combination of the two.
+    """
+    llm = _FakeLlm([_model_unavailable_error()])
+
+    interpreter = _FakeInterpreter(llm)
+    list(respond(interpreter))
+
+    assert llm.calls == 1, "a model that cannot be found must not be retried"
+    output = capsys.readouterr().out + "".join(panels)
+    # The panel body is truncated to the console width, so the useful assertion is
+    # the title: a permanent fault renders as a red "Error", while the temporary
+    # path would have rendered a yellow "Warning" and gone on to retry.
+    assert "BadRequestError" in output, "the underlying error must reach the user"
+    assert "Error" in output and "Warning" not in output, (
+        "a permanent model error must be shown as an Error, not a temporary Warning"
+    )
+
+
+def test_temporary_retries_stop_at_the_cap(capsys, panels):
+    """A provider that stays transiently broken is finally surfaced, not looped on.
+
+    Regression: temporary_provider_error_retries was incremented, reset and drawn
+    but never compared against a limit, so a provider that kept returning the same
+    429 was retried indefinitely. The bodiless-400 counter beside it *was* bounded,
+    and the comment above it claimed the retry machinery generally was -- which is
+    what hid this. The cap must be a hard stop that hands control back.
+    """
+    error = _rate_limit_error()
+    cap = respond_mod.MAX_TEMPORARY_PROVIDER_RETRIES
+    # More than enough outcomes to loop forever if the cap were removed.
+    llm = _FakeLlm([error] * (cap + 10))
+
+    interpreter = _FakeInterpreter(llm)
+    list(respond(interpreter))
+
+    assert llm.calls == cap + 1, (
+        f"expected {cap} automatic retries then a surfaced error, "
+        f"got {llm.calls} attempts"
+    )
+    output = capsys.readouterr().out + "".join(panels)
+    assert "429" in output, "the user must be told the provider kept failing"
+
+
+def test_temporary_error_recovers_before_the_cap(capsys, panels):
+    """Bounding the retries must not stop a normal blip from succeeding.
+
+    The cap exists to stop a hopeless loop, not to ration retries: a rate limit
+    that clears on the second attempt must still be retried automatically and
+    produce the reply, exactly as before this change.
+    """
+    llm = _FakeLlm([_rate_limit_error(), [{"type": "message", "content": "hi"}]])
+
+    interpreter = _first_reply(llm)
+
+    assert llm.calls == 2, "one transient failure then a successful retry"
+    assert interpreter._stopped_retrying is False, "a recovered turn is not a refusal"
