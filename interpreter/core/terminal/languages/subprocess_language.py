@@ -26,6 +26,9 @@ class SubprocessLanguage(BaseLanguage):
         self.verbose = False
         self.output_queue = queue.Queue()
         self.done = threading.Event()
+        # Set by _abort_stream when the reader fails unexpectedly, so the
+        # failure can be inspected after the turn rather than only being logged.
+        self._stream_error = None
 
     def detect_active_line(self, line):
         """
@@ -241,4 +244,40 @@ class SubprocessLanguage(BaseLanguage):
                 if self.verbose:
                     print("Stream closed while reading.")
             else:
-                raise e
+                self._abort_stream(e)
+        except Exception as e:
+            self._abort_stream(e)
+
+    def _abort_stream(self, error):
+        """End the turn after an unexpected reader failure, and report it.
+
+        Without this the reader thread just dies. `done` is then never set --
+        it is only set by the end-of-execution marker or the KeyboardInterrupt
+        branch, both of which live in this method -- so run()'s consumer loop
+        spins on `while True` forever, the turn never ends, and whatever the
+        command had already printed stays unread in the pipe.
+
+        The visible symptom is output that vanished, plus a terminal that stops
+        responding to Ctrl-C, because the Rich Live display stays up for the
+        whole hang. That was reported as "the previous attempt's output got
+        swallowed" and mistaken for the model losing interest.
+
+        The failure is surfaced rather than swallowed: a reader that dies quietly
+        looks identical to a command that produced no output. Whatever was
+        already queued has been yielded by this point, so only the abort itself
+        needs reporting.
+        """
+        self._stream_error = error
+        self.output_queue.put(
+            {
+                "type": "console",
+                "format": "output",
+                "content": (
+                    f"\n[output stream stopped unexpectedly: "
+                    f"{type(error).__name__}: {error}]"
+                ),
+            }
+        )
+        # Ends the consumer loop. Set last, so the diagnostic above is already
+        # queued and gets drained rather than lost to the teardown.
+        self.done.set()
