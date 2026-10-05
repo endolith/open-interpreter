@@ -27,11 +27,8 @@ class SubprocessLanguage(BaseLanguage):
         self.output_queue = queue.Queue()
         self.done = threading.Event()
         # Set by _abort_stream when the reader fails unexpectedly, so the
-        # failure can be inspected after the turn rather than only logged.
+        # failure can be inspected after the turn rather than only being logged.
         self._stream_error = None
-        # Kept so run() can wait for them to drain the pipes when the process
-        # dies without printing the end-of-execution marker.
-        self.stream_threads = []
 
     def detect_active_line(self, line):
         """
@@ -317,16 +314,21 @@ class SubprocessLanguage(BaseLanguage):
     def _abort_stream(self, error):
         """End the turn after an unexpected reader failure, and report it.
 
-        Without this the reader thread just dies. ``done`` is then never set --
+        Without this the reader thread just dies. `done` is then never set --
         it is only set by the end-of-execution marker or the KeyboardInterrupt
         branch, both of which live in this method -- so run()'s consumer loop
-        spins on ``while True`` forever, the turn never ends, and whatever the
+        spins on `while True` forever, the turn never ends, and whatever the
         command had already printed stays unread in the pipe.
 
         The visible symptom is output that vanished, plus a terminal that stops
         responding to Ctrl-C, because the Rich Live display stays up for the
-        whole hang. Surfacing the failure matters too: a reader that dies
-        quietly looks identical to a command that produced no output.
+        whole hang. That was reported as "the previous attempt's output got
+        swallowed" and mistaken for the model losing interest.
+
+        The failure is surfaced rather than swallowed: a reader that dies quietly
+        looks identical to a command that produced no output. Whatever was
+        already queued has been yielded by this point, so only the abort itself
+        needs reporting.
         """
         self._stream_error = error
         self.output_queue.put(
@@ -339,17 +341,6 @@ class SubprocessLanguage(BaseLanguage):
                 ),
             }
         )
-        # Discard the process: its stdout reader is gone, so a later run()
-        # would write to it and wait forever for a completion marker that can
-        # no longer arrive. Clear the handle before terminating so nothing can
-        # reuse it if termination is slow or raises.
-        process, self.process = self.process, None
-        if process is not None:
-            try:
-                process.terminate()
-            except Exception:
-                pass
-
-        # Set last, so the diagnostic above is already queued and gets drained
-        # rather than lost to the teardown.
+        # Ends the consumer loop. Set last, so the diagnostic above is already
+        # queued and gets drained rather than lost to the teardown.
         self.done.set()
