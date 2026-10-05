@@ -563,6 +563,62 @@ def run_comby(target, code):
     return "comby: OK"
 
 
+def _hunks_missing_trailing_context(code):
+    """Return the 1-based hunk numbers whose last change has <2 context lines after it.
+
+    GNU patch will not apply a hunk that has fewer than two unchanged context
+    lines following its final +/- line, unless the hunk truly ends at
+    end-of-file. Verified against patch 2.8: with 0 or 1 trailing context lines
+    the hunk is rejected at any amount of leading context, and with 2 it applies.
+    The rejection is reported only as "Hunk #N FAILED", which does not suggest
+    the context depth is at fault, so the model lowers the fuzz or renumbers the
+    header instead of adding the lines. Named here so the message can say what
+    to change.
+    """
+    thin = []
+    hunk_no = 0
+    trailing = None  # context lines seen since the last change in this hunk
+    for line in code.split("\n"):
+        if line.startswith("@@"):
+            if trailing is not None and trailing < 2:
+                thin.append(hunk_no)
+            hunk_no += 1
+            trailing = None
+        elif line.startswith(("---", "+++")):
+            continue
+        elif line[:1] == " ":
+            if trailing is not None:
+                trailing += 1
+        elif line[:1] in ("-", "+"):
+            trailing = 0
+    if trailing is not None and trailing < 2:
+        thin.append(hunk_no)
+    return thin
+
+
+def _cleanup_patch_artifacts(target):
+    """Remove the .orig/.rej files patch leaves beside the target.
+
+    patch writes .orig whenever it modifies a file -- success as well as
+    failure -- and .rej when a hunk fails. Both land in the user's directory
+    next to the file they were editing, which is litter here, and a stale .rej
+    reads as an unresolved edit on the next visit.
+
+    Removing the backup unconditionally is a deliberate choice, not an
+    oversight: every other language in this module (sed, gawk, jq, yq, comby)
+    rewrites the target atomically and leaves no backup, so keeping patch's
+    would make it the only language that silently deposits .orig files. Callers
+    that want the original should copy it themselves before editing.
+    """
+    path = Path(target)
+    for suffix in (".orig", ".rej"):
+        artifact = path.with_name(path.name + suffix)
+        try:
+            artifact.unlink()
+        except OSError:
+            pass
+
+
 def run_patch(target, code):
     """Apply a unified diff (patch format) to an existing file."""
     _validate_target(target, must_exist=True)
@@ -581,10 +637,44 @@ def run_patch(target, code):
         capture_output=True,
         cwd=_target_parent_dir(target),
     )
+    # Cleaned on both paths: patch leaves artifacts either way.
+    _cleanup_patch_artifacts(target)
     if result.returncode != 0:
-        _run_failed("patch", result)
+        _raise_patch_failure(result, diff, target)
     out = _subprocess_text(result)
     return out if out else "patch: OK"
+
+
+def _raise_patch_failure(result, diff, target):
+    """Turn a patch failure into a message that names the likely mistake."""
+    output = _subprocess_text(result)
+
+    # The `*** Begin Patch` / `*** Update File:` envelope is a different
+    # tool's format. patch cannot read it and says only "Only garbage was
+    # found", which reads like the diff was corrupt rather than wrapped.
+    if "*** Begin Patch" in diff or "*** Update File:" in diff:
+        raise RuntimeError(
+            "patch: this looks like an OpenAI-style '*** Begin Patch' envelope, "
+            "which patch cannot read (it reports 'Only garbage was found in the "
+            "patch input').\n"
+            "Send a bare unified diff instead: '--- <file>' and '+++ <file>' header "
+            "lines, then @@ hunks. No Begin/End Patch wrapper."
+        )
+    if "FAILED" in output or "malformed patch" in output:
+        thin = _hunks_missing_trailing_context(diff)
+        if thin:
+            listed = ", ".join(str(n) for n in thin)
+            raise RuntimeError(
+                f"{output}\n"
+                f"Likely cause: hunk(s) {listed} have fewer than two unchanged "
+                "context lines after their last change. patch requires two, unless "
+                "the hunk truly ends at end-of-file; with only one or none it "
+                "cannot confirm where the change belongs and rejects the hunk.\n"
+                "Add two or three unchanged context lines after the final + or - "
+                "line of each hunk (matching lines already in the file, each "
+                "prefixed with a single space)."
+            )
+    raise RuntimeError(output or f"patch exited with code {result.returncode}")
 
 
 # ---------------------------------------------------------------------------

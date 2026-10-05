@@ -405,6 +405,141 @@ class TestRunPatch(unittest.TestCase):
             )
 
 
+@unittest.skipUnless(shutil.which("patch"), "patch not installed")
+class TestPatchFailureDiagnostics(unittest.TestCase):
+    """Failures must name the mistake, not just report that patch said no.
+
+    Every case here is something a model actually submitted. GNU patch's own
+    diagnostics ("malformed patch at line 11", "Only garbage was found") name
+    the symptom rather than the cause, so the same diff gets re-submitted
+    corrected in the wrong direction -- in one logged case the hunk header was
+    "fixed" to match a number patch had itself invented.
+    """
+
+    def _target(self, tmp, body="import os\nimport sys\nimport json\n\n\ndef helper():\n    return 1\n"):
+        target = os.path.join(tmp, "mod.py")
+        run_write(target, body)
+        return target
+
+    def test_begin_patch_envelope_is_explained(self):
+        """A '*** Begin Patch' envelope gets a message naming the envelope.
+
+        This is another tool's patch format. patch cannot parse it and says only
+        "Only garbage was found in the patch input", which reads as a corrupt
+        diff rather than a wrapped one, so the model re-sends the same envelope.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                "*** Begin Patch\n"
+                f"*** Update File: {os.path.basename(target)}\n"
+                "@@ 4,2 +4,3 @@\n"
+                " def helper():\n"
+                "     return 1\n"
+                "+    pass\n"
+                "*** End Patch\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertIn("Begin Patch", message)
+            self.assertIn("bare unified diff", message)
+
+    def test_hunk_without_trailing_context_is_explained(self):
+        """A hunk ending in '+' mid-file is explained with the trailing-context rule.
+
+        Verified against patch 2.8: a hunk whose final body line is an addition
+        is rejected mid-file at any amount of leading context, and accepted once
+        one unchanged context line follows it. patch reports only "malformed
+        patch at line N", leaving the model nothing to act on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            # Insert after "import json" (line 3) with no trailing context,
+            # while the file clearly continues past line 3.
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,3 +1,4 @@\n"
+                " import os\n"
+                " import sys\n"
+                " import json\n"
+                "+import re\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertIn("fewer than two unchanged", message)
+            self.assertIn("end-of-file", message)
+
+    def test_same_hunk_with_two_trailing_context_lines_applies(self):
+        """Adding two trailing context lines makes the identical hunk apply.
+
+        The counterpart to the diagnostic above: it proves the rule the message
+        states is the real one, so the advice given to the model is correct
+        rather than merely plausible. Measured on patch 2.8: 0 trailing context
+        lines fails, 1 fails, 2 applies, 3 applies.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,5 +1,6 @@\n"
+                " import os\n"
+                " import sys\n"
+                " import json\n"
+                "+import re\n"
+                " \n"
+                " \n"
+            )
+            run_patch(target, diff)
+            self.assertIn("import re", open(target, encoding="utf-8").read())
+
+    def test_failure_leaves_no_orig_or_rej_beside_the_target(self):
+        """A failed patch must not litter the user's directory with .orig/.rej.
+
+        patch writes both as a debugging aid whenever a hunk fails. They land
+        next to the file the user asked to edit, and a stale .rej reads as an
+        unresolved edit on the next visit. A logged session had to delete both
+        by hand.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,3 +1,4 @@\n"
+                " totally different\n"
+                " nothing like the file\n"
+                " nor this third line\n"
+                "+added\n"
+            )
+            with self.assertRaises(RuntimeError):
+                run_patch(target, diff)
+            leftovers = sorted(p.name for p in Path(tmp).iterdir())
+            self.assertEqual(leftovers, ["mod.py"], f"unexpected leftovers: {leftovers}")
+
+    def test_successful_patch_leaves_no_artifacts(self):
+        """Success must be clean too -- no .orig in the user's directory."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,5 +1,6 @@\n"
+                " import os\n"
+                " import sys\n"
+                " import json\n"
+                "+import re\n"
+                " \n"
+                " \n"
+            )
+            run_patch(target, diff)
+            leftovers = sorted(p.name for p in Path(tmp).iterdir())
+            self.assertEqual(leftovers, ["mod.py"], f"unexpected leftovers: {leftovers}")
+
+
 @unittest.skipUnless(shutil.which("comby"), "comby not installed")
 class TestRunComby(unittest.TestCase):
     def test_run_comby_stdin_replace(self):
