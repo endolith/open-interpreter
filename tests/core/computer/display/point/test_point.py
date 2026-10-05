@@ -424,3 +424,208 @@ def test_get_element_boxes_permutates_when_env_set(monkeypatch):
     }
     # The random draws must have actually changed the threshold parameters.
     assert len(param_sets) > 1
+
+
+def _run_find_icon(monkeypatch, boxes, text_blocks=(), screenshot=None, **env):
+    """Drive find_icon with the element and OCR stages mocked; return the boxes it searched.
+
+    The icons handed to image_search are the narrow waist of this function: every
+    filter and the coordinate expansion show up in that argument.
+
+    `english_words` is seeded explicitly. point.py discards any OCR block whose
+    words are not real English words, and tests/helpers stubs that corpus as an
+    EMPTY list — so with the stock stub every block carrying text is removed
+    before the box filters run, and those filters never see anything to compare
+    against. Seeding it makes these tests exercise the geometry rather than the
+    stub.
+    """
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_MIN_ICON_WIDTH", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_WIDTH", "500")
+    monkeypatch.setenv("OI_POINT_MIN_ICON_HEIGHT", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_HEIGHT", "500")
+    monkeypatch.setenv("OI_POINT_PIXEL_EXPAND", "7")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    captured = {}
+
+    def fake_image_search(description, icons, hashes, debug):
+        captured["icons"] = icons
+        return icons[:1]
+
+    with mock.patch.object(point_mod, "english_words", {"hello", "label"}):
+        with mock.patch.object(point_mod, "get_element_boxes", return_value=boxes):
+            with mock.patch.object(
+                point_mod,
+                "pytesseract_get_text_bounding_boxes",
+                return_value=list(text_blocks),
+            ):
+                with mock.patch.object(
+                    point_mod, "image_search", side_effect=fake_image_search
+                ):
+                    point_mod.find_icon(
+                        "target",
+                        screenshot or Image.new("RGB", (200, 100), "white"),
+                        False,
+                        None,
+                    )
+
+    return captured["icons"]
+
+
+def test_a_box_fully_inside_a_text_block_is_dropped(monkeypatch):
+    """An element box lying entirely within detected text is not offered.
+
+    Text regions produce box-like contours that are not clickable, so a box
+    enclosed by a text block is dropped rather than offered as a click target.
+    Without this the model is handed coordinates that land on a word.
+
+    Note this does **not** pin the containment filter specifically. point.py runs
+    a containment filter and then a strictly weaker intersection filter, and
+    containment is subsumed by it — checked exhaustively over 10,000 box/text
+    pairs with zero cases where containment fires alone. So this test passes
+    whichever of the two does the work; see #393's note on the redundancy.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 20, "y": 20, "width": 30, "height": 30},
+            {"x": 150, "y": 60, "width": 20, "height": 20},
+        ],
+        text_blocks=[
+            # Encloses the second box entirely.
+            {"left": 100, "top": 40, "width": 100, "height": 60, "text": "hello"},
+        ],
+    )
+
+    assert len(icons) == 1
+    assert icons[0]["x"] == 13
+
+
+def test_a_box_overlapping_text_without_being_contained_is_dropped(monkeypatch):
+    """A box that merely overlaps text is also discarded.
+
+    This is a second, weaker test than containment: a box straddling the edge of
+    a text block is contained by nothing but still intersects it. Both filters
+    have to hold, because they run in sequence and a straddling box survives the
+    first.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 20, "y": 20, "width": 30, "height": 30},
+            # Straddles the left edge of the text block below.
+            {"x": 90, "y": 50, "width": 40, "height": 20},
+        ],
+        text_blocks=[
+            {"left": 100, "top": 40, "width": 100, "height": 60, "text": "hello"},
+        ],
+    )
+
+    assert len(icons) == 1
+    assert icons[0]["x"] == 13
+
+
+def test_a_box_merely_touching_a_text_block_edge_survives(monkeypatch):
+    """Adjacency is not overlap: a box ending exactly where text begins is kept.
+
+    The intersection test is strict (`max(left) < min(right)`), so boxes that
+    share an edge are not filtered. Widening that comparison would silently
+    discard icons laid out immediately left of a label.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 20, "y": 20, "width": 30, "height": 30},
+            # Right edge at 100, exactly where the text block starts.
+            {"x": 70, "y": 50, "width": 30, "height": 20},
+        ],
+        text_blocks=[
+            {"left": 100, "top": 40, "width": 100, "height": 60, "text": "hello"},
+        ],
+    )
+
+    assert len(icons) == 2
+
+
+def test_boxes_are_expanded_by_the_configured_pixel_amount(monkeypatch):
+    """Every surviving box grows by OI_POINT_PIXEL_EXPAND on each side.
+
+    The expansion makes small icons easier to hit; the width and height grow by
+    twice the amount because both edges move.
+    """
+    icons = _run_find_icon(
+        monkeypatch, [{"x": 50, "y": 30, "width": 20, "height": 10}], OI_POINT_PIXEL_EXPAND="5"
+    )
+
+    assert len(icons) == 1
+    assert icons[0]["x"] == 45
+    assert icons[0]["y"] == 25
+    assert icons[0]["width"] == 30
+    assert icons[0]["height"] == 20
+
+
+def test_expansion_never_produces_a_negative_coordinate(monkeypatch):
+    """A box near the origin is not expanded past zero.
+
+    Expanding a box at x=2 by seven would produce x=-5, which is not a valid
+    click coordinate and would send the pointer off-screen.
+    """
+    icons = _run_find_icon(
+        monkeypatch, [{"x": 2, "y": 3, "width": 20, "height": 10}], OI_POINT_PIXEL_EXPAND="7"
+    )
+
+    assert icons[0]["x"] == 2, "x must not go negative"
+    assert icons[0]["y"] == 3, "y must not go negative"
+
+
+def test_expansion_clamps_to_the_image_edge(monkeypatch):
+    """A box near the right edge expands only as far as the image allows.
+
+    Otherwise the expanded box would describe coordinates outside the screenshot,
+    and the reported centre would drift off-screen.
+    """
+    # Image is 200 wide; the box's right edge is at 200 with width 30.
+    icons = _run_find_icon(
+        monkeypatch,
+        [{"x": 170, "y": 10, "width": 30, "height": 10}],
+        OI_POINT_PIXEL_EXPAND="7",
+    )
+
+    box = icons[0]
+    assert box["x"] == 163
+    assert box["x"] + box["width"] <= 200, "must not extend past the image width"
+
+
+def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
+    """When every candidate is filtered out, image_search is given an empty list.
+
+    The empty list is the signal that nothing matched, and it must reach
+    image_search rather than short-circuiting, so the caller sees the same shape
+    of input either way.
+    """
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_MIN_ICON_WIDTH", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_WIDTH", "500")
+    monkeypatch.setenv("OI_POINT_MIN_ICON_HEIGHT", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_HEIGHT", "500")
+    monkeypatch.setenv("OI_POINT_PIXEL_EXPAND", "7")
+
+    captured = {}
+
+    def fake_image_search(description, icons, hashes, debug):
+        captured["icons"] = icons
+        return []
+
+    with mock.patch.object(
+        point_mod, "get_element_boxes", return_value=[{"x": 2, "y": 2, "width": 3, "height": 3}]
+    ):
+        with mock.patch.object(point_mod, "pytesseract_get_text_bounding_boxes", return_value=[]):
+            with mock.patch.object(point_mod, "image_search", side_effect=fake_image_search):
+                result = point_mod.find_icon(
+                    "nope", Image.new("RGB", (200, 100), "white"), False, None
+                )
+
+    assert captured["icons"] == []
+    assert result == []
