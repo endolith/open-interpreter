@@ -33,7 +33,7 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
 
     def _cwd_marker_echo(self):
         # `@` suppresses cmd echoing this command back; `%CD%` is the current dir.
-        return "\n@echo ##oi_pwd##%CD%"
+        return "\n@echo ##oi_cwd##%CD%"
 
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line

@@ -31,7 +31,7 @@ class PowerShell(CwdTrackingMixin, SubprocessLanguage):
         return self._insert_cwd_marker(code, end_marker)
 
     def _cwd_marker_echo(self):
-        return '\nWrite-Output "##oi_pwd##$($PWD.Path)"'
+        return '\nWrite-Output "##oi_cwd##$($PWD.Path)"'
 
     def _postprocess_line(self, line):
         # Strip PS prompt lines: "(base) PS C:\Users\...>" or "PS C:\...>"

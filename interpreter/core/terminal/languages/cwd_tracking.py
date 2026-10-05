@@ -3,6 +3,15 @@ import re
 
 from ...utils.shell_chain import replace_null_redirect_target
 
+# Marker the language echoes to report the working directory back to OI.
+#
+# Named for what it carries. It used to be "##oi_pwd##", which reads as "Open
+# Interpreter password" -- and because it uses the same ##tag## shape that
+# credential masking uses, a leak of it was indistinguishable from a leaked
+# password, and cost a debugging session chasing a credential that was never
+# exposed. It is a path probe; say so.
+_CWD_MARKER = "##oi_cwd##"
+
 
 class CwdTrackingMixin:
     """Tracks a persistent shell's working directory and strips redundant ``cd`` prefixes.
@@ -14,7 +23,7 @@ class CwdTrackingMixin:
     removes those prefixes when they wouldn't change the shell's location.
 
     The real location is learned two ways: from kept ``cd`` commands, and
-    authoritatively from a ``##oi_pwd##<path>`` line the language echoes just
+    authoritatively from a ``##oi_cwd##<path>`` line the language echoes just
     before its end-of-execution marker (see ``_insert_cwd_marker``), which
     self-corrects tracking if it ever desyncs.
 
@@ -81,26 +90,45 @@ class CwdTrackingMixin:
         raise NotImplementedError
 
     def _insert_cwd_marker(self, code, end_marker):
-        """Insert the ``##oi_pwd##`` echo just before the end-of-execution marker."""
+        """Insert the ``##oi_cwd##`` echo just before the end-of-execution marker."""
         if code.endswith(end_marker):
             return code[: -len(end_marker)] + self._cwd_marker_echo() + end_marker
         return code
 
     def _filter_pwd_marker(self, line):
-        """If ``line`` is the cwd marker, update ``self.cwd`` and return True.
+        """If ``line`` carries the cwd marker, update ``self.cwd``.
 
-        Returns False for any other line so subclass postprocessors can handle it.
+        Returns the line with the marker and everything after it removed, or None
+        when the whole line was marker (i.e. there is nothing left to display).
+        Any other line is returned unchanged so subclass postprocessors still see
+        it.
+
+        The marker is *not* anchored to the start of the line. A command whose
+        output does not end in a newline -- ``printf 'x'``, ``cat`` of a file
+        with no trailing newline, ``command-that-outputs-without-newline`` --
+        leaves the shell mid-line when the marker echo runs, so the marker
+        arrives glued to the end of that output as::
+
+            no trailing newline##oi_cwd##/home/user/project
+
+        Anchoring at ``^`` then misses it, and both the marker and the absolute
+        path leak into the model's context and the user's display. Matching
+        anywhere and keeping the text *before* the marker loses nothing: the
+        output the command produced is still shown, the path is still consumed,
+        and tracking still updates from the same line.
         """
-        m = re.match(r"^##oi_pwd##(.*)$", line.rstrip("\r\n"))
-        if not m:
-            return False
-        self.cwd = m.group(1).strip()
-        return True
+        if _CWD_MARKER not in line:
+            return line
+        before, _, after = line.partition(_CWD_MARKER)
+        self.cwd = after.strip().rstrip("\r\n").strip()
+        before = before.rstrip("\r\n")
+        return before or None
 
     def line_postprocessor(self, line):
-        if self._filter_pwd_marker(line):
+        stripped = self._filter_pwd_marker(line)
+        if stripped is None:
             return None  # discard the marker from visible output
-        return self._postprocess_line(line)
+        return self._postprocess_line(stripped)
 
     def strip_boilerplate(self, code):
         """Return (stripped_code, notice) after safe shell-code normalization.
