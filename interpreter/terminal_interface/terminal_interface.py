@@ -505,8 +505,6 @@ def terminal_interface(interpreter, message):
                                 "typescript": ".ts",
                                 "cmd": ".bat",
                                 "bash": ".sh",
-                                "cmd": ".bat",
-                                "bash": ".sh",
                                 "r": ".r",
                                 "ruby": ".rb",
                                 "java": ".java",
