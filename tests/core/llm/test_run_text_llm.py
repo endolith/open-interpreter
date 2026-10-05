@@ -125,3 +125,87 @@ def test_execution_instructions_unappendable_message_reraises(capsys):
     with pytest.raises(TypeError):
         list(run_text_llm(llm, {"messages": [{"content": 123}]}))
     assert "params[\"messages\"][0]" in capsys.readouterr().out
+
+
+def test_empty_language_yields_nothing_in_os_mode():
+    """In OS mode an unlabelled fence currently produces no output at all.
+
+    Worse than a mislabel: neither branch of the default fires when os is true,
+    so `language` stays "" and `if language:` suppresses every chunk. The reply
+    vanishes silently. See #392; the xfail below describes the intent.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```\n"}}]},
+            {"choices": [{"delta": {"content": "some notes\n"}}]},
+        ],
+        os_mode=True,
+    )
+
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == []
+
+
+@pytest.mark.xfail(
+    reason="#392: the 'text' branch duplicates the condition above it and cannot be taken",
+)
+def test_empty_language_defaults_to_text_in_os_mode():
+    """In OS mode an unlabelled fence should be labelled text, not python.
+
+    The branch that would do this is unreachable: `elif llm.interpreter.os ==
+    False` repeats the identical condition from the branch above, so `"text"` is
+    never produced. The comment on that branch describes OS mode, so the second
+    comparison was likely meant to be `== True`. See #392.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```\n"}}]},
+            {"choices": [{"delta": {"content": "some notes\n"}}]},
+        ],
+        os_mode=True,
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert {chunk.get("format") for chunk in result} == {"text"}
+    assert result, "the block must not vanish entirely (see #392)"
+
+
+def test_a_delta_with_no_content_key_yields_an_empty_message():
+    """A delta missing the content key is not None, so it is not skipped.
+
+    There is a `if content == None: continue` guard, which catches an explicit
+    null but not an absent key: `.get("content", "")` yields "" and the delta is
+    emitted as an empty message. The distinction is real — the existing
+    none-content test covers the null case, and the default this pins is what
+    stops a role-only delta from becoming the string "None".
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"role": "assistant"}}]},
+            {"choices": [{"delta": {}}]},
+            {"choices": [{"delta": {"content": "hi"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": ""},
+        {"type": "message", "content": ""},
+        {"type": "message", "content": "hi"},
+    ]
+
+
+def test_os_flag_true_does_not_change_labelled_languages():
+    """A labelled fence keeps its language in OS mode.
+
+    The OS-mode branch is only reached when the label is empty, so a reply that
+    says ```bash must stay bash. This guards the fix for #392 against
+    over-reaching into labelled fences.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```bash\n"}}]},
+            {"choices": [{"delta": {"content": "echo hi\n"}}]},
+        ],
+        os_mode=True,
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert {chunk.get("format") for chunk in result} == {"bash"}
