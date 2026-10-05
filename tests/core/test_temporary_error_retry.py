@@ -1,3 +1,4 @@
+import unittest
 import io
 
 import litellm
@@ -447,3 +448,79 @@ def test_temporary_error_recovers_before_the_cap(capsys, panels):
 
     assert llm.calls == 2, "one transient failure then a successful retry"
     assert interpreter._stopped_retrying is False, "a recovered turn is not a refusal"
+
+
+class TestRetryPromptOffersExitOnlyWhenExitingHelps:
+    """"Stop retrying" and "exit OI" must not be the same key.
+
+    The prompt used to offer (y, a, n) with n meaning "stop", and n set
+    _stopped_retrying -- which the interface treats as exit, ending the session.
+    So the two cases a provider failure splits into were collapsed onto one key:
+
+    - throttled or out of quota: fixed by refilling and waiting, so the user
+      loses their session for no reason. No option just stopped.
+    - wrong API key, model that does not exist: no in-session action helps, so
+      leaving is the correct outcome.
+
+    n now returns to the prompt in both cases, and e is offered only for the
+    second. Whether the fault is recoverable keys off the error's nature, not off
+    is_temporary_error -- exhausting the retry budget forces that flag False even
+    for a throttle, so by the time the prompt is reached it no longer says which
+    kind of failure this was.
+    """
+
+    def _run_prompt(self, error, choice, panels):
+        """Drive respond() to the retry prompt and answer it with `choice`."""
+        recorded = []
+
+        def _prompt(text, options, **_):
+            recorded.append((text, tuple(options)))
+            return choice
+
+        interpreter = _FakeInterpreter(_FakeLlm([error] * 20))
+        respond_mod._stdin_is_interactive = lambda: True
+        respond_mod.prompt_choice = _prompt
+        try:
+            list(respond(interpreter))
+        finally:
+            respond_mod._stdin_is_interactive = lambda: False
+        assert recorded, "the retry prompt was never shown"
+        return interpreter, recorded[0]
+
+    def test_throttle_offers_no_exit_and_stays_in_the_conversation(self, panels):
+        """A recoverable failure: n stops retrying and does not exit."""
+        interpreter, (text, options) = self._run_prompt(_rate_limit_error(), "n", panels)
+
+        assert "e" not in options, (
+            "a throttle is fixed by refilling; quitting OI must not be on offer"
+        )
+        assert "return to the prompt" in text
+        assert interpreter._stopped_retrying is False, (
+            "n must not end the session; the user has to be able to carry on"
+        )
+
+    def test_permanent_error_offers_exit(self, panels):
+        """An unrecoverable failure: e is available for leaving."""
+        _, (text, options) = self._run_prompt(_auth_error(), "n", panels)
+
+        assert "e" in options, "a wrong API key cannot be fixed in-session"
+        assert "exit" in text
+
+    def test_choosing_exit_still_ends_the_session(self, panels):
+        """e keeps the old behaviour, so the permanent case is unchanged."""
+        interpreter, _ = self._run_prompt(_auth_error(), "e", panels)
+
+        assert interpreter._stopped_retrying is True, (
+            "e must still ask the interface to exit"
+        )
+
+    def test_permanent_error_stays_in_conversation_on_n(self, panels):
+        """n is uniformly non-fatal, including for a permanent fault.
+
+        Uniform beats clever here: the user can always quit with Ctrl-C, and a
+        prompt whose meaning shifts with the error is harder to trust than one
+        that always means what it says.
+        """
+        interpreter, _ = self._run_prompt(_auth_error(), "n", panels)
+
+        assert interpreter._stopped_retrying is False, "n means stop retrying, not quit"
