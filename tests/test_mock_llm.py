@@ -430,6 +430,19 @@ def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
 _SENTENCE = "The quick brown fox jumps over the lazy dog."
 
 
+def _last_user_text(request: dict) -> str:
+    """The most recent user message text in a recorded request.
+
+    The interpreter's last user message is the feedback turn: code output or a
+    traceback. Asserting on that specific message is what makes "the feedback
+    reached the model *now*" testable, as opposed to "it arrived at some point".
+    """
+    for message in reversed(request.get("messages", [])):
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            return message["content"]
+    return ""
+
+
 def _user_texts(request: dict) -> list[str]:
     """User message contents from a recorded request, in the order sent."""
     return [
@@ -543,3 +556,80 @@ def test_a_single_delta_reply_reassembles_to_the_same_message(mock_llm_server):
     )
 
     assert messages[-1]["content"] == _SENTENCE
+
+
+@pytest.mark.timeout(60)
+def test_a_traceback_reaches_the_provider_on_the_next_request(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """A failed execution's traceback is sent back to the model, not swallowed.
+
+    This is the residual gap #353 identified after its own tests were ported:
+    the mock's errand machine advances by counting assistant turns, so it never
+    looks at error text. A regression that stops feeding tracebacks to the
+    provider would therefore still let every other test in this file pass, and
+    the model would silently never learn why its code failed.
+    """
+    require_bash_compatible_shell()
+    # The errand scenario writes step1.txt/step2.txt into the cwd, so keep them
+    # out of the checkout the way the sibling errand tests do.
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    interpreter.chat(
+        "Please run this errand: write step one, then step two, then print "
+        "undefined_name",
+        display=False,
+        stream=False,
+        blocking=True,
+    )
+
+    assert len(mock_llm_server.requests) >= 2
+    # The request immediately following the failing step must carry the failure,
+    # not merely some later request. Searching every later request would pass
+    # even if the feedback were delayed by a turn, which is the same regression
+    # seen from the other direction.
+    follow_up = _last_user_text(mock_llm_server.requests[3])
+    assert "Traceback (most recent call last)" in follow_up, (
+        "the request right after the failing step carried no traceback header"
+    )
+    assert "NameError" in follow_up, (
+        "the request right after the failing step did not name the exception"
+    )
+
+
+@pytest.mark.timeout(60)
+def test_execution_output_reaches_the_provider_on_the_next_request(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """Console output from executed code is fed back into the following request.
+
+    Partially covered on main by the write-to-file test, but only indirectly: it
+    fails under a regression in this path by running away until its step
+    timeout, because the mock only stops looping once it sees output arrive. The
+    failure class is caught, but nothing asserts that the output is actually in
+    the request, so assert it directly.
+    """
+    require_bash_compatible_shell()
+    # The errand scenario writes step1.txt/step2.txt into the cwd, so keep them
+    # out of the checkout the way the sibling errand tests do.
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    interpreter.chat(
+        "Please run this errand: write step one, then step two, then print "
+        "undefined_name",
+        display=False,
+        stream=False,
+        blocking=True,
+    )
+
+    # Assert the actual stdout, not the fixed "Code output:" label, which every
+    # feedback message carries regardless of whether output arrived.
+    follow_up = _last_user_text(mock_llm_server.requests[4])
+    assert follow_up.startswith("Code output:"), (
+        "the request right after execution did not carry a code-output feedback"
+    )
+    assert "recovered" in follow_up, (
+        "the request right after execution did not carry the actual stdout"
+    )
