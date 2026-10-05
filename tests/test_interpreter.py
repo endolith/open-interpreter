@@ -224,6 +224,12 @@ def test_authenticated_acknowledging_breaking_server():
 
     I know this is bad, just trying to test quickly!"""
 
+    I know this is bad, just trying to test quickly!
+    """
+    # websockets is a declared dependency but is not installed everywhere; the
+    # module is needed by the server connection below. Skip with a reason rather
+    # than erroring on the import, per the project's missing-prerequisite rule.
+    pytest.importorskip("websockets")
 
     # Start the server in a new process
 
@@ -415,12 +421,15 @@ async def wait_for_websocket_complete(websocket, timeout=180.0):
 @pytest.mark.integration
 @pytest.mark.timeout(900)
 def test_server():
-    """Exercise secret-word, math, and file-existence turns over the WebSocket API.
+    # Skip before starting the server: `websockets` is a declared dependency but
+    # is not installed everywhere, and the server process needs it on import.
+    # Checking here rather than at the `import websockets` below means the fork
+    # is never started, so the skip is clean rather than a child-process error.
+    pytest.importorskip("websockets")
 
-    Spins up AsyncInterpreter in a subprocess (spawn context), posts settings,
-    streams each user turn over WebSocket, and verifies the response flow: the
-    math turn writes code without auto-executing it, and the file turn answers
-    in plain text."""
+    # Start the server in a new process
+    process = multiprocessing.Process(target=run_server)
+    process.start()
 
     import asyncio
     import json
@@ -778,7 +787,14 @@ def test_ai_chat():
 
 @pytest.mark.integration
 def test_generator():
-    """Sends two messages, makes sure everything is correct with display both on and off."""
+    """
+    Sends two messages, makes sure everything is correct with display both on and off.
+    """
+    # websockets is a declared dependency but is not installed everywhere; the
+    # module is needed by the server connection below. Skip with a reason rather
+    # than erroring on the import, per the project's missing-prerequisite rule.
+    pytest.importorskip("websockets")
+
 
     interpreter.llm.model = TEST_MODEL_MINI
 
