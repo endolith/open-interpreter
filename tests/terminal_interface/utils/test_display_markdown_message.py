@@ -1,3 +1,4 @@
+import pytest
 from interpreter.terminal_interface.utils.display_markdown_message import (
     display_markdown_message,
 )
@@ -95,3 +96,83 @@ def test_single_plain_line_gets_no_trailing_blank_line(capsys):
         dmm.display_markdown_message("plain line")
 
     assert not capsys.readouterr().out.endswith("\n")
+
+
+def test_unicode_encode_error_falls_back_to_a_plain_line(capsys):
+    """A line Rich cannot encode is reported as plain text instead of raising.
+
+    The except branch is the whole reason the try exists: a stray character in
+    model output would otherwise propagate out of the display path and abort the
+    turn that was printing it.
+    """
+    with mock.patch.object(
+        dmm, "rich_print", side_effect=UnicodeEncodeError("ascii", "x", 0, 1, "boom")
+    ):
+        assert dmm.display_markdown_message("unencodable line") is None
+
+    out = capsys.readouterr().out
+    assert "Error displaying line: unencodable line" in out
+
+
+def test_non_unicode_errors_are_not_swallowed():
+    """Only UnicodeEncodeError is caught; other exceptions keep propagating.
+
+    The except clause names one exception type. Widening it to a bare except
+    would silently hide genuine bugs in Markdown construction, so this pins the
+    narrowness from the other side.
+    """
+    with mock.patch.object(dmm, "rich_print", side_effect=RuntimeError("unrelated")):
+        with pytest.raises(RuntimeError):
+            dmm.display_markdown_message("line")
+
+
+def test_a_failing_line_does_not_stop_later_lines(capsys):
+    """One unencodable line does not prevent the rest of the message rendering.
+
+    The handler continues the loop rather than returning, so a single bad
+    character cannot swallow every subsequent line of output.
+    """
+    calls = []
+
+    def flaky(obj):
+        calls.append(obj)
+        if len(calls) == 1:
+            raise UnicodeEncodeError("ascii", "x", 0, 1, "boom")
+
+    with mock.patch.object(dmm, "rich_print", side_effect=flaky):
+        dmm.display_markdown_message("first\nsecond")
+
+    assert len(calls) == 2
+    assert "Error displaying line:" in capsys.readouterr().out
+
+
+def test_the_trailing_print_is_an_empty_string_not_a_placeholder():
+    """The tag line is padded with a genuinely empty line.
+
+    Mocking rich_print means no other output is produced, so a placeholder like
+    "None" or any text at all would look identical to a blank line if the test
+    only checked that output ends in a newline. Capturing the print arguments
+    pins the actual value.
+    """
+    printed = []
+    with mock.patch.object(dmm, "rich_print"):
+        with mock.patch("builtins.print", side_effect=lambda *a: printed.append(a)):
+            dmm.display_markdown_message("> only a tag")
+
+    assert printed == [("",)]
+
+
+def test_a_multiline_tag_prints_no_trailing_line_at_all():
+    """With newlines present, the trailing padding is skipped entirely.
+
+    The condition tests for the absence of a newline, so the check cannot be a
+    trailing-newline comparison once rich_print is mocked — that yields the same
+    output whether the final print runs or not. Counting the calls is the only
+    way to see the difference.
+    """
+    printed = []
+    with mock.patch.object(dmm, "rich_print"):
+        with mock.patch("builtins.print", side_effect=lambda *a: printed.append(a)):
+            dmm.display_markdown_message("> tag\nsecond line")
+
+    assert printed == []
