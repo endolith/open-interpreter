@@ -1,6 +1,7 @@
 import os
 import platform
 import tempfile
+import shutil
 import unittest
 from io import StringIO
 from unittest.mock import patch
@@ -114,6 +115,9 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertFalse(has_multiline_constructs('$x = "hello"; Write-Host $x'))
         self.assertFalse(has_multiline_constructs("Get-Process"))
 
+    @unittest.skipUnless(
+        shutil.which("pwsh"), "pwsh not installed; PowerShell coverage needs it"
+    )
     def test_powershell_line_postprocessor_filters_prompt_and_continuation(self):
         ps = PowerShell()
         # PS prompt lines are suppressed (with and without conda prefix)
@@ -162,10 +166,21 @@ class TestTerminalLanguages(unittest.TestCase):
             result = aps.add_active_line_indicators("do shell script \"echo hi\"")
             self.assertNotIn("##active_line", result)
 
-            # PowerShell
+    @unittest.skipUnless(
+        shutil.which("pwsh"), "pwsh not installed; PowerShell coverage needs it"
+    )
+    def test_powershell_active_line_injection_disabled_when_env_false(self):
+        """PowerShell respects INTERPRETER_ACTIVE_LINE_DETECTION=false.
+
+        Split out of the multi-language test above because constructing
+        PowerShell resolves the executable and raises when pwsh is absent. The
+        rest of that test covers languages needing no external binary, so
+        skipping it wholesale would lose their coverage on every machine without
+        PowerShell.
+        """
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}):
             ps = PowerShell()
-            pw = ps.preprocess_code("Write-Host 1")
-            self.assertNotIn("##active_line", pw)
+            self.assertNotIn("##active_line", ps.preprocess_code("Write-Host 1"))
 
     def test_active_line_injection_present_when_env_true(self):
         """All language preprocessors inject markers when INTERPRETER_ACTIVE_LINE_DETECTION=true."""
@@ -193,10 +208,20 @@ class TestTerminalLanguages(unittest.TestCase):
             result = aps.add_active_line_indicators("do shell script \"echo hi\"")
             self.assertIn("##active_line", result)
 
-            # PowerShell (single-line, no multiline constructs)
+    @unittest.skipUnless(
+        shutil.which("pwsh"), "pwsh not installed; PowerShell coverage needs it"
+    )
+    def test_powershell_active_line_injection_present_when_env_true(self):
+        """PowerShell injects markers for single-line code when detection is on.
+
+        Split out for the same reason as the sibling test above. The code is
+        single-line with no multiline constructs, which is the case where markers
+        are injected; a hash literal or script block deliberately skips them to
+        avoid a parse error.
+        """
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):
             ps = PowerShell()
-            pw = ps.preprocess_code("Write-Host 1")
-            self.assertIn("##active_line", pw)
+            self.assertIn("##active_line", ps.preprocess_code("Write-Host 1"))
 
     def test_active_line_detection_only_accepts_numeric_markers(self):
         """Numeric markers are detected, while literal placeholders in output are ignored."""
