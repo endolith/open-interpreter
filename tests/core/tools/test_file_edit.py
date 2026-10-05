@@ -540,6 +540,117 @@ class TestPatchFailureDiagnostics(unittest.TestCase):
             self.assertEqual(leftovers, ["mod.py"], f"unexpected leftovers: {leftovers}")
 
 
+@unittest.skipUnless(shutil.which("sed"), "sed not installed")
+class TestDryRunPreviewIsADiff(unittest.TestCase):
+    """A dry run must show the change as a diff, not the whole rewritten file.
+
+    Every language here except `patch` is dry-run *without* its in-place flag,
+    so what the tool prints is the entire edited file. Re-reading a 4000-line
+    file to find the one line that changed is the cost, and it grows with the
+    file. These tests pin the diff shape, the context depth, and the two cases
+    that must not be mistaken for a change: an edit that changes nothing, and a
+    target whose bytes are not text.
+    """
+
+    def _file(self, tmp, name="mod.py", lines=40):
+        target = os.path.join(tmp, name)
+        run_write(target, "".join(f"line {i}\n" for i in range(1, lines + 1)))
+        return target
+
+    def test_preview_is_a_unified_diff_not_the_whole_file(self):
+        """A one-line edit in a long file previews as a short diff.
+
+        The size is the point: the preview must not scale with the file, or it
+        still costs the reader the same scan it was meant to save.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=4000)
+            out = dry_run_edit("sed", "s/line 2000$/CHANGED/", target)["output"]
+            self.assertTrue(out.startswith("--- mod.py"), out[:80])
+            self.assertIn("@@ ", out)
+            self.assertIn("-line 2000", out)
+            self.assertIn("+CHANGED", out)
+            self.assertLess(out.count("\n"), 25, f"preview should stay short, got {out.count(chr(10))} lines")
+
+    def test_preview_shows_three_lines_of_context_each_side(self):
+        """Enough surrounding context to locate the change, not the whole file.
+
+        Three lines is the unified-diff convention and is what makes the hunk
+        readable in isolation; one line would not show what the edit is
+        operating on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=40)
+            out = dry_run_edit("sed", "s/line 20$/CHANGED/", target)["output"]
+            before = out.index("-line 20")
+            for n in (19, 18, 17):
+                self.assertIn(f" line {n}", out[:before], f"missing leading context line {n}")
+            after = out.index("+CHANGED")
+            for n in (21, 22, 23):
+                self.assertIn(f" line {n}", out[after:], f"missing trailing context line {n}")
+
+    def test_unchanged_trailing_line_is_not_reported_as_modified(self):
+        """The final line must not show as -/+ when the edit did not touch it.
+
+        Regression: the preview was built from stripped stdout, so the file's
+        trailing newline was dropped and the last line came out as a
+        changed-then-identical pair on every single edit.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=12)
+            out = dry_run_edit("sed", "s/line 5$/CHANGED/", target)["output"]
+            self.assertNotIn("-line 12", out)
+            self.assertNotIn("+line 12", out)
+
+    def test_edit_that_changes_nothing_says_so_instead_of_dumping_the_file(self):
+        """A no-op edit previews as one line, not the entire unchanged file.
+
+        Falling back to raw output here would be the worst case of the old
+        behaviour: the reader gets thousands of lines and no signal that nothing
+        happened.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=2000)
+            out = dry_run_edit("sed", "s/no-such-text/other/", target)["output"]
+            self.assertIn("no changes", out)
+            self.assertLess(out.count("\n"), 3)
+
+    def test_undecodable_target_reports_that_no_preview_is_available(self):
+        """A non-text target must not produce a fabricated diff.
+
+        difflib over replacement characters would report changes the tool never
+        made, and the raw output would decode with U+FFFD, which reads as
+        corruption rather than as a preview. Neither is useful, so the preview
+        says it is unavailable. The edit itself is unaffected.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "blob.bin")
+            with open(target, "wb") as f:
+                f.write(b"\xff\xfe\x00\x01not text")
+            result = dry_run_edit("sed", "s/not/text/", target)
+            self.assertNotIn("@@ ", result["output"])
+            self.assertNotIn("\ufffd", result["output"])
+            self.assertIn("preview unavailable", result["output"])
+
+    def test_diff_language_is_used_when_the_preview_is_a_diff(self):
+        """The fence language must follow the content, not the edit language.
+
+        Highlighting a diff as Python or YAML paints every +/- line as ordinary
+        code, discarding the only cue that says which lines changed.
+        """
+        from interpreter.terminal_interface.terminal_interface import (
+            _looks_like_unified_diff,
+        )
+
+        self.assertTrue(
+            _looks_like_unified_diff("--- a.py\n+++ a.py\n@@ -1 +1 @@\n-x\n+y\n")
+        )
+        # A plain file body must not be mistaken for a diff.
+        self.assertFalse(_looks_like_unified_diff("x = 1\ny = 2\n"))
+        # An error message must not be mistaken for a diff either.
+        self.assertFalse(_looks_like_unified_diff("sed: can't read f.txt\n"))
+
+
 @unittest.skipUnless(shutil.which("comby"), "comby not installed")
 class TestRunComby(unittest.TestCase):
     def test_run_comby_stdin_replace(self):
