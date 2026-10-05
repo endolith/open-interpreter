@@ -124,6 +124,10 @@ def test_authenticated_acknowledging_breaking_server():
 
     I know this is bad, just trying to test quickly!
     """
+    # websockets is a declared dependency but is not installed everywhere; the
+    # module is needed by the server connection below. Skip with a reason rather
+    # than erroring on the import, per the project's missing-prerequisite rule.
+    pytest.importorskip("websockets")
 
     # Start the server in a new process
 
@@ -312,8 +316,13 @@ async def wait_for_websocket_complete(websocket, timeout=180.0):
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
 def test_server():
-    # Start the server in a new process
+    # Skip before starting the server: `websockets` is a declared dependency but
+    # is not installed everywhere, and the server process needs it on import.
+    # Checking here rather than at the `import websockets` below means the fork
+    # is never started, so the skip is clean rather than a child-process error.
+    pytest.importorskip("websockets")
 
+    # Start the server in a new process
     process = multiprocessing.Process(target=run_server)
     process.start()
 
@@ -684,6 +693,11 @@ def test_generator():
     """
     Sends two messages, makes sure everything is correct with display both on and off.
     """
+    # websockets is a declared dependency but is not installed everywhere; the
+    # module is needed by the server connection below. Skip with a reason rather
+    # than erroring on the import, per the project's missing-prerequisite rule.
+    pytest.importorskip("websockets")
+
 
     interpreter.llm.model = TEST_MODEL_MINI
 

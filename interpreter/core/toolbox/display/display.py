@@ -34,7 +34,14 @@ try:
 except:
     pyautogui = None
 
-np = lazy_import("numpy")
+# numpy is imported for real, not lazily: a lazy placeholder in sys.modules for a
+# package that other libraries import independently (hypothesis, matplotlib,
+# pandas) breaks their import. Any attribute access during numpy's own
+# initialisation re-executes numpy/__init__.py mid-import and numpy's internal
+# circular import then fails with
+# "cannot import name 'busday_count' from partially initialized module
+# 'numpy._core.multiarray'". Startup time is not worth that.
+import numpy as np
 plt = lazy_import("matplotlib.pyplot")
 screeninfo = lazy_import("screeninfo")
 pywinctl = lazy_import("pywinctl")
