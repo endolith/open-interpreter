@@ -597,6 +597,42 @@ def _hunks_missing_trailing_context(code):
     return thin
 
 
+def _read_patch_reject(target):
+    """The reject file's contents, read before it is cleaned up.
+
+    This is the most useful diagnostic available on a failed patch: it shows the
+    hunk as patch understood it next to the file's real lines, so the caller can
+    see exactly which context did not match. Deleting the file without reading
+    it first throws that away and leaves the error message as the only account.
+    """
+    reject = Path(target).with_name(Path(target).name + ".rej")
+    try:
+        return reject.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def _context_lines_present(target, diff):
+    """True if the hunk's unchanged context lines are found verbatim in the target.
+
+    Distinguishes the two reasons a hunk fails. If the context is present but
+    there is too little of it after the change, the trailing-context rule is the
+    plausible cause and can be named. If the context is not in the file at all,
+    the edit was aimed at the wrong text, and suggesting anything about context
+    depth would send the caller off fixing the wrong thing.
+    """
+    original = _read_text_for_diff(target)
+    if original is None:
+        return None
+    lines = original.splitlines()
+    for line in diff.split("\n"):
+        if not line.startswith(" ") or line.strip() == "":
+            continue
+        if line[1:] not in lines:
+            return False
+    return True
+
+
 def _cleanup_patch_artifacts(target):
     """Remove the .orig/.rej files patch leaves beside the target.
 
@@ -638,17 +674,23 @@ def run_patch(target, code):
         capture_output=True,
         cwd=_target_parent_dir(target),
     )
-    # Cleaned on both paths: patch leaves artifacts either way.
+    # Read the reject before cleaning up: it is the only side-by-side of the
+    # hunk against the file's real lines, and it is removed on both paths.
+    reject = _read_patch_reject(target)
     _cleanup_patch_artifacts(target)
     if result.returncode != 0:
-        _raise_patch_failure(result, diff, target)
+        _raise_patch_failure(result, diff, target, reject)
     out = _subprocess_text(result)
     return out if out else "patch: OK"
 
 
-def _raise_patch_failure(result, diff, target):
+def _raise_patch_failure(result, diff, target, reject=""):
     """Turn a patch failure into a message that names the likely mistake."""
     output = _subprocess_text(result)
+    # patch always says it is "saving rejects to file X.rej", but the reject is
+    # removed immediately afterwards. Left in place, the message points at a
+    # file that does not exist.
+    output = re.sub(r"\s*-- saving rejects to file \S+", "", output).strip()
 
     # The `*** Begin Patch` / `*** Update File:` envelope is a different
     # tool's format. patch cannot read it and says only "Only garbage was
@@ -663,7 +705,7 @@ def _raise_patch_failure(result, diff, target):
         )
     if "FAILED" in output or "malformed patch" in output:
         thin = _hunks_missing_trailing_context(diff)
-        if thin:
+        if thin and _context_lines_present(target, diff):
             listed = ", ".join(str(n) for n in thin)
             raise RuntimeError(
                 f"{output}\n"
@@ -675,7 +717,25 @@ def _raise_patch_failure(result, diff, target):
                 "line of each hunk (matching lines already in the file, each "
                 "prefixed with a single space)."
             )
+    if reject:
+        # The context is wrong, or the counts are: show the caller what the file
+        # actually holds against what the hunk expected, so the next attempt can
+        # be aimed at the real text instead of guessed at.
+        raise _reject_report(output, diff, reject)
     raise RuntimeError(output or f"patch exited with code {result.returncode}")
+
+
+def _reject_report(output, diff, reject):
+    """Message that includes the reject, since the .rej file no longer exists."""
+    return RuntimeError(
+        f"{output}\n"
+        "The context lines did not match the file. patch's reject (normally "
+        "written to a .rej file, which is cleaned up here) is below -- it shows "
+        "the hunk as patch read it, so you can compare against the real file:\n"
+        f"{reject}\n"
+        "Re-read the target and rebuild the hunk from its exact current lines; "
+        "context that is not in the file verbatim can never match."
+    )
 
 
 # ---------------------------------------------------------------------------

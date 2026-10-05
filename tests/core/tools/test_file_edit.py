@@ -472,6 +472,66 @@ class TestPatchFailureDiagnostics(unittest.TestCase):
             self.assertIn("fewer than two unchanged", message)
             self.assertIn("end-of-file", message)
 
+    def test_wrong_context_does_not_get_the_trailing_context_hint(self):
+        """A hunk aimed at the wrong text is told that, not blamed on context depth.
+
+        The trailing-context hint is only correct when the context really is in
+        the file. Given a hunk whose context matches nothing, naming context
+        depth sends the caller off padding a hunk that can never apply -- a
+        confident wrong answer is worse than none, because it gets acted on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,4 +1,5 @@\n"
+                " totally wrong line\n"
+                " nothing like this\n"
+                " nor this one\n"
+                " \n"
+                "+added line\n"
+                "\n\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertNotIn("fewer than two unchanged", message)
+            self.assertIn("did not match the file", message)
+
+    def test_failure_message_does_not_point_at_a_deleted_rej_file(self):
+        """The message must not name a .rej file, because the file is removed.
+
+        patch always reports 'saving rejects to file X.rej', and the artifact is
+        cleaned up immediately afterwards. Passed through unmodified, the message
+        points the user at a file that does not exist -- and at the same time
+        discards the reject, which is the only side-by-side of the hunk against
+        the file's real lines.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,4 +1,5 @@\n"
+                " totally wrong line\n"
+                " nothing like this\n"
+                " nor this one\n"
+                " \n"
+                "+added line\n"
+                "\n\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertNotIn("saving rejects to file", message)
+            self.assertFalse(
+                (Path(tmp) / (os.path.basename(target) + ".rej")).exists()
+            )
+            # The reject's content is preserved in the message instead.
+            self.assertIn("totally wrong line", message)
+
+
     def test_same_hunk_with_two_trailing_context_lines_applies(self):
         """Adding two trailing context lines makes the identical hunk apply.
 
