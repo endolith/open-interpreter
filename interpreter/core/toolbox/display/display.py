@@ -479,5 +479,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
 
 
 def get_displays():
+    # screeninfo is the lazy import at module scope; the bare name was never
+    # imported, so this raised NameError on every call.
     monitors = screeninfo.get_monitors()
     return monitors
