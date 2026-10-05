@@ -801,14 +801,31 @@ class TestTerminalLanguages(unittest.TestCase):
         )
 
     def test_cwd_marker_filter_works_on_all_shell_configs(self):
-        """The `##oi_pwd##` marker is filtered and updates cwd for any shell config."""
+        """The `##oi_cwd##` marker is filtered and updates cwd for any shell config."""
+        from interpreter.core.terminal.languages.cwd_tracking import _CWD_MARKER
+
         ps = _StubCwdShell(cd_commands=("cd", "Set-Location", "sl"), cd_ignore_case=True)
-        self.assertIsNone(ps.line_postprocessor("##oi_pwd##/new/dir"))
+        self.assertIsNone(ps.line_postprocessor(f"{_CWD_MARKER}/new/dir"))
         self.assertEqual(ps.cwd, "/new/dir")
 
         cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
-        self.assertIsNone(cmd.line_postprocessor("##oi_pwd##C:\\new\\dir"))
+        self.assertIsNone(cmd.line_postprocessor(f"{_CWD_MARKER}C:\\new\\dir"))
         self.assertEqual(cmd.cwd, "C:\\new\\dir")
+
+    def test_cwd_marker_filter_handles_marker_glued_to_output(self):
+        """A command whose output lacks a trailing newline puts the marker mid-line.
+
+        This is the leak that motivated the marker not being anchored: the shell
+        writes the marker echo starting wherever it happens to be, which is
+        mid-line when the previous output had no newline. The output before the
+        marker must survive, and the marker plus path must not.
+        """
+        from interpreter.core.terminal.languages.cwd_tracking import _CWD_MARKER
+
+        stub = _StubCwdShell()
+        line = f"no trailing newline{_CWD_MARKER}/new/dir\n"
+        self.assertEqual(stub.line_postprocessor(line), "no trailing newline")
+        self.assertEqual(stub.cwd, "/new/dir")
 
     def test_bash_sets_cd_removal_notice(self):
         """Removing a redundant cd sets _pending_notice naming the target directory."""
@@ -1012,18 +1029,20 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertFalse(block.sync_stored_code("x = 1"))
         self.assertEqual(block.code, "x = 1")
 
-    def test_bash_line_postprocessor_filters_pwd_marker(self):
-        """The `##oi_pwd##` marker is filtered from output and updates the tracked cwd."""
+    def test_bash_line_postprocessor_filters_cwd_marker(self):
+        """The `##oi_cwd##` marker is filtered from output and updates the tracked cwd."""
+        from interpreter.core.terminal.languages.cwd_tracking import _CWD_MARKER
+
         bash = Bash()
-        self.assertIsNone(bash.line_postprocessor("##oi_pwd##/new/dir"))
+        self.assertIsNone(bash.line_postprocessor(f"{_CWD_MARKER}/new/dir"))
         self.assertEqual(bash.cwd, "/new/dir")
 
-    def test_bash_preprocess_appends_pwd_marker_before_end_marker(self):
-        """preprocess_code appends the `##oi_pwd##$PWD` echo just before the end-of-execution marker."""
+    def test_bash_preprocess_appends_cwd_marker_before_end_marker(self):
+        """preprocess_code appends the `##oi_cwd##$PWD` echo just before the end-of-execution marker."""
         bash = Bash()
         out = bash.preprocess_code("echo hi")
         self.assertLess(
-            out.index('echo "##oi_pwd##$PWD"'),
+            out.index('echo "##oi_cwd##$PWD"'),
             out.index('echo "##end_of_execution##"'),
         )
 
