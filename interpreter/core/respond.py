@@ -106,8 +106,52 @@ def _is_bodiless_400(error):
     return not remainder.strip(" -:.,")
 
 
+# "unavailable" on its own is not evidence of a transient fault. A model that is
+# unavailable is unavailable permanently -- wrong or retired model name -- so
+# matching the bare word made a typo into an unkillable retry loop. Checked
+# first, and before the generic markers, because a message can contain both
+# ("Model is unavailable. Please try again later later.") and the permanent
+# cause is the one that must stop the retrying.
+_PERMANENT_UNAVAILABLE_MARKERS = (
+    "model is unavailable",
+    "model unavailable",
+    "model not available",
+    "model not found",
+    "no such model",
+    "unknown model",
+)
+
+# Unavailability that genuinely clears on its own. These are matched as phrases
+# rather than as the single word "unavailable" so the classification says what
+# it means.
+_TEMPORARY_UNAVAILABLE_PHRASES = (
+    "temporarily unavailable",
+    "temporarily not available",
+    "service unavailable",
+    "service is unavailable",
+    "provider unavailable",
+)
+
+# Consecutive automatic retries allowed for one temporary upstream error. Rate
+# limits and overloads usually clear on a retry, so this allows more than the
+# bodiless-400 cap of 1, but it is still a cap: without one, a provider that
+# keeps rejecting the same request retries forever, and because the Live
+# display is left up the whole time, Ctrl-C arrives as a keystroke rather than
+# a signal and cannot break out. Past the cap the error is shown and the user
+# decides, which is what the retry loop is supposed to do.
+MAX_TEMPORARY_PROVIDER_RETRIES = 5
+
+
 def _is_temporary_provider_error(error):
     error_message = str(error).lower()
+    if any(
+        marker in error_message for marker in _PERMANENT_UNAVAILABLE_MARKERS
+    ):
+        return False
+    if any(
+        phrase in error_message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES
+    ):
+        return True
     temporary_markers = (
         "temporarily",
         "temporary",
@@ -121,7 +165,6 @@ def _is_temporary_provider_error(error):
         "timeout",
         "timed out",
         "overloaded",
-        "unavailable",
     )
     return any(marker in error_message for marker in temporary_markers)
 
@@ -152,11 +195,17 @@ def respond(interpreter):
     last_unsupported_code = ""
     insert_loop_message = False
     always_retry_provider_errors = False
+    # Capped by MAX_TEMPORARY_PROVIDER_RETRIES, so a provider that keeps
+    # rejecting the same request cannot spin the loop forever. Past the cap the
+    # error is shown and the user decides.
     temporary_provider_error_retries = 0
     last_temporary_provider_error_signature = None
     temporary_retry_status_active = False
-    # Bounded so a provider that keeps rejecting the same request cannot spin
-    # the loop forever. Past this, the error is shown and the user decides.
+    # Bounded separately, and more tightly: a bodiless 400 is retried exactly
+    # once, because a repeat of the same bodiless 400 means the retry will not
+    # help either. This cap is deliberately not shared with the temporary-error
+    # counter above -- they answer different questions and had drifted apart
+    # when only this one was bounded.
     bodiless_400_retries = 0
     # A stale True from a previous turn would make the terminal interface exit
     # after an unrelated, healthy turn; this function is the only writer, so a
@@ -303,6 +352,16 @@ def respond(interpreter):
                     getattr(openai, "OpenAIError", Exception),
                 )):
                     is_temporary_error = _is_temporary_provider_error(e)
+                    # Once the cap is reached, stop treating this as temporary
+                    # so the error panel is shown and the manual retry path
+                    # below takes over. Clearing the flag means a later
+                    # transient fault (after the user intervenes) retries again
+                    # from scratch.
+                    if is_temporary_error and temporary_provider_error_retries >= (
+                        MAX_TEMPORARY_PROVIDER_RETRIES
+                    ):
+                        is_temporary_error = False
+                        temporary_provider_error_retries = 0
                     # A bodiless 400 is retried automatically: the same request
                     # succeeds on a retry, so asking the user to press "y" every
                     # time is pure friction. Bounded, and only when the gateway
