@@ -89,6 +89,26 @@ class CwdTrackingMixin:
     def _cwd_marker_echo(self):
         raise NotImplementedError
 
+    def _state_line(self):
+        """One-line report of the shell's working directory, for the model.
+
+        Python gets the equivalent treatment from JupyterLanguage (CWD, imported
+        modules, variables, functions) and it is the only reason the model can
+        tell that a previous cell did something. Shells were getting nothing: the
+        cwd was tracked here and then thrown away -- the ``##oi_cwd##`` marker is
+        consumed by ``_filter_pwd_marker`` precisely so the path never reaches the
+        model's context -- leaving it to guess after every ``cd``.
+
+        Deliberately cwd only. Shell variables and functions are rarely
+        accumulated across turns, and reading them costs a round-trip per
+        command. The cwd is already known here, so this is free.
+
+        Not put in the system message: the cwd changes constantly, so a
+        stable-looking value there would both churn the prompt cache and go
+        stale when a conversation is resumed in a different directory.
+        """
+        return f"[Shell State: CWD: {self.cwd}]"
+
     def _insert_cwd_marker(self, code, end_marker):
         """Insert the ``##oi_cwd##`` echo just before the end-of-execution marker."""
         if code.endswith(end_marker):
