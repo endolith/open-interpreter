@@ -284,7 +284,7 @@ def test_interpreter_info_probes_the_api_base_when_offline():
     ) as co:
         out = system_debug_info.interpreter_info(interpreter)
 
-    assert "curl http://localhost:11434" in str(co.call_args)
+    assert co.call_args.args[0] == "curl http://localhost:11434"
     assert "Curl output: b'pong'" in out
 
 

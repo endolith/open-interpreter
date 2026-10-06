@@ -90,6 +90,11 @@ def test_successful_load_registers_the_module_in_sys_modules():
         assert check_for_package("fake_optional_dep") is True
         try:
             assert "fake_optional_dep" in sys.modules
+            # Registering the name is not the same as executing it: with the
+            # spec fully mocked, a helper that skipped exec_module would still
+            # register the name and still return True, leaving a package that
+            # cannot be imported afterwards.
+            spec.loader.exec_module.assert_called_once()
         finally:
             sys.modules.pop("fake_optional_dep", None)
 
