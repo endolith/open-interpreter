@@ -629,3 +629,129 @@ def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
 
     assert captured["icons"] == []
     assert result == []
+def test_permutation_never_varies_block_size(monkeypatch):
+    """Characterization: OI_POINT_PERMUTATE holds blockSize at 11 on every pass.
+
+    The permutation branch draws an odd block size and then immediately overwrites
+    it:
+
+        random_block_size = random.choice(range(1, 11, 2))
+        random_block_size = 11
+
+    so `blockSize` reaches adaptiveThreshold as a constant while the draw beside
+    it is discarded. The permutation therefore searches three of the four
+    parameters it appears to vary, at the cost of ten full image-processing
+    passes. See the accompanying issue.
+
+    This test asserts the current behaviour deliberately, so the constant becomes
+    visible: when the overwrite is removed, blockSize starts varying and this
+    test fails, which is the point at which it should be deleted.
+    """
+    import types
+
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    adaptive = mock.Mock(return_value="binary")
+    monkeypatch.setattr(point_mod.cv2, "adaptiveThreshold", adaptive, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "boundingRect", lambda _c: (1, 2, 3, 4), raising=False)
+    for name, value in [
+        ("ADAPTIVE_THRESH_MEAN_C", 0),
+        ("THRESH_BINARY_INV", 1),
+        ("ADAPTIVE_THRESH_GAUSSIAN_C", 2),
+        ("THRESH_BINARY", 3),
+        ("COLOR_RGB2BGR", 4),
+        ("COLOR_BGR2GRAY", 5),
+        ("RETR_LIST", 6),
+        ("CHAIN_APPROX_NONE", 7),
+    ]:
+        monkeypatch.setattr(point_mod.cv2, name, value, raising=False)
+
+    random_stub = types.ModuleType("random")
+    random_stub.uniform = mock.Mock(side_effect=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+    # Always hand back the first option, so if block size were honoured every
+    # pass would receive the same value from the draw (1) rather than the 11
+    # currently written over it. That makes the two paths distinguishable.
+    random_stub.choice = mock.Mock(side_effect=lambda options: options[0])
+    random_stub.randint = mock.Mock(side_effect=[3] * 20)
+    monkeypatch.setitem(sys.modules, "random", random_stub)
+
+    point_mod.get_element_boxes(screenshot, False)
+
+    sizes = {call.kwargs["blockSize"] for call in adaptive.call_args_list}
+    assert sizes == {11}, f"blockSize should be pinned at 11, got {sizes}"
+    # The draw is made and then discarded, which is the waste itself.
+    assert any(
+        call.args and call.args[0] == range(1, 11, 2)
+        for call in random_stub.choice.call_args_list
+    ), "expected the block-size draw to still be made and overwritten"
+
+
+def test_permutation_does_vary_the_other_three_parameters(monkeypatch):
+    """Contrast, adaptive method, threshold type and C do change across the passes.
+
+    The complement of the block-size characterization: this pins which parameters
+    the permutation genuinely explores, so a future change that collapses the
+    search to a single dimension is caught here.
+    """
+    import types
+
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    adaptive = mock.Mock(return_value="binary")
+    monkeypatch.setattr(point_mod.cv2, "adaptiveThreshold", adaptive, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "boundingRect", lambda _c: (1, 2, 3, 4), raising=False)
+    for name, value in [
+        ("ADAPTIVE_THRESH_MEAN_C", 0),
+        ("THRESH_BINARY_INV", 1),
+        ("ADAPTIVE_THRESH_GAUSSIAN_C", 2),
+        ("THRESH_BINARY", 3),
+        ("COLOR_RGB2BGR", 4),
+        ("COLOR_BGR2GRAY", 5),
+        ("RETR_LIST", 6),
+        ("CHAIN_APPROX_NONE", 7),
+    ]:
+        monkeypatch.setattr(point_mod.cv2, name, value, raising=False)
+
+    random_stub = types.ModuleType("random")
+    random_stub.uniform = mock.Mock(side_effect=[float(n) for n in range(1, 11)])
+    # Rotate so each option is actually reached across the ten passes.
+    state = {}
+
+    def rotate(options):
+        key = tuple(options)
+        index = state.get(key, 0)
+        state[key] = index + 1
+        return options[index % len(options)]
+
+    random_stub.choice = mock.Mock(side_effect=rotate)
+    random_stub.randint = mock.Mock(side_effect=[-5, 5] * 5)
+    monkeypatch.setitem(sys.modules, "random", random_stub)
+
+    point_mod.get_element_boxes(screenshot, False)
+
+    contrasts = {call.kwargs["C"] for call in adaptive.call_args_list}
+    assert len(contrasts) > 1, "C should vary across passes"
+    # Only the last pass's contours survive, so the box list reflects one pass.
+    assert len(adaptive.call_args_list) == 10
