@@ -9,8 +9,8 @@ def _environment_block(interpreter):
 
         Here is useful information about the environment you are running in:
         <env>
-          Working directory: /path
-          Conversation started: 2026-10-05 19:57
+          Open Interpreter started in: /path
+          Open Interpreter started at: 2026-10-05 19:57
         </env>
 
     Both values are read from attributes captured at startup, never recomputed,
@@ -30,10 +30,22 @@ def _environment_block(interpreter):
     if cwd is None and started is None:
         return ""
     lines = []
+    # Labelled as when Open Interpreter itself started, in the past tense, and
+    # naming Open Interpreter rather than the conversation. Both matter:
+
+    # - "Conversation started" would be false. These are captured in
+    #   OpenInterpreter.__init__, which runs once per process, so every
+    #   conversation in one session would report the same instant, and resuming
+    #   a conversation opened days ago would claim it began today.
+    # - It must not read as "now". Each message already carries its own
+    #   timestamp, so a session that spans days has messages far from this one,
+    #   and a current-sounding value here would contradict them.
     if cwd is not None:
-        lines.append(f"  Working directory: {cwd}")
+        lines.append(f"  Open Interpreter started in: {cwd}")
     if started is not None:
-        lines.append(f"  Conversation started: {started.strftime('%Y-%m-%d %H:%M')}")
+        lines.append(
+            f"  Open Interpreter started at: {started.strftime('%Y-%m-%d %H:%M')}"
+        )
     if not lines:
         return ""
     return (
