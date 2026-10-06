@@ -706,15 +706,18 @@ def respond(interpreter):
 
         ### RUN FILE EDIT (if it's there) ###
 
+        edit_msg = None
         edit_from_state = False
-        if interpreter.messages[-1]["type"] == "edit":
-            edit_msg = interpreter.messages[-1]
+        last_message = interpreter.messages[-1]
+
+        if last_message["type"] == "edit":
+            edit_msg = last_message
         elif pending_review_edit is not None:
             if verdict_nags < MAX_EDIT_VERDICT_NAGS:
-                # A preview is pending, but the last message is neither a
-                # verdict nor a new edit: the model talked instead of ruling.
-                # Words are not a verdict -- approval is never inferred -- so
-                # ask for the tool call before falling back to the user.
+                # A preview is pending, but the last message is neither a verdict
+                # nor a new edit: the model talked instead of ruling. Words are
+                # not a verdict -- approval is never inferred -- so ask for the
+                # tool call before falling back to the user.
                 verdict_nags += 1
                 interpreter.messages.append(
                     {
@@ -736,8 +739,24 @@ def respond(interpreter):
             # Out of asks: the user decides, with the diff in front of them.
             edit_msg = pending_review_edit
             edit_from_state = True
-        else:
-            edit_msg = None
+        elif last_message.get("type") not in ("code", "edit"):
+            # The last chunk is chatter (a trailing sentence, a reasoning block)
+            # rather than something actionable. Dispatching only on the final
+            # message meant an edit the model emitted and then talked past was
+            # silently skipped and the turn simply ended -- the user's edit did
+            # nothing and the prompt came straight back. Dispatch the newest
+            # not-yet-previewed edit of the turn instead. A model that emits two
+            # edits in one turn supersedes the earlier with the later.
+            for candidate in reversed(interpreter.messages):
+                if candidate.get("type") == "edit":
+                    candidate_key = (
+                        str(candidate.get("format", "")).lower().strip(),
+                        candidate.get("target", ""),
+                        candidate.get("content", ""),
+                    )
+                    if candidate_key != last_previewed_edit:
+                        edit_msg = candidate
+                    break
 
         if edit_msg is not None:
             language = edit_msg["format"].lower().strip()
