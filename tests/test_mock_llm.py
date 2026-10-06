@@ -430,6 +430,37 @@ def test_mock_llm_auth_text_unaffected(mock_llm_server, monkeypatch):
 _SENTENCE = "The quick brown fox jumps over the lazy dog."
 
 
+def _request_carrying(requests: list[dict], marker: str, occurrence: int = 0) -> dict:
+    """The first recorded request whose history contains an assistant step with `marker`.
+
+    Selected by content rather than by index. The errand's final step is sent
+    twice — once, and again after the model sees its traceback — so `requests[3]`
+    and `requests[4]` both contain it. Indexing into that is fragile: adding or
+    removing any earlier step shifts both, and the assertion would then be reading
+    a different request entirely rather than failing.
+
+    Which occurrence matters. The errand's failing step is sent twice: the first
+    request carrying it also carries that step's own output, so it holds the
+    traceback. The second is the follow-up the model sends after seeing it, and
+    holds whatever the model did next — which is where the recovery output lands.
+    """
+    matches = [
+        request
+        for request in requests
+        if any(
+            message.get("role") == "assistant"
+            and isinstance(message.get("content"), str)
+            and marker in message["content"]
+            for message in request.get("messages", [])
+        )
+    ]
+    assert len(matches) > occurrence, (
+        f"expected at least {occurrence + 1} request(s) carrying {marker!r}, "
+        f"found {len(matches)}"
+    )
+    return matches[occurrence]
+
+
 def _last_user_text(request: dict) -> str:
     """The most recent user message text in a recorded request.
 
@@ -589,7 +620,9 @@ def test_a_traceback_reaches_the_provider_on_the_next_request(
     # not merely some later request. Searching every later request would pass
     # even if the feedback were delayed by a turn, which is the same regression
     # seen from the other direction.
-    follow_up = _last_user_text(mock_llm_server.requests[3])
+    follow_up = _last_user_text(
+        _request_carrying(mock_llm_server.requests, "undefined_name")
+    )
     assert "Traceback (most recent call last)" in follow_up, (
         "the request right after the failing step carried no traceback header"
     )
@@ -626,7 +659,9 @@ def test_execution_output_reaches_the_provider_on_the_next_request(
 
     # Assert the actual stdout, not the fixed "Code output:" label, which every
     # feedback message carries regardless of whether output arrived.
-    follow_up = _last_user_text(mock_llm_server.requests[4])
+    follow_up = _last_user_text(
+        _request_carrying(mock_llm_server.requests, "undefined_name", occurrence=1)
+    )
     assert follow_up.startswith("Code output:"), (
         "the request right after execution did not carry a code-output feedback"
     )
