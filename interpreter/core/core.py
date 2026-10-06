@@ -94,6 +94,16 @@ _CONVERSATION_TITLE_SYSTEM_PROMPT = (
 )
 
 
+def _launch_context():
+    """(cwd, started_at) for this run, read once at construction.
+
+    A module-level function rather than inline in __init__, because __init__
+    takes a parameter named ``os`` (offline mode) which shadows the module for
+    the whole body.
+    """
+    return os.getcwd(), datetime.now()
+
+
 class OpenInterpreter:
     """
     This class (one instance is called an `interpreter`) is the "grand central station" of this project.
@@ -185,6 +195,15 @@ class OpenInterpreter:
         self.contribute_conversation = contribute_conversation
         self.plain_text_display = plain_text_display
         self.highlight_active_line = True  # additional setting to toggle active line highlighting. Defaults to True
+
+        # Where and when this run started, reported once in the system message.
+        # Captured here rather than read per turn so it stays byte-identical for
+        # the life of the process: the system message is the cached prefix, and a
+        # value that moved with every `cd` would churn that cache on every turn.
+        # It is also what the per-command shell state line cannot do -- that one
+        # only reaches the model after something has already run, so on the first
+        # command of a session the model has nothing and spends a turn on `pwd`.
+        self._launch_cwd, self._launch_time = _launch_context()
 
         # Loop messages
         self.loop = loop
