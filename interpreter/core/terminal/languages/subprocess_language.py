@@ -178,59 +178,14 @@ class SubprocessLanguage(BaseLanguage):
                         time.sleep(0.2)
                     break
 
-                # The process can die before printing the end marker (`exit`, a
-                # fatal syntax error, a crash), so `done` would never be set and
-                # this loop would spin forever. This is a liveness check, not a
-                # timeout: a live process that takes hours is still waited on.
-                #
-                # A reader failure can clear the process between the done check
-                # above and this poll. The reader has already queued its
-                # diagnostic and will set done; loop until it does rather than
-                # crashing on a cleared handle.
-                returncode = self._poll_process()
-                if returncode is not None:
-                    readers_finished = self._join_stream_threads()
-                    while not self.output_queue.empty():
-                        yield self.output_queue.get()
-                    if not readers_finished:
-                        yield {
-                            "type": "console",
-                            "format": "output",
-                            "content": f"\nThe {self.name} process exited while its output "
-                            "reader was still running, so some output may be missing.",
-                        }
-                    if not self.done.is_set():
-                        yield {
-                            "type": "console",
-                            "format": "output",
-                            "content": f"\nThe {self.name} process exited with code {returncode} "
-                            "before the end of this block. Anything after the line that ended it "
-                            "did not run, and the next block starts a new process, so state from "
-                            "this one (working directory, variables) is gone.",
-                        }
-                    # Drop the dead process so the next run() starts a fresh one
-                    # instead of writing into a closed pipe.
-                    self.terminate()
-                    self.process = None
-                    break
-
-    def _join_stream_threads(self):
-        """Wait for finite reader threads and report whether all of them finished."""
-        for thread in self.stream_threads:
-            thread.join(timeout=5)
-        return all(not thread.is_alive() for thread in self.stream_threads)
-
-    def _poll_process(self):
-        """Return the process exit code, or None while the handle is gone.
-
-        _abort_stream clears self.process when the stdout reader dies, and the
-        consumer can reach its liveness check before done is set. Treat a
-        cleared handle as "not exited yet"; the queued diagnostic and done
-        event finish the turn.
-        """
-        if self.process is None:
-            return None
-        return self.process.poll()
+        # Persistent shells report where they are after every command, the way
+        # JupyterLanguage reports CWD/variables for Python. Opt-in via the
+        # method existing, so languages without tracked state are unaffected.
+        state_line = getattr(self, "_state_line", None)
+        if callable(state_line):
+            line = state_line()
+            if line:
+                yield {"type": "console", "format": "output", "content": line}
 
     def handle_stream_output(self, stream, is_error_stream):
         try:
