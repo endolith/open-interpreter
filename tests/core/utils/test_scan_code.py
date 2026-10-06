@@ -257,8 +257,16 @@ def test_scan_code_still_cleans_up_when_the_temp_file_cannot_be_created(tmp_path
             with mock.patch("interpreter.core.utils.scan_code.subprocess.run") as run:
                 try:
                     scan_code.scan_code("x = 1", "python", interpreter)
-                except Exception:
-                    pass
+                except TypeError as error:
+                    # Narrow on purpose. A bare `except Exception` also swallows an
+                    # unrelated failure, so this would report success while
+                    # something else broke. A clean return is still accepted
+                    # deliberately: once #399 is fixed scan_code should handle the
+                    # missing file instead of raising, and this test should keep
+                    # passing then.
+                    assert "NoneType" in str(error), (
+                        f"expected the missing-temp-file TypeError, got {error!r}"
+                    )
 
     assert run.call_count == 0, "semgrep must not run without a file to scan"
 
