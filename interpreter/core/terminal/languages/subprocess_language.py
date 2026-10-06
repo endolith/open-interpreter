@@ -173,6 +173,15 @@ class SubprocessLanguage(BaseLanguage):
                         time.sleep(0.2)
                     break
 
+        # Persistent shells report where they are after every command, the way
+        # JupyterLanguage reports CWD/variables for Python. Opt-in via the
+        # method existing, so languages without tracked state are unaffected.
+        state_line = getattr(self, "_state_line", None)
+        if callable(state_line):
+            line = state_line()
+            if line:
+                yield {"type": "console", "format": "output", "content": line}
+
     def handle_stream_output(self, stream, is_error_stream):
         try:
             eof = b"" if self.binary_stdio else ""
