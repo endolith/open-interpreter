@@ -9,6 +9,7 @@ through TestClient.websocket_connect.
 
 import asyncio
 import json
+import time
 from unittest import mock
 
 import pytest
@@ -221,3 +222,120 @@ def test_invalid_json_after_handshake_emits_server_error(ws_pair):
     assert "JSONDecodeError" in error["content"]
     assert done == {"role": "server", "type": "status", "content": "complete"}
     assert inp.await_count == 0
+
+
+def _emit(interpreter, *messages):
+    """Replace output() so it yields `messages` then parks, in order.
+
+    Returns a gate the test opens after the handshake. Emission has to be held
+    back until then: send_output is gathered alongside receive_input, so a stub
+    that produced immediately would deliver its payload *before* the auth reply,
+    and every assertion downstream would be reading the wrong frame.
+
+    The gate polls with a sleep rather than blocking, so the task stays
+    cancellable and the client can still disconnect.
+    """
+    pending = list(messages)
+    gate = {"open": False}
+
+    async def output():
+        while not gate["open"]:
+            await asyncio.sleep(0.001)
+        if pending:
+            return pending.pop(0)
+        await asyncio.sleep(3600)
+
+    interpreter.output = output
+    return gate
+
+
+def test_output_reaches_a_connected_client(ws_pair):
+    """The send side delivers interpreter output to an authenticated socket.
+
+    The receive side is covered elsewhere; this is the other half of the same
+    endpoint, and without it a chat turn produces nothing on the client no matter
+    how correctly the input was parsed.
+    """
+    client, interp, _ = ws_pair
+    gate = _emit(interp, {"role": "assistant", "type": "message", "content": "hello"})
+
+    with client.websocket_connect("/") as ws:
+        _handshake(ws)
+        gate["open"] = True
+        got = ws.receive_json()
+
+    assert got == {"role": "assistant", "type": "message", "content": "hello"}
+
+
+def test_bytes_output_is_sent_as_a_binary_frame(ws_pair):
+    """A bytes output is framed with send_bytes, not JSON-encoded.
+
+    Binary payloads (screenshots, audio) would otherwise be serialised as a
+    string of escaped characters and arrive corrupt.
+    """
+    client, interp, _ = ws_pair
+    gate = _emit(interp, b"\x89PNG\r\n\x1a\nrawbytes")
+
+    with client.websocket_connect("/") as ws:
+        _handshake(ws)
+        gate["open"] = True
+        got = ws.receive_bytes()
+
+    assert got == b"\x89PNG\r\n\x1a\nrawbytes"
+
+
+def test_acknowledged_output_gets_an_id_and_waits_for_the_ack(ws_pair):
+    """With require_acknowledge on, the server assigns an id and withholds delivery.
+
+    The client is expected to echo `{"ack": id}`; nothing is delivered until it
+    does. Both halves matter — the id has to be attached to the payload, and the
+    ack has to be what releases it.
+    """
+    client, interp, _ = ws_pair
+    interp.require_acknowledge = True
+    interp.acknowledged_outputs.clear()
+    gate = _emit(interp, {"role": "assistant", "type": "message", "content": "hi"})
+
+    with client.websocket_connect("/") as ws:
+        _handshake(ws)
+        gate["open"] = True
+        payload = ws.receive_json()
+        assert payload["id"], "an un-acked output must be given an id"
+        ws.send_text(json.dumps({"ack": payload["id"]}))
+
+    assert interp.acknowledged_outputs == [], "a satisfied ack is consumed, not retained"
+
+
+def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
+    """An output the client never acks is kept, not dropped.
+
+    send_message gives up after its wait window and reports failure, and
+    send_output then parks the message in `unsent_messages` to be retried. If it
+    were discarded instead, a slow or briefly-disconnected client would silently
+    lose assistant output — which is exactly the case acknowledgement exists to
+    protect.
+    """
+    client, interp, _ = ws_pair
+    interp.require_acknowledge = True
+    interp.acknowledged_outputs.clear()
+    interp.unsent_messages.clear()
+    gate = _emit(interp, {"role": "assistant", "type": "message", "content": "unacked"})
+
+    with client.websocket_connect("/") as ws:
+        _handshake(ws)
+        gate["open"] = True
+        ws.receive_json()  # receive it; deliberately never ack
+
+        # Poll while still connected. Closing the socket cancels the background
+        # task, and send_message has a ~10ms ack window to elapse first, so
+        # asserting after the `with` block observes a cancelled coroutine that
+        # never reached its append.
+        for _ in range(100):
+            if interp.unsent_messages:
+                break
+            time.sleep(0.02)
+
+    assert any(
+        isinstance(m, dict) and m.get("content") == "unacked"
+        for m in interp.unsent_messages
+    ), f"expected the unacked output to be retained, got {interp.unsent_messages}"
