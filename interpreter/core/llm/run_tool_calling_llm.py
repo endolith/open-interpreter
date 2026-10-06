@@ -572,10 +572,10 @@ def build_request_tools(interpreter, messages=None):
     )
     tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
 
-    # While a dry run is pending review, the model also gets the gate it has to
-    # pass before the user is asked: approve_edit sits *alongside* edit, never in
-    # place of it, so a model that dislikes the diff can revise immediately
-    # instead of being cornered into narrating about it.
+    # Once a dry run is pending review the model also gets the gate it has to
+    # pass before the user is asked. approve_edit is offered *alongside* the
+    # normal tools rather than in place of edit: withholding edit is what
+    # cornered a model into narrating about a diff it could not revise.
     if getattr(interpreter, "_edit_review_pending", None):
         tools.append(copy.deepcopy(approve_edit_tool_schema))
 
@@ -597,6 +597,12 @@ def run_tool_calling_llm(llm, request_params):
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
     request_params["tools"] = build_request_tools(llm.interpreter, messages=request_params["messages"])
+
+    # A pending dry run has to be ruled on, and prose is not a ruling: asked to
+    # review a diff, models happily say "the diff looks correct, I will approve
+    # it" and emit no call at all, leaving the review with nothing to act on.
+    # Requiring a tool call makes the decision structural -- call edit to revise,
+    # approve_edit to sign off -- instead of a matter of mood about prose.
 
     # Append tool-calling-specific instructions to the system message (analogous to
     # how run_text_llm appends execution_instructions in markdown/no-functions mode).
