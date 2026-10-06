@@ -1,11 +1,11 @@
-"""LLM-first review of failing edit dry runs, before the user is prompted.
+"""LLM-first review of every edit dry run, before the user is prompted.
 
-When an edit's dry run fails validation (or would change nothing), respond()
-appends the dry-run output as feedback and re-invokes the LLM instead of
-yielding the confirmation chunk. The user only sees a confirmation once an
-edit passes its dry run (or the review budget is spent). These tests drive
-respond() with a scripted LLM the way test_temporary_error_retry.py does,
-plus a minimal chunk driver that stands in for core._respond_and_store.
+The workflow is: the LLM emits an edit, respond() shows it the dry-run diff
+as feedback and re-invokes it, and only an edit the LLM re-emits unchanged
+(approval) reaches the user's confirmation prompt; a different edit earns a
+fresh preview, up to a per-turn round cap. These tests drive respond() with a
+scripted LLM the way test_temporary_error_retry.py does, plus a minimal chunk
+driver that stands in for core._respond_and_store.
 """
 
 import shutil
@@ -79,6 +79,15 @@ def _drive_to_confirmation(interpreter):
     return confirmations
 
 
+def _preview_feedback(interpreter):
+    """The dry-run preview messages respond() showed the LLM this turn."""
+    return [
+        m
+        for m in interpreter.messages
+        if m.get("role") == "user" and "NOT shown to the user yet" in m.get("content", "")
+    ]
+
+
 @pytest.fixture
 def quiet_respond(monkeypatch):
     """Neutralize respond()'s module-level side effects for scripted turns."""
@@ -98,12 +107,53 @@ def _scripted_dry_run(monkeypatch, results):
     return calls
 
 
-def test_failing_dry_run_is_revised_before_user_confirmation(quiet_respond):
-    """A failing dry run goes back to the LLM, not to the user's prompt.
+def test_passing_edit_is_previewed_before_user_confirmation(quiet_respond):
+    """Even a passing edit goes to the LLM first, not straight to the user.
 
-    The first confirmation the driver sees must already carry the revised
-    edit, and the LLM must have been consulted exactly once in between. The
-    user never sees the broken attempt: no confirmation is yielded for it.
+    The first confirmation the driver sees must come only after an LLM round
+    trip over the preview: the confirmation carries the approved edit, and the
+    LLM was shown the diff with the user explicitly out of the loop so far.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 1, "one preview round before any user confirmation"
+    assert len(_preview_feedback(interpreter)) == 1
+    assert "--- a\n+++ b\n@@" in _preview_feedback(interpreter)[0]["content"]
+    assert confirmation["format"] == "edit"
+    assert confirmation["content"]["content"] == "s/a/b/"
+
+
+def test_reemitted_edit_counts_as_approval_not_another_preview(quiet_respond):
+    """Re-emitting the previewed edit unchanged approves it.
+
+    Approval must fall through to user confirmation without spending another
+    preview round: exactly one LLM call and one preview for an edit the model
+    accepts on first sight.
+    """
+    monkeypatch = quiet_respond
+    dry_calls = _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 1, "the re-emit approves; it must not trigger a second preview"
+    assert len(_preview_feedback(interpreter)) == 1
+    assert confirmation["content"]["content"] == "s/a/b/"
+    assert len(dry_calls) == 2, "approval re-runs the dry run fresh, never reuses a stale preview"
+
+
+def test_failing_dry_run_is_revised_before_user_confirmation(quiet_respond):
+    """A failing dry run goes back to the LLM with the error, not to the user.
+
+    The user never sees the broken attempt: no confirmation is yielded for it,
+    and the confirmation that finally appears carries the revised edit the LLM
+    emitted after reading the failure.
     """
     monkeypatch = quiet_respond
     dry_calls = _scripted_dry_run(
@@ -111,96 +161,48 @@ def test_failing_dry_run_is_revised_before_user_confirmation(quiet_respond):
         [
             {"output": "sed: no commands in code", "ok": False},
             {"output": "--- a\n+++ b\n@@", "ok": True},
+            {"output": "--- a\n+++ b\n@@", "ok": True},
         ],
     )
-    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
+    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")], [_edit_chunk(code="s/a/b/")]])
     interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 1, "one automatic review round before any confirmation"
-    assert len(dry_calls) == 2, "the revised edit gets its own dry run"
-    assert confirmation["format"] == "edit"
+    assert llm.calls == 2, "preview the broken edit, then preview the revision"
+    assert len(dry_calls) == 3
     assert confirmation["content"]["content"] == "s/a/b/"
-    feedback = [
-        m
-        for m in interpreter.messages
-        if m.get("role") == "user" and "has not been shown to the user" in m.get("content", "")
-    ]
-    assert len(feedback) == 1, "the LLM must be told the user has not seen the broken edit"
-    assert "sed: no commands in code" in feedback[0]["content"]
+    assert "sed: no commands in code" in _preview_feedback(interpreter)[0]["content"]
 
 
-def test_persistently_failing_edit_surfaces_after_the_cap(quiet_respond):
-    """An edit that never passes still reaches the user, boundedly.
+def test_endless_revisions_land_at_the_user_after_the_cap(quiet_respond):
+    """A model that revises forever still lands at the user prompt, boundedly.
 
-    The review budget is per exact edit content: an unchanged repeat burns it
-    instead of looping forever, and past the cap the confirmation is yielded
-    with the failing dry-run output attached for the user to judge.
+    Each distinct edit earns its own preview round, but rounds are capped per
+    turn: past the cap the latest edit falls through to user confirmation with
+    its dry-run output attached for the user to judge.
     """
     monkeypatch = quiet_respond
     _scripted_dry_run(
         monkeypatch,
         [{"output": "sed: no commands in code", "ok": False}] * 10,
     )
-    cap = respond_mod.MAX_EDIT_PREVIEW_RETRIES
-    llm = _FakeLlm([[_edit_chunk(code="")] for _ in range(cap + 5)])
+    cap = respond_mod.MAX_EDIT_PREVIEW_ROUNDS
+    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")], [_edit_chunk(code="s/a/c/")]] + [[_edit_chunk(code="s/a/d/")]] * 5)
     interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == cap, f"exactly {cap} automatic review rounds, got {llm.calls}"
+    assert llm.calls == cap, f"exactly {cap} preview rounds, got {llm.calls}"
+    assert confirmation["content"]["content"] == "s/a/c/"
     assert confirmation["content"]["dry_run_ok"] is False
-    assert "sed: no commands in code" in confirmation["content"]["dry_run_output"]
 
 
-def test_revised_edit_gets_a_fresh_review_budget(quiet_respond):
-    """The cap counts repeats of one edit, not review rounds overall.
-
-    A genuinely revised edit resets the budget, so a fix that needs two
-    attempts of its own is not cut off by the rounds spent on its predecessor.
-    Only an edit repeated unchanged past the cap falls through to the user.
-    """
-    monkeypatch = quiet_respond
-    _scripted_dry_run(
-        monkeypatch,
-        [{"output": "sed: no commands in code", "ok": False}] * 10,
-    )
-    cap = respond_mod.MAX_EDIT_PREVIEW_RETRIES
-    revised = [[_edit_chunk(code="s/a/b/")]] * (cap + 5)
-    llm = _FakeLlm(revised)
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
-
-    (confirmation,) = _drive_to_confirmation(interpreter)
-
-    assert llm.calls == cap + 1, "one round for the original plus a full fresh budget for the revision"
-    assert confirmation["content"]["content"] == "s/a/b/"
-
-
-def test_successful_dry_run_confirms_without_an_extra_llm_turn(quiet_respond):
-    """A passing dry run must not cost an LLM round trip.
-
-    Review exists to spare the user broken previews, not to second-guess good
-    ones: the confirmation for an edit that already passes is yielded
-    immediately, with the LLM never re-invoked.
-    """
-    monkeypatch = quiet_respond
-    dry_calls = _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}])
-    llm = _FakeLlm([])
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
-
-    (confirmation,) = _drive_to_confirmation(interpreter)
-
-    assert llm.calls == 0, "no review round for an edit that already passes"
-    assert dry_calls[0][1] == "s/a/b/"
-    assert confirmation["content"]["content"] == "s/a/b/"
-
-
-def test_auto_run_skips_dry_run_and_review(quiet_respond):
+def test_auto_run_skips_preview_and_review(quiet_respond):
     """auto_run means no preview exists, so there is nothing to review.
 
     With auto_run the dry run is skipped entirely (dry_run_output stays None),
-    which must also skip the review branch and go straight to confirmation.
+    which must also skip the preview branch and go straight to confirmation.
     """
     monkeypatch = quiet_respond
     dry_calls = _scripted_dry_run(monkeypatch, [])
@@ -210,32 +212,38 @@ def test_auto_run_skips_dry_run_and_review(quiet_respond):
     (confirmation,) = _drive_to_confirmation(interpreter)
 
     assert dry_calls == [], "auto_run performs no dry run"
-    assert llm.calls == 0, "nothing to review without a preview"
+    assert llm.calls == 0, "nothing to preview without a dry run"
+    assert _preview_feedback(interpreter) == []
     assert "dry_run_output" not in confirmation["content"]
 
 
-def test_noop_dry_run_is_sent_back_for_revision(quiet_respond):
-    """A dry run that changed nothing is a failure worth revising.
+def test_noop_preview_is_shown_before_confirmation(quiet_respond):
+    """A dry run that changed nothing is previewed like any other edit.
 
     An edit identical to the file would waste the user's confirmation on a
-    no-op. The no_change flag (not a string match) routes it into review,
-    where the LLM can either fix it or the cap hands it to the user.
+    no-op. The no_change flag routes it through the same preview, where the
+    LLM can fix it or approve it knowingly.
     """
     monkeypatch = quiet_respond
     _scripted_dry_run(
         monkeypatch,
         [
-            {"output": "sed: no changes (result is identical)", "ok": True, "no_change": True},
-            {"output": "--- a\n+++ b\n@@", "ok": True},
-        ],
+            {
+                "output": "sed: no changes (result is identical)",
+                "ok": True,
+                "no_change": True,
+            },
+        ]
+        + [{"output": "sed: no changes (result is identical)", "ok": True}] * 5,
     )
-    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
+    llm = _FakeLlm([[_edit_chunk(code="s/a/a/")]])
     interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/a/"))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 1, "a no-op preview must trigger a review round"
-    assert confirmation["content"]["content"] == "s/a/b/"
+    assert llm.calls == 1, "a no-op preview still goes to the LLM first"
+    assert "changed nothing" in _preview_feedback(interpreter)[0]["content"]
+    assert confirmation["content"]["content"] == "s/a/a/"
 
 
 @unittest.skipUnless(shutil.which("sed"), "sed binary is required for a real dry run")
