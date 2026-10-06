@@ -22,6 +22,28 @@ from interpreter.core.computer.terminal.languages import jupyter_language as jl
 from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
 
 
+def _join_listener(lang, timeout=10):
+    """Wait for the iopub listener, and never leave it running.
+
+    The listener is a plain (non-daemon) thread, so a test that failed to stop it
+    would not report a failure — it would hang the process at interpreter exit,
+    turning an ordinary assertion error into a CI job that times out with no
+    message. So the cleanup happens *before* the failure is raised, and only then
+    is the failure raised.
+
+    Raising is deliberately deferred to a second join: setting `finish_flag` is
+    what lets the loop return, and the assertion records whether it got there on
+    its own or only because of that.
+    """
+    lang.listener_thread.join(timeout=timeout)
+    if lang.listener_thread.is_alive():
+        lang.finish_flag = True
+        lang.listener_thread.join(timeout=timeout)
+    assert not lang.listener_thread.is_alive(), (
+        "listener did not finish, even after being asked to stop"
+    )
+
+
 def _delta(content):
     """A litellm-shaped streaming chunk."""
     return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content))])
@@ -80,8 +102,7 @@ def _run_listener(lang, monkeypatch, completion_response=None, api_key="sk-test"
     monkeypatch.setattr(jl.litellm, "completion", completion)
 
     lang._execute_code("print(1)", queue.Queue())
-    lang.listener_thread.join(timeout=10)
-    assert not lang.listener_thread.is_alive(), "listener did not finish"
+    _join_listener(lang)
     return completion
 
 
@@ -178,9 +199,8 @@ def test_non_string_stream_chunks_are_ignored(monkeypatch):
         ),
     )
     lang._execute_code("print(1)", queue.Queue())
-    lang.listener_thread.join(timeout=10)
+    _join_listener(lang)
 
-    assert not lang.listener_thread.is_alive()
     lang.kc.input.assert_called_once_with("y")
 
 
