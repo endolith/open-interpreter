@@ -251,6 +251,21 @@ def _approval_after(messages, edit_index):
     return None
 
 
+def _tool_activity_since(messages, index):
+    """True when the model called a tool after `index` -- any tool, not just edit.
+
+    Used to tell "busy" from "idle" during a review. A model that reads the file
+    or checks something between reading a diff and approving it is doing exactly
+    what the gate is for; only a turn with no call in it is the model failing to
+    act. Tool calls appear as assistant code/edit chunks or as the markers that
+    reconstruct a call in converted history.
+    """
+    for message in messages[index + 1 :]:
+        if message.get("type") in ("code", "edit", "edit_approved", "view_image_call"):
+            return True
+    return False
+
+
 def _assistant_spoke_since(messages, index):
     """True when the model produced output after `index` (the edit or its preview).
 
@@ -725,9 +740,15 @@ def respond(interpreter):
                 interpreter._edit_review_pending = False
             else:
                 # Count what this turn was, then decide whether to buy another.
-                # A newer edit means the model revised, which clears the quiet
-                # count; words on their own are not approval and do count.
-                if _assistant_spoke_since(interpreter.messages, preview_index):
+                # Only *idleness* counts against the model: a turn with no call in
+                # it at all. A model that goes off to run something is working,
+                # not stalling, so it neither approves nor burns the quiet count;
+                # a turn that only talks is the one that counts, because words
+                # are not a decision. Either way the request is charged to the
+                # ceiling, which is what stops a runaway.
+                if _tool_activity_since(interpreter.messages, preview_index):
+                    quiet_turns = 0
+                elif _assistant_spoke_since(interpreter.messages, preview_index):
                     if _edit_key(edit_msg) == last_reviewed_edit:
                         quiet_turns += 1
                     else:
