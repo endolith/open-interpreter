@@ -308,6 +308,40 @@ def test_persistent_silence_reaches_the_user_unapproved(quiet_respond):
     assert "--- a\n+++ b\n@@" in confirmation["content"]["dry_run_output"]
 
 
+def test_approval_echo_is_not_rendered_twice(quiet_respond):
+    """A model that re-emits the reviewed edit must not print it again.
+
+    Re-emitting the previewed edit is how a model approves it when it does not
+    use the verdict tool, and the terminal would otherwise render the identical
+    diff a second time right above the confirmation.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    confirmations = []
+    rendered_edits = []
+    stream = respond(interpreter)
+    try:
+        for chunk in stream:
+            if chunk.get("type") == "confirmation":
+                confirmations.append(chunk)
+                break
+            if chunk.get("type") == "edit_review_call":
+                interpreter.messages.append(dict(chunk))
+            elif chunk.get("role") == "assistant" and chunk.get("type") in ("message", "edit"):
+                interpreter.messages.append(dict(chunk))
+                if chunk["type"] == "edit":
+                    rendered_edits.append(chunk["content"])
+    finally:
+        stream.close()
+
+    assert rendered_edits == [], "the approval echo must not reach the screen"
+    assert len(confirmations) == 1
+    assert confirmations[0]["content"]["content"] == "s/a/b/"
+
+
 def test_review_state_is_cleared_so_no_verdict_tool_leaks_into_later_turns(quiet_respond):
     """The verdict tool is offered only while a review is actually pending.
 
