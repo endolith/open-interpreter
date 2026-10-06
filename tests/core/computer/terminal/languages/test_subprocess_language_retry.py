@@ -123,7 +123,7 @@ def test_the_written_code_is_retried_against_the_new_process():
     assert lang.start_process.call_count == 1
     assert failing_stdin.write.call_count == 1, "the first attempt tries once"
     # The restarted process is the one that receives the code.
-    assert lang.process is not failing_stdin, "a new process should be attached"
+    assert lang.process.stdin is not failing_stdin, "a new process should be attached"
     # run() appends a newline before writing, so the payload is "echo hi\n".
     assert lang.process.stdin.write.call_args[0][0] == "echo hi\n", (
         "the code must be re-written to the restarted process"
