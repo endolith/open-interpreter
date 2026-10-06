@@ -319,6 +319,37 @@ def test_failed_preview_needs_approval_too(quiet_respond):
     assert confirmation["content"]["llm_approved"] is True
 
 
+def test_the_gate_is_offered_alongside_the_normal_tools():
+    """A pending dry run adds approve_edit; it takes nothing away.
+
+    Withholding edit is what made an earlier attempt stall: a model that could
+    neither revise nor approve narrated instead. execute stays too, so a model
+    that wants to look at the file still can.
+    """
+    from interpreter.core.llm.run_tool_calling_llm import build_request_tools
+
+    class _Language:
+        name = "python"
+
+        def get_command(self, code=None):
+            return "python"
+
+    class _Stub:
+        def __init__(self, pending):
+            self.terminal = type("T", (), {"languages": [_Language()]})()
+            self.llm = type("L", (), {"supports_vision": False})()
+            if pending:
+                self._edit_review_pending = pending
+
+    normal = [t["function"]["name"] for t in build_request_tools(_Stub(False))]
+    reviewing = [t["function"]["name"] for t in build_request_tools(_Stub(True))]
+
+    assert "approve_edit" not in normal, "no gate to pass before a preview exists"
+    assert "approve_edit" in reviewing
+    assert "edit" in reviewing, "the model must still be able to revise"
+    assert "execute" in reviewing, "and to look before deciding"
+
+
 def test_the_gate_is_reset_between_turns(quiet_respond):
     """A review that ends without confirming must not leave the gate on offer.
 
