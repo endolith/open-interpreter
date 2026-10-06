@@ -300,6 +300,27 @@ def respond(interpreter):
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     clear_temporary_retry_status()
+                    # A model that re-emits the edit it just previewed is
+                    # approving it, not editing again. Yielding that echo would
+                    # render the identical diff a second time right above the
+                    # confirmation, so it is stored (that is what carries the
+                    # approval forward) and kept off the screen.
+                    if (
+                        chunk.get("type") == "edit"
+                        and pending_review_edit is not None
+                        and (
+                            str(chunk.get("format", "")).lower().strip(),
+                            chunk.get("target", ""),
+                            chunk.get("content", ""),
+                        )
+                        == (
+                            pending_review_edit["format"].lower().strip(),
+                            pending_review_edit.get("target", ""),
+                            pending_review_edit.get("content", ""),
+                        )
+                    ):
+                        interpreter.messages.append(dict(chunk))
+                        continue
                     yield {"role": "assistant", **chunk}
 
             except ValueError as e:
