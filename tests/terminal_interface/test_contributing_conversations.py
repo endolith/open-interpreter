@@ -135,7 +135,8 @@ def test_send_past_conversations_uploads_only_after_consent():
     with mock.patch.object(cc, "get_all_conversations", return_value=conversations):
         with mock.patch("builtins.input", return_value="n"):
             with mock.patch.object(cc, "contribute_conversations") as send:
-                cc.send_past_conversations(interpreter)
+                with mock.patch.object(cc.time, "sleep"):
+                    cc.send_past_conversations(interpreter)
     send.assert_not_called()
 
     with mock.patch.object(cc, "get_all_conversations", return_value=conversations):
@@ -274,8 +275,9 @@ def test_contribute_conversations_swallows_a_failed_request():
     with mock.patch(
         "interpreter.terminal_interface.contributing_conversations.requests.post",
         side_effect=ConnectionError("unreachable"),
-    ):
+    ) as post:
         assert cc.contribute_conversations(conversations) is None
+    post.assert_called_once()
 
 
 def test_send_past_conversations_warns_about_private_information(capsys):
@@ -292,7 +294,8 @@ def test_send_past_conversations_warns_about_private_information(capsys):
 
     with mock.patch.object(cc, "get_all_conversations", return_value=conversations):
         with mock.patch("builtins.input", return_value="n"):
-            cc.send_past_conversations(interpreter)
+            with mock.patch.object(cc.time, "sleep"):
+                cc.send_past_conversations(interpreter)
 
     out = capsys.readouterr().out
     assert "private information" in out
