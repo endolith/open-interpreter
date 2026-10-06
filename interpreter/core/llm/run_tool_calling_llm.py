@@ -119,6 +119,42 @@ edit_tool_schema = {
 }
 
 
+review_edit_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "review_edit",
+        "description": (
+            "Your required verdict on the dry-run preview of an edit you just made. "
+            "This tool replaces the `edit` tool while a preview is pending, so you "
+            "cannot change the file before deciding. Call it exactly once, as your "
+            "next action, after reading the preview diff.\n"
+            "  approve — the diff is what you intend and it is correct; it will be "
+            "shown to the user for confirmation.\n"
+            "  revise  — the diff is wrong (wrong lines, wrong text, a no-op, or an "
+            "error); say what is wrong, then emit a corrected edit in your next step.\n"
+            "Judge the diff itself, not your intent: the preview is the change that "
+            "will hit the file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "verdict": {
+                    "type": "string",
+                    "enum": ["approve", "revise"],
+                },
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "One short sentence: what the diff changes, and for revise, specifically what is wrong with it."
+                    ),
+                },
+            },
+            "required": ["verdict", "reason"],
+        },
+    },
+}
+
+
 def generate_tool_id(tool_id_num, model=None):
     """
     Generate a tool call ID. For Mistral models, uses 9-character alphanumeric format.
@@ -133,6 +169,7 @@ def generate_tool_id(tool_id_num, model=None):
     if is_mistral:
         # Mistral requires exactly 9 alphanumeric characters
         import string
+
         # Base36: 0-9, a-z (36 characters total)
         base36_chars = string.digits + string.ascii_lowercase
         num = tool_id_num
@@ -196,17 +233,9 @@ def merge_consecutive_assistant_messages(messages):
     merged = []
     for message in messages:
         prev = merged[-1] if merged else None
-        if (
-            message.get("role") == "assistant"
-            and prev is not None
-            and prev.get("role") == "assistant"
-        ):
+        if message.get("role") == "assistant" and prev is not None and prev.get("role") == "assistant":
             # content: join the non-empty parts, preserving order
-            parts = [
-                p
-                for p in (prev.get("content"), message.get("content"))
-                if isinstance(p, str) and p.strip()
-            ]
+            parts = [p for p in (prev.get("content"), message.get("content")) if isinstance(p, str) and p.strip()]
             if parts:
                 prev["content"] = "\n\n".join(parts)
 
@@ -274,14 +303,8 @@ def merge_consecutive_user_messages(messages):
     merged = []
     for message in messages:
         prev = merged[-1] if merged else None
-        if (
-            message.get("role") == "user"
-            and prev is not None
-            and prev.get("role") == "user"
-        ):
-            prev["content"] = _merge_user_content(
-                prev.get("content"), message.get("content")
-            )
+        if message.get("role") == "user" and prev is not None and prev.get("role") == "user":
+            prev["content"] = _merge_user_content(prev.get("content"), message.get("content"))
             continue
         merged.append(dict(message))
     return merged
@@ -341,9 +364,7 @@ def process_messages(messages, model=None):
             args = function.get("arguments")
             if isinstance(args, dict):
                 function = {**function, "arguments": json.dumps(args)}
-            message["tool_calls"] = [
-                {"id": tool_id, "type": "function", "function": function}
-            ]
+            message["tool_calls"] = [{"id": tool_id, "type": "function", "function": function}]
             processed_messages.append(message)
 
             # Process the next message if it's a function response
@@ -355,9 +376,7 @@ def process_messages(messages, model=None):
                 i += 1  # Skip the next message as we've already processed it
             else:
                 # Add an empty tool response if there isn't one
-                processed_messages.append(
-                    {"role": "tool", "tool_call_id": tool_id, "content": ""}
-                )
+                processed_messages.append({"role": "tool", "tool_call_id": tool_id, "content": ""})
 
         elif message.get("role") == "function":
             # This handles orphaned function responses: a result whose originating
@@ -390,11 +409,7 @@ def process_messages(messages, model=None):
             # from 1 for the first orphan and can reproduce an id the model itself
             # issued (typically "toolu_1"). Ids must be unique or the gateway
             # rejects the whole request. Bump until free.
-            taken = {
-                call.get("id")
-                for entry in processed_messages
-                for call in (entry.get("tool_calls") or [])
-            }
+            taken = {call.get("id") for entry in processed_messages for call in (entry.get("tool_calls") or [])}
             while tool_id in taken:
                 last_tool_id += 1
                 tool_id = generate_tool_id(last_tool_id, model)
@@ -411,10 +426,12 @@ def process_messages(messages, model=None):
                             "type": "function",
                             "function": {
                                 "name": "execute",
-                                "arguments": json.dumps({
-                                    "language": "python",
-                                    "code": "# Automated tool call to fetch more output, triggered by the user.",
-                                }),
+                                "arguments": json.dumps(
+                                    {
+                                        "language": "python",
+                                        "code": "# Automated tool call to fetch more output, triggered by the user.",
+                                    }
+                                ),
                             },
                         }
                     ],
@@ -443,10 +460,12 @@ def process_messages(messages, model=None):
                                 "type": "function",
                                 "function": {
                                     "name": "execute",
-                                    "arguments": json.dumps({
-                                        "language": "python",
-                                        "code": "pass  # (synthetic; do not run)",
-                                    }),
+                                    "arguments": json.dumps(
+                                        {
+                                            "language": "python",
+                                            "code": "pass  # (synthetic; do not run)",
+                                        }
+                                    ),
                                 },
                             }
                         ],
@@ -482,11 +501,7 @@ def answer_dangling_tool_calls(messages):
     successful result, or the model will reason from an outcome that never
     happened.
     """
-    answered = {
-        m.get("tool_call_id")
-        for m in messages
-        if m.get("role") == "tool" and m.get("tool_call_id")
-    }
+    answered = {m.get("tool_call_id") for m in messages if m.get("role") == "tool" and m.get("tool_call_id")}
     repaired = []
     index = 0
     while index < len(messages):
@@ -527,17 +542,23 @@ def build_request_tools(interpreter, messages=None):
 
     languages = interpreter.terminal.languages
     execute_tool = copy.deepcopy(tool_schema)
-    execute_tool["function"]["parameters"]["properties"]["language"]["enum"] = [
-        lang.name.lower() for lang in languages
-    ]
+    execute_tool["function"]["parameters"]["properties"]["language"]["enum"] = [lang.name.lower() for lang in languages]
     execute_tool["function"]["parameters"]["properties"]["language"]["description"] = (
         format_execute_language_description(languages)
     )
+    # Edit-preview review is a state machine enforced by the tool list, not by
+    # parsing what the model says. While a preview is pending, review_edit is the
+    # ONLY tool offered: the model cannot revise the file, cannot wander off to
+    # run something else, and cannot skip the review in silence. Prose is not a
+    # verdict, and a model that keeps talking is asked again (respond.py) before
+    # the edit is handed to the user unapproved.
+    if getattr(interpreter, "_pending_edit_review", None):
+        return [copy.deepcopy(review_edit_tool_schema)]
+
     tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
+
     if getattr(interpreter.llm, "supports_vision", None) is True:
-        if messages is None or not _inline_user_image_in_turn_after_last_assistant_text(
-            messages
-        ):
+        if messages is None or not _inline_user_image_in_turn_after_last_assistant_text(messages):
             tools.append(copy.deepcopy(view_image_tool_schema))
     return tools
 
@@ -553,18 +574,14 @@ def run_tool_calling_llm(llm, request_params):
         if "reasoning" in request_params:
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
-    request_params["tools"] = build_request_tools(
-        llm.interpreter, messages=request_params["messages"]
-    )
+    request_params["tools"] = build_request_tools(llm.interpreter, messages=request_params["messages"])
 
     # Append tool-calling-specific instructions to the system message (analogous to
     # how run_text_llm appends execution_instructions in markdown/no-functions mode).
     if llm.tool_calling_instructions:
         request_params["messages"][0]["content"] += "\n" + llm.tool_calling_instructions
 
-    llm.interpreter._last_rendered_system_message = request_params["messages"][0][
-        "content"
-    ]
+    llm.interpreter._last_rendered_system_message = request_params["messages"][0]["content"]
 
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
@@ -728,7 +745,13 @@ def run_tool_calling_llm(llm, request_params):
                         if has_reasoning_content and reasoning_streamed and not reasoning_replace_yielded:
                             full_raw = accumulated_deltas.get("reasoning_content") or ""
                             if isinstance(full_raw, str) and full_raw.strip():
-                                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
+                                yield {
+                                    "role": "assistant",
+                                    "type": "message",
+                                    "format": "reasoning",
+                                    "content": full_raw.rstrip() + "\n\n",
+                                    "replace": True,
+                                }
                             reasoning_replace_yielded = True
                         # No actual tool calls, so this is just regular content. Stream it;
                         # reasoning (if any) was already streamed first by the provider.
@@ -740,7 +763,13 @@ def run_tool_calling_llm(llm, request_params):
                 if has_reasoning_content and reasoning_streamed and not reasoning_replace_yielded:
                     full_raw = accumulated_deltas.get("reasoning_content") or ""
                     if isinstance(full_raw, str) and full_raw.strip():
-                        yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
+                        yield {
+                            "role": "assistant",
+                            "type": "message",
+                            "format": "reasoning",
+                            "content": full_raw.rstrip() + "\n\n",
+                            "replace": True,
+                        }
                     reasoning_replace_yielded = True
                 # Stream content as it arrives; reasoning (if any) already streamed first.
                 yield {"role": "assistant", "type": "message", "content": delta["content"]}
@@ -834,15 +863,24 @@ def run_tool_calling_llm(llm, request_params):
 
     # Debug info only in verbose mode
     if verbose:
-        print(f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}", flush=True)
+        print(
+            f"[DEBUG] After stream - has_tool_calls: {has_tool_calls}, has_function_call: {has_function_call}, has_content: {bool(has_content)}",
+            flush=True,
+        )
         print(f"[DEBUG] accumulated_deltas keys: {list(accumulated_deltas.keys())}", flush=True)
         # NOTE: Provider detection removed - OpenRouter routes to different providers (DeepInfra, Together)
         # but this information is only available in OpenRouter's API response metadata, not in LiteLLM chunks.
         # DeepInfra returns reasoning_content as separate field, Together mixes it into content.
         if has_tool_calls:
-            print(f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}", flush=True)
+            print(
+                f"[DEBUG] tool_calls type: {type(accumulated_deltas['tool_calls'])}, value: {json.dumps(accumulated_deltas['tool_calls'], default=str)[:1000]}",
+                flush=True,
+            )
         if has_function_call:
-            print(f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}", flush=True)
+            print(
+                f"[DEBUG] function_call: {json.dumps(accumulated_deltas['function_call'], default=str)[:500]}",
+                flush=True,
+            )
         if has_content:
             content_preview = str(accumulated_deltas.get("content", ""))[:200]
             print(f"[DEBUG] content preview: {repr(content_preview)}", flush=True)
@@ -860,17 +898,34 @@ def run_tool_calling_llm(llm, request_params):
             if not reasoning_replace_yielded:
                 full_raw = accumulated_deltas.get("reasoning_content") or ""
                 if isinstance(full_raw, str) and full_raw.strip():
-                    yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
+                    yield {
+                        "role": "assistant",
+                        "type": "message",
+                        "format": "reasoning",
+                        "content": full_raw.rstrip() + "\n\n",
+                        "replace": True,
+                    }
         else:
             # Provider sent reasoning only at end (e.g. no per-chunk reasoning_content); yield full block
             reasoning_content = accumulated_deltas["reasoning_content"]
             if isinstance(reasoning_content, str) and reasoning_content.strip():
                 if verbose:
-                    print(f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}", flush=True)
+                    print(
+                        f"[DEBUG] reasoning_content length: {len(reasoning_content)}, preview: {repr(reasoning_content[:200])}",
+                        flush=True,
+                    )
                     if "content" in accumulated_deltas:
-                        print(f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}", flush=True)
+                        print(
+                            f"[DEBUG] content length: {len(accumulated_deltas['content'])}, preview: {repr(accumulated_deltas['content'][:200])}",
+                            flush=True,
+                        )
 
-                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": reasoning_content.rstrip() + "\n\n"}
+                yield {
+                    "role": "assistant",
+                    "type": "message",
+                    "format": "reasoning",
+                    "content": reasoning_content.rstrip() + "\n\n",
+                }
 
     # 2. CONTENT: Yield accumulated_review or regular content
     if accumulated_review and review_category == None:
@@ -891,7 +946,10 @@ def run_tool_calling_llm(llm, request_params):
 
             # Debug: log what we received (only in verbose mode)
             if llm.interpreter.verbose:
-                print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
+                print(
+                    f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}",
+                    flush=True,
+                )
 
             if isinstance(tool_calls, list) and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
@@ -911,7 +969,10 @@ def run_tool_calling_llm(llm, request_params):
                         function_call_detected = True
                         converted = True
                         if llm.interpreter.verbose:
-                            print(f"[DEBUG] Converted tool_call to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
+                            print(
+                                f"[DEBUG] Converted tool_call to function_call: name={accumulated_deltas['function_call']['name']}",
+                                flush=True,
+                            )
                 elif hasattr(tool_call, "function"):
                     accumulated_deltas["function_call"] = {
                         "name": tool_call.function.name,
@@ -920,7 +981,10 @@ def run_tool_calling_llm(llm, request_params):
                     function_call_detected = True
                     converted = True
                     if llm.interpreter.verbose:
-                        print(f"[DEBUG] Converted tool_call (object) to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
+                        print(
+                            f"[DEBUG] Converted tool_call (object) to function_call: name={accumulated_deltas['function_call']['name']}",
+                            flush=True,
+                        )
 
                 # If we still couldn't convert, raise an error with details
                 if not converted:
@@ -984,29 +1048,45 @@ def run_tool_calling_llm(llm, request_params):
                         else:
                             # Empty code - yield error as tool response
                             error_msg = "Invalid execute call: code is empty"
-                            if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                            if (
+                                tool_call_id_for_error
+                                and isinstance(tool_call_id_for_error, str)
+                                and tool_call_id_for_error.strip()
+                            ):
                                 yield {
                                     "role": "tool",
                                     "tool_call_id": tool_call_id_for_error,
                                     "type": "message",
-                                    "content": error_msg
+                                    "content": error_msg,
                                 }
                             elif verbose:
-                                print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                                print(
+                                    f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}",
+                                    flush=True,
+                                )
                             if verbose:
-                                print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
+                                print(
+                                    f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True
+                                )
                     else:
                         # Code is not a string - yield error as tool response
                         error_msg = f"Invalid execute call: code must be a string, got {type(code_value).__name__}"
-                        if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                        if (
+                            tool_call_id_for_error
+                            and isinstance(tool_call_id_for_error, str)
+                            and tool_call_id_for_error.strip()
+                        ):
                             yield {
                                 "role": "tool",
                                 "tool_call_id": tool_call_id_for_error,
                                 "type": "message",
-                                "content": error_msg
+                                "content": error_msg,
                             }
                         elif verbose:
-                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                            print(
+                                f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}",
+                                flush=True,
+                            )
                         if verbose:
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
@@ -1014,38 +1094,50 @@ def run_tool_calling_llm(llm, request_params):
                     error_msg = f"Invalid execute call: missing required fields. Got: {list(arguments.keys())}"
                     if verbose:
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
-                        print(f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}", flush=True)
+                        print(
+                            f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}",
+                            flush=True,
+                        )
 
-                    if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                    if (
+                        tool_call_id_for_error
+                        and isinstance(tool_call_id_for_error, str)
+                        and tool_call_id_for_error.strip()
+                    ):
                         tool_response = {
                             "role": "tool",
                             "tool_call_id": tool_call_id_for_error,
                             "type": "message",
-                            "content": error_msg
+                            "content": error_msg,
                         }
                         if verbose:
-                            print(f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True)
+                            print(
+                                f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True
+                            )
                         yield tool_response
                     else:
                         # No tool_call_id available - this should not happen, but log it
                         if verbose:
-                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                            print(
+                                f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}",
+                                flush=True,
+                            )
                             print(f"[ERROR] tool_call_id_for_error value: {repr(tool_call_id_for_error)}", flush=True)
                         # Still yield as assistant message so user sees the error
-                        yield {
-                            "role": "assistant",
-                            "type": "message",
-                            "content": f"**Error:** {error_msg}"
-                        }
+                        yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
             else:
                 # Arguments is not a dict - yield error as tool response
                 error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
-                if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                if (
+                    tool_call_id_for_error
+                    and isinstance(tool_call_id_for_error, str)
+                    and tool_call_id_for_error.strip()
+                ):
                     yield {
                         "role": "tool",
                         "tool_call_id": tool_call_id_for_error,
                         "type": "message",
-                        "content": error_msg
+                        "content": error_msg,
                     }
                 elif verbose:
                     print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
@@ -1101,6 +1193,57 @@ def run_tool_calling_llm(llm, request_params):
                 }
             else:
                 yield {"role": "assistant", "type": "message", "content": content}
+        elif function_name == "review_edit":
+            arguments = function_call.get("arguments")
+            if isinstance(arguments, str):
+                arguments = parse_partial_json(arguments)
+
+            verdict = arguments.get("verdict") if isinstance(arguments, dict) else None
+            reason = arguments.get("reason") if isinstance(arguments, dict) else None
+
+            if verdict not in ("approve", "revise"):
+                error_msg = f"review_edit: verdict must be 'approve' or 'revise', got {verdict!r}."
+                if (
+                    tool_call_id_for_error
+                    and isinstance(tool_call_id_for_error, str)
+                    and tool_call_id_for_error.strip()
+                ):
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id_for_error,
+                        "type": "message",
+                        "content": error_msg,
+                    }
+                else:
+                    yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+            else:
+                # Marker chunk for respond(): it carries the verdict, and
+                # convert_to_openai_messages reconstructs the assistant tool call
+                # from it so the paired tool response below keeps provider history
+                # valid. Mirrors the view_image_call handling.
+                yield {
+                    "type": "edit_review_call",
+                    "tool_call_id": tool_call_id_for_error,
+                    "verdict": verdict,
+                    "reason": reason if isinstance(reason, str) else "",
+                }
+                acknowledgement = (
+                    "Verdict recorded (approve). The user will now be asked to confirm "
+                    "this edit; nothing has been modified."
+                    if verdict == "approve"
+                    else "Verdict recorded (revise). Emit a corrected edit; it will be "
+                    "previewed again before the user sees it."
+                )
+                if tool_call_id_for_error:
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id_for_error,
+                        "type": "message",
+                        "content": acknowledgement,
+                    }
+                else:
+                    yield {"role": "assistant", "type": "message", "content": acknowledgement}
+
         elif function_name == "edit":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
@@ -1126,14 +1269,16 @@ def run_tool_calling_llm(llm, request_params):
                 elif not edit_target:
                     error_msg = "edit: 'target' is required."
                 elif not os.path.isabs(edit_target):
-                    error_msg = (
-                        f"edit: 'target' must be an absolute path, got: {edit_target!r}"
-                    )
+                    error_msg = f"edit: 'target' must be an absolute path, got: {edit_target!r}"
                 else:
                     error_msg = None
 
                 if error_msg:
-                    if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                    if (
+                        tool_call_id_for_error
+                        and isinstance(tool_call_id_for_error, str)
+                        and tool_call_id_for_error.strip()
+                    ):
                         yield {
                             "role": "tool",
                             "tool_call_id": tool_call_id_for_error,
@@ -1152,7 +1297,11 @@ def run_tool_calling_llm(llm, request_params):
                     }
             else:
                 error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"
-                if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
+                if (
+                    tool_call_id_for_error
+                    and isinstance(tool_call_id_for_error, str)
+                    and tool_call_id_for_error.strip()
+                ):
                     yield {
                         "role": "tool",
                         "tool_call_id": tool_call_id_for_error,
@@ -1175,24 +1324,18 @@ def run_tool_calling_llm(llm, request_params):
             # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
             # Any assistant message content the model sent before this tool call is already yielded above with role "assistant".
             if tool_call_id_for_error:
-                yield {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id_for_error,
-                    "type": "message",
-                    "content": error_msg
-                }
+                yield {"role": "tool", "tool_call_id": tool_call_id_for_error, "type": "message", "content": error_msg}
             else:
-                yield {
-                    "role": "assistant",
-                    "type": "message",
-                    "content": f"**Error:** {error_msg}"
-                }
+                yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
 
             if verbose:
                 print(f"[ERROR] {error_msg}", flush=True)
                 print(f"[ERROR] Function call details: {json.dumps(function_call, default=str)}", flush=True)
                 if tool_call_id_for_error:
-                    print(f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}", flush=True)
+                    print(
+                        f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}",
+                        flush=True,
+                    )
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)

@@ -1,11 +1,14 @@
-"""LLM-first review of every edit dry run, before the user is prompted.
+"""LLM review of every edit dry run, via an explicit verdict tool.
 
-The workflow is: the LLM emits an edit, respond() shows it the dry-run diff
-as feedback and re-invokes it, and only an edit the LLM re-emits unchanged
-(approval) reaches the user's confirmation prompt; a different edit earns a
-fresh preview, up to a per-turn round cap. These tests drive respond() with a
-scripted LLM the way test_temporary_error_retry.py does, plus a minimal chunk
-driver that stands in for core._respond_and_store.
+The workflow is: the LLM emits an edit, respond() dry-runs it and shows the
+diff back, and the model must rule on that diff with the review_edit tool
+before it can touch the file again -- while a preview is pending, review_edit
+replaces edit in the tool list, so approval cannot be faked by omission or by
+prose. approve reaches the user's confirmation prompt; revise feeds the model's
+own reason back and previews the corrected edit; no verdict at all means the
+user decides unaided. These tests drive respond() with a scripted LLM the way
+test_temporary_error_retry.py does, plus a minimal chunk driver that stands in
+for core._respond_and_store.
 """
 
 import shutil
@@ -14,6 +17,10 @@ import unittest
 import pytest
 
 import interpreter.core.respond as respond_mod
+from interpreter.core.llm.run_tool_calling_llm import build_request_tools
+from interpreter.core.llm.utils.convert_to_openai_messages import (
+    convert_to_openai_messages,
+)
 from interpreter.core.respond import respond
 from interpreter.core.tools.file_edit import dry_run_edit
 
@@ -43,6 +50,40 @@ class _FakeInterpreter:
         self.verbose = False
         self.auto_run = auto_run
         self.debug = False
+        self.offline = False
+
+
+class _StubLanguage:
+    """Minimal stand-in for a terminal language, for tool-list building."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def get_command(self, code=None):
+        return f"{self.name} -c"
+
+
+class _StubTerminal:
+    def __init__(self):
+        self.languages = [_StubLanguage("python"), _StubLanguage("sh")]
+
+
+class _StubToolingInterpreter:
+    """Just enough interpreter for build_request_tools()."""
+
+    def __init__(self, pending_review=None):
+        self.terminal = _StubTerminal()
+        self.llm = type("L", (), {"supports_vision": False})()
+        if pending_review is not None:
+            self._pending_edit_review = pending_review
+
+
+class _StubConvertInterpreter:
+    """The interpreter fields convert_to_openai_messages reads off history."""
+
+    user_message_template = "{content}"
+    always_apply_user_message_template = False
+    shrink_images = True
 
 
 def _edit_chunk(language="sed", code="s/a/b/", target="/tmp/target.txt"):
@@ -55,12 +96,23 @@ def _edit_chunk(language="sed", code="s/a/b/", target="/tmp/target.txt"):
     }
 
 
+def _verdict_chunk(verdict, reason="reviewed"):
+    """The marker chunk run_tool_calling_llm yields for a review_edit call."""
+    return {
+        "type": "edit_review_call",
+        "tool_call_id": f"call-{verdict}",
+        "verdict": verdict,
+        "reason": reason,
+    }
+
+
 def _drive_to_confirmation(interpreter):
     """Feed respond() chunks back into messages until the confirmation appears.
 
     Stands in for core._respond_and_store: assistant chunks are stored so the
-    next loop iteration sees them, and the stream is closed at the first
-    confirmation (as if the terminal interface took over prompting).
+    next loop iteration sees them, verdict markers are stored but not displayed,
+    and the stream is closed at the first confirmation (as if the terminal
+    interface took over prompting).
     """
     confirmations = []
     stream = respond(interpreter)
@@ -69,7 +121,9 @@ def _drive_to_confirmation(interpreter):
             if chunk.get("type") == "confirmation":
                 confirmations.append(chunk)
                 break
-            if chunk.get("role") == "assistant" and chunk.get("type") in (
+            if chunk.get("type") == "edit_review_call":
+                interpreter.messages.append(dict(chunk))
+            elif chunk.get("role") == "assistant" and chunk.get("type") in (
                 "message",
                 "edit",
             ):
@@ -107,180 +161,235 @@ def _scripted_dry_run(monkeypatch, results):
     return calls
 
 
-def test_passing_edit_is_previewed_before_user_confirmation(quiet_respond):
-    """Even a passing edit goes to the LLM first, not straight to the user.
+def test_approve_verdict_reaches_the_user_after_one_preview(quiet_respond):
+    """The approved diff is the one the user is asked to confirm.
 
-    The first confirmation the driver sees must come only after an LLM round
-    trip over the preview: the confirmation carries the approved edit, and the
-    LLM was shown the diff with the user explicitly out of the loop so far.
+    An edit is previewed, the model approves it with the verdict tool, and only
+    then does the confirmation appear -- carrying both the approved edit and
+    the dry-run diff the user is being asked to apply.
     """
     monkeypatch = quiet_respond
     _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
-    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
+    llm = _FakeLlm([[_verdict_chunk("approve", "replaces the one bad line")]])
     interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 1, "one preview round before any user confirmation"
+    assert llm.calls == 1, "the verdict is the one LLM call the review needs"
     assert len(_preview_feedback(interpreter)) == 1
-    assert "--- a\n+++ b\n@@" in _preview_feedback(interpreter)[0]["content"]
     assert confirmation["format"] == "edit"
     assert confirmation["content"]["content"] == "s/a/b/"
+    assert "--- a\n+++ b\n@@" in confirmation["content"]["dry_run_output"]
 
 
-def test_reemitted_edit_counts_as_approval_not_another_preview(quiet_respond):
-    """Re-emitting the previewed edit unchanged approves it.
+def test_revise_verdict_feeds_the_reason_back_and_previews_the_fix(quiet_respond):
+    """A revise verdict is what drives the retry, and the fix gets its own preview.
 
-    Approval must fall through to user confirmation without spending another
-    preview round: exactly one LLM call and one preview for an edit the model
-    accepts on first sight.
-    """
-    monkeypatch = quiet_respond
-    dry_calls = _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
-    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")]])
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
-
-    (confirmation,) = _drive_to_confirmation(interpreter)
-
-    assert llm.calls == 1, "the re-emit approves; it must not trigger a second preview"
-    assert len(_preview_feedback(interpreter)) == 1
-    assert confirmation["content"]["content"] == "s/a/b/"
-    assert len(dry_calls) == 2, "approval re-runs the dry run fresh, never reuses a stale preview"
-
-
-def test_prose_approval_still_reaches_the_user(quiet_respond):
-    """Replying "that looks right" is approval, not a dropped edit.
-
-    Many models answer the preview in prose instead of re-emitting the tool
-    call. That verdict must still land the edit at the user's prompt -- losing
-    it here would silently discard an edit the user never approved.
-    """
-    monkeypatch = quiet_respond
-    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
-    llm = _FakeLlm([[{"role": "assistant", "type": "message", "content": "That change looks right."}]])
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
-
-    (confirmation,) = _drive_to_confirmation(interpreter)
-
-    assert llm.calls == 1, "the prose verdict is the LLM call that reviews the preview"
-    assert confirmation["content"]["content"] == "s/a/b/"
-    assert confirmation["content"]["dry_run_ok"] is True
-
-
-def test_prose_reply_after_failure_approves_the_revision(quiet_respond):
-    """A prose verdict also approves an edit that needed a revision first.
-
-    The revision gets its own preview; approving it in prose must still reach
-    the user rather than ending the turn with the revision discarded.
+    The model's own reason must reach the next turn (it is the actionable part),
+    and the corrected edit must be previewed again rather than shown to the user
+    unreviewed.
     """
     monkeypatch = quiet_respond
     _scripted_dry_run(
         monkeypatch,
         [
-            {"output": "sed: no commands in code", "ok": False},
             {"output": "--- a\n+++ b\n@@", "ok": True},
-            {"output": "--- a\n+++ b\n@@", "ok": True},
+            {"output": "--- a\n+++ b\n@@ c", "ok": True},
+            {"output": "--- a\n+++ b\n@@ c", "ok": True},
         ],
     )
+    # One concern per turn, as the tool list enforces: turn 1 rules "revise",
+    # turn 2 emits the corrected edit (only `edit` is available then), turn 3
+    # rules on the corrected diff.
     llm = _FakeLlm(
         [
+            [_verdict_chunk("revise", "this hits the wrong line")],
             [_edit_chunk(code="s/a/b/")],
-            [{"role": "assistant", "type": "message", "content": "Yes, approve that."}],
+            [_verdict_chunk("approve", "now it is the right line")],
         ]
     )
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/x/y/"))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 2
+    assert llm.calls == 3, "verdict, revision, verdict: one concern per turn"
+    assert len(_preview_feedback(interpreter)) == 2, "both the edit and its fix are previewed"
+    feedback = [
+        m["content"]
+        for m in interpreter.messages
+        if m.get("role") == "user" and "asked for a revision" in m.get("content", "")
+    ]
+    assert len(feedback) == 1
+    assert "this hits the wrong line" in feedback[0], "the model's reason must survive"
     assert confirmation["content"]["content"] == "s/a/b/"
-    assert len(_preview_feedback(interpreter)) == 2, "both the failure and the revision previewed"
-
-
-def test_prose_reply_without_an_edit_chunk_leaves_no_double_edit(quiet_respond):
-    """The reviewed edit runs once, and only the approved one.
-
-    After the confirmation the edit must not be re-entered by later assistant
-    messages: the file is written by exactly the run_edit call behind the one
-    confirmation the user saw.
-    """
-    monkeypatch = quiet_respond
-    edits_run = []
-    monkeypatch.setattr(respond_mod, "run_edit", lambda language, code, target: edits_run.append(code) or "ok")
-    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
-    llm = _FakeLlm(
-        [
-            [_edit_chunk(code="s/a/b/")],
-            [{"role": "assistant", "type": "message", "content": "Looks right to me."}],
-            [{"role": "assistant", "type": "message", "content": "Done."}],
-        ]
-    )
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
-
-    stream = respond(interpreter)
-    try:
-        for chunk in stream:
-            if chunk.get("type") == "confirmation":
-                break
-            if chunk.get("role") == "assistant" and chunk.get("type") in ("message", "edit"):
-                interpreter.messages.append(dict(chunk))
-        # Resume past the confirmation the way core does, into the run.
-        for _ in stream:
-            break
-    finally:
-        stream.close()
-
-    assert edits_run == ["s/a/b/"], "the approved edit runs exactly once"
-
-
-def test_failing_dry_run_is_revised_before_user_confirmation(quiet_respond):
-    """A failing dry run goes back to the LLM with the error, not to the user.
-
-    The user never sees the broken attempt: no confirmation is yielded for it,
-    and the confirmation that finally appears carries the revised edit the LLM
-    emitted after reading the failure.
-    """
-    monkeypatch = quiet_respond
-    dry_calls = _scripted_dry_run(
-        monkeypatch,
-        [
-            {"output": "sed: no commands in code", "ok": False},
-            {"output": "--- a\n+++ b\n@@", "ok": True},
-            {"output": "--- a\n+++ b\n@@", "ok": True},
-        ],
-    )
-    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")], [_edit_chunk(code="s/a/b/")]])
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
-
-    (confirmation,) = _drive_to_confirmation(interpreter)
-
-    assert llm.calls == 2, "preview the broken edit, then preview the revision"
-    assert len(dry_calls) == 3
-    assert confirmation["content"]["content"] == "s/a/b/"
-    assert "sed: no commands in code" in _preview_feedback(interpreter)[0]["content"]
 
 
 def test_endless_revisions_land_at_the_user_after_the_cap(quiet_respond):
-    """A model that revises forever still lands at the user prompt, boundedly.
+    """A model that keeps asking for revisions still lands at the user prompt.
 
     Each distinct edit earns its own preview round, but rounds are capped per
     turn: past the cap the latest edit falls through to user confirmation with
-    its dry-run output attached for the user to judge.
+    its dry-run output attached, unreviewed rather than endlessly re-previewed.
     """
     monkeypatch = quiet_respond
-    _scripted_dry_run(
-        monkeypatch,
-        [{"output": "sed: no commands in code", "ok": False}] * 10,
-    )
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 20)
     cap = respond_mod.MAX_EDIT_PREVIEW_ROUNDS
-    llm = _FakeLlm([[_edit_chunk(code="s/a/b/")], [_edit_chunk(code="s/a/c/")]] + [[_edit_chunk(code="s/a/d/")]] * 5)
-    interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
+    llm = _FakeLlm(
+        [
+            [_verdict_chunk("revise", "try again")],
+            [_edit_chunk(code="s/a/b/")],
+            [_verdict_chunk("revise", "still wrong")],
+            [_edit_chunk(code="s/a/c/")],
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/x/y/"))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == cap, f"exactly {cap} preview rounds, got {llm.calls}"
+    assert len(_preview_feedback(interpreter)) == cap
     assert confirmation["content"]["content"] == "s/a/c/"
-    assert confirmation["content"]["dry_run_ok"] is False
+    assert confirmation["content"]["dry_run_ok"] is True
+
+
+def test_prose_verdict_is_not_approval_but_does_get_one_ask(quiet_respond):
+    """ "The diff is correct -- approve" is not a verdict; ask for the tool call.
+
+    Real models answer the preview in prose, which is exactly why prose must
+    never be read as approval. The review is still worth one retry: the model is
+    told that words do not count and asked for the review_edit call, and this
+    time it rules.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm(
+        [
+            [{"role": "assistant", "type": "message", "content": "The diff is correct. Approve."}],
+            [_verdict_chunk("approve", "diff is right")],
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 2, "prose earns exactly one ask before the retry"
+    asks = [
+        m["content"]
+        for m in interpreter.messages
+        if m.get("role") == "user" and "was not received" in m.get("content", "")
+    ]
+    assert len(asks) == 1
+    assert "Words are not a verdict" in asks[0]
+    assert confirmation["content"]["content"] == "s/a/b/"
+
+
+def test_persistent_silence_reaches_the_user_unapproved(quiet_respond):
+    """A model that never rules on the diff hands it to the user, unaided.
+
+    Once the asks are spent there is no verdict and no revision, so the edit
+    must reach the user's confirmation with its diff -- not be approved on the
+    strength of prose, and not be dropped either.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 20)
+    llm = _FakeLlm(
+        [
+            [{"role": "assistant", "type": "message", "content": "Looks good."}],
+            [{"role": "assistant", "type": "message", "content": "Still looks good."}],
+            [{"role": "assistant", "type": "message", "content": "Fine by me."}],
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    nags = respond_mod.MAX_EDIT_VERDICT_NAGS
+    assert llm.calls == nags + 1, f"one ask per nag, then the user (nags={nags})"
+    assert confirmation["content"]["content"] == "s/a/b/", "the edit must not be dropped"
+    assert "--- a\n+++ b\n@@" in confirmation["content"]["dry_run_output"]
+
+
+def test_review_state_is_cleared_so_no_verdict_tool_leaks_into_later_turns(quiet_respond):
+    """The verdict tool is offered only while a review is actually pending.
+
+    build_request_tools() reads interpreter._pending_edit_review from outside
+    respond(), so a stale True would hand the model a verdict tool with nothing
+    to review (or a replacement `edit` tool it must not have).
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm([[_verdict_chunk("approve")]])
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    seen = []
+    original = respond_mod.assemble_system_message
+
+    def _record(interpreter_arg):
+        seen.append(bool(getattr(interpreter_arg, "_pending_edit_review", None)))
+        return original(interpreter_arg)
+
+    monkeypatch.setattr(respond_mod, "assemble_system_message", _record)
+    _drive_to_confirmation(interpreter)
+
+    assert seen[0] is False, "no review is pending on the first LLM call"
+    assert True in seen, "the review turn sees a pending review"
+    assert seen[-1] is False, "the flag is cleared once the edit leaves review"
+    assert getattr(interpreter, "_pending_edit_review", None) is None
+
+
+def test_pending_review_swaps_the_edit_tool_for_the_verdict_tool():
+    """While a preview is pending the model cannot edit -- only rule on it.
+
+    Withholding `edit` is what makes the review real: the model is unable to
+    revise the file (or silently re-emit it) before it has ruled on the diff, so
+    the verdict is the only way forward.
+    """
+    names = [tool["function"]["name"] for tool in build_request_tools(_StubToolingInterpreter())]
+    assert "edit" in names, "the edit tool is offered normally"
+    assert "review_edit" not in names
+
+    pending_names = [
+        tool["function"]["name"]
+        for tool in build_request_tools(_StubToolingInterpreter(pending_review={"format": "sed"}))
+    ]
+    assert pending_names == ["review_edit"], "a pending preview offers the verdict tool and nothing else"
+
+
+def test_verdict_marker_converts_to_a_paired_assistant_tool_call():
+    """The stored marker must rebuild the tool call for provider history.
+
+    run_tool_calling_llm emits the verdict as a marker plus a role:tool
+    acknowledgement. If the marker did not convert back into the assistant
+    tool_call it pairs with, process_messages would see an orphan tool response
+    and providers would reject the next request -- so the verdict would be lost
+    exactly when it matters.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "edit it"},
+        {
+            "type": "edit_review_call",
+            "tool_call_id": "call-1",
+            "verdict": "approve",
+            "reason": "looks right",
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "type": "message",
+            "content": "Verdict recorded (approve).",
+        },
+    ]
+
+    converted = convert_to_openai_messages(
+        messages,
+        function_calling=True,
+        interpreter=_StubConvertInterpreter(),
+    )
+
+    assistant = next(m for m in converted if m.get("tool_calls"))
+    assert assistant["role"] == "assistant"
+    assert assistant["tool_calls"][0]["id"] == "call-1"
+    assert assistant["tool_calls"][0]["function"]["name"] == "review_edit"
+    assert '"verdict": "approve"' in assistant["tool_calls"][0]["function"]["arguments"]
 
 
 def test_auto_run_skips_preview_and_review(quiet_respond):
@@ -302,31 +411,27 @@ def test_auto_run_skips_preview_and_review(quiet_respond):
     assert "dry_run_output" not in confirmation["content"]
 
 
-def test_noop_preview_is_shown_before_confirmation(quiet_respond):
+def test_noop_preview_is_shown_to_the_model_for_a_verdict(quiet_respond):
     """A dry run that changed nothing is previewed like any other edit.
 
     An edit identical to the file would waste the user's confirmation on a
-    no-op. The no_change flag routes it through the same preview, where the
-    LLM can fix it or approve it knowingly.
+    no-op, so the no_change flag routes it through review where the model can
+    revise it -- or approve a knowingly pointless change.
     """
     monkeypatch = quiet_respond
-    _scripted_dry_run(
-        monkeypatch,
+    no_change = {"output": "sed: no changes (result is identical)", "ok": True, "no_change": True}
+    _scripted_dry_run(monkeypatch, [no_change] + [no_change] * 5)
+    llm = _FakeLlm(
         [
-            {
-                "output": "sed: no changes (result is identical)",
-                "ok": True,
-                "no_change": True,
-            },
+            [_verdict_chunk("revise", "this is a no-op")],
+            [_edit_chunk(code="s/a/a/")],
+            [_verdict_chunk("approve", "approving a no-op knowingly")],
         ]
-        + [{"output": "sed: no changes (result is identical)", "ok": True}] * 5,
     )
-    llm = _FakeLlm([[_edit_chunk(code="s/a/a/")]])
     interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/a/"))
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 1, "a no-op preview still goes to the LLM first"
     assert "changed nothing" in _preview_feedback(interpreter)[0]["content"]
     assert confirmation["content"]["content"] == "s/a/a/"
 
