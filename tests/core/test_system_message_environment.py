@@ -36,7 +36,33 @@ def test_block_reports_the_working_directory():
     assert interpreter._launch_cwd in _environment_block(interpreter)
 
 
-def test_block_reports_when_the_conversation_started():
+def test_block_names_the_session_not_the_conversation():
+    """It must say when *Open Interpreter* started, not when a conversation did.
+
+    The values come from OpenInterpreter.__init__, which runs once per process,
+    so every conversation in one session reports the same instant. Labelling
+    that "Conversation started" is simply false -- and resuming a conversation
+    opened days ago would claim it began today.
+    """
+    block = _block()
+    assert "Open Interpreter started in:" in block, block
+    assert "Open Interpreter started at:" in block, block
+    assert "Conversation started" not in block
+
+
+def test_block_does_not_read_as_the_current_time():
+    """Nothing in the block may imply "now".
+
+    Each message carries its own timestamp, so a session spanning days has
+    messages far from this one. A current-sounding value here would contradict
+    them; both fields are phrased as a completed past event.
+    """
+    block = _block().lower()
+    for current_sounding in ("today", "now", "current directory", "working directory:"):
+        assert current_sounding not in block, f"{current_sounding!r} reads as current"
+
+
+def test_block_reports_when_the_session_started():
     """The timestamp is present and formatted to the minute."""
     interpreter = OpenInterpreter()
     block = _environment_block(interpreter)
