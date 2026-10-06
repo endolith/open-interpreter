@@ -896,3 +896,101 @@ def test_content_that_is_neither_text_nor_a_list_is_rejected(client, server_pair
         assert response.status_code == 422, content
 
     assert interpreter.chat.call_count == 0
+
+
+def _post(client, content):
+    """POST one user turn to the OpenAI-compatible endpoint."""
+    return client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": content}]},
+    )
+
+
+def _counting_interpreter(interpreter):
+    """Replace chat() with a recorder so a test can see whether it was called.
+
+    Whether the endpoint invokes chat() at all is the whole question for context
+    mode: replying is what chat() drives.
+
+    The stub still returns a well-formed reply, because the endpoint indexes the
+    result (`messages[-1]`) and an empty list makes it raise IndexError instead of
+    the behaviour under test.
+    """
+    calls = []
+
+    def record(*args, **kwargs):
+        calls.append((args, kwargs))
+        return [{"role": "assistant", "content": "ok"}]
+
+    interpreter.chat = mock.MagicMock(side_effect=record)
+    return calls
+
+
+def test_context_mode_on_is_accepted_and_sets_the_flag(client, server_pair):
+    """`{CONTEXT_MODE_ON}` is recognised and flips context_mode.
+
+    The toggle itself works. What does not work is anything reading it, which is
+    what the next three tests pin.
+    """
+    _, interpreter = server_pair
+    _counting_interpreter(interpreter)
+
+    # The flag is reset before each alias is tried. Leaving it True from the
+    # previous toggle makes an alias that no longer exists indistinguishable from
+    # one that works: an unrecognised token is just appended as a message and the
+    # stale True survives. Same for clearing, which needs a pre-set True to be
+    # observable at all.
+    for on_token, off_token in (
+        ("{CONTEXT_MODE_ON}", "{CONTEXT_MODE_OFF}"),
+        ("{REQUIRE_START_ON}", "{REQUIRE_START_OFF}"),
+    ):
+        interpreter.context_mode = False
+        assert _post(client, on_token).status_code == 200
+        assert interpreter.context_mode is True, f"{on_token} should enable context mode"
+
+        interpreter.context_mode = True
+        assert _post(client, off_token).status_code == 200
+        assert interpreter.context_mode is False, f"{off_token} should disable context mode"
+
+
+@pytest.mark.xfail(reason="#324: context_mode is set but never read", strict=True)
+def test_context_mode_does_not_reply_to_ordinary_context():
+    """xfail for #324: with context mode on, a context line must not be answered.
+
+    Context mode exists so an always-listening client can stream background
+    context in without the assistant replying to every fragment — only `{START}`
+    should produce output. Today the flag is set and then never read, because
+    `ChatMessage.content` is `Union[str, List[Dict]]` and the `if/elif` chain
+    above the context branch consumes both shapes. The `else` that would handle
+    context is unreachable.
+
+    Pinned as xfail: it passes the day #324 is fixed.
+    """
+    interpreter = AsyncInterpreter()
+    client = TestClient(Server(interpreter).app)
+    calls = _counting_interpreter(interpreter)
+
+    _post(client, "{CONTEXT_MODE_ON}")
+    calls.clear()
+
+    _post(client, "I am reading a file about pandas.")
+    assert calls == [], "context mode should accumulate silently, not drive a turn"
+
+
+def test_start_token_is_delivered_to_the_model_as_literal_text():
+    """`{START}` is stored as an ordinary user message rather than triggering.
+
+    `{START}` is a string, so it matches the `elif type(content) == str` branch
+    and is appended as a user message; the branch that strips the marker never
+    runs. Asserted as current behaviour, and it is the mechanism behind the
+    xfail above — see #324 defect 2.
+    """
+    interpreter = AsyncInterpreter()
+    client = TestClient(Server(interpreter).app)
+    _counting_interpreter(interpreter)
+
+    _post(client, "{CONTEXT_MODE_ON}")
+    _post(client, "{START}")
+
+    stored = [m.get("content") for m in interpreter.messages]
+    assert "{START}" in stored, "the marker is stored as a user turn, not consumed"
