@@ -785,9 +785,7 @@ class OpenInterpreter:
                 # view_image_call: records the assistant's view_image tool call so it can be
                 # reconstructed as assistant+tool_calls in convert_to_openai_messages, preventing
                 # process_messages from inserting a synthetic execute call on the next turn.
-                # edit_review_call is the same shape for the edit-preview verdict: it carries
-                # the verdict respond() acts on and must be stored, never displayed.
-                if chunk.get("type") in ("view_image_call", "edit_review_call"):
+                if chunk.get("type") == "view_image_call":
                     self.messages.append(chunk)
                     continue
 

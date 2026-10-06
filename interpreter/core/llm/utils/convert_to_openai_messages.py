@@ -328,7 +328,29 @@ def convert_to_openai_messages(
             last_tool_name = "edit"
             new_message["role"] = "assistant"
             if function_calling:
-                if _modern_tools and _mi in _paired_call_idx:
+                # An edit that came from a real tool call carries the provider's
+                # own call id, so the dry-run response paired with it later in
+                # the history matches exactly. Only synthesize when there is no
+                # id to reuse (an edit that never came from a tool call).
+                explicit_call_id = message.get("tool_call_id")
+                if explicit_call_id:
+                    last_tool_call_id = explicit_call_id
+                    new_message["tool_calls"] = [
+                        {
+                            "id": last_tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": "edit",
+                                "arguments": json.dumps({
+                                    "language": message["format"],
+                                    "code": message["content"],
+                                    "target": message["target"],
+                                }),
+                            },
+                        }
+                    ]
+                    new_message["content"] = ""
+                elif _modern_tools and _mi in _paired_call_idx:
                     last_tool_call_id = f"oi-call-{_mi}"
                     new_message["tool_calls"] = [
                         {
