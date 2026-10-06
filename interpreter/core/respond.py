@@ -148,6 +148,13 @@ MAX_TEMPORARY_PROVIDER_RETRIES = 5
 # retry loop is supposed to do.
 MAX_EDIT_PREVIEW_ROUNDS = 2
 
+# Times a pending preview may ask again for the verdict it did not get. Models
+# that answer a preview in prose ("the diff is correct, approve") have not
+# returned a verdict, so the review cannot proceed on their say-so; asking once
+# more converts that prose into the tool call it should have been. Bounded
+# because each ask costs a round trip.
+MAX_EDIT_VERDICT_NAGS = 2
+
 
 def _is_temporary_provider_error(error):
     error_message = str(error).lower()
@@ -218,10 +225,13 @@ def respond(interpreter):
     # same way _stopped_retrying is reset above.
     preview_rounds = 0
     last_previewed_edit = None
-    # The edit currently awaiting the LLM's verdict on its dry run. Held here
-    # so an approval that arrives as prose (no new edit emitted) can still
-    # reach the user's confirmation instead of being lost with the turn.
+    # The edit currently awaiting the LLM's verdict on its dry run. Kept on the
+    # interpreter as well (interpreter._pending_edit_review) because the tool
+    # list is built outside this function; a stale True there would offer a
+    # review_edit tool with nothing to review.
     pending_review_edit = None
+    interpreter._pending_edit_review = None
+    verdict_nags = 0
     # A stale True from a previous turn would make the terminal interface exit
     # after an unrelated, healthy turn; this function is the only writer, so a
     # turn always starts clean.
@@ -637,23 +647,74 @@ def respond(interpreter):
                 img_msg["shrink"] = pending_shrink
             interpreter.messages.append(img_msg)
 
+        ### EDIT REVIEW VERDICT (if the model ruled on a preview) ###
+
+        # The model answers a pending preview by calling review_edit, which is
+        # the only way to leave this state (see the tool list built for a
+        # pending review). An edit the model approved is dispatched from state
+        # here, because the approval carries no edit message of its own.
+        if interpreter.messages[-1].get("type") == "edit_review_call":
+            verdict_msg = interpreter.messages[-1]
+            reviewed_edit = pending_review_edit
+            pending_review_edit = None
+            interpreter._pending_edit_review = None
+            if verdict_msg.get("verdict") == "approve":
+                if reviewed_edit is not None:
+                    interpreter.messages.append(reviewed_edit)
+                    continue
+                # Approving nothing: the tool list makes this unreachable
+                # (review_edit is only offered while a preview is pending), so
+                # fall through rather than invent an edit to approve.
+            else:
+                # revise: the model's reason is the feedback that drives the
+                # retry, the same channel the decline path uses.
+                interpreter.messages.append(
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": (
+                            f"[You reviewed the dry-run preview of your edit and asked for a revision. "
+                            f"Your reason: {verdict_msg.get('reason') or '(none given)'}\n"
+                            f"Emit a corrected edit. It will be previewed again before the user sees it.]"
+                        ),
+                        "sent_at": time.time(),
+                        "source": "terminal",
+                    }
+                )
+                continue
+
         ### RUN FILE EDIT (if it's there) ###
 
-        # An edit the LLM has already reviewed can come back without an edit
-        # message: the model reads the preview and replies in prose ("that
-        # looks right"). That reply *is* the approval, so dispatch the
-        # reviewed edit from state. Dropping it here would silently lose an
-        # edit the user never got to approve.
-        resume_reviewed_edit = (
-            pending_review_edit is not None
-            and interpreter.messages[-1].get("type") == "message"
-            and interpreter.messages[-1].get("role") == "assistant"
-        )
-
+        edit_from_state = False
         if interpreter.messages[-1]["type"] == "edit":
             edit_msg = interpreter.messages[-1]
-        elif resume_reviewed_edit:
+        elif pending_review_edit is not None:
+            if verdict_nags < MAX_EDIT_VERDICT_NAGS:
+                # A preview is pending, but the last message is neither a
+                # verdict nor a new edit: the model talked instead of ruling.
+                # Words are not a verdict -- approval is never inferred -- so
+                # ask for the tool call before falling back to the user.
+                verdict_nags += 1
+                interpreter.messages.append(
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": (
+                            f"[Your verdict on the {pending_review_edit['format']} edit preview to "
+                            f"{pending_review_edit.get('target', '')} was not received. "
+                            f"Words are not a verdict: reply with a review_edit tool call, "
+                            f"verdict 'approve' if the diff is right or 'revise' if it is wrong "
+                            f"(then emit a corrected edit). Until then the user decides on this "
+                            f"diff without your approval.]"
+                        ),
+                        "sent_at": time.time(),
+                        "source": "terminal",
+                    }
+                )
+                continue
+            # Out of asks: the user decides, with the diff in front of them.
             edit_msg = pending_review_edit
+            edit_from_state = True
         else:
             edit_msg = None
 
@@ -683,16 +744,16 @@ def respond(interpreter):
                         dry_run_output = str(e)
                         dry_run_ok = False
 
-                # LLM-first review: every previewed edit is shown to the LLM
-                # for approval before the user ever sees it. Re-emitting the
-                # previewed edit unchanged approves it; emitting a different
-                # edit previews that one instead; replying in prose ("that
-                # looks right") approves it too and is picked up above as
-                # resume_reviewed_edit. This replaces the old
-                # look-at-the-repr-first workflow: the LLM judges the actual
-                # diff while it can still fix it, and the user confirms an
-                # LLM-approved diff instead of a blind one. Rounds are capped
-                # per turn so a restless model still lands at the user prompt.
+                # LLM-first review: every previewed edit is shown to the LLM for
+                # an explicit verdict before the user ever sees it. The verdict
+                # is a tool call, not prose: review_edit replaces the edit tool
+                # while a preview is pending, so the model cannot touch the file
+                # and cannot quietly skip the review. This replaces the old
+                # look-at-the-repr-first workflow -- the LLM judges the actual
+                # diff while it can still fix it, and the user confirms a
+                # reviewed diff instead of a blind one. Rounds are capped per turn
+                # so a model that keeps asking for revisions still lands at the
+                # user prompt.
                 if (
                     dry_run_output is not None
                     and edit_key != last_previewed_edit
@@ -701,6 +762,8 @@ def respond(interpreter):
                     preview_rounds += 1
                     last_previewed_edit = edit_key
                     pending_review_edit = dict(edit_msg)
+                    # Read by build_request_tools() to swap the tool list.
+                    interpreter._pending_edit_review = dict(pending_review_edit)
                     if not dry_run_ok:
                         status = "failed validation"
                     elif dry_run_no_change:
@@ -715,10 +778,12 @@ def respond(interpreter):
                                 f"[Dry-run preview of your {language} edit to {target} — "
                                 f"NOT shown to the user yet, nothing modified. "
                                 f"The dry run {status}:\n{dry_run_output}\n"
-                                f"Review this diff carefully: it will change the file if approved. "
-                                f"If it is correct, approve it by re-emitting the SAME edit unchanged "
-                                f"or by replying that the change is correct. "
-                                f"If it is wrong, emit a revised edit instead.]"
+                                f"Review this diff carefully: it is exactly what will change the file. "
+                                f"You cannot edit the file until you rule on it: reply with a "
+                                f"review_edit tool call -- verdict 'approve' if the diff is right, "
+                                f"'revise' if it is wrong (say why, then emit a corrected edit). "
+                                f"Words are not a verdict; without the tool call the user decides "
+                                f"on this diff unaided.]"
                             ),
                             "sent_at": time.time(),
                             # Core-injected, like the terminal's decline
@@ -734,6 +799,8 @@ def respond(interpreter):
                 # The edit has left LLM review either way, so a later assistant
                 # message must not resurrect it.
                 pending_review_edit = None
+                interpreter._pending_edit_review = None
+                verdict_nags = 0
                 try:
                     confirmation_content = {
                         "format": language,
@@ -754,9 +821,10 @@ def respond(interpreter):
 
                 # Re-read in case the user edited target/content (unlikely for
                 # edit, but consistent). Only the terminal can rewrite an edit
-                # message it was just handed, so a resume from state (no such
-                # message in hand) keeps what was reviewed.
-                if not resume_reviewed_edit:
+                # message it was just handed, so an edit dispatched from state
+                # (approved verdict, or an unreviewed fallback) keeps what was
+                # reviewed.
+                if not edit_from_state:
                     edit_msg = [m for m in interpreter.messages if m["type"] == "edit"][-1]
                     language = edit_msg["format"].lower().strip()
                 code = edit_msg["content"]
