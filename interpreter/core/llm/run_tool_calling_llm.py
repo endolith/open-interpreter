@@ -32,7 +32,7 @@ tool_schema = {
     },
 }
 
-from ..tools.file_edit import EDIT_LANGUAGES
+from ..tools.file_edit import EDIT_LANGUAGES, dry_run_edit
 
 EDIT_LANGUAGES_ENUM = sorted(EDIT_LANGUAGES)
 
@@ -119,40 +119,37 @@ edit_tool_schema = {
 }
 
 
-review_edit_tool_schema = {
-    "type": "function",
-    "function": {
-        "name": "review_edit",
-        "description": (
-            "Your required verdict on the dry-run preview of an edit you just made. "
-            "This tool replaces the `edit` tool while a preview is pending, so you "
-            "cannot change the file before deciding. Call it exactly once, as your "
-            "next action, after reading the preview diff.\n"
-            "  approve — the diff is what you intend and it is correct; it will be "
-            "shown to the user for confirmation.\n"
-            "  revise  — the diff is wrong (wrong lines, wrong text, a no-op, or an "
-            "error); say what is wrong, then emit a corrected edit in your next step.\n"
-            "Judge the diff itself, not your intent: the preview is the change that "
-            "will hit the file."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "verdict": {
-                    "type": "string",
-                    "enum": ["approve", "revise"],
-                },
-                "reason": {
-                    "type": "string",
-                    "description": (
-                        "One short sentence: what the diff changes, and for revise, specifically what is wrong with it."
-                    ),
-                },
-            },
-            "required": ["verdict", "reason"],
-        },
-    },
-}
+def _edit_preview_response(interpreter, language, code, target):
+    """Build the tool response that shows the model what an edit would change.
+
+    Returns (content, meta) or (None, None) when there is nothing to preview:
+    auto_run (the user pre-approved execution), or a language with no dry run
+    (write creates the file, poke reports through its own output).
+    """
+    if getattr(interpreter, "auto_run", False):
+        return None, None
+    try:
+        preview = dry_run_edit(language, code, target)
+    except Exception as e:
+        # A failed dry run is information for the model, not a crash: it can
+        # correct the edit. The user still gets to confirm the failure.
+        return (
+            f"Dry run failed ({language}): {e}\n"
+            f"Nothing was modified. Fix the edit and call edit again.",
+            {"ok": False, "output": str(e)},
+        )
+    if preview is None:
+        return None, None
+    status = "succeeded" if preview["ok"] else "failed"
+    if preview.get("no_change"):
+        status = "changed nothing"
+    return (
+        f"Dry run {status}. Nothing has been modified yet -- this is what WILL change:\n\n"
+        f"{preview['output']}\n\n"
+        f"If this diff is what you intend, say so in a sentence. If it is wrong, call edit "
+        f"again with a corrected edit. Either way the user confirms before anything is written.",
+        {"ok": preview["ok"], "output": preview["output"]},
+    )
 
 
 def generate_tool_id(tool_id_num, model=None):
@@ -546,15 +543,6 @@ def build_request_tools(interpreter, messages=None):
     execute_tool["function"]["parameters"]["properties"]["language"]["description"] = (
         format_execute_language_description(languages)
     )
-    # Edit-preview review is a state machine enforced by the tool list, not by
-    # parsing what the model says. While a preview is pending, review_edit is the
-    # ONLY tool offered: the model cannot revise the file, cannot wander off to
-    # run something else, and cannot skip the review in silence. Prose is not a
-    # verdict, and a model that keeps talking is asked again (respond.py) before
-    # the edit is handed to the user unapproved.
-    if getattr(interpreter, "_pending_edit_review", None):
-        return [copy.deepcopy(review_edit_tool_schema)]
-
     tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
 
     if getattr(interpreter.llm, "supports_vision", None) is True:
@@ -1193,57 +1181,6 @@ def run_tool_calling_llm(llm, request_params):
                 }
             else:
                 yield {"role": "assistant", "type": "message", "content": content}
-        elif function_name == "review_edit":
-            arguments = function_call.get("arguments")
-            if isinstance(arguments, str):
-                arguments = parse_partial_json(arguments)
-
-            verdict = arguments.get("verdict") if isinstance(arguments, dict) else None
-            reason = arguments.get("reason") if isinstance(arguments, dict) else None
-
-            if verdict not in ("approve", "revise"):
-                error_msg = f"review_edit: verdict must be 'approve' or 'revise', got {verdict!r}."
-                if (
-                    tool_call_id_for_error
-                    and isinstance(tool_call_id_for_error, str)
-                    and tool_call_id_for_error.strip()
-                ):
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id_for_error,
-                        "type": "message",
-                        "content": error_msg,
-                    }
-                else:
-                    yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
-            else:
-                # Marker chunk for respond(): it carries the verdict, and
-                # convert_to_openai_messages reconstructs the assistant tool call
-                # from it so the paired tool response below keeps provider history
-                # valid. Mirrors the view_image_call handling.
-                yield {
-                    "type": "edit_review_call",
-                    "tool_call_id": tool_call_id_for_error,
-                    "verdict": verdict,
-                    "reason": reason if isinstance(reason, str) else "",
-                }
-                acknowledgement = (
-                    "Verdict recorded (approve). The user will now be asked to confirm "
-                    "this edit; nothing has been modified."
-                    if verdict == "approve"
-                    else "Verdict recorded (revise). Emit a corrected edit; it will be "
-                    "previewed again before the user sees it."
-                )
-                if tool_call_id_for_error:
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id_for_error,
-                        "type": "message",
-                        "content": acknowledgement,
-                    }
-                else:
-                    yield {"role": "assistant", "type": "message", "content": acknowledgement}
-
         elif function_name == "edit":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
@@ -1294,7 +1231,29 @@ def run_tool_calling_llm(llm, request_params):
                         "format": edit_language,
                         "content": edit_code,
                         "target": edit_target,
+                        # The provider's own call id, so the dry-run response
+                        # below pairs with this call exactly.
+                        "tool_call_id": tool_call_id_for_error,
                     }
+                    # The dry run rides this call's own tool response rather than
+                    # a fabricated user message. That is where a model expects to
+                    # read a tool's result, it keeps the call paired in history,
+                    # and it costs exactly one extra turn: the model sees the
+                    # diff and either emits a corrected edit or says something,
+                    # and either way the user is the one who confirms.
+                    preview_response, preview_meta = _edit_preview_response(
+                        llm.interpreter, edit_language, edit_code, edit_target
+                    )
+                    if preview_response is not None:
+                        yield {
+                            "role": "tool",
+                            "tool_call_id": tool_call_id_for_error,
+                            "type": "message",
+                            "content": preview_response,
+                            # Read back by respond() so the user's confirmation
+                            # shows the same diff the model reviewed.
+                            "edit_preview": preview_meta,
+                        }
             else:
                 error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"
                 if (
