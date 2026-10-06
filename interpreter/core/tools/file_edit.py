@@ -436,19 +436,18 @@ def run_yq(target, code):
     return "yq: OK"
 
 
-def _poke_dot_file_arg(path):
-    """Path token for .file (quote only when the path contains whitespace)."""
-    if " " in path or path[:1].isspace() or path[-1:].isspace():
-        escaped = path.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
-    return path
-
-
 def _poke_prepare_script(body, path):
-    """Build a command file for poke -s; prepends .file unless user already opens/switches IOS."""
+    """Build a command file for poke -s; prepends .file unless user already opens/switches IOS.
+
+    The path goes into the `.file` line raw, never quoted: poke's `.file` takes
+    the rest of the line literally, so surrounding quotes become part of the
+    filename and any target containing a space fails with 'error: opening
+    "\"/tmp/a b/f.bin\""'. Unquoted, spaces, quotes and backslashes in the
+    name all work -- verified against GNU poke 4.3.
+    """
     lines = []
     if not re.search(r"^\s*\.(?:ios|file)\b", body, re.MULTILINE):
-        lines.append(f".file {_poke_dot_file_arg(path)}")
+        lines.append(f".file {path}")
     lines.append(body)
     if ".quit" not in body.lower() and ".exit" not in body.lower():
         lines.append(".quit")
