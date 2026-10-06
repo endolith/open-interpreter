@@ -733,12 +733,48 @@ class TestPokeScript(unittest.TestCase):
         self.assertEqual(script.count(".file"), 1)
         self.assertIn("other.bin", script)
 
+    def test_prepare_script_does_not_quote_a_path_with_spaces(self):
+        """poke's .file takes the rest of the line literally.
+
+        Quoting the path made the quotes part of the filename, so any target
+        containing a space failed with 'error: opening "\"/tmp/a b/f.bin\""'.
+        """
+        script = _poke_prepare_script("uint8 @ 0#B = 0x58", "/tmp/a b/f.bin")
+        self.assertIn(".file /tmp/a b/f.bin\n", script)
+        self.assertNotIn('"', script.splitlines()[0])
+
 
 @unittest.skipUnless(shutil.which("poke"), "poke not installed")
 class TestRunPokeEdit(unittest.TestCase):
     def test_run_poke_script_includes_quit_and_completes(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.bin")
+            Path(target).write_bytes(b"AAAA")
+            run_poke(target, "uint8 @ 0#B = 0x58")
+            self.assertEqual(Path(target).read_bytes()[0], ord("X"))
+
+    def test_run_poke_edits_a_path_containing_spaces(self):
+        """A spaced target must actually be patched, not just quoted.
+
+        The .file line is the only place the path reaches poke, so this covers
+        the whole path end to end: temp script, .file line, resulting bytes.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = os.path.join(tmp, "a dir", "nested")
+            os.makedirs(directory)
+            target = os.path.join(directory, "demo file.bin")
+            Path(target).write_bytes(b"AAAA")
+            run_poke(target, "uint8 @ 0#B = 0x58")
+            self.assertEqual(Path(target).read_bytes(), b"XAAA")
+
+    def test_run_poke_edits_a_path_containing_a_quote(self):
+        """Quotes and backslashes in the name stay literal.
+
+        Nothing goes through a shell and poke reads .file verbatim, so a name
+        like this has to round-trip untouched.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, 'we"ird \\ name.bin')
             Path(target).write_bytes(b"AAAA")
             run_poke(target, "uint8 @ 0#B = 0x58")
             self.assertEqual(Path(target).read_bytes()[0], ord("X"))
