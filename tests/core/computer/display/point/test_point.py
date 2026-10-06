@@ -581,12 +581,25 @@ def test_expansion_never_produces_a_negative_coordinate(monkeypatch):
 
 
 def test_expansion_clamps_to_the_image_edge(monkeypatch):
-    """A box near the right edge expands only as far as the image allows.
+    """A box near the right edge is clamped — but today the clamp shrinks it.
 
-    Otherwise the expanded box would describe coordinates outside the screenshot,
-    and the reported centre would drift off-screen.
+    Pinned as observed behaviour for #403. The clamp is meant to *trim* the box
+    to the screenshot edge. Instead it computes `image_width - x - width` after x
+    has already been shifted left and width is still the original, so it subtracts
+    pre-shift geometry from a post-shift origin and collapses the box:
+
+        input  x=170 width=30   (right edge exactly 200)
+        output x=163 width=7    (right edge 170)
+
+    The box loses 23 of its 30 pixels and stops covering the icon at all. Clipping
+    would have given width = 200 - 163 = 37.
+
+    The exact values are asserted so a future fix is visible: when the clamp is
+    corrected to `image_width - box["x"]`, this test fails on `width == 37` and
+    should be updated alongside the fix. A weaker "does not exceed 200" assertion
+    would pass for the broken 7 and for the correct 37 alike, which is what
+    CodeRabbit flagged.
     """
-    # Image is 200 wide; the box's right edge is at 200 with width 30.
     icons = _run_find_icon(
         monkeypatch,
         [{"x": 170, "y": 10, "width": 30, "height": 10}],
@@ -595,7 +608,11 @@ def test_expansion_clamps_to_the_image_edge(monkeypatch):
 
     box = icons[0]
     assert box["x"] == 163
-    assert box["x"] + box["width"] <= 200, "must not extend past the image width"
+    # The image is 200 wide and this box's right edge is exactly 200, so the clamp
+    # branch is taken. See the docstring: 7 is the bug, 37 is the intent.
+    assert box["width"] == 7, "current collapsing behaviour; see #403"
+    assert box["height"] == 24
+    assert box["x"] + box["width"] == 170, "the box retreats off the icon entirely"
 
 
 def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
