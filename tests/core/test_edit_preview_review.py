@@ -43,10 +43,9 @@ class _FakeInterpreter:
 
     def __init__(self, llm, edit, auto_run=False):
         self.llm = llm
-        self.messages = [
-            {"role": "user", "type": "message", "content": "fix the file"},
-            dict(edit),
-        ]
+        self.messages = [{"role": "user", "type": "message", "content": "fix the file"}]
+        if edit is not None:
+            self.messages.append(dict(edit))
         self.verbose = False
         self.auto_run = auto_run
         self.debug = False
@@ -306,6 +305,34 @@ def test_persistent_silence_reaches_the_user_unapproved(quiet_respond):
     assert llm.calls == nags + 1, f"one ask per nag, then the user (nags={nags})"
     assert confirmation["content"]["content"] == "s/a/b/", "the edit must not be dropped"
     assert "--- a\n+++ b\n@@" in confirmation["content"]["dry_run_output"]
+
+
+def test_edit_followed_by_trailing_chatter_is_still_reviewed(quiet_respond):
+    """An edit the model talks past must not be skipped.
+
+    Dispatch keyed only on the final message, so an edit followed by a sentence
+    or a reasoning block was never reached: the turn ended, the user's prompt
+    came back, and the edit did nothing. The newest not-yet-previewed edit of
+    the turn is dispatched instead.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm(
+        [
+            [
+                _edit_chunk(code="s/a/b/"),
+                {"role": "assistant", "type": "message", "content": "I will verify after."},
+                {"role": "assistant", "type": "message", "format": "reasoning", "content": "checking"},
+            ],
+            [_verdict_chunk("approve", "diff is right")],
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, None)
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert len(_preview_feedback(interpreter)) == 1, "the talked-past edit was previewed"
+    assert confirmation["content"]["content"] == "s/a/b/"
 
 
 def test_approval_echo_is_not_rendered_twice(quiet_respond):
