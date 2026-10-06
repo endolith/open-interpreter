@@ -807,6 +807,9 @@ def dry_run_edit(language, code, target):
 
     Returns None if this language has no dry-run preview, else
     {"output": str, "ok": bool} where ok is False for tool/validation failures.
+    A preview whose output changed nothing also sets "no_change": True, so
+    callers can route no-op edits back for revision without string-matching
+    the message.
     """
     language = language.lower().strip()
     if language == "poke":
@@ -851,6 +854,7 @@ def dry_run_edit(language, code, target):
                 return {
                     "output": f"{language}: no changes (result is identical to the current file)",
                     "ok": True,
+                    "no_change": True,
                 }
             # Not text at all. The raw output would decode with replacement
             # characters, which looks like corruption rather than like a

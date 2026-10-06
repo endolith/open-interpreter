@@ -142,6 +142,13 @@ _TEMPORARY_UNAVAILABLE_PHRASES = (
 MAX_TEMPORARY_PROVIDER_RETRIES = 5
 
 
+# Pre-confirmation edit review: a failing (or no-op) dry run is shown to the
+# LLM for revision before the user is ever prompted. Past the cap the
+# confirmation is yielded anyway and the user decides, which is what the retry
+# loop is supposed to do.
+MAX_EDIT_PREVIEW_RETRIES = 2
+
+
 def _is_temporary_provider_error(error):
     error_message = str(error).lower()
     if any(
@@ -207,6 +214,12 @@ def respond(interpreter):
     # counter above -- they answer different questions and had drifted apart
     # when only this one was bounded.
     bodiless_400_retries = 0
+    # Pre-confirmation edit review budget, tracked per exact edit content: a
+    # revised edit gets a fresh budget, an unchanged repeat burns it. Lives
+    # here (not on the interpreter) so one turn's retries never leak into the
+    # next, the same way _stopped_retrying is reset above.
+    edit_preview_retries = 0
+    last_previewed_edit = None
     # A stale True from a previous turn would make the terminal interface exit
     # after an unrelated, healthy turn; this function is the only writer, so a
     # turn always starts clean.
@@ -663,16 +676,53 @@ def respond(interpreter):
             try:
                 dry_run_output = None
                 dry_run_ok = True
+                dry_run_no_change = False
                 if not interpreter.auto_run:
                     try:
                         preview = dry_run_edit(language, code, target)
                         if preview is not None:
                             dry_run_output = preview["output"]
                             dry_run_ok = preview["ok"]
+                            dry_run_no_change = bool(preview.get("no_change"))
                     except Exception as e:
                         # Validation errors (missing file, bad path, etc.)
                         dry_run_output = str(e)
                         dry_run_ok = False
+
+                # LLM-first review: a failing dry run (or one that changed
+                # nothing) goes back to the LLM for revision instead of to the
+                # user for approval. This generalizes the decline path -- a
+                # "[User declined ...]" message plus another LLM turn -- to
+                # fire on the dry-run result instead of on the user's "n".
+                # The feedback is appended silently, never yielded, so the user
+                # never sees the broken attempt; continuing the loop re-invokes
+                # the LLM with it in context.
+                if dry_run_output is not None and (not dry_run_ok or dry_run_no_change):
+                    edit_key = (language, target, code)
+                    if edit_key != last_previewed_edit:
+                        last_previewed_edit = edit_key
+                        edit_preview_retries = 0
+                    if edit_preview_retries < MAX_EDIT_PREVIEW_RETRIES:
+                        edit_preview_retries += 1
+                        reason = "failed validation" if not dry_run_ok else "changed nothing"
+                        interpreter.messages.append(
+                            {
+                                "role": "user",
+                                "type": "message",
+                                "content": (
+                                    f"[Your {language} edit to {target} has not been shown to the user yet. "
+                                    f"Its dry run {reason}:\n{dry_run_output}\n"
+                                    f"Revise the edit and emit a corrected one. Only an edit whose dry run "
+                                    f"succeeds will be shown to the user for approval.]"
+                                ),
+                                "sent_at": time.time(),
+                                # Core-injected, like the terminal's decline
+                                # messages, so %undo skips it when finding the
+                                # last real user message.
+                                "source": "terminal",
+                            }
+                        )
+                        continue
 
                 # Yield confirmation so the terminal can prompt y/n (respects auto_run).
                 # format: "edit" distinguishes this from a code execution confirmation.
