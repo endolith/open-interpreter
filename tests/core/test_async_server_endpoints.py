@@ -953,7 +953,11 @@ def test_context_mode_on_is_accepted_and_sets_the_flag(client, server_pair):
         assert interpreter.context_mode is False, f"{off_token} should disable context mode"
 
 
-@pytest.mark.xfail(reason="#324: context_mode is set but never read", strict=True)
+@pytest.mark.xfail(
+    reason="#324: context_mode is set but never read",
+    strict=True,
+    raises=AssertionError,
+)
 def test_context_mode_does_not_reply_to_ordinary_context():
     """xfail for #324: with context mode on, a context line must not be answered.
 
