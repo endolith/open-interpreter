@@ -55,6 +55,10 @@ class _StubImage:
         self.width = width
         self.height = height
         self.resizes = 0
+        # Deliberately different from the input bytes, so the emitted URL's
+        # payload can be checked against what the stub actually saved rather than
+        # only for having a data: prefix.
+        self.saved_bytes = b"\x89PNG\r\n\x1a\n" + b"1" * (6 * 1024 * 1024)
 
     def resize(self, size):
         self.resizes += 1
@@ -63,7 +67,7 @@ class _StubImage:
     def save(self, buffered, format=None):  # noqa: A002 - PIL's parameter name
         # Always re-encodes to something still over the limit, so no pass can ever
         # satisfy the break condition and the loop runs to exhaustion.
-        buffered.write(b"\x89PNG\r\n\x1a\n" + b"0" * (6 * 1024 * 1024))
+        buffered.write(self.saved_bytes)
 
 
 def test_shrink_gives_up_after_ten_passes_and_still_sends_the_image(
@@ -98,5 +102,8 @@ def test_shrink_gives_up_after_ten_passes_and_still_sends_the_image(
 
     url = result[0]["content"][0]["image_url"]["url"]
     assert url.startswith("data:image/png;base64,")
+    # The payload is what the stub saved. Checking only the prefix would pass for
+    # an empty body, or for the original input echoed back unchanged.
+    assert base64.b64decode(url.split(",", 1)[1]) == stub.saved_bytes
     assert stub.resizes == 10, "the retry budget is ten passes"
     assert "Attempted to shrink the image but failed" in capsys.readouterr().out
