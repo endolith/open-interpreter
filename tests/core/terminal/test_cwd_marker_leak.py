@@ -44,10 +44,19 @@ def bash():
 
 
 def _output(language, code):
+    """Console output from a run, excluding OI's own state line.
+
+    The state line is added by CwdTrackingMixin after every command, not by the
+    command itself, and these tests are about what the *command's* output looks
+    like once the marker has been consumed. Filtering it here keeps that
+    distinction explicit instead of quietly loosening the assertions.
+    """
     return [
         str(chunk["content"])
         for chunk in language.run(code)
-        if chunk.get("format") != "active_line" and chunk.get("content")
+        if chunk.get("format") != "active_line"
+        and chunk.get("content")
+        and not str(chunk["content"]).startswith("[Shell State:")
     ]
 
 
@@ -142,3 +151,58 @@ def test_marker_is_emitted_by_every_tracked_shell():
     for cls in (_Bash, _Cmd, _PowerShell):
         source = inspect.getsource(cls._cwd_marker_echo)
         assert _CWD_MARKER in source, f"{cls.__name__} does not emit {_CWD_MARKER}"
+
+
+class TestShellStateIsReportedToTheModel:
+    """Shells must tell the model where they are, the way Python does.
+
+    JupyterLanguage reports CWD, imported modules, variables and functions after
+    every cell, and that report is the only way the model can tell that
+    something it ran earlier had an effect. Shells reported nothing: the cwd was
+    tracked in CwdTrackingMixin and then discarded, because the ##oi_cwd## marker
+    is consumed precisely so the path never reaches the model's context. The
+    model was left guessing after every `cd`.
+
+    Cwd only. Shell variables and functions are rarely carried between turns and
+    reading them would cost a round-trip per command; the cwd is already known.
+    """
+
+    def test_state_line_reports_the_current_cwd(self):
+        """The line names the directory the shell is actually in."""
+        bash = Bash()
+        assert bash.cwd in bash._state_line()
+
+    def test_state_line_follows_a_cd(self):
+        """Tracking drives the report, so it cannot drift from the shell."""
+        bash = Bash()
+        bash.cwd = "/tmp/somewhere-else"
+        assert "/tmp/somewhere-else" in bash._state_line()
+
+    def test_state_line_is_emitted_after_a_real_command(self):
+        """End to end through run(): the report reaches the consumer."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bash = Bash()
+            try:
+                chunks = list(bash.run(f"cd {tmp} && echo marker-ok"))
+            finally:
+                bash.terminate()
+            joined = "\n".join(
+                str(c.get("content", ""))
+                for c in chunks
+                if c.get("type") == "console"
+            )
+            assert "Shell State" in joined, f"no state line in {joined!r}"
+            assert (
+                tmp in joined
+            ), "the reported cwd must be the directory we cd'd into"
+
+    def test_state_line_does_not_reintroduce_the_marker(self):
+        """The report carries the path, never the ##oi_cwd## marker.
+
+        The marker exists to be consumed. Surfacing the state by echoing the
+        marker line back out would undo the leak it was introduced to fix.
+        """
+        bash = Bash()
+        assert "##oi_cwd##" not in bash._state_line()
