@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from interpreter.core.utils import scan_code
 
 
@@ -178,3 +180,109 @@ def test_scanner_exception_is_reported_and_cleaned_up(capsys):
     assert "Could not scan python code" in out
     assert "semgrep" in out
     cleanup.assert_called_once_with(temp_path, verbose=False)
+
+
+def _scan_interpreter(verbose=False):
+    """A minimal interpreter for scan_code, with `verbose` under test."""
+    return SimpleNamespace(
+        verbose=verbose,
+        safe_mode="auto",
+        computer=SimpleNamespace(
+            terminal=SimpleNamespace(
+                get_language=lambda lang: SimpleNamespace(
+                    file_extension="py", name="Python"
+                )
+            )
+        ),
+    )
+
+
+def test_scan_code_announces_the_file_it_scans_when_verbose(tmp_path, capsys):
+    """With verbose on, scan_code names the language and the file before scanning.
+
+    These two prints are the only record of which file semgrep was pointed at, so
+    they are what makes a scan reproducible by hand afterwards.
+    """
+    temp_path = str(tmp_path / "scan.py")
+    interpreter = _scan_interpreter(verbose=True)
+
+    with mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value=temp_path,
+    ):
+        with mock.patch("interpreter.core.utils.scan_code.cleanup_temporary_file"):
+            with mock.patch("interpreter.core.utils.scan_code.subprocess.run"):
+                scan_code.scan_code("x = 1", "python", interpreter)
+
+    captured = capsys.readouterr().out
+    assert "Scanning python code in scan.py" in captured
+
+
+def test_scan_code_does_not_name_the_file_when_not_verbose(tmp_path, capsys):
+    """Without verbose, scan_code does not report which file it is scanning.
+
+    The assertion is on the verbose line specifically, not on the word
+    "Scanning": the yaspin spinner emits its own "Scanning code..." on every run,
+    so a substring check would fail for the wrong reason. What is under test is
+    the language-and-filename line, which only verbose produces.
+    """
+    temp_path = str(tmp_path / "scan.py")
+    interpreter = _scan_interpreter(verbose=False)
+
+    with mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value=temp_path,
+    ):
+        with mock.patch("interpreter.core.utils.scan_code.cleanup_temporary_file"):
+            with mock.patch("interpreter.core.utils.scan_code.subprocess.run"):
+                scan_code.scan_code("x = 1", "python", interpreter)
+
+    assert "Scanning python code in scan.py" not in capsys.readouterr().out
+
+
+def test_scan_code_still_cleans_up_when_the_temp_file_cannot_be_created(tmp_path):
+    """A temp-file failure must not leave a file behind, and must not run semgrep.
+
+    Cleanup is in a `finally`, so it has to hold on the failure path too —
+    otherwise a partially written file survives with no owner.
+    """
+    interpreter = _scan_interpreter()
+
+    with mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file", return_value=None
+    ):
+        with mock.patch(
+            "interpreter.core.utils.scan_code.cleanup_temporary_file"
+        ) as cleanup:
+            with mock.patch("interpreter.core.utils.scan_code.subprocess.run") as run:
+                try:
+                    scan_code.scan_code("x = 1", "python", interpreter)
+                except Exception:
+                    pass
+
+    assert run.call_count == 0, "semgrep must not run without a file to scan"
+
+
+@pytest.mark.xfail(
+    reason="#399: create_temporary_file returns None on failure, so scan_code "
+    "raises an unrelated TypeError from os.path.dirname",
+    strict=True,
+)
+def test_scan_code_reports_a_temp_file_failure_clearly(tmp_path, capsys):
+    """A temp-file failure should name the cause, not raise TypeError from os.
+
+    `create_temporary_file` swallows its exception and returns `None`, and
+    `scan_code` passes that straight to `os.path.dirname`, so the user sees
+    "expected str, bytes or os.PathLike object, not NoneType" from a stdlib call
+    that has nothing to do with the disk.
+
+    Strict xfail: it passes the day #399 is fixed. Pinned as-is because the
+    current message actively misdirects.
+    """
+    interpreter = _scan_interpreter()
+
+    with mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file", return_value=None
+    ):
+        with mock.patch("interpreter.core.utils.scan_code.cleanup_temporary_file"):
+            scan_code.scan_code("x = 1", "python", interpreter)
