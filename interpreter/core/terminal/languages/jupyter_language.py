@@ -195,6 +195,15 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                     pass
 
     def run(self, code):
+        blocking = _blocking_input_call(code)
+        if blocking:
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": _BLOCKING_INPUT_MESSAGE.format(name=blocking),
+            }
+            return
+
         while not self.kc.is_alive():
             time.sleep(0.1)
 
@@ -1020,6 +1029,45 @@ def _value_fingerprint(value):
     """Repr fingerprint of an immutable scalar, matching the kernel's ``var:`` entries."""
     return hashlib.sha1(repr(value).encode()).hexdigest()
 
+
+def _blocking_input_call(code):
+    """Name of the stdin-blocking builtin called in `code`, or None.
+
+    input() in a kernel cell blocks on a read that nothing will ever satisfy:
+    there is no terminal attached. The cell never returns, the end-of-execution
+    marker is never emitted, and the turn hangs with the reader thread alive and
+    waiting -- so Ctrl-C cannot break that either.
+
+    Detected on the AST rather than by text match, so `input` used as a variable
+    name, inside a comment, or as `.input()` on some other object is left alone.
+    Code that does not parse passes through untouched: the kernel reports the
+    syntax error itself, and adding a second complaint about it helps nobody.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in ("input", "raw_input"):
+            return func.id
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "input"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "builtins"
+        ):
+            return "builtins.input"
+    return None
+
+
+_BLOCKING_INPUT_MESSAGE = (
+    "This code calls {name}(), which reads from stdin. The kernel has no terminal "
+    "attached, so the call blocks and this turn would never end.\n\n"
+    "Ask the user in your reply instead, then wait for their next message."
+)
 
 def preprocess_python(code):
     """
