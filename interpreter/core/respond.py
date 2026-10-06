@@ -146,10 +146,19 @@ MAX_TEMPORARY_PROVIDER_RETRIES = 5
 # for approval before the user is ever prompted. Past the cap the
 # confirmation is yielded anyway and the user decides, which is what the
 # retry loop is supposed to do.
-# Review rounds per turn: an edit is previewed, the model reads the diff, and a
-# corrected edit earns a fresh round. Bounded so a model that keeps revising
-# still lands at the user prompt.
-MAX_EDIT_REVIEW_ROUNDS = 2
+# The model owns the review: it reads each dry run and either approves it or
+# calls edit again. There is no cap on revisions, because a model that keeps
+# correcting its own diff is doing the thing this feature exists for. Two safety
+# valves remain, and both end at the user rather than looping forever:
+#   MAX_EDIT_REVIEW_TURNS  -- a hard ceiling on requests spent per edit, so a
+#                              model ping-ponging between two edits cannot spend
+#                              the user's credits indefinitely.
+#   MAX_EDIT_QUIET_TURNS   -- how many turns the model may answer a preview with
+#                              words and no call to make. Talking is not
+#                              approving, but silence forever is not useful
+#                              either, so after this many the user decides.
+MAX_EDIT_REVIEW_TURNS = 8
+MAX_EDIT_QUIET_TURNS = 2
 
 
 def _is_temporary_provider_error(error):
@@ -229,6 +238,19 @@ def _edit_key(edit_msg):
     )
 
 
+def _approval_after(messages, edit_index):
+    """The approve_edit marker for this edit, if the model passed its gate.
+
+    Searched by position rather than read off the last message: the marker is
+    stored before the tool acknowledgement that answers it, so messages[-1] is
+    that acknowledgement and looking only there misses every approval.
+    """
+    for index in range(len(messages) - 1, edit_index, -1):
+        if messages[index].get("type") == "edit_approved":
+            return messages[index]
+    return None
+
+
 def _assistant_spoke_since(messages, index):
     """True when the model produced output after `index` (the edit or its preview).
 
@@ -260,14 +282,16 @@ def respond(interpreter):
     # counter above -- they answer different questions and had drifted apart
     # when only this one was bounded.
     bodiless_400_retries = 0
-    # Pre-confirmation edit review: how many review rounds this turn has spent,
-    # and the exact edit the model last saw a diff for. Re-emitting that same
-    # edit means the model stands by the diff, so it goes to the user instead of
-    # costing another round. Lives here (not on the interpreter) so one turn's
-    # rounds never leak into the next, the same way _stopped_retrying is reset
-    # above.
-    review_rounds = 0
-    last_reviewed_edit = None
+    # Pre-confirmation edit review, all scoped to this turn so nothing leaks into
+    # the next (the same way _stopped_retrying is reset above).
+    review_turns = 0          # requests spent reviewing the current edit
+    quiet_turns = 0           # consecutive answers that were words, not a call
+    last_reviewed_edit = None  # key of the edit the model last saw a diff for
+    edit_approved = False     # did the model pass its own gate?
+    # Read by build_request_tools() to offer approve_edit. Reset per turn: a
+    # decline or a crash mid-review would otherwise leave the gate on offer with
+    # no diff to rule on. The preview sets it again the moment one exists.
+    interpreter._edit_review_pending = None
     # A stale True from a previous turn would make the terminal interface exit
     # after an unrelated, healthy turn; this function is the only writer, so a
     # turn always starts clean.
@@ -685,25 +709,39 @@ def respond(interpreter):
 
         ### RUN FILE EDIT (if it's there) ###
 
-        # Find the newest edit and where its dry run landed. When the model has
-        # not yet produced anything after that dry run it gets one turn to read
-        # the diff before the user is asked about it -- that turn is the whole
-        # review, and it costs nothing extra because the diff rode the tool call
-        # the model already made. Once it has spoken (a sentence, a reasoning
-        # block, anything), the review is over and the user decides.
+        # The model owns this review. It read the dry run as its tool call's own
+        # result, and it ends the review by calling approve_edit; calling edit
+        # again means it wants a different diff and starts another round. Nothing
+        # here infers approval from prose, and nothing is injected into the
+        # history to ask for one -- so thinking-mode providers keep working and the
+        # model is never cornered.
         edit_index, edit_msg, preview_index, preview_meta = _newest_edit_with_preview(
             interpreter.messages
         )
-        if edit_msg is not None and preview_meta is not None and not _assistant_spoke_since(
-            interpreter.messages, preview_index
-        ):
-            edit_key = _edit_key(edit_msg)
-            if edit_key != last_reviewed_edit and review_rounds < MAX_EDIT_REVIEW_ROUNDS:
-                review_rounds += 1
-                last_reviewed_edit = edit_key
-                continue
-        if interpreter.messages[-1]["type"] == "code":
-            # Code proposed after an edit runs first; the edit follows its turn.
+        if edit_msg is not None and preview_meta is not None:
+            approved = _approval_after(interpreter.messages, edit_index)
+            if approved is not None:
+                edit_approved = True
+                interpreter._edit_review_pending = False
+            else:
+                # Count what this turn was, then decide whether to buy another.
+                # A newer edit means the model revised, which clears the quiet
+                # count; words on their own are not approval and do count.
+                if _assistant_spoke_since(interpreter.messages, preview_index):
+                    if _edit_key(edit_msg) == last_reviewed_edit:
+                        quiet_turns += 1
+                    else:
+                        quiet_turns = 0
+                review_turns += 1
+                if quiet_turns < MAX_EDIT_QUIET_TURNS and review_turns < MAX_EDIT_REVIEW_TURNS:
+                    last_reviewed_edit = _edit_key(edit_msg)
+                    continue
+                # Out of patience: the edit goes to the user unaided, flagged as
+                # unapproved so the prompt can say the model never signed off.
+                edit_approved = False
+
+        if interpreter.messages[-1]["type"] == "code" and not edit_approved:
+            # Code proposed after an unapproved edit runs first; the edit waits.
             edit_msg = None
 
         if edit_msg is not None:
@@ -740,10 +778,13 @@ def respond(interpreter):
 
                 # Yield confirmation so the terminal can prompt y/n (respects auto_run).
                 # format: "edit" distinguishes this from a code execution confirmation.
-                # The edit has left review, so a later assistant message must
-                # not put the same diff through another review turn.
+                # The edit has left review, so a later assistant message must not
+                # put the same diff through another review turn.
                 if edit_msg is not None:
                     last_reviewed_edit = _edit_key(edit_msg)
+                    review_turns = 0
+                    quiet_turns = 0
+                interpreter._edit_review_pending = False
                 try:
                     confirmation_content = {
                         "format": language,
@@ -753,6 +794,9 @@ def respond(interpreter):
                     if dry_run_output is not None:
                         confirmation_content["dry_run_output"] = dry_run_output
                         confirmation_content["dry_run_ok"] = dry_run_ok
+                    # Two gates: the model's, then the user's. The prompt says so
+                    # when the first one was never passed.
+                    confirmation_content["llm_approved"] = edit_approved
                     yield {
                         "role": "computer",
                         "type": "confirmation",

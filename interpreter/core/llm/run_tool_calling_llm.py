@@ -119,6 +119,33 @@ edit_tool_schema = {
 }
 
 
+approve_edit_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "approve_edit",
+        "description": (
+            "Approve the dry-run result of the edit you just made. Call this only "
+            "when the result is exactly the change you want -- the right lines, the "
+            "right text, and it actually changed something.\n"
+            "This is your gate, and it is checked: the user is asked to confirm only "
+            "after you approve. If the result is wrong or did nothing, call `edit` "
+            "again with a corrected edit instead -- you can keep revising until the "
+            "result is what you wanted. Nothing is written to disk at any point."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "One short sentence saying what the diff does and why it is right.",
+                },
+            },
+            "required": ["reason"],
+        },
+    },
+}
+
+
 def _edit_preview_response(interpreter, language, code, target):
     """Build the tool response that shows the model what an edit would change.
 
@@ -544,6 +571,13 @@ def build_request_tools(interpreter, messages=None):
         format_execute_language_description(languages)
     )
     tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
+
+    # While a dry run is pending review, the model also gets the gate it has to
+    # pass before the user is asked: approve_edit sits *alongside* edit, never in
+    # place of it, so a model that dislikes the diff can revise immediately
+    # instead of being cornered into narrating about it.
+    if getattr(interpreter, "_edit_review_pending", None):
+        tools.append(copy.deepcopy(approve_edit_tool_schema))
 
     if getattr(interpreter.llm, "supports_vision", None) is True:
         if messages is None or not _inline_user_image_in_turn_after_last_assistant_text(messages):
@@ -1181,6 +1215,33 @@ def run_tool_calling_llm(llm, request_params):
                 }
             else:
                 yield {"role": "assistant", "type": "message", "content": content}
+        elif function_name == "approve_edit":
+            arguments = function_call.get("arguments")
+            if isinstance(arguments, str):
+                arguments = parse_partial_json(arguments)
+            reason = arguments.get("reason") if isinstance(arguments, dict) else None
+
+            # Marker for respond(): the approval itself. Yielded before the tool
+            # response, so respond() must not look only at the last message.
+            yield {
+                "type": "edit_approved",
+                "tool_call_id": tool_call_id_for_error,
+                "reason": reason if isinstance(reason, str) else "",
+            }
+            acknowledgement = (
+                "Approved. Nothing has been modified yet -- the user is now asked to "
+                "confirm this exact diff."
+            )
+            if tool_call_id_for_error:
+                yield {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id_for_error,
+                    "type": "message",
+                    "content": acknowledgement,
+                }
+            else:
+                yield {"role": "assistant", "type": "message", "content": acknowledgement}
+
         elif function_name == "edit":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
@@ -1241,6 +1302,9 @@ def run_tool_calling_llm(llm, request_params):
                     # and it costs exactly one extra turn: the model sees the
                     # diff and either emits a corrected edit or says something,
                     # and either way the user is the one who confirms.
+                    # Reading this diff is what puts the review in play; the
+                    # approval tool only appears once there is something to rule on.
+                    llm.interpreter._edit_review_pending = True
                     preview_response, preview_meta = _edit_preview_response(
                         llm.interpreter, edit_language, edit_code, edit_target
                     )
