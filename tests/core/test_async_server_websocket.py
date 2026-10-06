@@ -301,9 +301,31 @@ def test_acknowledged_output_gets_an_id_and_waits_for_the_ack(ws_pair):
         gate["open"] = True
         payload = ws.receive_json()
         assert payload["id"], "an un-acked output must be given an id"
+
         ws.send_text(json.dumps({"ack": payload["id"]}))
 
-    assert interp.acknowledged_outputs == [], "a satisfied ack is consumed, not retained"
+        # Poll rather than assert immediately. Sending the ack only records it;
+        # `send_message` then notices on its next pass through a 0.1ms poll loop
+        # and removes the id. Asserting the instant the ack is written races that,
+        # and loses on a loaded runner — it passed locally every time and failed
+        # on both CI versions. Exiting the socket first is worse: that cancels
+        # the task before it can observe the ack at all.
+        for _ in range(100):
+            if not interp.acknowledged_outputs:
+                break
+            time.sleep(0.02)
+
+        assert interp.acknowledged_outputs == [], (
+            "a satisfied ack is consumed, not retained"
+        )
+
+        # Note on what this does and does not pin. Polling is what makes the
+        # assertion safe — see above — but it also means removing the
+        # `acknowledged_outputs.remove(id)` call still passes, because the poll
+        # simply expires. The retention path is pinned deterministically by
+        # test_an_unacknowledged_output_is_queued_for_retry; the consumption path
+        # is verified here by inspection rather than by mutation, and would need
+        # control over send_message's poll loop to assert without racing.
 
 
 def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
