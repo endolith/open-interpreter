@@ -390,10 +390,22 @@ def terminal_interface(interpreter, message):
 
                             # Target path is already shown above the code block.
                             print("", flush=True)
+                            # Two gates: the model reviews its own dry run and
+                            # approves it, then the user confirms. If it never
+                            # approved, say so rather than implying it did.
+                            unapproved = edit_info.get("llm_approved") is False
+                            if unapproved:
+                                edit_note = (
+                                    "Note: the model did not approve this diff.\n\n"
+                                    if interpreter.plain_text_display
+                                    else "  Note: the model did not approve this diff.\n\n"
+                                )
+                            else:
+                                edit_note = ""
                             edit_prompt = (
-                                "Would you like to apply this edit? (y/n)\n\n"
+                                f"{edit_note}Would you like to apply this edit? (y/n)\n\n"
                                 if interpreter.plain_text_display
-                                else "  Would you like to apply this edit? (y/n)\n\n  "
+                                else f"  {edit_note}Would you like to apply this edit? (y/n)\n\n  "
                             )
                             response = prompt_choice(edit_prompt, ("y", "n"))
 

@@ -785,7 +785,10 @@ class OpenInterpreter:
                 # view_image_call: records the assistant's view_image tool call so it can be
                 # reconstructed as assistant+tool_calls in convert_to_openai_messages, preventing
                 # process_messages from inserting a synthetic execute call on the next turn.
-                if chunk.get("type") == "view_image_call":
+                # edit_approved is the same shape: it records the model's
+                # approval of a dry run so it pairs with the acknowledgement and
+                # respond() can act on it, and must never be shown to the user.
+                if chunk.get("type") in ("view_image_call", "edit_approved"):
                     self.messages.append(chunk)
                     continue
 

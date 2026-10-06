@@ -618,6 +618,23 @@ def convert_to_openai_messages(
                 }
             ]
 
+        elif message["type"] == "edit_approved":
+            # Rebuilds the assistant's approve_edit call so process_messages pairs
+            # it with the acknowledgement that follows, as view_image_call does.
+            tool_call_id = message.get("tool_call_id") or "edit_approved_0"
+            new_message["role"] = "assistant"
+            new_message["content"] = ""
+            new_message["tool_calls"] = [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "approve_edit",
+                        "arguments": json.dumps({"reason": message.get("reason", "")}),
+                    },
+                }
+            ]
+
         elif message["type"] == "file":
             ts = _user_ts(message, messages)
             content = message["content"]

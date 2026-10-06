@@ -90,7 +90,9 @@ def _drive_to_confirmation(interpreter):
             if chunk.get("type") == "confirmation":
                 confirmations.append(chunk)
                 break
-            if chunk.get("role") == "tool" and chunk.get("type") == "message":
+            if chunk.get("type") == "edit_approved":
+                interpreter.messages.append(dict(chunk))
+            elif chunk.get("role") == "tool" and chunk.get("type") == "message":
                 interpreter.messages.append(dict(chunk))
             elif chunk.get("role") == "assistant" and chunk.get("type") in (
                 "message",
@@ -124,58 +126,100 @@ def _proposal(code="s/a/b/", call_id="call-1", ok=True, output="--- a\n+++ b\n@@
 
 
 def _say(text):
-    """A turn where the model only speaks -- its review of the diff."""
+    """A turn where the model only speaks. Not an approval."""
     return [{"role": "assistant", "type": "message", "content": text}]
 
 
-def test_the_model_gets_one_turn_to_read_the_diff_before_the_user_is_asked(quiet_respond):
-    """The user is asked only after the model has produced output post-diff.
+def _approve(reason="diff is right", call_id="approve-1"):
+    """The model passing its own gate, plus the acknowledgement answering it."""
+    return [
+        {
+            "type": "edit_approved",
+            "tool_call_id": call_id,
+            "reason": reason,
+        },
+        {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "type": "message",
+            "content": "Approved. Nothing has been modified yet.",
+        },
+    ]
 
-    The model called edit, the dry run answered that call, and until it says
-    anything the user is not asked: that gap is the review. The confirmation
-    then shows the very diff the model read -- no second dry run.
+
+def test_the_user_is_only_asked_after_the_model_approves(quiet_respond):
+    """Two gates, in order: the model's, then the user's.
+
+    The model calls edit, reads the dry run, and approves it with approve_edit.
+    Only then does the confirmation appear -- carrying the diff the model read,
+    with no second dry run.
     """
     monkeypatch = quiet_respond
     monkeypatch.setattr(
         respond_mod, "dry_run_edit", lambda *a, **k: pytest.fail("must reuse the reviewed diff")
     )
-    llm = _FakeLlm([_proposal(), _say("That diff is correct.")])
+    llm = _FakeLlm([_proposal(), _approve()])
     interpreter = _FakeInterpreter(llm, None)
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 2, "the proposal, then one turn to read the diff"
+    assert llm.calls == 2, "the proposal, then the turn that rules on it"
     assert confirmation["content"]["content"] == "s/a/b/"
+    assert confirmation["content"]["llm_approved"] is True
     assert confirmation["content"]["dry_run_output"] == "--- a\n+++ b\n@@"
 
 
-def test_text_streamed_before_the_diff_does_not_count_as_a_review(quiet_respond):
+def test_words_are_not_an_approval(quiet_respond):
+    """Saying the diff looks right does not open the user's gate.
+
+    The model is never asked twice and never nagged, but it is also never asked
+    *implicitly*: without approve_edit the edit keeps waiting for the model, and
+    only the quiet-turn limit hands it to the user as unapproved.
+    """
+    monkeypatch = quiet_respond
+    quiet = respond_mod.MAX_EDIT_QUIET_TURNS
+    llm = _FakeLlm([_proposal()] + [_say("Looks right to me.")] * (quiet + 2))
+    interpreter = _FakeInterpreter(llm, None)
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert confirmation["content"]["llm_approved"] is False, "prose never approves"
+    assert confirmation["content"]["content"] == "s/a/b/", "and the edit is not dropped either"
+    assert llm.calls == quiet + 1, f"one ask per quiet turn, then the user (quiet={quiet})"
+
+
+def test_text_streamed_before_the_diff_does_not_count_as_review(quiet_respond):
     """Prose written before the preview cannot have been written from it.
 
     The dry run happens after the tool call returns, so words in the same turn
-    as the call predate the diff. The user must not be asked until a later turn
-    has actually seen it.
+    as the call predate the diff and must not count against the quiet-turn limit.
     """
     monkeypatch = quiet_respond
+    quiet = respond_mod.MAX_EDIT_QUIET_TURNS
     llm = _FakeLlm(
         [
-            [_edit_chunk(), {"role": "assistant", "type": "message", "content": "editing now"}, _preview_response()],
-            _say("Now I have seen it."),
+            [
+                _edit_chunk(),
+                {"role": "assistant", "type": "message", "content": "editing now"},
+                _preview_response(),
+            ]
         ]
+        + [_say("thinking out loud")] * (quiet - 1)
+        + [_approve()]
     )
     interpreter = _FakeInterpreter(llm, None)
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 2, "the turn that predates the diff is not the review"
+    assert confirmation["content"]["llm_approved"] is True
     assert confirmation["content"]["content"] == "s/a/b/"
 
 
-def test_a_corrected_edit_gets_its_own_diff(quiet_respond):
-    """Reading the diff and fixing it is the whole point of the review.
+def test_a_corrected_edit_keeps_its_own_diff_and_gate(quiet_respond):
+    """Revising is the point: a corrected edit gets its own diff and approval.
 
-    A different edit is a new proposal with its own dry run, and the model reads
-    that one before the user sees anything.
+    The model rejects the first diff, calls edit again, reads the second, and
+    approves that one -- which is the edit the user is asked about.
     """
     monkeypatch = quiet_respond
     monkeypatch.setattr(
@@ -187,23 +231,25 @@ def test_a_corrected_edit_gets_its_own_diff(quiet_respond):
         [
             _proposal(code="s/a/b/", call_id="c1", output="diff for s/a/b/"),
             _proposal(code="s/x/y/", call_id="c2", output="diff for s/x/y/"),
-            _say("That one is right."),
+            _approve(call_id="ap-2"),
         ]
     )
     interpreter = _FakeInterpreter(llm, None)
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == 3, "proposal, correction, then the reviewed correction"
+    assert llm.calls == 3, "proposal, correction, approval"
     assert confirmation["content"]["content"] == "s/x/y/"
     assert confirmation["content"]["dry_run_output"] == "diff for s/x/y/"
+    assert confirmation["content"]["llm_approved"] is True
 
 
-def test_endless_revisions_land_at_the_user_after_the_cap(quiet_respond):
-    """A model that keeps revising still reaches the user, boundedly.
+def test_revisions_are_not_capped_but_the_turn_ceiling_is(quiet_respond):
+    """A model that keeps fixing its diff keeps getting turns -- up to the ceiling.
 
-    Each proposal earns one review turn, capped per turn; past the cap the newest
-    edit goes to the user with its diff instead of being reviewed forever.
+    There is no cap on revisions: correcting a diff is the feature working. The
+    ceiling is only a runaway guard, and reaching it hands the edit to the user
+    flagged as unapproved rather than looping or dropping it.
     """
     monkeypatch = quiet_respond
     monkeypatch.setattr(
@@ -211,51 +257,101 @@ def test_endless_revisions_land_at_the_user_after_the_cap(quiet_respond):
         "dry_run_edit",
         lambda language, code, target: {"output": f"diff {code}", "ok": True},
     )
-    cap = respond_mod.MAX_EDIT_REVIEW_ROUNDS
-    llm = _FakeLlm([_proposal(code=f"s/a/{i}/", call_id=f"c{i}", output=f"diff s/a/{i}/") for i in range(cap + 2)])
+    ceiling = respond_mod.MAX_EDIT_REVIEW_TURNS
+
+    def _revision(index):
+        code = f"s/a/{index}/"
+        return _proposal(code=code, call_id=f"c{index}", output=f"diff {code}")
+
+    llm = _FakeLlm([_revision(i) for i in range(ceiling + 2)])
     interpreter = _FakeInterpreter(llm, None)
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
-    assert llm.calls == cap + 1, f"{cap} review turns, then the user"
-    assert confirmation["content"]["content"] == f"s/a/{cap}/", "the newest edit is confirmed"
+    # The ceiling counts requests, and the last of them is the edit that reaches
+    # the user -- so `ceiling` calls end with revision number ceiling - 1.
+    assert llm.calls == ceiling, f"spends the ceiling ({ceiling}), no more"
+    assert confirmation["content"]["llm_approved"] is False
+    assert confirmation["content"]["content"] == f"s/a/{ceiling - 1}/", "the newest edit is the user's"
 
 
-def test_reemitting_the_reviewed_edit_goes_straight_to_the_user(quiet_respond):
-    """The model repeating the same edit means it stands by the diff.
+def test_approval_is_positional_not_sticky(quiet_respond):
+    """An approval covers the diff that was on screen, not later ones.
 
-    Repeating it is an answer rather than a new proposal, so it must not buy
-    another review turn -- the user gets asked straight away.
+    _approval_after() searches forward from the newest edit precisely so a stale
+    marker cannot rubber-stamp a revision the model never saw.
     """
-    monkeypatch = quiet_respond
-    llm = _FakeLlm([_proposal(), _proposal()])
-    interpreter = _FakeInterpreter(llm, None)
+    from interpreter.core.respond import _approval_after
 
-    (confirmation,) = _drive_to_confirmation(interpreter)
+    older_approval = {
+        "type": "edit_approved",
+        "tool_call_id": "ap-1",
+        "reason": "fine",
+    }
+    messages = [
+        {"role": "user", "type": "message", "content": "edit"},
+        _edit_chunk(code="s/a/b/", call_id="c1"),
+        _preview_response(call_id="c1"),
+        older_approval,
+        _edit_chunk(code="s/x/y/", call_id="c2"),
+        _preview_response(call_id="c2"),
+    ]
+    newest_edit_index = max(i for i, m in enumerate(messages) if m.get("type") == "edit")
 
-    assert llm.calls == 2, "the re-emit ends the review instead of restarting it"
-    assert confirmation["content"]["content"] == "s/a/b/"
+    assert _approval_after(messages, newest_edit_index) is None
+    assert _approval_after(messages, 1) is older_approval
 
 
-def test_failed_preview_is_reviewed_and_shown_to_the_user(quiet_respond):
-    """A dry run that failed is information for the model and for the user.
-
-    It rides the tool result (so the model can fix it) and is attached to the
-    confirmation (so the user judges a failure, not a silent change).
-    """
+def test_failed_preview_needs_approval_too(quiet_respond):
+    """A failed dry run is no more approvable than a passing one."""
     monkeypatch = quiet_respond
     monkeypatch.setattr(
         respond_mod,
         "dry_run_edit",
         lambda language, code, target: {"output": "sed: no commands in code", "ok": False},
     )
-    llm = _FakeLlm([_proposal(code="", ok=False, output="sed: no commands in code"), _say("That was broken.")])
+    llm = _FakeLlm([_proposal(code="", ok=False, output="sed: no commands in code"), _approve(reason="intentional")])
     interpreter = _FakeInterpreter(llm, None)
 
     (confirmation,) = _drive_to_confirmation(interpreter)
 
     assert confirmation["content"]["dry_run_ok"] is False
-    assert "no commands" in confirmation["content"]["dry_run_output"]
+    assert confirmation["content"]["llm_approved"] is True
+
+
+def test_the_gate_is_reset_between_turns(quiet_respond):
+    """A review that ends without confirming must not leave the gate on offer.
+
+    build_request_tools() reads interpreter._edit_review_pending from outside
+    this function, so a stale True after a decline would hand the model an
+    approve_edit tool with nothing to approve.
+    """
+    monkeypatch = quiet_respond
+    llm = _FakeLlm([_proposal(), _approve()])
+    interpreter = _FakeInterpreter(llm, None)
+
+    _drive_to_confirmation(interpreter)
+
+    # The flag is cleared once the edit reaches the user...
+    assert interpreter._edit_review_pending is False
+
+    # ...and it starts clean on the next turn even if the review was abandoned.
+    interpreter._edit_review_pending = True
+    seen = []
+
+    class _Recorder:
+        def run(self, messages):
+            seen.append(getattr(interpreter, "_edit_review_pending", None))
+            return iter(())
+
+    interpreter.llm = _Recorder()
+    stream = respond(interpreter)
+    try:
+        for _ in stream:
+            break
+    finally:
+        stream.close()
+    assert seen == [None], "reset before the first request of the turn"
 
 
 def test_auto_run_confirms_without_a_review_turn(quiet_respond):
