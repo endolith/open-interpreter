@@ -350,6 +350,54 @@ def test_the_gate_is_offered_alongside_the_normal_tools():
     assert "execute" in reviewing, "and to look before deciding"
 
 
+def test_calling_an_unrelated_tool_does_not_approve_or_stall_the_review(quiet_respond):
+    """Going off to call another tool is work, not a decision.
+
+    A model that checks something between reading a diff and approving it has
+    neither approved nor stalled, so the review waits: the edit stays unapproved
+    and the detour does not burn the quiet-turn limit that exists for a model
+    that only talks. view_image is used as the detour because respond() declines
+    it without reaching for the computer stack.
+    """
+    monkeypatch = quiet_respond
+    quiet = respond_mod.MAX_EDIT_QUIET_TURNS
+
+    def _detour(index):
+        """One turn where the model calls a tool that is not the gate."""
+        return [
+            {"type": "view_image_call", "tool_call_id": f"v{index}", "path": "/tmp/x.png"},
+            {
+                "role": "tool",
+                "tool_call_id": f"v{index}",
+                "type": "message",
+                "content": "User declined to show image.",
+            },
+        ]
+
+    # More detour turns than the quiet limit allows. If detours counted as
+    # silence the edit would be surfaced unapproved before the gate was reached.
+    llm = _FakeLlm([_proposal()] + [_detour(i) for i in range(quiet + 2)] + [_approve()])
+    interpreter = _FakeInterpreter(llm, None)
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert confirmation["content"]["llm_approved"] is True, "approved when it called the gate"
+    assert llm.calls == quiet + 4, f"every detour got its turn ({llm.calls} calls)"
+
+
+def test_only_silence_counts_against_the_quiet_limit(quiet_respond):
+    """A model that answers with words and no call is the case that ends."""
+    monkeypatch = quiet_respond
+    quiet = respond_mod.MAX_EDIT_QUIET_TURNS
+    llm = _FakeLlm([_proposal()] + [_say("still thinking")] * (quiet + 1))
+    interpreter = _FakeInterpreter(llm, None)
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert confirmation["content"]["llm_approved"] is False
+    assert confirmation["content"]["content"] == "s/a/b/", "surfaced, not dropped"
+
+
 def test_the_gate_is_reset_between_turns(quiet_respond):
     """A review that ends without confirming must not leave the gate on offer.
 
