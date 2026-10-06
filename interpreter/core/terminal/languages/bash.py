@@ -5,6 +5,7 @@ from .subprocess_language import SubprocessLanguage
 
 
 class Bash(CwdTrackingMixin, SubprocessLanguage):
+    command_stdin_from_null_device = True
     file_extension = "sh"
     name = "bash"
     execute_tool_hint = "GNU bash — export VAR=value; always bash, never the login shell (fish/zsh). One command per line for readability."

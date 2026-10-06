@@ -57,8 +57,35 @@ class SubprocessLanguage(BaseLanguage):
         """
         return code
 
+    # POSIX shells can run a command with its own stdin pointed at the null
+    # device -- `{ cat; } < /dev/null` -- so the command sees EOF immediately
+    # instead of blocking forever on a read that nothing will satisfy. Kept off
+    # by default because it needs shell syntax: cmd.exe cannot parse braces, and
+    # each shell needs its own form.
+    #
+    # Why not redirect the subprocess's stdin at Popen instead: that pipe is how
+    # commands reach a persistent shell, so closing it ends the session. The
+    # redirect is scoped to the command body, leaving the shell's own stdin --
+    # the command channel -- intact. Verified: the next command still runs.
+    #
+    # Cost is that a bare `read` now returns 1 at EOF, so `read x && cmd` skips
+    # cmd. That is visible in the output, which is the failure mode we want;
+    # hanging is not.
+    command_stdin_from_null_device = False
+    null_device_path = "/dev/null"
+
+    def _wrap_command_for_null_stdin(self, code):
+        # The terminator differs by whether `code` already ends in a newline. A
+        # newline followed by `;` is a bash syntax error ("near unexpected token
+        # `;'"), and multi-line blocks do end in one. Single-line blocks need the
+        # `;` added explicitly, since `{ cmd }` alone is a syntax error.
+        terminator = "} " if code.endswith("\n") else "; } "
+        return "{ " + code + terminator + "< " + self.null_device_path
+
     def write_block_to_stdin(self, code):
         """Send a processed code block to the language subprocess."""
+        if self.command_stdin_from_null_device:
+            code = self._wrap_command_for_null_stdin(code)
         payload = code if code.endswith("\n") else code + "\n"
         if self.binary_stdio:
             self.process.stdin.write(payload.encode("utf-8"))
