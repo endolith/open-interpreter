@@ -46,7 +46,7 @@ def _html_error_to_renderable(error_str):
 
     # Slice from whichever HTML marker appears first
     indices = [i for i in (doctype_idx, html_idx) if i >= 0]
-    html_part = error_str[min(indices):]
+    html_part = error_str[min(indices) :]
 
     try:
         h2t = html2text.HTML2Text()
@@ -151,13 +151,9 @@ MAX_EDIT_PREVIEW_ROUNDS = 2
 
 def _is_temporary_provider_error(error):
     error_message = str(error).lower()
-    if any(
-        marker in error_message for marker in _PERMANENT_UNAVAILABLE_MARKERS
-    ):
+    if any(marker in error_message for marker in _PERMANENT_UNAVAILABLE_MARKERS):
         return False
-    if any(
-        phrase in error_message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES
-    ):
+    if any(phrase in error_message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES):
         return True
     temporary_markers = (
         "temporarily",
@@ -222,6 +218,10 @@ def respond(interpreter):
     # same way _stopped_retrying is reset above.
     preview_rounds = 0
     last_previewed_edit = None
+    # The edit currently awaiting the LLM's verdict on its dry run. Held here
+    # so an approval that arrives as prose (no new edit emitted) can still
+    # reach the user's confirmation instead of being lost with the turn.
+    pending_review_edit = None
     # A stale True from a previous turn would make the terminal interface exit
     # after an unrelated, healthy turn; this function is the only writer, so a
     # turn always starts clean.
@@ -265,9 +265,7 @@ def respond(interpreter):
         }
 
         # Create the version of messages that we'll send to the LLM
-        messages_for_llm = [
-            m for m in interpreter.messages.copy() if m.get("role") != "system"
-        ]
+        messages_for_llm = [m for m in interpreter.messages.copy() if m.get("role") != "system"]
         messages_for_llm = [rendered_system_message] + messages_for_llm
 
         if insert_loop_message:
@@ -284,9 +282,9 @@ def respond(interpreter):
 
         ### RUN THE LLM ###
 
-        assert (
-            len(interpreter.messages) > 0
-        ), "User message was not passed in. You need to pass in at least one message."
+        assert len(interpreter.messages) > 0, (
+            "User message was not passed in. You need to pass in at least one message."
+        )
 
         if interpreter.messages[-1]["type"] not in ("code", "edit"):  # If it is, we run below
             try:
@@ -350,22 +348,25 @@ def respond(interpreter):
                 # Normalize provider/API errors (LiteLLM + OpenAI) so we can render
                 # them consistently using Rich, regardless of which exception class
                 # LiteLLM chose for the underlying provider (e.g. OpenRouter 5xx).
-                if isinstance(e, (
-                    # LiteLLM exception variants
-                    getattr(litellm, "APIError", Exception),
-                    getattr(litellm, "OpenAIError", Exception),
-                    litellm.exceptions.APIError,
-                    litellm.exceptions.OpenAIError,
-                    litellm.exceptions.NotFoundError,
-                    litellm.exceptions.BadRequestError,
-                    litellm.exceptions.RateLimitError,
-                    litellm.exceptions.AuthenticationError,
-                    getattr(litellm.exceptions, "APIConnectionError", Exception),
-                    *_LITELLM_OPTIONAL_API_EXCEPTIONS,
-                    # OpenAI Python client variants (defensive, in case they leak through)
-                    getattr(openai, "APIError", Exception),
-                    getattr(openai, "OpenAIError", Exception),
-                )):
+                if isinstance(
+                    e,
+                    (
+                        # LiteLLM exception variants
+                        getattr(litellm, "APIError", Exception),
+                        getattr(litellm, "OpenAIError", Exception),
+                        litellm.exceptions.APIError,
+                        litellm.exceptions.OpenAIError,
+                        litellm.exceptions.NotFoundError,
+                        litellm.exceptions.BadRequestError,
+                        litellm.exceptions.RateLimitError,
+                        litellm.exceptions.AuthenticationError,
+                        getattr(litellm.exceptions, "APIConnectionError", Exception),
+                        *_LITELLM_OPTIONAL_API_EXCEPTIONS,
+                        # OpenAI Python client variants (defensive, in case they leak through)
+                        getattr(openai, "APIError", Exception),
+                        getattr(openai, "OpenAIError", Exception),
+                    ),
+                ):
                     # Kept separately from is_temporary_error below, which is
                     # forced to False once the retry budget is spent. The prompt
                     # needs the underlying nature of the fault -- throttle versus
@@ -378,29 +379,21 @@ def respond(interpreter):
                     # below takes over. Clearing the flag means a later
                     # transient fault (after the user intervenes) retries again
                     # from scratch.
-                    if is_temporary_error and temporary_provider_error_retries >= (
-                        MAX_TEMPORARY_PROVIDER_RETRIES
-                    ):
+                    if is_temporary_error and temporary_provider_error_retries >= (MAX_TEMPORARY_PROVIDER_RETRIES):
                         is_temporary_error = False
                         temporary_provider_error_retries = 0
                     # A bodiless 400 is retried automatically: the same request
                     # succeeds on a retry, so asking the user to press "y" every
                     # time is pure friction. Bounded, and only when the gateway
                     # gave us nothing to act on.
-                    is_bodiless_400 = (
-                        _is_bodiless_400(e) and bodiless_400_retries < 1
-                    )
+                    is_bodiless_400 = _is_bodiless_400(e) and bodiless_400_retries < 1
                     if is_bodiless_400:
                         is_temporary_error = True
                     panel_border_style = "yellow" if is_temporary_error else "red"
                     panel_title = "Warning" if is_temporary_error else "Error"
-                    temporary_error_signature = (
-                        _temporary_error_signature(e) if is_temporary_error else None
-                    )
+                    temporary_error_signature = _temporary_error_signature(e) if is_temporary_error else None
                     if (
-                        is_temporary_error
-                        and temporary_error_signature
-                        == last_temporary_provider_error_signature
+                        is_temporary_error and temporary_error_signature == last_temporary_provider_error_signature
                     ) or is_bodiless_400:
                         temporary_provider_error_retries += 1
                         if is_bodiless_400:
@@ -442,7 +435,9 @@ def respond(interpreter):
                                                 result.extend(format_value(item, indent + 1))
                                         else:
                                             # For certain fields, show the value directly if it's already a helpful message
-                                            if key == "raw" or (key == "message" and isinstance(value, str) and len(value) < 100):
+                                            if key == "raw" or (
+                                                key == "message" and isinstance(value, str) and len(value) < 100
+                                            ):
                                                 result.append(f"{prefix}• {key}: {value}")
                                             else:
                                                 result.append(f"{prefix}• {key}: {value}")
@@ -454,10 +449,7 @@ def respond(interpreter):
 
                             formatted_error = "\n".join(lines)
                             panel = Panel(
-                                formatted_error,
-                                border_style=panel_border_style,
-                                title=panel_title,
-                                title_align="left"
+                                formatted_error, border_style=panel_border_style, title=panel_title, title_align="left"
                             )
                             # Yield a special chunk to stop Live display before printing error panel
                             # This prevents Live display from overwriting the error panel
@@ -471,10 +463,7 @@ def respond(interpreter):
                             yield {"type": "stop_live_display"}
                             print("")  # Newline so panel top border is not cut off
                             panel = Panel(
-                                display,
-                                border_style=panel_border_style,
-                                title=panel_title,
-                                title_align="left"
+                                display, border_style=panel_border_style, title=panel_title, title_align="left"
                             )
                             rich_print(panel)
                             print("")
@@ -484,12 +473,7 @@ def respond(interpreter):
                         display = _html_error_to_renderable(error_str) or error_str
                         yield {"type": "stop_live_display"}
                         print("")  # Newline so panel top border is not cut off by previous output
-                        panel = Panel(
-                            display,
-                            border_style=panel_border_style,
-                            title=panel_title,
-                            title_align="left"
-                        )
+                        panel = Panel(display, border_style=panel_border_style, title=panel_title, title_align="left")
                         rich_print(panel)
                         print("")  # Add space after error
 
@@ -573,11 +557,7 @@ def respond(interpreter):
                     return
 
                 clear_temporary_retry_status()
-                if (
-                    interpreter.offline == False
-                    and ("auth" in error_message or
-                         "api key" in error_message)
-                ):
+                if interpreter.offline == False and ("auth" in error_message or "api key" in error_message):
                     # Provide extra information on how to change API keys, if
                     # we encounter that error (Many people writing GitHub
                     # issues were struggling with this)
@@ -598,10 +578,8 @@ def respond(interpreter):
                         f"{output}\n\nThere might be an issue with your API key(s).{provider_hint}\n\n"
                         "To reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
                     )
-                elif (
-                    isinstance(e, litellm.exceptions.RateLimitError)
-                    and ("exceeded" in str(e).lower() or
-                         "insufficient_quota" in str(e).lower())
+                elif isinstance(e, litellm.exceptions.RateLimitError) and (
+                    "exceeded" in str(e).lower() or "insufficient_quota" in str(e).lower()
                 ):
                     display_markdown_message(
                         f""" > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
@@ -612,14 +590,9 @@ def respond(interpreter):
                         """
                     )
 
-                elif (
-                    interpreter.offline == False and "not have access" in str(e).lower()
-                ):
+                elif interpreter.offline == False and "not have access" in str(e).lower():
                     # Check for invalid model in error message and then fallback.
-                    if (
-                        "invalid model" in error_message
-                        or "model does not exist" in error_message
-                    ):
+                    if "invalid model" in error_message or "model does not exist" in error_message:
                         provider_message = f"\n\nThe model '{interpreter.llm.model}' does not exist or is invalid. Please check the model name and try again.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
                     elif "groq" in error_message:
                         provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. Please check with Groq for more details.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
@@ -666,8 +639,25 @@ def respond(interpreter):
 
         ### RUN FILE EDIT (if it's there) ###
 
+        # An edit the LLM has already reviewed can come back without an edit
+        # message: the model reads the preview and replies in prose ("that
+        # looks right"). That reply *is* the approval, so dispatch the
+        # reviewed edit from state. Dropping it here would silently lose an
+        # edit the user never got to approve.
+        resume_reviewed_edit = (
+            pending_review_edit is not None
+            and interpreter.messages[-1].get("type") == "message"
+            and interpreter.messages[-1].get("role") == "assistant"
+        )
+
         if interpreter.messages[-1]["type"] == "edit":
             edit_msg = interpreter.messages[-1]
+        elif resume_reviewed_edit:
+            edit_msg = pending_review_edit
+        else:
+            edit_msg = None
+
+        if edit_msg is not None:
             language = edit_msg["format"].lower().strip()
             code = edit_msg["content"]
             target = edit_msg.get("target", "")
@@ -696,13 +686,13 @@ def respond(interpreter):
                 # LLM-first review: every previewed edit is shown to the LLM
                 # for approval before the user ever sees it. Re-emitting the
                 # previewed edit unchanged approves it; emitting a different
-                # edit previews that one instead. This replaces the old
+                # edit previews that one instead; replying in prose ("that
+                # looks right") approves it too and is picked up above as
+                # resume_reviewed_edit. This replaces the old
                 # look-at-the-repr-first workflow: the LLM judges the actual
                 # diff while it can still fix it, and the user confirms an
                 # LLM-approved diff instead of a blind one. Rounds are capped
-                # per turn so a restless model still lands at the user prompt;
-                # a model that answers without an edit ends the turn under the
-                # existing non-compliance behavior, and the edit is dropped.
+                # per turn so a restless model still lands at the user prompt.
                 if (
                     dry_run_output is not None
                     and edit_key != last_previewed_edit
@@ -710,6 +700,7 @@ def respond(interpreter):
                 ):
                     preview_rounds += 1
                     last_previewed_edit = edit_key
+                    pending_review_edit = dict(edit_msg)
                     if not dry_run_ok:
                         status = "failed validation"
                     elif dry_run_no_change:
@@ -724,9 +715,10 @@ def respond(interpreter):
                                 f"[Dry-run preview of your {language} edit to {target} — "
                                 f"NOT shown to the user yet, nothing modified. "
                                 f"The dry run {status}:\n{dry_run_output}\n"
-                                f"Review the diff. Re-emit the SAME edit unchanged to approve it, "
-                                f"or emit a revised edit for another preview. "
-                                f"If you reply without an edit, the edit is discarded.]"
+                                f"Review this diff carefully: it will change the file if approved. "
+                                f"If it is correct, approve it by re-emitting the SAME edit unchanged "
+                                f"or by replying that the change is correct. "
+                                f"If it is wrong, emit a revised edit instead.]"
                             ),
                             "sent_at": time.time(),
                             # Core-injected, like the terminal's decline
@@ -739,6 +731,9 @@ def respond(interpreter):
 
                 # Yield confirmation so the terminal can prompt y/n (respects auto_run).
                 # format: "edit" distinguishes this from a code execution confirmation.
+                # The edit has left LLM review either way, so a later assistant
+                # message must not resurrect it.
+                pending_review_edit = None
                 try:
                     confirmation_content = {
                         "format": language,
@@ -757,9 +752,13 @@ def respond(interpreter):
                 except GeneratorExit:
                     break
 
-                # Re-read in case the user edited target/content (unlikely for edit, but consistent)
-                edit_msg = [m for m in interpreter.messages if m["type"] == "edit"][-1]
-                language = edit_msg["format"].lower().strip()
+                # Re-read in case the user edited target/content (unlikely for
+                # edit, but consistent). Only the terminal can rewrite an edit
+                # message it was just handed, so a resume from state (no such
+                # message in hand) keeps what was reviewed.
+                if not resume_reviewed_edit:
+                    edit_msg = [m for m in interpreter.messages if m["type"] == "edit"][-1]
+                    language = edit_msg["format"].lower().strip()
                 code = edit_msg["content"]
                 target = edit_msg.get("target", target)
 
@@ -822,16 +821,10 @@ def respond(interpreter):
                         code_dict = json.loads(edited_code)
                         language = code_dict.get("language", language)
                         code = code_dict.get("code", code)
-                        interpreter.messages[-1][
-                            "content"
-                        ] = code  # So the LLM can see it.
-                        interpreter.messages[-1][
-                            "format"
-                        ] = language  # So the LLM can see it.
+                        interpreter.messages[-1]["content"] = code  # So the LLM can see it.
+                        interpreter.messages[-1]["format"] = language  # So the LLM can see it.
                         if "code" in code_dict:
-                            notices.append(
-                                "Extracted code from a `functions.execute()` wrapper."
-                            )
+                            notices.append("Extracted code from a `functions.execute()` wrapper.")
                     except:
                         pass
 
@@ -842,9 +835,7 @@ def respond(interpreter):
                 if code.strip().endswith("executeexecute"):
                     code = code.replace("executeexecute", "")
                     try:
-                        interpreter.messages[-1][
-                            "content"
-                        ] = code  # So the LLM can see it.
+                        interpreter.messages[-1]["content"] = code  # So the LLM can see it.
                     except:
                         pass
                     notices.append("Removed a stray trailing `executeexecute`.")
@@ -855,44 +846,26 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1][
-                                "content"
-                            ] = code  # So the LLM can see it.
-                            interpreter.messages[-1][
-                                "format"
-                            ] = language  # So the LLM can see it.
-                            notices.append(
-                                "Extracted code from a JSON `{language: ...}` block."
-                            )
+                            interpreter.messages[-1]["content"] = code  # So the LLM can see it.
+                            interpreter.messages[-1]["format"] = language  # So the LLM can see it.
+                            notices.append("Extracted code from a JSON `{language: ...}` block.")
                     except:
                         pass
 
                 if code.replace("\n", "").replace(" ", "").startswith("{language:"):
                     try:
-                        code = code.replace("language: ", '"language": ').replace(
-                            "code: ", '"code": '
-                        )
+                        code = code.replace("language: ", '"language": ').replace("code: ", '"code": ')
                         code_dict = json.loads(code)
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1][
-                                "content"
-                            ] = code  # So the LLM can see it.
-                            interpreter.messages[-1][
-                                "format"
-                            ] = language  # So the LLM can see it.
-                            notices.append(
-                                "Extracted code from a JSON `{language: ...}` block."
-                            )
+                            interpreter.messages[-1]["content"] = code  # So the LLM can see it.
+                            interpreter.messages[-1]["format"] = language  # So the LLM can see it.
+                            notices.append("Extracted code from a JSON `{language: ...}` block.")
                     except:
                         pass
 
-                if (
-                    language == "text"
-                    or language == "markdown"
-                    or language == "plaintext"
-                ):
+                if language == "text" or language == "markdown" or language == "plaintext":
                     # It does this sometimes just to take notes. Let it, it's useful.
                     # In the future we should probably not detect this behavior as code at all.
                     real_content = interpreter.messages[-1]["content"]
@@ -997,9 +970,7 @@ def respond(interpreter):
                     if removed_toolbox:
                         code = "\n".join(kept_lines)
                         interpreter.messages[-1]["content"] = code
-                        notices.append(
-                            "Removed redundant `import toolbox` (toolbox is already available)."
-                        )
+                        notices.append("Removed redundant `import toolbox` (toolbox is already available).")
 
                 removed_notice = "; ".join(notices) if notices else None
 
@@ -1022,9 +993,7 @@ def respond(interpreter):
                     break
 
                 # They may have edited the code! Grab it again
-                code = [m for m in interpreter.messages if m["type"] == "code"][-1][
-                    "content"
-                ]
+                code = [m for m in interpreter.messages if m["type"] == "code"][-1]["content"]
 
                 # don't let it import toolbox — we handle that!
                 if interpreter.toolbox.import_toolbox_api and language == "python":
@@ -1128,9 +1097,7 @@ def respond(interpreter):
                             """,
                         )
                         result = result[-1]["content"]
-                        interpreter.toolbox.load_dict(
-                            json.loads(result.strip('"').strip("'"))
-                        )
+                        interpreter.toolbox.load_dict(json.loads(result.strip('"').strip("'")))
                 except Exception as e:
                     if interpreter.debug:
                         raise
@@ -1197,16 +1164,11 @@ def respond(interpreter):
                 interpreter.loop
                 and interpreter.messages
                 and interpreter.messages[-1].get("role", "") == "assistant"
-                and not any(
-                    task_status in interpreter.messages[-1].get("content", "")
-                    for task_status in loop_breakers
-                )
+                and not any(task_status in interpreter.messages[-1].get("content", "") for task_status in loop_breakers)
             ):
                 # Remove past loop_message messages
                 interpreter.messages = [
-                    message
-                    for message in interpreter.messages
-                    if message.get("content", "") != loop_message
+                    message for message in interpreter.messages if message.get("content", "") != loop_message
                 ]
                 # Combine adjacent assistant messages, so hopefully it learns to just keep going!
                 combined_messages = []

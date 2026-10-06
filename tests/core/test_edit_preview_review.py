@@ -148,6 +148,91 @@ def test_reemitted_edit_counts_as_approval_not_another_preview(quiet_respond):
     assert len(dry_calls) == 2, "approval re-runs the dry run fresh, never reuses a stale preview"
 
 
+def test_prose_approval_still_reaches_the_user(quiet_respond):
+    """Replying "that looks right" is approval, not a dropped edit.
+
+    Many models answer the preview in prose instead of re-emitting the tool
+    call. That verdict must still land the edit at the user's prompt -- losing
+    it here would silently discard an edit the user never approved.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm([[{"role": "assistant", "type": "message", "content": "That change looks right."}]])
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 1, "the prose verdict is the LLM call that reviews the preview"
+    assert confirmation["content"]["content"] == "s/a/b/"
+    assert confirmation["content"]["dry_run_ok"] is True
+
+
+def test_prose_reply_after_failure_approves_the_revision(quiet_respond):
+    """A prose verdict also approves an edit that needed a revision first.
+
+    The revision gets its own preview; approving it in prose must still reach
+    the user rather than ending the turn with the revision discarded.
+    """
+    monkeypatch = quiet_respond
+    _scripted_dry_run(
+        monkeypatch,
+        [
+            {"output": "sed: no commands in code", "ok": False},
+            {"output": "--- a\n+++ b\n@@", "ok": True},
+            {"output": "--- a\n+++ b\n@@", "ok": True},
+        ],
+    )
+    llm = _FakeLlm(
+        [
+            [_edit_chunk(code="s/a/b/")],
+            [{"role": "assistant", "type": "message", "content": "Yes, approve that."}],
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code=""))
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 2
+    assert confirmation["content"]["content"] == "s/a/b/"
+    assert len(_preview_feedback(interpreter)) == 2, "both the failure and the revision previewed"
+
+
+def test_prose_reply_without_an_edit_chunk_leaves_no_double_edit(quiet_respond):
+    """The reviewed edit runs once, and only the approved one.
+
+    After the confirmation the edit must not be re-entered by later assistant
+    messages: the file is written by exactly the run_edit call behind the one
+    confirmation the user saw.
+    """
+    monkeypatch = quiet_respond
+    edits_run = []
+    monkeypatch.setattr(respond_mod, "run_edit", lambda language, code, target: edits_run.append(code) or "ok")
+    _scripted_dry_run(monkeypatch, [{"output": "--- a\n+++ b\n@@", "ok": True}] * 5)
+    llm = _FakeLlm(
+        [
+            [_edit_chunk(code="s/a/b/")],
+            [{"role": "assistant", "type": "message", "content": "Looks right to me."}],
+            [{"role": "assistant", "type": "message", "content": "Done."}],
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, _edit_chunk(code="s/a/b/"))
+
+    stream = respond(interpreter)
+    try:
+        for chunk in stream:
+            if chunk.get("type") == "confirmation":
+                break
+            if chunk.get("role") == "assistant" and chunk.get("type") in ("message", "edit"):
+                interpreter.messages.append(dict(chunk))
+        # Resume past the confirmation the way core does, into the run.
+        for _ in stream:
+            break
+    finally:
+        stream.close()
+
+    assert edits_run == ["s/a/b/"], "the approved edit runs exactly once"
+
+
 def test_failing_dry_run_is_revised_before_user_confirmation(quiet_respond):
     """A failing dry run goes back to the LLM with the error, not to the user.
 
