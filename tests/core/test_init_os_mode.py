@@ -31,7 +31,7 @@ def _in_repo():
     import os
 
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.abspath(os.path.join(here, "..", "..", ".."))
+    return os.path.abspath(os.path.join(here, "..", ".."))
 
 
 def _run_python(argv_extra, timeout=180):
@@ -45,13 +45,19 @@ def _run_python(argv_extra, timeout=180):
     code = textwrap.dedent(
         """
         import sys
+        from unittest.mock import patch
         sys.argv = ["prog"] + {argv!r}
-        try:
-            import interpreter
-        except BaseException as error:
-            print("FAIL", type(error).__name__, str(error)[:80])
-        else:
-            print("OK")
+        # The version check must never touch the network from a test, before or
+        # after #407 is fixed: today the TypeError precedes it, but once the
+        # shadowing is fixed `requests.get` would fire for real.
+        with patch("requests.get") as get:
+            get.return_value.json.return_value = {{"info": {{"version": "0"}}}}
+            try:
+                import interpreter
+            except BaseException as error:
+                print("FAIL", type(error).__name__, str(error)[:80])
+            else:
+                print("OK")
         """
     ).format(argv=list(argv_extra))
     return subprocess.run(
