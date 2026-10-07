@@ -45,3 +45,4 @@ def create_temporary_file(contents, extension=None, verbose=False):
         print(f"Could not create temporary file.")
         print(e)
         print("")
+        raise
