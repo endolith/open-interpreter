@@ -254,8 +254,9 @@ def run_write(target, code):
 
     Overwriting used to be refused, which taught models a worse habit: write,
     get blocked, delete the file, write again. A write that would replace a
-    file now previews as a diff first, so by the time this runs the user has
-    confirmed the replacement.
+    file now produces a diff preview first and passes the same model-then-user
+    approval as every other edit, so by the time this runs the replacement
+    has been reviewed twice.
     """
     _validate_target(target, must_exist=None)
     path = Path(target)
@@ -815,10 +816,10 @@ def dry_run_edit(language, code, target):
     if language == "poke":
         return None
     if language == "write":
-        # A write that would replace an existing file previews the diff it
-        # would produce, like every other edit. A brand-new file has nothing
-        # to diff against, and an undecodable (binary) target has no text
-        # diff to show.
+        # A write that would replace an existing file is an overwrite: show
+        # the diff it would produce so it passes the same approval as every
+        # other edit. A brand-new file has nothing to diff against, and an
+        # undecodable (binary) target has no text diff to show.
         if os.path.isfile(target):
             preview = unified_edit_diff(target, code)
             if preview is not None:
@@ -827,6 +828,7 @@ def dry_run_edit(language, code, target):
                 return {
                     "output": "write: no changes (content is identical to the current file)",
                     "ok": True,
+                    "no_change": True,
                 }
         return None
 

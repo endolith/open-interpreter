@@ -564,6 +564,56 @@ def _info_notice(call_id="call-1"):
     }
 
 
+def test_write_overwrite_passes_the_same_gate(quiet_respond):
+    """A write that replaces a file is ruled on like any other edit.
+
+    The dry run diffs the new body against the file on disk, the model reads
+    it in-tool, and only the approve_edit call opens the user's gate -- the
+    same two-gate sequence as sed. This ends the old write-blocked-delete-
+    rewrite dance: the replacement is reviewed twice instead of snuck in.
+    """
+    monkeypatch = quiet_respond
+    monkeypatch.setattr(
+        respond_mod, "dry_run_edit", lambda *a, **k: pytest.fail("must reuse the reviewed diff")
+    )
+    llm = _FakeLlm(
+        [
+            [
+                _edit_chunk(language="write", code="new body\n", call_id="call-1"),
+                _preview_response(call_id="call-1", output="--- f\n+++ f\n@@\n-old\n+new"),
+            ],
+            _approve(),
+        ]
+    )
+    interpreter = _FakeInterpreter(llm, None)
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 2, "the proposal, then the turn that rules on it"
+    assert confirmation["content"]["content"] == "new body\n"
+    assert confirmation["content"]["llm_approved"] is True
+    assert confirmation["content"]["dry_run_output"] == "--- f\n+++ f\n@@\n-old\n+new"
+
+
+def test_overwrite_preview_teaches_the_gate(tmp_path):
+    """The overwrite diff arrives with the same ruling instruction as sed's."""
+    import interpreter.core.llm.run_tool_calling_llm as run_mod
+
+    target = tmp_path / "notes.txt"
+    target.write_text("old line\n")
+
+    class _StubInterpreter:
+        auto_run = False
+
+    content, meta = run_mod._edit_preview_response(
+        _StubInterpreter(), "write", "new line\n", str(target)
+    )
+
+    assert meta["ok"] is True
+    assert "-old line" in content and "+new line" in content
+    assert "approve_edit" in content
+
+
 def test_write_edit_goes_straight_to_the_user_unmarked(quiet_respond):
     """A write proposal must not be tried by a gate that never opened.
 
