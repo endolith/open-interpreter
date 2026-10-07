@@ -30,7 +30,7 @@ class SMS:
         if sys.platform.lower() != "darwin":
             print("Only supported on Mac.")
             return
-        message_escaped = message.replace('"', '\\"').replace("\\", "\\\\")
+        message_escaped = message.replace("\\", "\\\\").replace('"', '\\"')
         script = f"""
         tell application "Messages"
             set targetBuddy to "{to}"
