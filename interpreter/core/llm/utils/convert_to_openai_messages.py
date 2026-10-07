@@ -104,6 +104,14 @@ def _use_modern_tool_calls(interpreter) -> bool:
     models are unaffected, which is the property the old "openai/" alternative
     could not provide -- it matched any OpenAI route with "deepseek" in the
     name, whatever the base URL.
+
+    Every openrouter/ route gets the modern shape too. OpenRouter accepts
+    tool_calls/tool universally and translates per upstream provider, while its
+    request validator rejects the legacy role outright ("expected one of
+    system|user|assistant|tool|developer", 400) -- so a single executed code
+    block in history, converted to a function message, poisons every later
+    request on the route, retries included, with no recovery except dropping
+    the history.
     """
     llm = getattr(interpreter, "llm", None)
     try:
@@ -115,7 +123,7 @@ def _use_modern_tool_calls(interpreter) -> bool:
     m = model.lower()
     return (
         m.startswith("deepseek/")
-        or (m.startswith("openrouter/") and "deepseek" in m)
+        or m.startswith("openrouter/")
         or (m.startswith("opencode_go/") and "deepseek" in m)
     )
 
