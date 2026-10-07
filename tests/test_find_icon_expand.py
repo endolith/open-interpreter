@@ -5,7 +5,17 @@ width as image_width - x - width (re-subtracting the original size),
 collapsing the click target instead of trimming it to the edge.
 """
 
-from interpreter.core.computer.display.point.point import _expand_boxes
+import sys
+import types
+from unittest import mock
+
+# point.py imports cv2 at module level, which is not available in CI.
+# _expand_boxes is a pure function that doesn't use cv2, so mock the import
+# with a proper module spec.
+cv2_mock = types.ModuleType("cv2")
+cv2_mock.__spec__ = mock.MagicMock()
+with mock.patch.dict(sys.modules, {"cv2": cv2_mock}):
+    from interpreter.core.computer.display.point.point import _expand_boxes
 
 
 def test_right_edge_box_clips_to_edge():
