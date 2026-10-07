@@ -590,3 +590,38 @@ def test_plain_openai_models_are_unaffected_by_the_go_route():
 
     assert not any(m.get("tool_calls") for m in out)
     assert any(m.get("role") == "function" for m in out)
+
+
+def test_openrouter_routes_without_deepseek_use_modern_tool_calls():
+    """Every openrouter/ route gets the modern shape, DeepSeek or not.
+
+    OpenRouter's request validator rejects the legacy role outright
+    ("expected one of system|user|assistant|tool|developer", 400), so a single
+    executed code block in history -- converted to a function message -- poisoned
+    every later request on the route, retries included, with no recovery except
+    dropping the history. Seen after %undo + retry on an openrouter non-DeepSeek
+    route: the retry prompt appeared, but every retry 400d the same way.
+    OpenRouter accepts tool_calls/tool universally and translates per upstream
+    provider, so the legacy shape buys nothing there.
+    """
+
+    class _OpenRouterGpt(_FakeInterpreter):
+        class llm:
+            model = "openrouter/openai/gpt-4o-mini"
+
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+        {"role": "user", "type": "message", "content": "ok another revision, try them again"},
+    ]
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_OpenRouterGpt())
+
+    assert not any("function_call" in m for m in out)
+    roles = [m.get("role") for m in out]
+    assert "function" not in roles, f"legacy role rejected by OpenRouter: {roles}"
+    assert all(r in ("system", "user", "assistant", "tool", "developer") for r in roles), roles
+    calls = [m for m in out if m.get("tool_calls")]
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(calls) == 1 and len(outputs) == 1
+    assert outputs[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
