@@ -357,6 +357,48 @@ def tool_chain_text_reply(messages: list) -> str | None:
     return None
 
 
+_PARALLEL_KEYWORD = "in parallel"
+_PARALLEL_PYTHON_CODE = 'with open("p1.txt", "w") as f:\n    f.write("first")'
+_PARALLEL_SHELL_CODE = 'echo "second" > p2.txt'
+
+
+def parallel_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the parallel tool-calls scenario, or None.
+
+    One assistant turn carries TWO tool_calls entries (indexes 0 and 1),
+    mirroring how providers batch independent calls. The simulated
+    conversation:
+
+    - User
+      - message: "Please run two things in parallel: ..."
+    - Assistant
+      - tool_call execute(python) [index 0]: write "first" to p1.txt
+      - tool_call execute(shell) [index 1]: write "second" to p2.txt
+    - Tool(s)
+      - result(s)
+    - Assistant
+      - message: "Parallel calls complete."
+
+    Step state follows the same stateless assistant-count pattern as the
+    tool chain. There is no text-mode variant: fenced code blocks arrive
+    one per turn, so parallelism is only expressible as tool_calls deltas.
+    """
+    history = _user_history_text(messages).lower()
+    if _PARALLEL_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _PARALLEL_KEYWORD)
+    if turns == 0:
+        python_args = json.dumps({"language": "python", "code": _PARALLEL_PYTHON_CODE})
+        shell_args = json.dumps({"language": "shell", "code": _PARALLEL_SHELL_CODE})
+        return [
+            _tool_call_delta("call_parallel_1", "execute", python_args, index=0),
+            _tool_call_delta("call_parallel_2", "execute", shell_args, index=1),
+        ]
+    if turns == 1:
+        return [{"content": "Parallel calls complete."}]
+    return None
+
+
 def _persist_step(keyword: str, turn: int):
     """One step of the cross-prompt state scenario, or None when done.
 
@@ -588,6 +630,8 @@ class _Handler(BaseHTTPRequestHandler):
             deltas = persist_tool_deltas(messages)
             if deltas is None:
                 deltas = tool_chain_tool_deltas(messages)
+            if deltas is None:
+                deltas = parallel_tool_deltas(messages)
             if deltas is None:
                 deltas = [{"content": "Hello, World!"}]
             if stream:
