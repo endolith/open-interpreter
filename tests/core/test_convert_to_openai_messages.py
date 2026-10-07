@@ -592,6 +592,37 @@ def test_plain_openai_models_are_unaffected_by_the_go_route():
     assert any(m.get("role") == "function" for m in out)
 
 
+def test_opencode_go_routes_use_modern_tool_calls_whatever_the_model():
+    """The Go gateway rejects the legacy shape for every model it serves.
+
+    _use_modern_tool_calls()'s own docstring already said so, but the condition
+    only matched opencode_go/ routes with "deepseek" in the name -- any other
+    model on the gateway kept emitting role: function, which the gateway rejects
+    ("expected one of system|user|assistant|tool|developer", 400). Seen live on
+    an opencode_go non-DeepSeek route: code in history, then every request 400s,
+    retries included.
+    """
+
+    class _GoGpt(_FakeInterpreter):
+        class llm:
+            model = "opencode_go/openai/gpt-4o-mini"
+
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
+        {"role": "computer", "type": "console", "format": "output", "content": "A"},
+    ]
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_GoGpt())
+
+    assert not any("function_call" in m for m in out)
+    roles = [m.get("role") for m in out]
+    assert "function" not in roles, f"legacy role rejected by the gateway: {roles}"
+    calls = [m for m in out if m.get("tool_calls")]
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(calls) == 1 and len(outputs) == 1
+    assert outputs[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
+
+
 def test_openrouter_routes_without_deepseek_use_modern_tool_calls():
     """Every openrouter/ route gets the modern shape, DeepSeek or not.
 

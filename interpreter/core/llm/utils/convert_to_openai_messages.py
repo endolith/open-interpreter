@@ -124,7 +124,7 @@ def _use_modern_tool_calls(interpreter) -> bool:
     return (
         m.startswith("deepseek/")
         or m.startswith("openrouter/")
-        or (m.startswith("opencode_go/") and "deepseek" in m)
+        or m.startswith("opencode_go/")
     )
 
 
