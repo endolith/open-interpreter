@@ -892,6 +892,10 @@ def test_context_mode_accumulates_plain_message(client, server_pair):
             [{"role": "assistant", "type": "message", "content": "hi"}]
         )
     )
+    # Reset the global so the 6-second window check doesn't fall through
+    # due to a prior test having set last_start_time recently.
+    import interpreter.core.async_core as async_core
+    async_core.last_start_time = 0
     client.post(
         "/openai/chat/completions",
         json={"messages": [{"role": "user", "content": "{CONTEXT_MODE_ON}"}]},
