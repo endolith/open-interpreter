@@ -148,6 +148,32 @@ approve_edit_tool_schema = {
 }
 
 
+def _unsupported_tool_error(interpreter, function_name):
+    """Error text for a tool name the model invented or remembers.
+
+    When a dry run is waiting for its ruling, models coming from older
+    sessions reach for the retired `review_edit` verdict tool. The generic
+    "only execute/edit/view_image" reply would leave them no path to the gate
+    that exists -- so name it: approve_edit to sign off, edit to revise.
+    Without this the attempt errors, the model talks instead, the quiet-turn
+    limit burns, and the user is asked about a diff the model never ruled on.
+    """
+    error_msg = (
+        f"Unsupported function call: '{function_name}'. "
+        f"Only 'execute', 'edit', and 'view_image' (vision models only) are supported as direct tool calls. "
+        f"To use '{function_name}', call it from within Python code using the execute function. "
+        f"For example: `toolbox.web.search('your query')`"
+    )
+    if getattr(interpreter, "_edit_review_pending", None):
+        error_msg += (
+            " A dry run is waiting for your ruling: call approve_edit to "
+            "approve it, or call edit again with a corrected edit."
+        )
+        if function_name == "review_edit":
+            error_msg += " review_edit no longer exists; approve_edit is its replacement."
+    return error_msg
+
+
 def _edit_preview_response(interpreter, language, code, target):
     """Build the tool response that shows the model what an edit would change.
 
@@ -1350,12 +1376,7 @@ def run_tool_calling_llm(llm, request_params):
         elif function_name:
             # Unsupported function call - yield error as tool response to maintain proper message ordering
             # The API expects: assistant (with tool_call) → tool (response) → user
-            error_msg = (
-                f"Unsupported function call: '{function_name}'. "
-                f"Only 'execute', 'edit', and 'view_image' (vision models only) are supported as direct tool calls. "
-                f"To use '{function_name}', call it from within Python code using the execute function. "
-                f"For example: `toolbox.web.search('your query')`"
-            )
+            error_msg = _unsupported_tool_error(llm.interpreter, function_name)
 
             # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
             # Any assistant message content the model sent before this tool call is already yielded above with role "assistant".
