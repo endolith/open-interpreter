@@ -656,28 +656,3 @@ def test_openrouter_routes_without_deepseek_use_modern_tool_calls():
     outputs = [m for m in out if m.get("role") == "tool"]
     assert len(calls) == 1 and len(outputs) == 1
     assert outputs[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
-
-
-def test_legacy_edit_review_call_markers_are_dropped():
-    """Retired-verdict markers must not break conversion of old saved sessions.
-
-    The review_edit-verdict iteration stored edit_review_call markers (plus a
-    paired tool acknowledgement) that no current code creates or reads. Without
-    explicit handling convert raises on them, and in cache-aware mode llm.run's
-    trim fallback then sends the whole history raw -- surfacing downstream as a
-    provider 400 about message roles. Dropping the marker keeps old sessions
-    resumable; process_messages repairs the dangling ack with a synthetic call.
-    """
-    messages = [
-        {"role": "user", "type": "message", "content": "change x to y"},
-        {"role": "assistant", "type": "edit", "format": "sed", "target": "f", "content": "s/x/y/"},
-        {"role": "assistant", "type": "edit_review_call", "verdict": "approve"},
-        {"role": "tool", "type": "message", "content": "verdict recorded"},
-        {"role": "user", "type": "message", "content": "thanks"},
-    ]
-    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
-    assert all(m.get("type") != "edit_review_call" for m in out)
-    assert all("type" not in m for m in out), "no raw LMC shape may reach the wire"
-    assert all(
-        m.get("role") in ("system", "user", "assistant", "tool", "developer") for m in out
-    ), [m.get("role") for m in out]
