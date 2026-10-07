@@ -433,13 +433,13 @@ _SENTENCE = "The quick brown fox jumps over the lazy dog."
 def _request_carrying(requests: list[dict], marker: str, occurrence: int = 0) -> dict:
     """The first recorded request whose history contains an assistant step with `marker`.
 
-    Selected by content rather than by index. The errand's final step is sent
+    Selected by content rather than by index. The tool chain's final step is sent
     twice — once, and again after the model sees its traceback — so `requests[3]`
     and `requests[4]` both contain it. Indexing into that is fragile: adding or
     removing any earlier step shifts both, and the assertion would then be reading
     a different request entirely rather than failing.
 
-    Which occurrence matters. The errand's failing step is sent twice: the first
+    Which occurrence matters. The tool chain's failing step is sent twice: the first
     request carrying it also carries that step's own output, so it holds the
     traceback. The second is the follow-up the model sends after seeing it, and
     holds whatever the model did next — which is where the recovery output lands.
@@ -596,7 +596,7 @@ def test_a_traceback_reaches_the_provider_on_the_next_request(
     """A failed execution's traceback is sent back to the model, not swallowed.
 
     This is the residual gap #353 identified after its own tests were ported:
-    the mock's errand machine advances by counting assistant turns, so it never
+    the mock's tool-chain machine advances by counting assistant turns, so it never
     looks at error text. A regression that stops feeding tracebacks to the
     provider would therefore still let every other test in this file pass, and
     the model would silently never learn why its code failed.
