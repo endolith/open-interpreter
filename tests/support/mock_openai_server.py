@@ -566,6 +566,7 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
     def do_POST(self):  # noqa: N802
+        """Record chat-completion requests and serve canned JSON or streaming replies."""
         if self.path not in ("/v1/chat/completions", "/chat/completions"):
             self.send_error(404)
             return
@@ -688,6 +689,7 @@ class MockOpenAIServer:
     """In-process HTTP server that mimics OpenAI chat completions for tests."""
 
     def __init__(self):
+        """Initialize a stopped server with empty request history and split text deltas."""
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         # Every request body the handler received, in arrival order. Asserting
@@ -709,6 +711,7 @@ class MockOpenAIServer:
         return f"http://{host}:{port}/v1"
 
     def start(self):
+        """Serve requests on an available loopback port in a background thread."""
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self._httpd.mock_server = self
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
