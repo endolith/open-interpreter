@@ -1408,16 +1408,31 @@ def fixed_litellm_completions(**params):
 
     while True:
         try:
+            completion = litellm.completion(**params)
+            if completion is None:
+                # litellm can come back with no response at all -- a provider that
+                # returns an empty stream, or a wrapper in the call path that
+                # short-circuits. Iterating None raises TypeError from deep
+                # inside the stream, and nothing classifies a TypeError as a
+                # provider fault, so it escapes the retry loop and unwinds the
+                # whole session with a bare traceback and no prompt. Report what
+                # actually happened instead: the provider gave us nothing, which
+                # respond.py already knows how to surface as a retry.
+                raise litellm.exceptions.APIConnectionError(
+                    message="litellm.completion returned no response",
+                    llm_provider=params.get("custom_llm_provider") or "litellm",
+                    model=params.get("model") or "",
+                )
             if debug_dump:
                 _chunks = []
-                for _chunk in litellm.completion(**params):
+                for _chunk in completion:
                     _chunks.append(_chunk)
                     yield _chunk
                 _dump_litellm_response(
                     debug_request_id, params.get("model"), _chunks
                 )
                 return
-            yield from litellm.completion(**params)
+            yield from completion
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
             # Re-raise so terminal_interface.py's outer handler can cancel the
