@@ -171,6 +171,28 @@ def _unsupported_tool_error(interpreter, function_name):
     return error_msg
 
 
+def _no_preview_notice(interpreter, edit_language):
+    """Tool answer when an edit has no dry run (write, poke, or auto_run).
+
+    The call still needs an answer -- a dangling call would be "repaired"
+    with a synthetic Interrupted message -- but there is nothing for the
+    model to rule on, so this opens no review: pending stays unset and
+    approve_edit is not offered. poke has no text diff to show (it would
+    need a hex representation) and may be dropped as a tool entirely; write
+    needs none, since the model authored the content in this very call.
+    """
+    if getattr(interpreter, "auto_run", False):
+        return (
+            "Auto-run is on, so no preview was produced and no confirmation "
+            "is needed. Continue."
+        )
+    return (
+        f"No dry-run preview is available for {edit_language}: nothing was "
+        "modified. There is nothing for you to rule on -- the user is asked "
+        "to confirm. Continue."
+    )
+
+
 def _edit_preview_response(interpreter, language, code, target):
     """Build the tool response that shows the model what an edit would change.
 
@@ -1340,11 +1362,12 @@ def run_tool_calling_llm(llm, request_params):
                     # instruction in _edit_preview_response). Reading this diff
                     # is what puts the review in play; the approval tool only
                     # appears once there is something to rule on.
-                    llm.interpreter._edit_review_pending = True
                     preview_response, preview_meta = _edit_preview_response(
                         llm.interpreter, edit_language, edit_code, edit_target
                     )
                     if preview_response is not None:
+                        # A diff to rule on: the gate is in play.
+                        llm.interpreter._edit_review_pending = True
                         yield {
                             "role": "tool",
                             "tool_call_id": tool_call_id_for_error,
@@ -1354,6 +1377,22 @@ def run_tool_calling_llm(llm, request_params):
                             # shows the same diff the model reviewed.
                             "edit_preview": preview_meta,
                         }
+                    else:
+                        # No dry run (write, poke, auto_run): the model has
+                        # nothing to rule on, so the gate stays out -- pending
+                        # is left unset and approve_edit is not offered. The
+                        # call is still answered; a dangling call would be
+                        # repaired with a synthetic Interrupted message.
+                        notice = _no_preview_notice(llm.interpreter, edit_language)
+                        if tool_call_id_for_error:
+                            yield {
+                                "role": "tool",
+                                "tool_call_id": tool_call_id_for_error,
+                                "type": "message",
+                                "content": notice,
+                            }
+                        else:
+                            yield {"role": "assistant", "type": "message", "content": notice}
             else:
                 error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"
                 if (

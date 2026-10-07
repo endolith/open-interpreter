@@ -816,8 +816,14 @@ def respond(interpreter):
                         confirmation_content["dry_run_output"] = dry_run_output
                         confirmation_content["dry_run_ok"] = dry_run_ok
                     # Two gates: the model's, then the user's. The prompt says so
-                    # when the first one was never passed.
-                    confirmation_content["llm_approved"] = edit_approved
+                    # when the first one was never passed. An edit with no dry
+                    # run (write, poke) never entered the model's gate -- there
+                    # was nothing to rule on -- so approval is not applicable
+                    # rather than failed, and the prompt stays silent about it.
+                    # (The terminal shows its Note only when this is False.)
+                    confirmation_content["llm_approved"] = (
+                        edit_approved if preview_meta is not None else None
+                    )
                     yield {
                         "role": "computer",
                         "type": "confirmation",
