@@ -512,3 +512,100 @@ def test_stashed_costs_match_fresh_recount():
         converted, SYSTEM, 3000, retention_ratio=0.8, model=MODEL, message_costs=costs
     )
     assert plain == with_costs
+
+
+class _RunSentinel(Exception):
+    """Raised by the stubbed completions: reaching it proves run() got past
+    conversion/trim to the send stage."""
+
+
+def _run_harness():
+    """Drive the real Llm.run message-prep with fakes (no network, no load).
+
+    Returns (llm, interpreter, sent) where sent captures completions kwargs.
+    """
+    llm = Llm.__new__(Llm)
+    interp = _FakeInterpreter()
+    interp.messages = []
+    interp.shrink_images = False
+    interp.terminal = types.SimpleNamespace(languages=[])
+    interp.verbose = False
+    interp.debug = False
+    llm.interpreter = interp
+    interp.llm = llm
+    llm._model = "opencode_go/test-model"
+    llm._is_loaded = True
+    llm._is_opencode_go = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.vision_renderer = None
+    llm.retention_ratio = 0.8
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+    llm.sanitize_secrets = "off"
+    llm.extra_headers = None
+    llm.max_budget = None
+    llm.log_litellm_requests = False
+    llm.tool_calling_instructions = None
+    llm.include_reasoning = None
+    llm.reasoning_effort = None
+    llm.api_key = "test-key"
+    llm.api_base = "https://example.invalid"
+    llm.api_version = None
+    llm.temperature = None
+    llm._is_hosted_i_model = False
+    interp.conversation_id = "test-conversation"
+    llm._conversion_cache = None
+    sent = {}
+
+    def fake_completions(**kwargs):
+        sent.update(kwargs)
+        raise _RunSentinel()
+
+    llm.completions = fake_completions
+    return llm, interp, sent
+
+
+def _run_derived(interp, system=SYSTEM):
+    stored = interp.messages
+    return [{"role": "system", "type": "message", "content": system}] + [
+        m for m in stored if m.get("role") != "system"
+    ]
+
+
+def test_run_surfaces_conversion_error_instead_of_sending_raw():
+    """Cache-aware run() must never send raw LMC messages on conversion failure.
+
+    Conversion runs inside cached_convert_and_trim, inside run()'s trim
+    try/except. The fallback used to prepend a system message to the still-raw
+    list, so one unconvertible stored chunk produced a fully raw request --
+    surfacing downstream as a provider 400 about message roles instead of the
+    real error. The fallback now re-runs the legacy full conversion, which
+    raises loudly for genuinely unconvertible chunks.
+    """
+    llm, interp, _sent = _run_harness()
+    _turn(llm, "do it", "2026-10-06T22:00:00")
+    interp.messages.append({"role": "assistant", "type": "no_such_type", "content": "???"})
+
+    import pytest
+
+    with pytest.raises(Exception, match="Unable to convert"):
+        list(llm.run(_run_derived(interp)))
+
+
+def test_run_sends_converted_messages_on_cache_path():
+    """Control: known-good history in cache-aware mode reaches the send stage
+    fully converted (no raw LMC shape with type/format keys)."""
+    llm, interp, sent = _run_harness()
+    _turn(llm, "do it", "2026-10-06T22:00:00")
+
+    import pytest
+
+    with pytest.raises(_RunSentinel):
+        list(llm.run(_run_derived(interp)))
+    assert "messages" in sent
+    assert not any("type" in m for m in sent["messages"]), "raw LMC reached the wire"
+    assert all(
+        m.get("role") in ("system", "user", "assistant", "tool", "developer")
+        for m in sent["messages"]
+    )
