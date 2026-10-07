@@ -566,6 +566,11 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
     def do_POST(self):  # noqa: N802
+        """Record chat completion requests and serve canned text or tool replies.
+
+        Honor the requested streaming format; single_delta combines streamed
+        text into one chunk so tests can exercise both reply arrival shapes.
+        """
         if self.path not in ("/v1/chat/completions", "/chat/completions"):
             self.send_error(404)
             return
