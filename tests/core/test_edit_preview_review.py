@@ -526,12 +526,11 @@ def test_preview_response_names_the_approval_call(quiet_respond):
     assert "say so in a sentence" not in content
 
 
-def test_retired_verdict_name_is_steered_to_the_gate(quiet_respond):
-    """A model reaching for review_edit must be shown approve_edit.
+def test_unsupported_call_names_the_gate_while_pending(quiet_respond):
+    """An unknown tool name mid-review must point at the gate that exists.
 
-    Sessions resumed from the retired verdict iteration remember a
-    `review_edit` tool that no longer exists. The generic unsupported-call
-    reply would leave the model no path to the gate: the attempt errors, the
+    The generic unsupported-call reply lists only execute/edit/view_image,
+    leaving the model no path to the ruling it owes: the attempt errors, the
     model talks instead, the quiet-turn limit burns, and the user is asked
     about a diff the model never ruled on.
     """
@@ -540,9 +539,8 @@ def test_retired_verdict_name_is_steered_to_the_gate(quiet_respond):
     class _StubInterpreter:
         _edit_review_pending = True
 
-    steered = run_mod._unsupported_tool_error(_StubInterpreter(), "review_edit")
+    steered = run_mod._unsupported_tool_error(_StubInterpreter(), "frobnicate")
     assert "approve_edit" in steered
-    assert "review_edit no longer exists" in steered
 
     class _IdleInterpreter:
         _edit_review_pending = None
