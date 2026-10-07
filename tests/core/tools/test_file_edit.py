@@ -116,12 +116,46 @@ class TestCombyHelpers(unittest.TestCase):
 
 
 class TestRunWrite(unittest.TestCase):
-    def test_write_then_refuse_overwrite(self):
+    def test_write_then_replace(self):
+        """write creates, and replaces an existing file verbatim.
+
+        Overwriting used to be refused, which taught models a worse habit:
+        write, get blocked, delete the file, write again. A replacement now
+        previews as a diff first, so by the time this runs the user has
+        confirmed it.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "new.txt")
             self.assertTrue(run_write(target, "alpha\n").startswith("Wrote"))
-            with self.assertRaises(FileExistsError):
-                run_write(target, "beta\n")
+            self.assertTrue(run_write(target, "beta\n").startswith("Wrote"))
+            self.assertEqual(open(target, encoding="utf-8").read(), "beta\n")
+
+
+class TestDryRunWrite(unittest.TestCase):
+    def test_write_overwrite_previews_a_diff(self):
+        """A write that would replace a file previews the resulting diff."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "old line\n")
+            preview = dry_run_edit("write", "new line\n", target)
+            self.assertTrue(preview["ok"])
+            self.assertIn("-old line", preview["output"])
+            self.assertIn("+new line", preview["output"])
+
+    def test_write_new_file_has_no_preview(self):
+        """A brand-new file has nothing to diff against: no preview."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "missing.txt")
+            self.assertIsNone(dry_run_edit("write", "hello\n", target))
+
+    def test_write_identical_content_reports_no_changes(self):
+        """Rewriting byte-identical content is reported, not diffed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "same\n")
+            preview = dry_run_edit("write", "same\n", target)
+            self.assertTrue(preview["ok"])
+            self.assertIn("no changes", preview["output"])
 
 
 @unittest.skipUnless(shutil.which("sed"), "sed not installed")
