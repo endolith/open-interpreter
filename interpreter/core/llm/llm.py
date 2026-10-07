@@ -556,15 +556,16 @@ class Llm:
             messages = messages[1:]
         else:
             # The helper below converts (incrementally) and trims. Seed
-            # system_message from the derived head so the trim-except fallback
-            # further down is well-formed even if conversion raises; the
-            # helper's own output overwrites it on success.
+            # system_message from the derived head; the except fallback below
+            # replaces it from converted output (or raises the real conversion
+            # error), so this seed only matters if messages is empty.
             raw_head = messages[0]["content"]
             system_message = (
                 raw_head.strip() if isinstance(raw_head, str) else raw_head
             )
 
         # Trim messages
+        pre_trim_messages = messages
         try:
             if cache_aware:
                 # Cache-aware truncation: when the prompt outgrows the window,
@@ -636,6 +637,25 @@ Continuing...
             # If we're trimming messages, this won't work.
             # If we're trimming from a model we don't know, this won't work.
             # Better not to fail until `messages` is too big, just for frustrations sake, I suppose.
+
+            if cache_aware:
+                # Conversion runs inside cached_convert_and_trim, so on failure
+                # `messages` is still the raw derived list -- reuniting it with
+                # a system message below would send unconverted roles to the
+                # provider (a misleading 400 that hides the real error). Run
+                # the legacy full conversion instead: a genuinely
+                # unconvertible chunk raises its real error here, and anything
+                # else proceeds converted but untrimmed, like this fallback
+                # does for trim failures on the other branches.
+                converted = convert_to_openai_messages(
+                    pre_trim_messages,
+                    function_calling=self.supports_functions,
+                    vision=self.supports_vision,
+                    shrink_images=self.interpreter.shrink_images,
+                    interpreter=self.interpreter,
+                )
+                system_message = converted[0]["content"]
+                messages = converted[1:]
 
             # Reunite system message with messages
             messages = [{"role": "system", "content": system_message}] + messages
