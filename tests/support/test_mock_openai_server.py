@@ -6,6 +6,7 @@ import pytest
 from tests.support.mock_openai_server import (
     MockOpenAIServer,
     merge_tool_calls,
+    parallel_tool_deltas,
     pick_reply,
     stream_reply_chunks,
     tool_chain_tool_deltas,
@@ -359,3 +360,62 @@ def test_persist_parts_complete_and_release():
     part_two_done.append({"role": "assistant", "content": "values verified."})
     part_two_done.append({"role": "user", "content": "Say hello."})
     assert persist_tool_deltas(part_two_done) is None
+
+
+def test_parallel_tool_deltas_emit_two_indexed_entries():
+    """Turn zero of the parallel scenario carries both calls in one turn."""
+    messages = [
+        {"role": "user", "content": "run two things in parallel: go"},
+    ]
+    deltas = parallel_tool_deltas(messages)
+    assert len(deltas) == 2
+    first, second = deltas
+    assert first["tool_calls"][0]["index"] == 0
+    assert second["tool_calls"][0]["index"] == 1
+    assert "p1.txt" in first["tool_calls"][0]["function"]["arguments"]
+    assert "p2.txt" in second["tool_calls"][0]["function"]["arguments"]
+
+
+def test_parallel_tool_deltas_talk_then_release():
+    """The parallel scenario talks at turn one and releases afterwards."""
+    first_turn = [
+        {"role": "user", "content": "run two things in parallel: go"},
+        {"role": "assistant", "content": ""},
+    ]
+    assert parallel_tool_deltas(first_turn) == [{"content": "Parallel calls complete."}]
+    first_turn.append({"role": "assistant", "content": "Parallel calls complete."})
+    first_turn.append({"role": "user", "content": "Say hello."})
+    assert parallel_tool_deltas(first_turn) is None
+
+
+def test_parallel_tool_deltas_ignore_unrelated_prompts():
+    """Prompts without the keyword never enter the parallel scenario."""
+    messages = [{"role": "user", "content": "Please demonstrate a tool chain"}]
+    assert parallel_tool_deltas(messages) is None
+
+
+def test_merge_tool_calls_groups_entries_by_index():
+    """Two entries keep their own ids, names, and concatenated arguments."""
+    deltas = parallel_tool_deltas([{"role": "user", "content": "run two things in parallel: go"}])
+    merged = merge_tool_calls(deltas)
+    assert [call["index"] for call in merged] == [0, 1]
+    assert [call["id"] for call in merged] == [
+        "call_parallel_1",
+        "call_parallel_2",
+    ]
+    assert all(call["function"]["name"] == "execute" for call in merged)
+
+
+def test_parallel_scenario_streams_both_entries_then_tool_calls(
+    running_server,
+):
+    """Over SSE, the parallel turn streams two entries and stops as tool_calls."""
+    payloads = _post_sse(
+        running_server,
+        _tool_body([{"role": "user", "content": "run two things in parallel: go"}]),
+    )
+    assert payloads[-1] == "[DONE]"
+    terminal = json.loads(payloads[-2])
+    assert terminal["choices"][0]["finish_reason"] == "tool_calls"
+    entries = [json.loads(payload)["choices"][0]["delta"] for payload in payloads[:-2]]
+    assert [entry["tool_calls"][0]["index"] for entry in entries] == [0, 1]

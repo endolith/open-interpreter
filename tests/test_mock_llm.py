@@ -666,3 +666,53 @@ def test_execution_output_reaches_the_provider_on_the_next_request(
     assert "recovered" in follow_up, (
         "the request right after execution did not carry the actual stdout"
     )
+
+
+_PARALLEL_PROMPT = (
+    "Please run two things in parallel: write the word 'first' to p1.txt "
+    "with python, and write the word 'second' to p2.txt with shell."
+)
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(180)
+def test_mock_llm_parallel_tool_calls_execute_first_only(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """A two-entry tool_calls turn runs the first call and drops the second.
+
+    The mock server sends one assistant turn with two tool_calls entries
+    (indexes 0 and 1), but run_tool_calling_llm only reads
+    delta["tool_calls"][0], so the shell step never executes and p2.txt is
+    never written. Pinned exactly — a parallel-execution fix will flip the
+    p2.txt assertion. Tracked as #415.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(_PARALLEL_PROMPT, display=False, stream=False, blocking=True)
+
+    assert (tmp_path / "p1.txt").read_text() == "first"
+    assert not (tmp_path / "p2.txt").exists()
+    assert "Parallel calls complete." in messages[-1]["content"]
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(180)
+def test_mock_llm_tool_chain_auth_guard_raises(mock_llm_server, monkeypatch, tmp_path):
+    """With authentication enforced, a judgeless tool run is rejected.
+
+    The mock server never sends a judge-layer review, so the tool chain's
+    function calls trip the INTERPRETER_REQUIRE_AUTHENTICATION guard. This
+    pins the interaction between function_call_detected and the guard — the
+    companion text-mode test proves plain talking still passes with the
+    same env var set.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    with pytest.raises(Exception, match="Judge layer required"):
+        interpreter.chat(_TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True)
