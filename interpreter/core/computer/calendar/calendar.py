@@ -267,9 +267,9 @@ class Calendar:
         end tell
         """
 
-        stderr, stdout = run_applescript_capture(script)
+        stdout, stderr = run_applescript_capture(script)
         if stdout:
-            return stdout[0].strip()
+            return stdout.strip()
         elif stderr:
             if "successfully" in stderr:
                 return stderr
