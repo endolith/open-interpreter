@@ -196,11 +196,16 @@ def test_chat_completion_auto_run_toggle(client, server_pair):
 
 
 def test_chat_completion_text_message_returns_assistant_reply(client, server_pair):
-    """A plain text user message is appended and answered via chat()."""
+    """A plain text user message is appended and answered via _respond_and_store."""
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "content": "Hello there"}]
-    )
+
+    def _turn():
+        interpreter.messages.append({"role": "assistant", "content": "Hello there"})
+        return iter(
+            [{"role": "assistant", "type": "message", "content": "Hello there"}]
+        )
+
+    interpreter._respond_and_store = mock.MagicMock(side_effect=_turn)
 
     response = client.post(
         "/openai/chat/completions",
@@ -218,9 +223,12 @@ def test_chat_completion_text_message_returns_assistant_reply(client, server_pai
 def test_chat_completion_list_text_content(client, server_pair):
     """A content list with a text part is appended as a user message."""
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "content": "ok"}]
-    )
+
+    def _turn():
+        interpreter.messages.append({"role": "assistant", "content": "ok"})
+        return iter([{"role": "assistant", "type": "message", "content": "ok"}])
+
+    interpreter._respond_and_store = mock.MagicMock(side_effect=_turn)
     response = client.post(
         "/openai/chat/completions",
         json={
@@ -238,9 +246,12 @@ def test_chat_completion_list_text_content(client, server_pair):
 def test_chat_completion_list_base64_image(client, server_pair):
     """A content list with a base64 image becomes an image message."""
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "content": "ok"}]
-    )
+
+    def _turn():
+        interpreter.messages.append({"role": "assistant", "content": "ok"})
+        return iter([{"role": "assistant", "type": "message", "content": "ok"}])
+
+    interpreter._respond_and_store = mock.MagicMock(side_effect=_turn)
     url = "data:image/png;base64,iVBORw0KGgo="
     response = client.post(
         "/openai/chat/completions",
@@ -346,10 +357,12 @@ def test_chat_completion_stream_confirmation_breaks(client, server_pair):
 
 
 def test_chat_completion_stream_message_via_chat(client, server_pair):
-    """Streaming a normal message streams chunks produced by chat()."""
+    """Streaming a normal message streams chunks produced by _respond_and_store."""
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    interpreter._respond_and_store = mock.MagicMock(
+        return_value=iter(
+            [{"role": "assistant", "type": "message", "content": "hi"}]
+        )
     )
 
     response = client.post(
@@ -693,9 +706,14 @@ def test_non_stream_envelope_echoes_the_requested_model(client, server_pair):
     every request look like it came from the same backend.
     """
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
-    )
+
+    def _turn():
+        interpreter.messages.append(
+            {"role": "assistant", "type": "message", "content": "hi"}
+        )
+        return iter([{"role": "assistant", "type": "message", "content": "hi"}])
+
+    interpreter._respond_and_store = mock.MagicMock(side_effect=_turn)
 
     response = client.post(
         "/openai/chat/completions",
@@ -718,9 +736,14 @@ def test_non_stream_model_defaults_to_default_model(client, server_pair):
     placeholder is part of the request contract.
     """
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
-    )
+
+    def _turn():
+        interpreter.messages.append(
+            {"role": "assistant", "type": "message", "content": "hi"}
+        )
+        return iter([{"role": "assistant", "type": "message", "content": "hi"}])
+
+    interpreter._respond_and_store = mock.MagicMock(side_effect=_turn)
 
     response = client.post(
         "/openai/chat/completions",
@@ -761,14 +784,16 @@ def test_confirmation_does_not_ask_when_auto_run_is_on(client, server_pair):
     """
     _, interpreter = server_pair
     interpreter.auto_run = True
-    interpreter.chat = mock.MagicMock(
-        return_value=[
-            {
-                "role": "computer",
-                "type": "confirmation",
-                "content": {"format": "python", "content": "print(1)"},
-            }
-        ]
+    interpreter._respond_and_store = mock.MagicMock(
+        return_value=iter(
+            [
+                {
+                    "role": "computer",
+                    "type": "confirmation",
+                    "content": {"format": "python", "content": "print(1)"},
+                }
+            ]
+        )
     )
 
     response = client.post(
@@ -788,13 +813,13 @@ def test_stream_stops_when_the_stop_flag_is_set_mid_response(client, server_pair
     _, interpreter = server_pair
     interpreter.auto_run = False
 
-    def chat_with_stop(*args, **kwargs):
+    def turn_with_stop():
         """Yield one message chunk, then raise the stop flag before the next."""
         yield {"role": "assistant", "type": "message", "content": "first"}
         interpreter.stop_event.set()
         yield {"role": "assistant", "type": "message", "content": "dropped"}
 
-    interpreter.chat = chat_with_stop
+    interpreter._respond_and_store = mock.MagicMock(side_effect=turn_with_stop)
 
     response = client.post(
         "/openai/chat/completions",
@@ -813,17 +838,22 @@ def test_silent_model_is_nudged_with_escalating_prompts(client, server_pair):
     """
     _, interpreter = server_pair
     interpreter.auto_run = False
-    interpreter.chat = mock.MagicMock(return_value=[])
+    interpreter._respond_and_store = mock.MagicMock(side_effect=lambda: iter([]))
 
     response = client.post(
         "/openai/chat/completions",
         json={"messages": [{"role": "user", "content": "hello"}], "stream": True},
     )
 
-    attempted = [call.kwargs["message"] for call in interpreter.chat.call_args_list]
-    assert len(attempted) == 6
-    assert len(set(attempted)) == 6
-    assert attempted[0] == "."
+    assert interpreter._respond_and_store.call_count == 6
+    nudges = [
+        m["content"]
+        for m in interpreter.messages
+        if m.get("role") == "user" and m.get("content") != "hello"
+    ]
+    assert len(nudges) == 5
+    assert len(set(nudges)) == 5
+    assert nudges[0] == "Just say something, anything."
 
 
 def test_nudge_loop_stops_as_soon_as_a_reply_arrives(client, server_pair):
@@ -834,8 +864,10 @@ def test_nudge_loop_stops_as_soon_as_a_reply_arrives(client, server_pair):
     """
     _, interpreter = server_pair
     interpreter.auto_run = False
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    interpreter._respond_and_store = mock.MagicMock(
+        return_value=iter(
+            [{"role": "assistant", "type": "message", "content": "hi"}]
+        )
     )
 
     response = client.post(
@@ -844,22 +876,21 @@ def test_nudge_loop_stops_as_soon_as_a_reply_arrives(client, server_pair):
     )
 
     assert "hi" in response.text
-    assert interpreter.chat.call_count == 1
+    assert interpreter._respond_and_store.call_count == 1
 
 
-def test_context_mode_does_not_suppress_a_plain_message(client, server_pair):
-    """With context mode enabled, an ordinary message is still answered.
+def test_context_mode_accumulates_plain_message(client, server_pair):
+    """With context mode enabled, an ordinary message accumulates without replying.
 
-    KNOWN GAP: context mode is documented as accumulating context without
-    replying until a {START} arrives, but the only code that reads
-    `context_mode` sits in a branch entered solely when message content is
-    neither str nor list — which the request schema cannot produce. So the flag is
-    stored and reported as set, yet gates nothing reachable. Pinned as-is; the fix
-    is to move the check into the path a real request actually takes.
+    #324 moved the context_mode check into the path a real request takes,
+    so the flag now gates dispatch: background turns are stored and return
+    without driving the model until {START} arrives.
     """
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    interpreter._respond_and_store = mock.MagicMock(
+        side_effect=lambda: iter(
+            [{"role": "assistant", "type": "message", "content": "hi"}]
+        )
     )
     client.post(
         "/openai/chat/completions",
@@ -873,7 +904,11 @@ def test_context_mode_does_not_suppress_a_plain_message(client, server_pair):
     )
 
     assert response.status_code == 200
-    assert interpreter.chat.call_count == 1
+    assert interpreter._respond_and_store.call_count == 0
+    assert any(
+        m.get("role") == "user" and m.get("content") == "hello"
+        for m in interpreter.messages
+    )
 
 
 def test_content_that_is_neither_text_nor_a_list_is_rejected(client, server_pair):
@@ -884,8 +919,10 @@ def test_content_that_is_neither_text_nor_a_list_is_rejected(client, server_pair
     ever widens, this test is the one that notices the branch became reachable.
     """
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
+    interpreter._respond_and_store = mock.MagicMock(
+        side_effect=lambda: iter(
+            [{"role": "assistant", "type": "message", "content": "hi"}]
+        )
     )
 
     for content in (123, 4.5, True, None, {"text": "hi"}):
@@ -895,4 +932,4 @@ def test_content_that_is_neither_text_nor_a_list_is_rejected(client, server_pair
         )
         assert response.status_code == 422, content
 
-    assert interpreter.chat.call_count == 0
+    assert interpreter._respond_and_store.call_count == 0
