@@ -547,3 +547,84 @@ def test_unsupported_call_names_the_gate_while_pending(quiet_respond):
 
     plain = run_mod._unsupported_tool_error(_IdleInterpreter(), "frobnicate")
     assert "approve_edit" not in plain
+
+
+def _info_notice(call_id="call-1"):
+    """The in-tool answer for an edit with no dry run, as the loop would store it."""
+    import interpreter.core.llm.run_tool_calling_llm as run_mod
+
+    class _StubInterpreter:
+        auto_run = False
+
+    return {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "type": "message",
+        "content": run_mod._no_preview_notice(_StubInterpreter(), "write"),
+    }
+
+
+def test_write_edit_goes_straight_to_the_user_unmarked(quiet_respond):
+    """A write proposal must not be tried by a gate that never opened.
+
+    Regression: write has no dry run, so _edit_preview_response answers
+    nothing -- and respond() then marked the edit as model-DENIED, showing
+    the user a Note about a ruling nobody was ever asked for. With no preview
+    there is no gate: the confirmation goes straight to the user with approval
+    marked not-applicable rather than failed, and the terminal (which only
+    shows its Note when llm_approved is False) stays silent about the model.
+    """
+    llm = _FakeLlm([[_edit_chunk(language="write", code="hello", call_id="call-1"), _info_notice()]])
+    interpreter = _FakeInterpreter(llm, None)
+
+    (confirmation,) = _drive_to_confirmation(interpreter)
+
+    assert llm.calls == 1, "no model turn is owed when there is nothing to rule on"
+    assert confirmation["content"]["content"] == "hello"
+    assert confirmation["content"]["llm_approved"] is None, "N/A, not denied"
+    assert "dry_run_output" not in confirmation["content"], "no preview existed"
+
+
+def test_no_preview_notice_claims_no_gate(quiet_respond):
+    """The in-tool answer must not invent a ruling the model owes.
+
+    The notice answers the edit call (so the call never dangles) while
+    sending the model on: no approve_edit, no verdict vocabulary.
+    """
+    import interpreter.core.llm.run_tool_calling_llm as run_mod
+
+    class _StubInterpreter:
+        auto_run = False
+
+    notice = run_mod._no_preview_notice(_StubInterpreter(), "write")
+    assert "nothing for you to rule on" in notice
+    assert "approve_edit" not in notice
+
+    class _AutoInterpreter:
+        auto_run = True
+
+    auto = run_mod._no_preview_notice(_AutoInterpreter(), "sed")
+    assert "Auto-run is on" in auto
+    assert "approve_edit" not in auto
+
+
+def test_no_gate_is_offered_without_a_pending_preview():
+    """approve_edit appears only while a real diff awaits a ruling.
+
+    Write/poke/auto_run never set pending, so the model is never handed a
+    gate with nothing behind it.
+    """
+    import interpreter.core.llm.run_tool_calling_llm as run_mod
+    from types import SimpleNamespace
+
+    def _names(interpreter):
+        return [t["function"]["name"] for t in run_mod.build_request_tools(interpreter)]
+
+    idle = SimpleNamespace(
+        terminal=SimpleNamespace(languages=[]),
+        llm=SimpleNamespace(supports_vision=None),
+    )
+    assert "approve_edit" not in _names(idle)
+
+    idle._edit_review_pending = True
+    assert "approve_edit" in _names(idle)
