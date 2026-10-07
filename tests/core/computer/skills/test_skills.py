@@ -490,3 +490,109 @@ def test_save_reports_failure_when_the_file_is_not_written(tmp_path, capsys, mon
     out = capsys.readouterr().out
     assert "Error: Failed to write skill file" in out
     assert "SKILL SAVED" not in out
+
+
+def _enabled_computer(**overrides):
+    """A skills-enabled computer stand-in with sane defaults."""
+    defaults = dict(
+        import_skills=True,
+        _has_imported_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_search_mirrors_list_results(tmp_path, capsys):
+    """Skills.search() currently returns the same listing as list()."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "demo_skill.py").write_text("def demo_skill(): pass")
+    skills = Skills(_enabled_computer())
+    skills.path = str(skills_dir)
+    assert skills.search("anything") == skills.list() == ["demo_skill()"]
+
+
+def test_search_empty_list_when_skills_disabled(capsys):
+    """Skills.search() returns an empty list when import_skills is disabled."""
+    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
+    skills = Skills(computer)
+    assert skills.search("anything") == []
+
+
+def test_run_is_deprecated_and_returns_none(capsys):
+    """Skills.run() only prints the deprecation pointer and returns None."""
+    skills = Skills(SimpleNamespace())
+    assert skills.run("demo_skill") is None
+    assert "already imported" in capsys.readouterr().out
+
+
+def test_import_skills_size_guard_raises_and_strands_save_skills(tmp_path):
+    """An oversized skills dir raises Warning and leaves save_skills off.
+
+    The 100MB guard fires after save_skills was flipped to False with no
+    try/finally, so the flag is never restored. Pinned exactly — a fix will
+    flip the save_skills assertion. Tracked as #417.
+    """
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "big.py").write_text("x = 1")
+    computer = _enabled_computer()
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    with mock.patch("os.path.getsize", return_value=200 * 1024 * 1024):
+        with pytest.raises(Warning, match="can't exceed 100mb"):
+            skills.import_skills()
+    assert computer.save_skills is False
+    computer.run.assert_not_called()
+
+
+def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys):
+    """A combined-run traceback falls back to per-file imports with a warning.
+
+    When the concatenated run reports a traceback, each file is run on its own
+    and the offending file is named. save_skills is still restored afterwards.
+    """
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "good.py").write_text("x = 1")
+    (skills_dir / "bad.py").write_text("raise Boom")
+
+    def fake_run(language, code):
+        """Only the bad file's code reports a traceback, whatever runs first."""
+        assert language == "python"
+        return "Traceback: Boom" if "raise Boom" in code else "ok"
+
+    computer = _enabled_computer(run=mock.Mock(side_effect=fake_run))
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    skills.import_skills()
+    assert computer.run.call_count == 3
+    out = capsys.readouterr().out
+    assert "might be broken" in out
+    assert "bad.py" in out
+    assert computer.save_skills is True
+
+
+def test_new_skill_create_names_and_saves_roundtrip(tmp_path, capsys):
+    """NewSkill walks create -> name -> add_step -> save and writes a module.
+
+    save() normalizes the name, writes the skill file, and execs it so the
+    new function is defined immediately.
+    """
+    skills = Skills(_enabled_computer())
+    skills.path = str(tmp_path / "skills")
+    new_skill = skills.new_skill
+    new_skill.create()
+    assert new_skill.name == "Untitled"
+    new_skill.name = "Demo Skill!"
+    new_skill.add_step("greet", "print('hi')")
+    assert "```python" in new_skill.steps[0]
+    new_skill.save()
+    out = capsys.readouterr().out
+    assert "SKILL SAVED: DEMO SKILL!" in out
+    skill_file = tmp_path / "skills" / "demo_skill_.py"
+    assert skill_file.exists()
+    assert "def demo_skill_(step=0)" in skill_file.read_text()
