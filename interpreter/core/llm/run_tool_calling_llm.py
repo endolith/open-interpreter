@@ -82,7 +82,7 @@ edit_tool_schema = {
             "  jq    — jq filter for JSON files (in-place). Wrap if-expressions in parentheses in object literals.\n"
             "  yq    — yq (mikefarah) expression (multi-line OK). Supports YAML, JSON, TOML, XML, CSV, "
             "properties files.\n"
-            "  poke  — GNU poke statements for binary files; do not use .file (auto-opened).\n"
+            "  poke  — GNU poke statements for binary files; the file is auto-opened (never use .file) and statements apply in place. Addresses are offsets WITH a unit suffix, never bare integers (a bare 0 fails with 'expected offset, got int'): #b counts bits, #B counts bytes, so byte N is N#B, i.e. 8*N#b. Example: uint8 @ 0#B = 0x5A; sets the first byte to 'Z'.\n"
             "  comby — structural match/replace: match template, then --- line, then rewrite "
             "(or match on line 1, rewrite on following lines).\n"
             "  patch — a BARE unified diff: '--- <file>' / '+++ <file>' header lines then @@ hunks. "
