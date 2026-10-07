@@ -596,6 +596,16 @@ def convert_to_openai_messages(
                 }
             ]
 
+        elif message["type"] == "edit_review_call":
+            # Orphaned marker from the retired review_edit-verdict iteration: the
+            # model approved a preview by calling review_edit, stored as a marker
+            # plus a paired tool acknowledgement. That protocol is gone and the
+            # marker is provider-meaningless, so drop it; the paired ack dangles
+            # and process_messages repairs it with a synthetic call. Kept
+            # explicitly (rather than falling into the else-raise) so old saved
+            # sessions resume instead of failing conversion.
+            continue
+
         elif message["type"] == "file":
             ts = _user_ts(message, messages)
             content = message["content"]
