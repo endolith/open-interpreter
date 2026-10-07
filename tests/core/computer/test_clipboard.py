@@ -92,3 +92,11 @@ def test_clipboard_copy_with_text_leaves_the_keyboard_alone(monkeypatch):
 
     fake_pyperclip.copy.assert_called_once_with("some text")
     computer.keyboard.hotkey.assert_not_called()
+
+
+def test_clipboard_paste_triggers_keyboard_hotkey():
+    """Clipboard.paste() performs a paste hotkey with the platform modifier."""
+    computer = mock.MagicMock()
+    clip = Clipboard(computer)
+    clip.paste()
+    computer.keyboard.hotkey.assert_called_once_with(clip.modifier_key, "v")

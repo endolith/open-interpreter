@@ -2,7 +2,8 @@
 
 Requests are dispatched on their content, first match wins:
 - tool mode (the request carries a tools parameter): persist_tool_deltas,
-  then tool_chain_tool_deltas, then a "Hello, World!" fallback.
+  then tool_chain_tool_deltas, then polyglot_tool_deltas,
+  then a "Hello, World!" fallback.
 - text mode: persist_text_reply, then tool_chain_text_reply, then pick_reply's
   keyword branches, then the same fallback.
 
@@ -399,6 +400,44 @@ def parallel_tool_deltas(messages: list) -> list[dict] | None:
     return None
 
 
+_POLYGLOT_KEYWORD = "polyglot"
+_POLYGLOT_JS_CODE = "require('fs').writeFileSync('pj.txt', 'third');"
+
+
+def polyglot_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the third-language scenario, or None.
+
+    A single javascript step through the same tool-call path the python and
+    shell steps use, proving scenario coverage is not limited to two
+    languages. The simulated conversation:
+
+    - User
+      - message: "As a polyglot demo, write ... with javascript."
+    - Assistant
+      - tool_call execute(javascript): write "third" to pj.txt
+    - Tool
+      - result
+    - Assistant
+      - message: "JavaScript step complete."
+
+    Step state follows the same stateless assistant-count pattern as the
+    tool chain. No text-mode variant: the point is the tool-call language
+    routing, which fenced blocks exercise elsewhere.
+    """
+    history = _user_history_text(messages).lower()
+    if _POLYGLOT_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _POLYGLOT_KEYWORD)
+    if turns == 0:
+        arguments = json.dumps(
+            {"language": "javascript", "code": _POLYGLOT_JS_CODE}
+        )
+        return [_tool_call_delta("call_polyglot_js", "execute", arguments)]
+    if turns == 1:
+        return [{"content": "JavaScript step complete."}]
+    return None
+
+
 def _persist_step(keyword: str, turn: int):
     """One step of the cross-prompt state scenario, or None when done.
 
@@ -632,6 +671,8 @@ class _Handler(BaseHTTPRequestHandler):
                 deltas = tool_chain_tool_deltas(messages)
             if deltas is None:
                 deltas = parallel_tool_deltas(messages)
+            if deltas is None:
+                deltas = polyglot_tool_deltas(messages)
             if deltas is None:
                 deltas = [{"content": "Hello, World!"}]
             if stream:

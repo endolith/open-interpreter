@@ -419,3 +419,51 @@ def test_parallel_scenario_streams_both_entries_then_tool_calls(
     assert terminal["choices"][0]["finish_reason"] == "tool_calls"
     entries = [json.loads(payload)["choices"][0]["delta"] for payload in payloads[:-2]]
     assert [entry["tool_calls"][0]["index"] for entry in entries] == [0, 1]
+
+
+def test_polyglot_tool_deltas_emit_javascript_step():
+    """Turn zero of the polyglot scenario is one javascript tool call."""
+    from tests.support.mock_openai_server import polyglot_tool_deltas
+
+    messages = [{"role": "user", "content": "a polyglot demo: go"}]
+    deltas = polyglot_tool_deltas(messages)
+    assert len(deltas) == 1
+    call = deltas[0]["tool_calls"][0]
+    assert call["id"] == "call_polyglot_js"
+    arguments = json.loads(call["function"]["arguments"])
+    assert arguments["language"] == "javascript"
+    assert "pj.txt" in arguments["code"]
+
+
+def test_polyglot_tool_deltas_talk_then_release():
+    """The polyglot scenario talks at turn one and releases afterwards."""
+    from tests.support.mock_openai_server import polyglot_tool_deltas
+
+    first_turn = [
+        {"role": "user", "content": "a polyglot demo: go"},
+        {"role": "assistant", "content": ""},
+    ]
+    assert polyglot_tool_deltas(first_turn) == [
+        {"content": "JavaScript step complete."}
+    ]
+    first_turn.append({"role": "assistant", "content": "JavaScript step complete."})
+    first_turn.append({"role": "user", "content": "Say hello."})
+    assert polyglot_tool_deltas(first_turn) is None
+
+
+def test_polyglot_tool_deltas_ignore_unrelated_prompts():
+    """Prompts without the keyword never enter the polyglot scenario."""
+    from tests.support.mock_openai_server import polyglot_tool_deltas
+
+    assert (
+        polyglot_tool_deltas(
+            [{"role": "user", "content": "Please demonstrate a tool chain"}]
+        )
+        is None
+    )
+    assert (
+        polyglot_tool_deltas(
+            [{"role": "user", "content": "run two things in parallel: go"}]
+        )
+        is None
+    )
