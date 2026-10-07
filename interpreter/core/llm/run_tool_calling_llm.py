@@ -127,10 +127,12 @@ approve_edit_tool_schema = {
             "Approve the dry-run result of the edit you just made. Call this only "
             "when the result is exactly the change you want -- the right lines, the "
             "right text, and it actually changed something.\n"
-            "This is your gate, and it is checked: the user is asked to confirm only "
-            "after you approve. If the result is wrong or did nothing, call `edit` "
-            "again with a corrected edit instead -- you can keep revising until the "
-            "result is what you wanted. Nothing is written to disk at any point."
+            "This is your gate: the user confirms after you approve. If you "
+            "neither approve nor revise, the user is asked without your sign-off, "
+            "so rule on every diff. If the result is wrong or did nothing, call "
+            "`edit` again with a corrected edit instead -- you can keep revising "
+            "until the result is what you wanted. Nothing is written to disk at "
+            "any point."
         ),
         "parameters": {
             "type": "object",
@@ -173,8 +175,12 @@ def _edit_preview_response(interpreter, language, code, target):
     return (
         f"Dry run {status}. Nothing has been modified yet -- this is what WILL change:\n\n"
         f"{preview['output']}\n\n"
-        f"If this diff is what you intend, say so in a sentence. If it is wrong, call edit "
-        f"again with a corrected edit. Either way the user confirms before anything is written.",
+        f"Rule on this result with a tool call, now: if it is exactly what you "
+        f"intend -- the right lines, the right text, and it actually changed "
+        f"something -- call approve_edit with a one-sentence reason. If it is "
+        f"wrong, or it changed nothing, call edit again with a corrected edit. "
+        f"A sentence alone approves nothing; only the approve_edit call does. "
+        f"Nothing is written until the user confirms.",
         {"ok": preview["ok"], "output": preview["output"]},
     )
 
@@ -1305,11 +1311,12 @@ def run_tool_calling_llm(llm, request_params):
                     # The dry run rides this call's own tool response rather than
                     # a fabricated user message. That is where a model expects to
                     # read a tool's result, it keeps the call paired in history,
-                    # and it costs exactly one extra turn: the model sees the
-                    # diff and either emits a corrected edit or says something,
-                    # and either way the user is the one who confirms.
-                    # Reading this diff is what puts the review in play; the
-                    # approval tool only appears once there is something to rule on.
+                    # and it costs exactly one extra turn: the model reads the
+                    # diff and either calls edit again with a correction or calls
+                    # approve_edit -- prose alone approves nothing (see the
+                    # instruction in _edit_preview_response). Reading this diff
+                    # is what puts the review in play; the approval tool only
+                    # appears once there is something to rule on.
                     llm.interpreter._edit_review_pending = True
                     preview_response, preview_meta = _edit_preview_response(
                         llm.interpreter, edit_language, edit_code, edit_target

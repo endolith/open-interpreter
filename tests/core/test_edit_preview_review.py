@@ -497,3 +497,30 @@ def test_real_noop_dry_run_sets_no_change(tmp_path):
     assert preview is not None
     assert preview["ok"] is True
     assert preview.get("no_change") is True
+
+def test_preview_response_names_the_approval_call(quiet_respond):
+    """The dry-run answer must teach the gate it enforces.
+
+    Regression: the preview once told the model to "say so in a sentence",
+    which respond() never counts as approval -- so the model talked, the
+    quiet-turn limit burned, and the user was asked about a diff the model
+    never signed off. The instruction must name the approve_edit call (and
+    say prose alone does not approve).
+    """
+    import interpreter.core.llm.run_tool_calling_llm as run_mod
+
+    monkeypatch = quiet_respond
+    monkeypatch.setattr(
+        run_mod, "dry_run_edit", lambda *a, **k: {"output": "@@ diff", "ok": True}
+    )
+
+    class _StubInterpreter:
+        auto_run = False
+
+    content, meta = run_mod._edit_preview_response(
+        _StubInterpreter(), "sed", "s/a/b/", "/tmp/x"
+    )
+
+    assert meta == {"ok": True, "output": "@@ diff"}
+    assert "approve_edit" in content
+    assert "say so in a sentence" not in content
