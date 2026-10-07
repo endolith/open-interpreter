@@ -13,6 +13,7 @@ from unittest import mock
 import pytest
 from fastapi.testclient import TestClient
 
+from interpreter.core import async_core
 from interpreter.core.async_core import AsyncInterpreter, Server
 
 
@@ -20,6 +21,12 @@ from interpreter.core.async_core import AsyncInterpreter, Server
 def _no_api_key(monkeypatch):
     """Hide INTERPRETER_API_KEY so the auth middleware stays out of the way."""
     monkeypatch.delenv("INTERPRETER_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_start_clock():
+    """Reset the {START} 6-second window so tests never inherit each other's timing."""
+    async_core.last_start_time = 0
 
 
 def _make(auto_run=True):
