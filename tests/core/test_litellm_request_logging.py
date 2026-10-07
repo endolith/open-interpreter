@@ -2,6 +2,7 @@ import json
 import os
 
 import litellm
+import pytest
 
 import interpreter.core.llm.llm as llm_mod
 from interpreter.core.core import OpenInterpreter
@@ -162,3 +163,49 @@ def test_logs_use_platform_config_dir_not_dot_config(monkeypatch, tmp_path):
     assert not (home / ".config" / "open-interpreter" / "logs").exists()
 
 
+
+
+def test_a_none_response_becomes_a_provider_error_not_a_typeerror(monkeypatch):
+    """litellm returning nothing must not surface as 'NoneType' is not iterable.
+
+    A None response used to be iterated straight away, raising TypeError from
+    inside the stream. Nothing classifies a TypeError as a provider fault, so it
+    unwound the whole session -- the traceback escaped conversation_navigator
+    and main(), killing the REPL with no prompt and no chance to retry. The
+    failure has to arrive as a provider error instead, which respond.py already
+    handles and offers a retry for.
+    """
+    monkeypatch.setattr(litellm, "completion", lambda **params: None)
+
+    with pytest.raises(litellm.exceptions.APIConnectionError) as excinfo:
+        list(
+            llm_mod.fixed_litellm_completions(
+                model="deepseek/deepseek-v4-flash",
+                messages=[{"role": "user", "content": "do it"}],
+            )
+        )
+
+    assert "no response" in str(excinfo.value)
+
+
+def test_a_none_response_is_classified_as_a_handled_api_error():
+    """The error we raise has to be one respond.py already knows how to handle.
+
+    Otherwise the retry panel never appears and the session dies in exactly the
+    way the None guard was meant to prevent.
+    """
+    import interpreter.core.respond as respond_mod
+
+    error = litellm.exceptions.APIConnectionError(
+        message="litellm.completion returned no response",
+        llm_provider="litellm",
+        model="deepseek/deepseek-v4-flash",
+    )
+    handled = (
+        litellm.exceptions.APIError,
+        litellm.exceptions.AuthenticationError,
+        litellm.exceptions.APIConnectionError,
+    )
+
+    assert isinstance(error, handled)
+    assert respond_mod._is_temporary_provider_error is not None
