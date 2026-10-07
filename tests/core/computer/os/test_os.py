@@ -236,3 +236,21 @@ def test_notify_passes_the_title_to_the_cross_platform_notifier():
     kwargs = plyer.notification.notify.call_args.kwargs
     assert kwargs["title"] == "Open Interpreter"
     assert kwargs["message"] == "hello"
+
+
+def test_notify_failure_is_silent_unless_verbose(capsys):
+    """A notification crash never propagates; verbose mode reports it.
+
+    Notifications are fire-and-forget, so even a degenerate input like None
+    (len() raises TypeError before the platform branches) must not raise —
+    with verbose on, the error is printed instead.
+    """
+    quiet = Os(SimpleNamespace(verbose=False))
+    quiet.notify(None)
+    assert capsys.readouterr().out == ""
+
+    loud = Os(SimpleNamespace(verbose=True))
+    loud.notify(None)
+    out = capsys.readouterr().out
+    assert "Notification error:" in out
+    assert "NoneType" in out

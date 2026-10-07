@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 
 from interpreter import OpenInterpreter
@@ -673,6 +675,14 @@ _PARALLEL_PROMPT = (
     "with python, and write the word 'second' to p2.txt with shell."
 )
 
+_POLYGLOT_PROMPT = (
+    "As a polyglot demo, write the word 'third' to pj.txt with javascript."
+)
+
+needs_node = pytest.mark.skipif(
+    shutil.which("node") is None, reason="node is not on PATH"
+)
+
 
 @pytest.mark.linux_ci
 @pytest.mark.timeout(180)
@@ -716,3 +726,27 @@ def test_mock_llm_tool_chain_auth_guard_raises(mock_llm_server, monkeypatch, tmp
 
     with pytest.raises(Exception, match="Judge layer required"):
         interpreter.chat(_TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True)
+
+
+@pytest.mark.linux_ci
+@needs_node
+@pytest.mark.timeout(180)
+def test_mock_llm_javascript_step_writes_file(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """A javascript tool step runs through node and writes its file.
+
+    The mock server's polyglot scenario serves a single execute(javascript)
+    call, proving the tool-call path routes a third language beyond the
+    python/shell steps used elsewhere. Skips where node is unavailable.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        _POLYGLOT_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    assert (tmp_path / "pj.txt").read_text() == "third"
+    assert "JavaScript step complete." in messages[-1]["content"]
