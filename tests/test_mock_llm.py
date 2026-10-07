@@ -602,14 +602,13 @@ def test_a_traceback_reaches_the_provider_on_the_next_request(
     the model would silently never learn why its code failed.
     """
     require_bash_compatible_shell()
-    # The errand scenario writes step1.txt/step2.txt into the cwd, so keep them
-    # out of the checkout the way the sibling errand tests do.
+    # The tool-chain scenario writes step1.txt/step2.txt into the cwd, so keep
+    # them out of the checkout the way the sibling tool-chain tests do.
     monkeypatch.chdir(tmp_path)
     interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
 
     interpreter.chat(
-        "Please run this errand: write step one, then step two, then print "
-        "undefined_name",
+        _TOOL_CHAIN_PROMPT,
         display=False,
         stream=False,
         blocking=True,
@@ -644,14 +643,13 @@ def test_execution_output_reaches_the_provider_on_the_next_request(
     the request, so assert it directly.
     """
     require_bash_compatible_shell()
-    # The errand scenario writes step1.txt/step2.txt into the cwd, so keep them
-    # out of the checkout the way the sibling errand tests do.
+    # The tool-chain scenario writes step1.txt/step2.txt into the cwd, so keep
+    # them out of the checkout the way the sibling tool-chain tests do.
     monkeypatch.chdir(tmp_path)
     interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
 
     interpreter.chat(
-        "Please run this errand: write step one, then step two, then print "
-        "undefined_name",
+        _TOOL_CHAIN_PROMPT,
         display=False,
         stream=False,
         blocking=True,
