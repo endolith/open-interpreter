@@ -60,7 +60,7 @@ class Contacts:
         # If the person is not found, we will try to find similar contacts
         if "Can’t get person" in stderr:
             names = self.get_full_names_from_first_name(contact_name)
-            if names == "No contacts found":
+            if "No contacts found" in names:
                 return "No contacts found"
             else:
                 # Language model friendly error message
