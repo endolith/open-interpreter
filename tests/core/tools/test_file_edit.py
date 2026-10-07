@@ -121,8 +121,8 @@ class TestRunWrite(unittest.TestCase):
 
         Overwriting used to be refused, which taught models a worse habit:
         write, get blocked, delete the file, write again. A replacement now
-        previews as a diff first, so by the time this runs the user has
-        confirmed it.
+        previews as a diff upstream, so by the time this runs it has been
+        reviewed twice.
         """
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "new.txt")
@@ -143,19 +143,19 @@ class TestDryRunWrite(unittest.TestCase):
             self.assertIn("+new line", preview["output"])
 
     def test_write_new_file_has_no_preview(self):
-        """A brand-new file has nothing to diff against: no preview."""
+        """A brand-new file has nothing to diff against: no preview, no gate."""
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "missing.txt")
             self.assertIsNone(dry_run_edit("write", "hello\n", target))
 
-    def test_write_identical_content_reports_no_changes(self):
-        """Rewriting byte-identical content is reported, not diffed."""
+    def test_write_identical_content_is_no_change(self):
+        """Rewriting byte-identical content is flagged, not diffed."""
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "same\n")
             preview = dry_run_edit("write", "same\n", target)
             self.assertTrue(preview["ok"])
-            self.assertIn("no changes", preview["output"])
+            self.assertTrue(preview.get("no_change"))
 
 
 @unittest.skipUnless(shutil.which("sed"), "sed not installed")

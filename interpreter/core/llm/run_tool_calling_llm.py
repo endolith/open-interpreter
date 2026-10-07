@@ -65,7 +65,7 @@ edit_tool_schema = {
         "description": (
             "Edit or create a file at an absolute path.\n"
             "Languages:\n"
-            "  write — code is the full file body (UTF-8): creates the file, or REPLACES it if it exists (the user is shown the diff and must approve first).\n"
+            "  write — code is the full file body (UTF-8): creates the file, or REPLACES it if it exists (you are shown the diff first).\n"
             "  sed   — one-line s/// substitutions only; several s/// lines are fine, but a/i/c "
             "insert blocks are not (use gawk or patch). sed is line-oriented: a pattern spanning "
             "a newline never matches, while a multi-line REPLACEMENT (with \\n) is fine. In the "
@@ -172,14 +172,14 @@ def _unsupported_tool_error(interpreter, function_name):
 
 
 def _no_preview_notice(interpreter, edit_language):
-    """Tool answer when an edit has no dry run (write, poke, or auto_run).
+    """Tool answer when an edit produced no dry run.
 
     The call still needs an answer -- a dangling call would be "repaired"
     with a synthetic Interrupted message -- but there is nothing for the
     model to rule on, so this opens no review: pending stays unset and
-    approve_edit is not offered. poke has no text diff to show (it would
-    need a hex representation) and may be dropped as a tool entirely; write
-    needs none, since the model authored the content in this very call.
+    approve_edit is not offered. Reached for brand-new write targets (an
+    overwrite produces a real diff preview instead), for poke, and for
+    auto_run.
     """
     if getattr(interpreter, "auto_run", False):
         return (
@@ -187,9 +187,9 @@ def _no_preview_notice(interpreter, edit_language):
             "is needed. Continue."
         )
     return (
-        f"No dry-run preview is available for {edit_language}: nothing was "
-        "modified. There is nothing for you to rule on -- the user is asked "
-        "to confirm. Continue."
+        f"No dry-run preview was produced for this {edit_language} edit: "
+        "nothing was modified. There is nothing for you to rule on -- the "
+        "user is asked to confirm. Continue."
     )
 
 
@@ -1378,8 +1378,8 @@ def run_tool_calling_llm(llm, request_params):
                             "edit_preview": preview_meta,
                         }
                     else:
-                        # No dry run (write, poke, auto_run): the model has
-                        # nothing to rule on, so the gate stays out -- pending
+                        # No dry run (a brand-new write target, poke,
+                        # auto_run): the model has nothing to rule on, so the gate stays out -- pending
                         # is left unset and approve_edit is not offered. The
                         # call is still answered; a dangling call would be
                         # repaired with a synthetic Interrupted message.
