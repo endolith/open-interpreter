@@ -14,7 +14,7 @@ In-place edit strategies (Windows cross-drive safety):
     temp sibling in the target's parent directory and os.replace().
   - cwd in target's parent: gawk, patch — tool must edit in place (e.g. gawk without
     print); run with cwd set to the target directory so tool temps stay on that drive.
-  - direct open: poke (binary), write (new files only).
+  - direct open: poke (binary), write (create or replace).
 """
 
 import difflib
@@ -168,6 +168,13 @@ def _reject_wrong_os_path(target):
 
 
 def _validate_target(target, *, must_exist):
+    """Validate the target path shape, and optionally its existence.
+
+    must_exist True means the file must already be there (in-place edits);
+    False means it must not (kept for callers that truly create); None skips
+    the existence check -- used when creating and replacing share one runner
+    and the confirmation gates upstream have already approved either outcome.
+    """
     if not isinstance(target, str) or not target.strip():
         raise ValueError("target is required and must be a non-empty string")
     _reject_wrong_os_path(target)
@@ -176,6 +183,8 @@ def _validate_target(target, *, must_exist):
             "target must be an absolute path "
             "(e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac)"
         )
+    if must_exist is None:
+        return
     path = Path(target)
     if must_exist:
         if not path.is_file():
@@ -241,8 +250,14 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
 # ---------------------------------------------------------------------------
 
 def run_write(target, code):
-    """Create a new file verbatim. Errors if target already exists."""
-    _validate_target(target, must_exist=False)
+    """Create a new file verbatim, or replace an existing one verbatim.
+
+    Overwriting used to be refused, which taught models a worse habit: write,
+    get blocked, delete the file, write again. A write that would replace a
+    file now previews as a diff first, so by the time this runs the user has
+    confirmed the replacement.
+    """
+    _validate_target(target, must_exist=None)
     path = Path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(code.encode("utf-8"))
@@ -794,7 +809,22 @@ def dry_run_edit(language, code, target):
     {"output": str, "ok": bool} where ok is False for tool/validation failures.
     """
     language = language.lower().strip()
-    if language == "poke" or language == "write":
+    if language == "poke":
+        return None
+    if language == "write":
+        # A write that would replace an existing file previews the diff it
+        # would produce, like every other edit. A brand-new file has nothing
+        # to diff against, and an undecodable (binary) target has no text
+        # diff to show.
+        if os.path.isfile(target):
+            preview = unified_edit_diff(target, code)
+            if preview is not None:
+                return {"output": preview, "ok": True}
+            if _read_text_for_diff(target) is not None:
+                return {
+                    "output": "write: no changes (content is identical to the current file)",
+                    "ok": True,
+                }
         return None
 
     def _preview(result, *, append_diff=None, diff_against=None):

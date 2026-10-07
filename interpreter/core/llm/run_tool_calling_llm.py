@@ -65,7 +65,7 @@ edit_tool_schema = {
         "description": (
             "Edit or create a file at an absolute path.\n"
             "Languages:\n"
-            "  write — create a NEW file; code is the full file body (UTF-8). Errors if target exists.\n"
+            "  write — code is the full file body (UTF-8): creates the file, or REPLACES it if it exists (you are shown the diff first).\n"
             "  sed   — one-line s/// substitutions only; several s/// lines are fine, but a/i/c "
             "insert blocks are not (use gawk or patch). sed is line-oriented: a pattern spanning "
             "a newline never matches, while a multi-line REPLACEMENT (with \\n) is fine. In the "
