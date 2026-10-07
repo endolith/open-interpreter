@@ -149,12 +149,11 @@ approve_edit_tool_schema = {
 
 
 def _unsupported_tool_error(interpreter, function_name):
-    """Error text for a tool name the model invented or remembers.
+    """Error text for a tool name the model invented.
 
-    When a dry run is waiting for its ruling, models coming from older
-    sessions reach for the retired `review_edit` verdict tool. The generic
-    "only execute/edit/view_image" reply would leave them no path to the gate
-    that exists -- so name it: approve_edit to sign off, edit to revise.
+    When a dry run is waiting for its ruling, the generic
+    "only execute/edit/view_image" reply would leave the model no path to the
+    gate that exists -- so name it: approve_edit to sign off, edit to revise.
     Without this the attempt errors, the model talks instead, the quiet-turn
     limit burns, and the user is asked about a diff the model never ruled on.
     """
@@ -169,8 +168,6 @@ def _unsupported_tool_error(interpreter, function_name):
             " A dry run is waiting for your ruling: call approve_edit to "
             "approve it, or call edit again with a corrected edit."
         )
-        if function_name == "review_edit":
-            error_msg += " review_edit no longer exists; approve_edit is its replacement."
     return error_msg
 
 
