@@ -598,44 +598,62 @@ def create_router(async_interpreter):
 
             async def receive_input():
                 authenticated = False
+                pending_inputs = []
                 while True:
                     try:
                         if websocket.client_state != WebSocketState.CONNECTED:
                             return
                         data = await websocket.receive()
 
+                        async def deliver_frame(frame):
+                            """Deliver one websocket.receive frame to input()."""
+                            if "text" in frame:
+                                frame = json.loads(frame["text"])
+                                if (
+                                    async_interpreter.require_acknowledge
+                                    and "ack" in frame
+                                ):
+                                    async_interpreter.acknowledged_outputs.append(
+                                        frame["ack"]
+                                    )
+                                    return
+                            elif "bytes" in frame:
+                                frame = frame["bytes"]
+                            await async_interpreter.input(frame)
+
                         if (
                             not authenticated
                             and os.getenv("INTERPRETER_REQUIRE_AUTH") != "False"
                         ):
                             if "text" in data:
-                                data = json.loads(data["text"])
-                                if "auth" in data:
+                                parsed = json.loads(data["text"])
+                                if "auth" in parsed:
                                     if async_interpreter.server.authenticate(
-                                        data["auth"]
+                                        parsed["auth"]
                                     ):
                                         authenticated = True
                                         await websocket.send_text(
                                             json.dumps({"auth": True})
                                         )
+                                        for pending in pending_inputs:
+                                            await deliver_frame(pending)
+                                        pending_inputs = []
+                                        continue
+                                if data.get("type") == "websocket.receive":
+                                    # Not an auth attempt: hold the raw frame
+                                    # for delivery after the handshake instead
+                                    # of dropping it.
+                                    pending_inputs.append(data)
+                            elif data.get("type") == "websocket.receive":
+                                # Binary or otherwise unparseable pre-auth
+                                # frame: hold it the same way.
+                                pending_inputs.append(data)
                             if not authenticated:
                                 await websocket.send_text(json.dumps({"auth": False}))
                             continue
 
                         if data.get("type") == "websocket.receive":
-                            if "text" in data:
-                                data = json.loads(data["text"])
-                                if (
-                                    async_interpreter.require_acknowledge
-                                    and "ack" in data
-                                ):
-                                    async_interpreter.acknowledged_outputs.append(
-                                        data["ack"]
-                                    )
-                                    continue
-                            elif "bytes" in data:
-                                data = data["bytes"]
-                            await async_interpreter.input(data)
+                            await deliver_frame(data)
                         elif data.get("type") == "websocket.disconnect":
                             print("Client wants to disconnect, that's fine..")
                             return
