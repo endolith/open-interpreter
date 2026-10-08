@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from interpreter.core.computer.terminal.terminal import Terminal
 
 
@@ -16,6 +18,48 @@ def test_get_language_by_alias():
     """Terminal.get_language() resolves shell aliases such as 'sh' to Shell."""
     terminal = Terminal(computer=SimpleNamespace())
     assert terminal.get_language("sh").name == "Shell"
+
+
+class _FakeShell:
+    """Minimal language stub with an alias, for process-sharing tests."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+
+    def __init__(self, computer):
+        self.computer = computer
+
+    def run(self, code):
+        yield {"type": "console", "format": "output", "content": code}
+
+
+def _bare_computer():
+    return SimpleNamespace(
+        import_computer_api=False,
+        import_skills=False,
+        _has_imported_computer_api=False,
+        _has_imported_skills=False,
+        verbose=False,
+        skills=SimpleNamespace(import_skills=mock.Mock()),
+    )
+
+
+def test_canonical_language_resolves_aliases_and_passes_unknown_through():
+    """canonical_language() maps aliases to the primary name, lowercased (issue #323)."""
+    terminal = Terminal(computer=SimpleNamespace())
+    terminal.languages = [_FakeShell]
+    assert terminal.canonical_language("bash") == "shell"
+    assert terminal.canonical_language("Shell") == "shell"
+    assert terminal.canonical_language("unknown_xyz") == "unknown_xyz"
+
+
+def test_run_alias_shares_process_with_canonical_name():
+    """'bash' and 'shell' blocks share one persistent process (issue #323)."""
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_FakeShell]
+    list(terminal.run("bash", "cd /tmp", stream=True))
+    list(terminal.run("shell", "pwd", stream=True))
+    assert list(terminal._active_languages) == ["shell"]
 
 
 def test_run_non_streaming_merges_output_chunks():
@@ -260,3 +304,33 @@ def test_terminate_skips_none_languages_and_clears():
     terminal.terminate()
     language.terminate.assert_called_once_with()
     assert terminal._active_languages == {}
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "apt install git curl",
+        "apt install git && echo done",
+        "apt install git\npip install requests",
+        "apt-get install -y $PACKAGE",
+        "apt install -y ${PKG}",
+        "apt-get\ninstall git",
+    ],
+)
+def test_apt_install_shortcut_ignores_compound_commands(code):
+    """Only a bare one-package `apt install` uses the sudo_install shortcut."""
+    terminal = Terminal(computer=_bare_computer())
+    seen = []
+
+    def fake_streaming_run(language, sent_code, display=False):
+        seen.append((language, sent_code))
+        return iter([])
+
+    with mock.patch.object(terminal, "sudo_install") as sudo_install, \
+            mock.patch.object(
+                terminal, "_streaming_run", side_effect=fake_streaming_run
+            ):
+        terminal.run("bash", code, stream=False)
+
+    sudo_install.assert_not_called()
+    assert seen == [("shell", code)]
