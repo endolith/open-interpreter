@@ -192,13 +192,17 @@ def test_respond_model_access_prompt_switches_to_i_model():
     """Accepting the 'no access' prompt switches the model to hosted `i`."""
     interpreter = _message_interpreter()
     interpreter.offline = False
+    interpreter.auto_run = False
     interpreter.llm.model = "gpt-4o"
 
     def run(msgs):
         raise Exception("You do not have access to this model")
 
     interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="y"):
+    with (
+        mock.patch("builtins.input", return_value="y"),
+        mock.patch("sys.stdin.isatty", return_value=True),
+    ):
         list(respond(interpreter))
 
     assert interpreter.llm.model == "i"
@@ -209,15 +213,61 @@ def test_respond_model_access_prompt_no_raises():
     """Declining the 'no access' prompt re-raises the original error."""
     interpreter = _message_interpreter()
     interpreter.offline = False
+    interpreter.auto_run = False
     interpreter.llm.model = "gpt-4o"
 
     def run(msgs):
         raise Exception("You do not have access to this model")
 
     interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="n"):
+    with (
+        mock.patch("builtins.input", return_value="n"),
+        mock.patch("sys.stdin.isatty", return_value=True),
+    ):
         with pytest.raises(Exception, match="have access"):
             list(respond(interpreter))
+
+
+def test_respond_model_access_auto_run_takes_fallback_without_prompting():
+    """With auto_run (-y), the hosted-`i` fallback is taken without asking (issue #277)."""
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.auto_run = True
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with mock.patch("builtins.input") as prompt:
+        list(respond(interpreter))
+
+    prompt.assert_not_called()
+    assert interpreter.llm.model == "i"
+
+
+def test_respond_model_access_headless_raises_without_prompting():
+    """Without a TTY and without auto_run, the fallback is skipped and the error raised (issue #277).
+
+    Previously input() raised EOFError here, hiding the original error.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.auto_run = False
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with (
+        mock.patch("builtins.input") as prompt,
+        mock.patch("sys.stdin.isatty", return_value=False),
+    ):
+        with pytest.raises(Exception, match="have access"):
+            list(respond(interpreter))
+
+    prompt.assert_not_called()
 
 
 def test_respond_offline_errors_are_re_raised():
