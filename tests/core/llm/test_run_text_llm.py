@@ -192,6 +192,20 @@ def test_a_delta_with_no_content_key_yields_an_empty_message():
     ]
 
 
+def test_reasoning_only_delta_yields_message_with_reasoning():
+    """A delta with None content but reasoning_content is kept, not skipped (issue #215)."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": None, "reasoning_content": "Let me think"}}]},
+            {"choices": [{"delta": {"content": "hi"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "", "reasoning_content": "Let me think"},
+        {"type": "message", "content": "hi"},
+    ]
+
+
 def test_os_flag_true_does_not_change_labelled_languages():
     """A labelled fence keeps its language in OS mode.
 
@@ -209,3 +223,17 @@ def test_os_flag_true_does_not_change_labelled_languages():
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
 
     assert {chunk.get("format") for chunk in result} == {"bash"}
+
+
+def test_reasoning_content_attached_per_chunk():
+    """Each message chunk carries its own reasoning delta for history accumulation (issue #215)."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "a", "reasoning_content": "r1"}}]},
+            {"choices": [{"delta": {"content": "b", "reasoning_content": "r2"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "a", "reasoning_content": "r1"},
+        {"type": "message", "content": "b", "reasoning_content": "r2"},
+    ]
