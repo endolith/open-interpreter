@@ -617,8 +617,8 @@ def create_router(async_interpreter):
                                         frame["ack"]
                                     )
                                     return
-                            elif "bytes" in frame:
-                                frame = frame["bytes"]
+                            else:
+                                frame = frame.get("bytes", frame)
                             await async_interpreter.input(frame)
 
                         if (
@@ -628,6 +628,9 @@ def create_router(async_interpreter):
                             if "text" in data:
                                 parsed = json.loads(data["text"])
                                 if "auth" in parsed:
+                                    # Auth attempts are answered, never queued:
+                                    # replaying one would feed {"auth": ...}
+                                    # to input() after the handshake.
                                     if async_interpreter.server.authenticate(
                                         parsed["auth"]
                                     ):
@@ -639,17 +642,17 @@ def create_router(async_interpreter):
                                             await deliver_frame(pending)
                                         pending_inputs = []
                                         continue
-                                if data.get("type") == "websocket.receive":
+                                else:
                                     # Not an auth attempt: hold the raw frame
                                     # for delivery after the handshake instead
-                                    # of dropping it.
+                                    # of dropping it (issue #249). Any text
+                                    # here is a payload: text frames always
+                                    # arrive as websocket.receive.
                                     pending_inputs.append(data)
                             elif data.get("type") == "websocket.receive":
-                                # Binary or otherwise unparseable pre-auth
-                                # frame: hold it the same way.
+                                # Binary pre-auth payload: hold it the same way.
                                 pending_inputs.append(data)
-                            if not authenticated:
-                                await websocket.send_text(json.dumps({"auth": False}))
+                            await websocket.send_text(json.dumps({"auth": False}))
                             continue
 
                         if data.get("type") == "websocket.receive":
