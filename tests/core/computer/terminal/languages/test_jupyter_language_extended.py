@@ -118,6 +118,15 @@ def test_string_to_python_handles_docstring_less_function():
     assert "def add():" in functions["add"]
 
 
+def test_string_to_python_keeps_whole_function_body():
+    """string_to_python() keeps every statement of a multi-line body (issue #222)."""
+    code = "def pub():\n    a = 1\n    b = 2\n    return a + b"
+    functions = string_to_python(code)
+    assert "a = 1" in functions["pub"]
+    assert "b = 2" in functions["pub"]
+    assert "return a + b" in functions["pub"]
+
+
 def _scripted_language(msgs):
     """Build a JupyterLanguage instance whose kernel client replays scripted iopub messages.
 
