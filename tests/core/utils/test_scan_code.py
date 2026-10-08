@@ -227,3 +227,53 @@ def test_temp_creation_failure_skips_scan(capsys):
     run.assert_not_called()
     cleanup.assert_not_called()
     assert "No issues were found" not in capsys.readouterr().out
+
+
+def test_no_yaspin_falls_back_to_nullcontext():
+    """Without yaspin installed the scan runs inside a nullcontext (covers the spinner fallback)."""
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value="/tmp/fake_scan.py",
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.cleanup_temporary_file"
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run",
+        return_value=mock.Mock(returncode=0),
+    ) as run, mock.patch.object(
+        scan_code, "yaspin", None
+    ):
+        scan_code.scan_code("print(1)", "python", _interpreter())
+    run.assert_called_once()
+
+
+def test_verbose_temp_failure_names_the_error(capsys):
+    """A temp-file failure in verbose mode prints the underlying error (issue #374)."""
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        side_effect=OSError("disk full"),
+    ):
+        scan_code.scan_code("print(1)", "python", _interpreter(verbose=True))
+    assert "disk full" in capsys.readouterr().out
+
+
+def test_verbose_scan_prints_progress(capsys):
+    """Verbose mode narrates the scan target before running semgrep."""
+    create, run, _ = _scan(_interpreter(verbose=True), None)
+    out = capsys.readouterr().out
+    assert "Scanning python code" in out
+
+
+def test_missing_yaspin_import_disables_spinner():
+    """When yaspin cannot be imported the module degrades to no spinner instead of crashing."""
+    import importlib
+    import sys
+
+    with mock.patch.dict(sys.modules, {"yaspin": None, "yaspin.spinners": None}):
+        try:
+            importlib.reload(scan_code)
+            assert scan_code.yaspin is None
+            assert scan_code.Spinners is None
+        finally:
+            sys.modules.pop("yaspin", None)
+            sys.modules.pop("yaspin.spinners", None)
+            importlib.reload(scan_code)
