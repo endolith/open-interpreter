@@ -54,23 +54,22 @@ def _check_for_update_callable():
     """Build the real check_for_update() from the --os branch and call it.
 
     The function is defined at module level inside the branch, so it is not
-    importable; compile its definition and exec it against the same names the
-    branch binds, which is what the shadowing bug was about.
+    importable. Compile the branch's imports together with the function
+    definition and exec them: that both supplies the names the function
+    closes over and exercises the aliased packaging import itself, which no
+    test can otherwise reach because the branch only runs under `--os`.
     """
-    import importlib.metadata
-
-    import packaging.version
-    import requests
-
-    source = Path("interpreter/__init__.py").read_text()
     branch = _os_branch()
-    func = next(node for node in branch.body if isinstance(node, ast.FunctionDef) and node.name == "check_for_update")
-    module = ast.Module(body=[func], type_ignores=[])
-    namespace = {
-        "version": importlib.metadata.version,
-        "packaging_version": packaging.version,
-        "requests": requests,
-    }
+    # Everything up to the first `if` is the banner, the update check, and the
+    # imports they need; past it sits the network call and the computer-use
+    # bootstrap, which must not run here.
+    body = []
+    for node in branch.body:
+        if isinstance(node, ast.If):
+            break
+        body.append(node)
+    module = ast.Module(body=body, type_ignores=[])
+    namespace = {"__name__": "interpreter"}
     exec(compile(module, "interpreter/__init__.py", "exec"), namespace)
     return namespace["check_for_update"]
 
