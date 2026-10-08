@@ -210,8 +210,32 @@ def test_missing_semgrep_prints_guidance_without_running(capsys):
 def test_temp_creation_failure_skips_scan(capsys):
     """A temp-file failure skips the optional scan instead of aborting the turn (issue #374).
 
-    create_temporary_file raises on failure (PR #433); scan_code must not let
-    that propagate out of an optional safe-mode nicety.
+    create_temporary_file swallows its own errors and returns None rather
+    than raising, so scan_code must treat a None return as "skip the scan"
+    instead of crashing in os.path.dirname.
+    """
+    interpreter = _interpreter()
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value=None,
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.cleanup_temporary_file"
+    ) as cleanup, mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run"
+    ) as run:
+        scan_code.scan_code("print(1)", "python", interpreter)  # must not raise
+
+    run.assert_not_called()
+    cleanup.assert_not_called()
+    assert "No issues were found" not in capsys.readouterr().out
+
+
+def test_temp_creation_raise_still_skips_scan():
+    """A raising temp helper still skips the scan via the defensive except (issue #374).
+
+    The real helper returns None (covered above), but the except stays as
+    defense for e.g. language_class.file_extension access failing inside
+    the same try block.
     """
     interpreter = _interpreter()
     with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
@@ -226,7 +250,6 @@ def test_temp_creation_failure_skips_scan(capsys):
 
     run.assert_not_called()
     cleanup.assert_not_called()
-    assert "No issues were found" not in capsys.readouterr().out
 
 
 def test_no_yaspin_falls_back_to_nullcontext():
