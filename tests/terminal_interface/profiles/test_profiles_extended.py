@@ -282,9 +282,11 @@ def test_apply_profile_warns_on_system_message(profile_env):
 
 
 def test_apply_profile_filters_computer_languages(profile_env):
-    """apply_profile() filters computer.languages to the requested names; the
-    code then raises KeyError on the bad `del profile["computer.languages"]`
-    (tracked in #225)."""
+    """apply_profile() filters computer.languages and drops the consumed key (issue #225).
+
+    The `del` used to name a flat "computer.languages" key and raise KeyError;
+    it now removes profile["computer"]["languages"] so apply continues.
+    """
     path = os.path.join(profile_env["profile_dir"], "p.yaml")
     interpreter = mock.Mock()
     interpreter.computer.languages = [
@@ -293,15 +295,12 @@ def test_apply_profile_filters_computer_languages(profile_env):
     ]
     interpreter.computer.languages[0].name = "python"
     interpreter.computer.languages[1].name = "javascript"
+    profile = {"version": "0.2.5", "computer": {"languages": ["javascript"]}}
     with mock.patch("interpreter.terminal_interface.profiles.profiles.time.sleep"):
-        with pytest.raises(KeyError, match="computer.languages"):
-            profiles.apply_profile(
-                interpreter,
-                {"version": "0.2.5", "computer": {"languages": ["javascript"]}},
-                path,
-            )
-    # The filter itself ran before the crash.
+        profiles.apply_profile(interpreter, profile, path)
+    # The filter itself ran, and the consumed key is gone.
     assert [l.name for l in interpreter.computer.languages] == ["javascript"]
+    assert "languages" not in profile["computer"]
 
 
 def test_apply_profile_raises_when_llm_not_dict(profile_env):
@@ -606,6 +605,27 @@ def test_migrate_profile_reformats_dotted_keys(profile_env):
     profiles.migrate_profile(old, new)
     content = open(new).read()
     assert "temperature: 0.7" in content
+
+
+def test_migrate_profile_maps_old_keys_to_nested_names(profile_env):
+    """migrate_profile() renames old flat keys before nesting (issue #226).
+
+    `model` must land under `llm:` and `local` must become `offline`; the
+    mapping dict used to be computed and then ignored.
+    """
+    import yaml
+
+    old = os.path.join(profile_env["profile_dir"], "old.yaml")
+    new = os.path.join(profile_env["profile_dir"], "new.yaml")
+    with open(old, "w") as f:
+        f.write("model: gpt-4\nlocal: true\n")
+    profiles.migrate_profile(old, new)
+    with open(new) as f:
+        migrated = yaml.safe_load(f)
+    assert migrated["llm"]["model"] == "gpt-4"
+    assert migrated["offline"] is True
+    assert "model" not in migrated
+    assert "local" not in migrated
 
 
 def _old_system_messages():
