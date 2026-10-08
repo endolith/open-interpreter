@@ -36,6 +36,12 @@ def scan_code(code, language, interpreter):
             print(f"Could not create temporary file for scanning: {e}")
         return
 
+    if temp_file is None:
+        # create_temporary_file swallows its own errors and returns None
+        # instead of raising, so the except above never fires: skip the
+        # optional scan the same way rather than crashing in dirname below.
+        return
+
     temp_path = os.path.dirname(temp_file)
     file_name = os.path.basename(temp_file)
 
