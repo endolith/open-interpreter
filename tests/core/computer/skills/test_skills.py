@@ -149,3 +149,26 @@ def test_import_skills_skips_when_disabled():
     skills = Skills(computer)
     skills.import_skills()
     computer.run.assert_not_called()
+
+
+def test_new_skill_usable_before_create():
+    """NewSkill exposes name/steps before create() so early touches do not raise AttributeError."""
+    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
+    new_skill = Skills(computer).new_skill
+    assert new_skill.name == "Untitled"
+    assert new_skill.steps == []
+    new_skill.name = "Demo"
+    assert new_skill.name == "Demo"
+    new_skill.add_step("Do thing", "x = 1")
+    assert len(new_skill.steps) == 1
+
+
+def test_new_skill_create_starts_fresh():
+    """create() resets name/steps so a new teaching session starts from a clean object."""
+    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
+    new_skill = Skills(computer).new_skill
+    new_skill.name = "Demo"
+    new_skill.add_step("Do thing", "x = 1")
+    new_skill.create()
+    assert new_skill.name == "Untitled"
+    assert new_skill.steps == []
