@@ -1,5 +1,6 @@
 import atexit
 import os
+import re
 import time
 import subprocess
 import getpass
@@ -101,10 +102,32 @@ class Terminal:
                 return lang
         return None
 
+    def canonical_language(self, language):
+        """Resolve an alias to the language's primary name, lowercased.
+
+        "bash" -> "shell", "py" -> "python". Unknown languages pass through
+        unchanged so the caller's existing error handling still applies.
+        """
+        lang_class = self.get_language(language)
+        if lang_class is None:
+            return language
+        return lang_class.name.lower()
+
     def run(self, language, code, stream=False, display=False):
-        # Check if this is an apt install command
-        if language == "shell" and code.strip().startswith("apt install"):
-            package = code.split()[-1]
+        # Normalize aliases ("bash" -> "shell", "py" -> "python") so aliased
+        # blocks share one persistent process and hit the exact-name checks
+        # below (#323).
+        language = self.canonical_language(language)
+        # Shortcut a bare `apt install <one package>`. A compound or
+        # multi-package command must run in the shell: taking the last token
+        # would install only one of them and silently skip the rest.
+        apt_install = re.fullmatch(
+            r"apt(?:-get)?[ \t]+install[ \t]+(?:-y[ \t]+)?"
+            r"([A-Za-z0-9][A-Za-z0-9+._:/=~-]*)",
+            code.strip(),
+        )
+        if language == "shell" and apt_install:
+            package = apt_install.group(1)
             if self.sudo_install(package):
                 return [{"type": "console", "format": "output", "content": f"Package {package} installed successfully."}]
             else:
