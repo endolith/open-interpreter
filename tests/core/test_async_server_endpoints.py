@@ -476,21 +476,23 @@ def test_insecure_download_route_missing_file_reports_200_with_array_body(
 
 
 def _deltas(body):
-    """Extract the streamed delta content strings from an SSE response body."""
+    """Extract the streamed delta content strings, skipping the [DONE] sentinel."""
     deltas = []
     for line in body.splitlines():
         if not line.startswith("data: "):
             continue
-        payload = json.loads(line[len("data: ") :])
-        deltas.append(payload["choices"][0]["delta"]["content"])
+        payload = line[len("data: ") :]
+        if payload == "[DONE]":
+            continue
+        deltas.append(json.loads(payload)["choices"][0]["delta"]["content"])
     return deltas
 
 
 def _frames(body):
-    """Extract every decoded SSE frame from a response body."""
+    """Extract every decoded SSE frame from a response body, skipping [DONE]."""
     frames = []
     for line in body.splitlines():
-        if line.startswith("data: "):
+        if line.startswith("data: ") and line[len("data: ") :] != "[DONE]":
             frames.append(json.loads(line[len("data: ") :]))
     return frames
 
@@ -608,10 +610,10 @@ def test_stream_breaks_on_a_chunk_with_no_type(client, server_pair):
 
 
 def test_stream_frames_carry_the_openai_chunk_envelope(client, server_pair):
-    """Each frame identifies itself as a chat.completion.chunk from open-interpreter.
+    """Each frame identifies itself as a chat.completion.chunk echoing the request model.
 
     Clients switch on `object` to tell a chunk from a terminal response, and some
-    display the `model` field, so both have to be present and correct.
+    display the `model` field, so both have to be present and correct (issue #366).
     """
     _code_stream_pair(
         server_pair,
@@ -620,12 +622,16 @@ def test_stream_frames_carry_the_openai_chunk_envelope(client, server_pair):
 
     response = client.post(
         "/openai/chat/completions",
-        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+        json={
+            "messages": [{"role": "user", "content": "yes"}],
+            "model": "gpt-4o-mini",
+            "stream": True,
+        },
     )
 
     frame = _frames(response.text)[0]
     assert frame["object"] == "chat.completion.chunk"
-    assert frame["model"] == "open-interpreter"
+    assert frame["model"] == "gpt-4o-mini"
     assert isinstance(frame["created"], (int, float))
 
 
@@ -651,8 +657,8 @@ def test_stream_frame_ids_increase_with_each_chunk(client, server_pair):
     assert [frame["id"] for frame in _frames(response.text)] == [0, 1]
 
 
-def test_stream_is_served_as_ndjson(client, server_pair):
-    """The streaming response is typed application/x-ndjson."""
+def test_stream_is_served_as_event_stream(client, server_pair):
+    """The streaming response is typed text/event-stream (issue #366)."""
     _code_stream_pair(
         server_pair,
         [{"role": "assistant", "type": "message", "content": "hi"}],
@@ -663,16 +669,11 @@ def test_stream_is_served_as_ndjson(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert response.headers["content-type"].startswith("text/event-stream")
 
 
-def test_stream_ends_without_a_done_sentinel(client, server_pair):
-    """The stream closes by ending, with no `data: [DONE]` frame.
-
-    KNOWN GAP: the OpenAI streaming protocol terminates with a `[DONE]` sentinel,
-    and strict clients wait for it rather than treating EOF as completion. Pinned
-    as-is because this campaign is characterization only.
-    """
+def test_stream_ends_with_a_done_sentinel(client, server_pair):
+    """The stream terminates with a `data: [DONE]` frame (issue #366)."""
     _code_stream_pair(
         server_pair,
         [{"role": "assistant", "type": "message", "content": "hi"}],
@@ -683,7 +684,7 @@ def test_stream_ends_without_a_done_sentinel(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert "[DONE]" not in response.text
+    assert response.text.rstrip().endswith("data: [DONE]")
 
 
 def test_non_stream_envelope_echoes_the_requested_model(client, server_pair):
@@ -730,12 +731,8 @@ def test_non_stream_model_defaults_to_default_model(client, server_pair):
     assert response.json()["model"] == "default-model"
 
 
-def test_stream_model_is_fixed_regardless_of_the_request(client, server_pair):
-    """Streaming frames report `open-interpreter` even when a model was requested.
-
-    This is inconsistent with the non-streaming path, which echoes the request.
-    Pinned deliberately so the divergence is visible rather than accidental.
-    """
+def test_stream_model_echoes_the_request(client, server_pair):
+    """Streaming frames echo the requested model like the non-streaming path (issue #366)."""
     _code_stream_pair(
         server_pair,
         [{"role": "assistant", "type": "message", "content": "hi"}],
@@ -750,7 +747,7 @@ def test_stream_model_is_fixed_regardless_of_the_request(client, server_pair):
         },
     )
 
-    assert _frames(response.text)[0]["model"] == "open-interpreter"
+    assert _frames(response.text)[0]["model"] == "gpt-4o-mini"
 
 
 def test_confirmation_does_not_ask_when_auto_run_is_on(client, server_pair):
