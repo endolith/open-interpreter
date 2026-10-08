@@ -107,3 +107,14 @@ def test_shrink_gives_up_after_ten_passes_and_still_sends_the_image(
     assert base64.b64decode(url.split(",", 1)[1]) == stub.saved_bytes
     assert stub.resizes == 10, "the retry budget is ten passes"
     assert "Attempted to shrink the image but failed" in capsys.readouterr().out
+
+
+def test_image_unrecognized_format_names_the_format(interpreter):
+    """An image message with an unknown format raises naming that format."""
+    messages = [
+        {"role": "user", "type": "image", "format": "tiff", "content": "abc"}
+    ]
+    with pytest.raises(Exception, match="Unrecognized image format: tiff"):
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
