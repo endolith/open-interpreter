@@ -227,6 +227,10 @@ def get_downloads_path():
 
 
 def install_and_import(package):
+    # Bound up front so the finally below never hits UnboundLocalError on
+    # the failure paths (pip and pip3 both failing, or re-import failing);
+    # those return None instead (#250).
+    module = None
     try:
         module = __import__(package)
     except ImportError:
@@ -253,7 +257,8 @@ def install_and_import(package):
                 print(f"Failed to install package {package}.")
                 return
     finally:
-        globals()[package] = module
+        if module is not None:
+            globals()[package] = module
     return module
 
 
