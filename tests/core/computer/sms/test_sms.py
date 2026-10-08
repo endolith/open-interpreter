@@ -92,15 +92,13 @@ def test_send_macos_runs_osascript_with_escaped_message():
     assert '"+1555"' in args[2]
 
 
-@pytest.mark.xfail(reason="SMS.send() escapes quotes before backslashes (issue #412), so the backslash it adds for a quote is escaped a second time and a quote gains two backslashes instead of one")
 def test_send_escapes_backslashes_before_quotes():
     """Backslashes are escaped first, so a quote gains exactly one.
 
     'say "hi"' becomes 'say \\"hi\\"' in the script: the quote escape adds
     the only backslash, and the earlier backslash pass has nothing new to
-    double. Today the order is reversed, so the quote escape's backslash is
-    escaped again and the script holds 'say \\\\"hi\\\\"', which ends the
-    AppleScript string literal instead of preserving the quote.
+    double (fixed in #423 — the order used to be reversed, ending the
+    AppleScript string literal instead of preserving the quote).
     """
     sms = _mac_sms()
     with mock.patch("sys.platform", "darwin"):
@@ -108,6 +106,27 @@ def test_send_escapes_backslashes_before_quotes():
             sms.send("+1555", 'say "hi"')
     script = run.call_args[0][0][2]
     assert 'say \\"hi\\"' in script
+
+
+def test_send_escapes_quotes():
+    """Double quotes are escaped so they do not terminate the AppleScript string."""
+    sms = _mac_sms()
+    with mock.patch("sys.platform", "darwin"):
+        with mock.patch.object(sms_module.subprocess, "run") as run:
+            sms.send("+1555", 'say "hi"')
+    assert 'say \\"hi\\"' in run.call_args[0][0][2]
+
+
+def test_send_escapes_backslash_immediately_before_quote():
+    """A backslash just before a quote must not swallow that quote's escaping."""
+    sms = _mac_sms()
+    with mock.patch("sys.platform", "darwin"):
+        with mock.patch.object(sms_module.subprocess, "run") as run:
+            sms.send("+1555", 'path\\"end')
+    script = run.call_args[0][0][2]
+    # The backslash becomes a literal escaped pair, and the quote is still
+    # escaped for AppleScript — both, not one at the expense of the other.
+    assert 'path\\\\\\"end' in script
 
 
 def _message_db(path, rows):
