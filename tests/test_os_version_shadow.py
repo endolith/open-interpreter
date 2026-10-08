@@ -38,9 +38,7 @@ def test_os_branch_version_imports_do_not_collide():
     assert bound.get("version") == "importlib.metadata", (
         f"version must come from importlib.metadata, got {bound.get('version')}"
     )
-    assert "packaging" in (bound.get("packaging_version") or ""), (
-        "packaging.version must be imported under an alias"
-    )
+    assert "packaging" in (bound.get("packaging_version") or ""), "packaging.version must be imported under an alias"
 
 
 def test_os_update_check_parses_with_packaging_alias():
@@ -50,3 +48,59 @@ def test_os_update_check_parses_with_packaging_alias():
     assert re.search(r"(?<!packaging_)version\.parse\(", source) is None, (
         "check_for_update must not call version.parse (the shadowed name)"
     )
+
+
+def _check_for_update_callable():
+    """Build the real check_for_update() from the --os branch and call it.
+
+    The function is defined at module level inside the branch, so it is not
+    importable; compile its definition and exec it against the same names the
+    branch binds, which is what the shadowing bug was about.
+    """
+    import importlib.metadata
+
+    import packaging.version
+    import requests
+
+    source = Path("interpreter/__init__.py").read_text()
+    branch = _os_branch()
+    func = next(node for node in branch.body if isinstance(node, ast.FunctionDef) and node.name == "check_for_update")
+    module = ast.Module(body=[func], type_ignores=[])
+    namespace = {
+        "version": importlib.metadata.version,
+        "packaging_version": packaging.version,
+        "requests": requests,
+    }
+    exec(compile(module, "interpreter/__init__.py", "exec"), namespace)
+    return namespace["check_for_update"]
+
+
+def test_check_for_update_detects_newer_release(monkeypatch):
+    """check_for_update() returns True when PyPI advertises a newer version (issue #407).
+
+    This is the call that used to die with TypeError: `version` had been
+    rebound to the packaging module, so `version.parse` raised before the
+    comparison could run.
+    """
+    import requests
+
+    class _Response:
+        def json(self):
+            return {"info": {"version": "9999.0.0"}}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Response())
+    assert _check_for_update_callable()() is True
+
+
+def test_check_for_update_reports_no_update_when_current(monkeypatch):
+    """A PyPI version equal to the installed one is not an update."""
+    import importlib.metadata
+
+    import requests
+
+    class _Response:
+        def json(self):
+            return {"info": {"version": importlib.metadata.version("open-interpreter")}}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Response())
+    assert _check_for_update_callable()() is False
