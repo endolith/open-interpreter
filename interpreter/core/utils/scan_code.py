@@ -1,4 +1,6 @@
+import contextlib
 import os
+import shutil
 import subprocess
 
 from .temporary_file import cleanup_temporary_file, create_temporary_file
@@ -7,7 +9,8 @@ try:
     from yaspin import yaspin
     from yaspin.spinners import Spinners
 except ImportError:
-    pass
+    yaspin = None
+    Spinners = None
 
 
 def scan_code(code, language, interpreter):
@@ -16,9 +19,22 @@ def scan_code(code, language, interpreter):
     """
     language_class = interpreter.computer.terminal.get_language(language)
 
-    temp_file = create_temporary_file(
-        code, language_class.file_extension, verbose=interpreter.verbose
-    )
+    if shutil.which("semgrep") is None:
+        # Missing dependency: say so instead of running nothing silently (#373).
+        print(f"Could not scan {language} code. Have you installed 'semgrep'?")
+        print("")  # <- Aesthetic choice
+        return
+
+    try:
+        temp_file = create_temporary_file(
+            code, language_class.file_extension, verbose=interpreter.verbose
+        )
+    except Exception as e:
+        # The scan is optional: a temp-file failure skips it instead of
+        # aborting the turn with the raw error (#374).
+        if interpreter.verbose:
+            print(f"Could not create temporary file for scanning: {e}")
+        return
 
     temp_path = os.path.dirname(temp_file)
     file_name = os.path.basename(temp_file)
@@ -29,15 +45,26 @@ def scan_code(code, language, interpreter):
 
     # Run semgrep
     try:
-        # HACK: we need to give the subprocess shell access so that the semgrep from our pyproject.toml is available
-        # the global namespace might have semgrep from guarddog installed, but guarddog is currently
-        # pinned to an old semgrep version that has issues with reading the semgrep registry
-        # while scanning a single file like the temporary one we generate
-        # if guarddog solves [#249](https://github.com/DataDog/guarddog/issues/249) we can change this approach a bit
-        with yaspin(text="  Scanning code...").green.right.binary as loading:
+        # No shell: the command is an arg list run with cwd=, so a temp dir
+        # containing spaces works, and a binary that vanishes mid-run raises
+        # FileNotFoundError instead of failing silently inside a shell
+        # (#375, #373).
+        if yaspin is not None:
+            spinner = yaspin(text="  Scanning code...").green.right.binary
+        else:
+            spinner = contextlib.nullcontext()
+        with spinner:
             scan = subprocess.run(
-                f"cd {temp_path} && semgrep scan --config auto --quiet --error {file_name}",
-                shell=True,
+                [
+                    "semgrep",
+                    "scan",
+                    "--config",
+                    "auto",
+                    "--quiet",
+                    "--error",
+                    file_name,
+                ],
+                cwd=temp_path,
             )
 
         if scan.returncode == 0:
