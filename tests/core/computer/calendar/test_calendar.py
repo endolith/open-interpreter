@@ -248,15 +248,12 @@ def test_delete_event_success_path_returns_stdout_verbatim():
             )
 
 
-@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards (issue #410), so stderr lands in the stdout slot and only its first character is returned")
 def test_delete_event_stderr_is_reported_as_the_error():
     """A real stderr is reported as the deletion error, not truncated.
 
-    Once delete_event() unpacks run_applescript_capture() as (stdout,
-    stderr), an empty stdout with stderr "execution error" falls into the
-    error branch and is wrapped. Today the swapped unpacking puts the stderr
-    text in the stdout slot and stdout[0] returns its first character,
-    so this currently returns "e".
+    delete_event() unpacks run_applescript_capture() as (stdout, stderr)
+    (fixed in #425), so an empty stdout with stderr "execution error" falls
+    into the error branch and is wrapped.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
@@ -266,16 +263,12 @@ def test_delete_event_stderr_is_reported_as_the_error():
             )
 
 
-@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards and indexes stdout[0] (issue #410): ordinary stdout is treated as stderr and wrapped as an error, and fixing only the unpacking would still return just the first character")
 def test_delete_event_returns_ordinary_stdout_verbatim():
     """Ordinary stdout is returned as-is, not wrapped as an error message.
 
-    Once delete_event() unpacks run_applescript_capture() as (stdout,
-    stderr) and returns the full stdout, a non-empty stdout is returned
-    verbatim by the first branch. Today the swapped unpacking puts the
-    stdout text in the stderr slot and it comes back as
-    "Error deleting event: ..."; fixing only the unpacking would still
-    return just stdout[0].strip(), the first character.
+    delete_event() unpacks run_applescript_capture() as (stdout, stderr)
+    and returns the full stdout (fixed in #425), so a non-empty stdout is
+    returned verbatim by the first branch.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
