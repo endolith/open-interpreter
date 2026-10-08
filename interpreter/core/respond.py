@@ -171,6 +171,16 @@ def respond(interpreter):
                 language = interpreter.messages[-1]["format"].lower().strip()
                 code = interpreter.messages[-1]["content"]
 
+                # Normalize aliases ("bash" -> "shell", "py" -> "python") so
+                # aliased blocks share one process in Terminal and hit the
+                # python-only fix-ups below (#323). Via get_language (rather
+                # than Terminal.canonical_language) so stubbed terminals in
+                # tests keep working.
+                lang_class = interpreter.computer.terminal.get_language(language)
+                if lang_class is not None:
+                    language = lang_class.name.lower()
+                    interpreter.messages[-1]["format"] = language
+
                 if code.startswith("`\n"):
                     code = code[2:].strip()
                     if interpreter.verbose:

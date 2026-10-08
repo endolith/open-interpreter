@@ -79,7 +79,22 @@ class Terminal:
                 return lang
         return None
 
+    def canonical_language(self, language):
+        """Resolve an alias to the language's primary name, lowercased.
+
+        "bash" -> "shell", "py" -> "python". Unknown languages pass through
+        unchanged so the caller's existing error handling still applies.
+        """
+        lang_class = self.get_language(language)
+        if lang_class is None:
+            return language
+        return lang_class.name.lower()
+
     def run(self, language, code, stream=False, display=False):
+        # Normalize aliases ("bash" -> "shell", "py" -> "python") so aliased
+        # blocks share one persistent process and hit the exact-name checks
+        # below (#323).
+        language = self.canonical_language(language)
         # Check if this is an apt install command
         if language == "shell" and code.strip().startswith("apt install"):
             package = code.split()[-1]
