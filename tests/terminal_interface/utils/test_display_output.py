@@ -123,9 +123,8 @@ def test_display_output_cli_base64_without_dot_defaults_to_png(monkeypatch):
 
         assert opened["path"].endswith(".png")
     finally:
-        # Removed here rather than inside capture_open: display_output_cli calls
-        # open_file from inside the NamedTemporaryFile block, so the file is
-        # still open on Windows and os.remove raises PermissionError there.
+        # Removed here rather than inside capture_open: with the file flushed
+        # and closed before open_file runs, removal here is always safe.
         if "path" in opened and os.path.exists(opened["path"]):
             os.remove(opened["path"])
 
@@ -173,6 +172,38 @@ def test_display_output_cli_javascript_writes_js_temp_file(monkeypatch):
     with open(opened["path"]) as fh:
         assert fh.read() == "console.log(1)"
     os.remove(opened["path"])
+
+
+def test_display_output_cli_opens_flushed_content(monkeypatch):
+    """open_file sees the written bytes at call time, not an empty file (issue #372).
+
+    open_file used to run inside the NamedTemporaryFile block while the write
+    was still buffered, so the OS viewer opened an empty file. Reading the
+    path inside the open_file stand-in fails if the ordering regresses.
+    """
+    import os
+
+    seen = {}
+
+    def capture_open(path):
+        with open(path, "rb") as fh:
+            seen["content"] = fh.read()
+        seen["path"] = path
+
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.utils.display_output.open_file",
+        capture_open,
+    )
+
+    cases = [
+        ({"type": "code", "format": "html", "content": "<html></html>"}, b"<html></html>"),
+        ({"type": "code", "format": "javascript", "content": "console.log(1)"}, b"console.log(1)"),
+    ]
+    for output, expected in cases:
+        seen.clear()
+        display_output_cli(output)
+        assert seen["content"] == expected
+        os.remove(seen["path"])
 
 
 def test_display_output_jupyter_console_prints(monkeypatch, capsys):
