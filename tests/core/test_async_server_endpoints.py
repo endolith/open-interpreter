@@ -120,6 +120,25 @@ def test_post_settings_unknown_top_level_key_returns_404(client):
     assert response.json() == {"error": "Setting no_such_setting not found"}
 
 
+def test_post_settings_dict_key_interpreter_lacks_returns_404(interpreter):
+    """A dict payload for a nested-settings key the interpreter lacks returns 404 (issue #365).
+
+    A dict payload for llm/computer takes a different branch than a scalar:
+    when the interpreter has no such attribute at all the response must be
+    that branch's "Setting ... not found" 404 — not the sub-setting 404 and
+    not a 500 from an attribute that was never there to set.
+    """
+    # create_router closes over the interpreter instance, so the attribute
+    # must disappear from the object it was built with, not from the module.
+    del interpreter.llm
+    client = TestClient(Server(interpreter).app)
+
+    response = client.post("/settings", json={"llm": {"sub": 1}})
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "Setting llm not found"}
+
+
 def test_chat_completion_rejects_non_user_last_message(client_no_raise):
     """The OpenAI-compatible endpoint requires the last message to be from the user."""
     response = client_no_raise.post(
