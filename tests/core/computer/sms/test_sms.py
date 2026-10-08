@@ -5,10 +5,17 @@ from unittest import mock
 import datetime
 import plistlib
 import sqlite3
+import sys
+
+import pytest
 
 import interpreter.core.computer.sms.sms as sms_module
 from interpreter.core.computer.sms.sms import SMS
 from tests.helpers import patch_expanduser
+
+_needs_geteuid = pytest.mark.skipif(
+    sys.platform == "win32", reason="os.geteuid does not exist on Windows"
+)
 
 
 def test_send_non_macos_prints_message(capsys):
@@ -43,6 +50,7 @@ def _mac_sms(monkeypatch=None, database_path=":memory:"):
     return sms
 
 
+@_needs_geteuid
 def test_resolve_database_path_root_uses_sudo_user(monkeypatch, tmp_path):
     """Running as root resolves chat.db under SUDO_USER's home, not root's."""
     patch_expanduser(monkeypatch, sms_module, tmp_path)
@@ -55,6 +63,7 @@ def test_resolve_database_path_root_uses_sudo_user(monkeypatch, tmp_path):
     assert sms.database_path == "~someone/Library/Messages/chat.db"
 
 
+@_needs_geteuid
 def test_resolve_database_path_falls_back_when_geteuid_raises(monkeypatch, tmp_path):
     """When geteuid itself fails, the path still resolves under the home dir."""
     patch_expanduser(monkeypatch, sms_module, tmp_path)
