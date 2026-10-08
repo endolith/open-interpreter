@@ -187,7 +187,12 @@ def test_review_layer_detects_warning_tag():
 
 
 def test_review_content_in_single_chunk_is_buffered_not_yielded():
-    """When the full '<safe>text</safe>' arrives in one chunk it enters the review buffer and is not streamed."""
+    """When the full '<safe>text</safe>' arrives in one chunk the verdict is still yielded (issue #219).
+
+    The verdict used to sit in the review buffer waiting for a following
+    chunk that never came, and was silently dropped when the stream ended.
+    The end-of-stream flush now emits it.
+    """
     llm = _make_llm(
         [
             _chunk(
@@ -202,6 +207,7 @@ def test_review_content_in_single_chunk_is_buffered_not_yielded():
     )
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "code", "format": "python", "content": "print(1)"},
+        {"type": "review", "format": "safe", "content": "This is safe"},
     ]
 
 
