@@ -338,6 +338,29 @@ def test_install_and_import_pip_failure_unbound_module_known_bug():
     assert "never_installable" not in magic_commands.__dict__
 
 
+def test_install_and_import_pip3_fallback_success_returns_none():
+    """When pip fails but pip3 succeeds, install_and_import returns None (issue #250).
+
+    The pip3 branch never re-imports, so `module` stays unbound and the old
+    finally block raised UnboundLocalError even though the install succeeded;
+    with module bound up front the path falls through and returns None
+    without registering anything in globals.
+    """
+    with mock.patch(
+        "builtins.__import__", side_effect=ImportError("missing")
+    ):
+        with mock.patch.object(
+            magic_commands.subprocess,
+            "check_call",
+            side_effect=[
+                magic_commands.subprocess.CalledProcessError(1, "pip"),
+                None,
+            ],
+        ):
+            assert magic_commands.install_and_import("pip3_only_pkg") is None
+    assert "pip3_only_pkg" not in magic_commands.__dict__
+
+
 def test_handle_undo_previews_removed_message_content():
     """%undo prints a preview of each removed message's content."""
     interpreter = _interpreter(
