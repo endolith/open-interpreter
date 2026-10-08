@@ -18,9 +18,15 @@ def display_markdown_message(message):
         else:
             try:
                 rich_print(Markdown(line))
-            except UnicodeEncodeError as e:
-                # Replace the problematic character or handle the error as needed
-                print("Error displaying line:", line)
+            except UnicodeEncodeError:
+                # The offending line cannot be printed back out verbatim:
+                # print() would raise the same error on the same character.
+                # Emit the escaped form so the content stays visible to a
+                # human reading a bug report without re-raising.
+                print(
+                    "Error displaying line:",
+                    line.encode("unicode_escape").decode("ascii"),
+                )
 
     if "\n" not in message and message.startswith(">"):
         # Aesthetic choice. For these tags, they need a space below them
