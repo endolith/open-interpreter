@@ -2254,9 +2254,10 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
 
     def _sse_payloads(self, text):
         """Parse the data: lines of an SSE body back into payload dicts."""
+        self._last_text = text
         payloads = []
         for line in text.splitlines():
-            if line.startswith("data: "):
+            if line.startswith("data: ") and line[len("data: ") :] != "[DONE]":
                 payloads.append(json.loads(line[len("data: "):]))
         return payloads
 
@@ -2297,7 +2298,7 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
         self.assertEqual(len(payloads), 1)
         frame = payloads[0]
         self.assertEqual(frame["object"], "chat.completion.chunk")
-        self.assertEqual(frame["model"], "open-interpreter")
+        self.assertEqual(frame["model"], "default-model")
         self.assertEqual(frame["choices"][0]["delta"]["content"], "hello")
         self.assertEqual(frame["id"], 0)
 
@@ -2329,6 +2330,7 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
         )
 
         self.assertEqual(payloads, [])
+        self.assertTrue(self._last_text.rstrip().endswith("data: [DONE]"))
 
 
 class TestOpenAIGeneratorChatPath(TestCase):
@@ -2362,9 +2364,10 @@ class TestOpenAIGeneratorChatPath(TestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
+        self._last_text = response.text
         payloads = []
         for line in response.text.splitlines():
-            if line.startswith("data: "):
+            if line.startswith("data: ") and line[len("data: ") :] != "[DONE]":
                 payloads.append(json.loads(line[len("data: "):]))
         return payloads
 
@@ -2405,7 +2408,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
             set(frame), {"id", "object", "created", "model", "choices"}
         )
         self.assertEqual(frame["object"], "chat.completion.chunk")
-        self.assertEqual(frame["model"], "open-interpreter")
+        self.assertEqual(frame["model"], "default-model")
         self.assertIsInstance(frame["created"], (int, float))
         self.assertEqual(
             frame["choices"], [{"delta": {"content": "Do you want to run this code?"}}]
@@ -2428,7 +2431,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
         )
         self.assertEqual(frame["id"], 0)
         self.assertEqual(frame["object"], "chat.completion.chunk")
-        self.assertEqual(frame["model"], "open-interpreter")
+        self.assertEqual(frame["model"], "default-model")
         self.assertIsInstance(frame["created"], (int, float))
         self.assertEqual(frame["choices"], [{"delta": {"content": "only"}}])
 
@@ -2499,12 +2502,13 @@ class TestOpenAIGeneratorChatPath(TestCase):
             self.assertTrue(call.kwargs["display"])
 
     def test_fully_silent_prompts_yield_an_empty_stream(self):
-        """When every prompt stays silent, the stream carries no frames."""
+        """When every prompt stays silent, the stream carries no content frames."""
         self.interpreter.chat = mock.MagicMock(return_value=iter([]))
 
         payloads = self._post_chat()
 
         self.assertEqual(payloads, [])
+        self.assertTrue(self._last_text.rstrip().endswith("data: [DONE]"))
         self.assertEqual(self.interpreter.chat.call_count, 6)
 
     def test_stop_set_during_streaming_suppresses_frames(self):
