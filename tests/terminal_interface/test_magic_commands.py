@@ -317,10 +317,12 @@ def test_install_and_import_installs_via_pip_then_imports():
 
 
 def test_install_and_import_pip_failure_unbound_module_known_bug():
-    """KNOWN BUG: when pip fails and pip3 also fails, install_and_import
-    raises UnboundLocalError instead of returning None. The function's
-    finally block references `module`, which is never bound on the failure
-    paths. Documenting current behavior."""
+    """When pip fails and pip3 also fails, install_and_import returns None (issue #250).
+
+    The finally block used to reference the never-bound `module` and raise
+    UnboundLocalError; with module bound up front the failure paths return
+    None without registering anything in globals.
+    """
     with mock.patch(
         "builtins.__import__", side_effect=ImportError("missing")
     ):
@@ -332,8 +334,8 @@ def test_install_and_import_pip_failure_unbound_module_known_bug():
                 magic_commands.subprocess.CalledProcessError(1, "pip3"),
             ],
         ):
-            with pytest.raises(UnboundLocalError):
-                magic_commands.install_and_import("somedummy")
+            assert magic_commands.install_and_import("never_installable") is None
+    assert "never_installable" not in magic_commands.__dict__
 
 
 def test_handle_undo_previews_removed_message_content():
