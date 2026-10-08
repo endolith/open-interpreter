@@ -261,9 +261,8 @@ def test_profile_renames_reserved_name(tmp_path, monkeypatch):
 def test_migrate_profile_maps_old_keys():
     """migrate_profile reformats flat keys into nested dicts.
 
-    KNOWN BUG: the source code builds reformatted_profile from the original
-    profile instead of mapped_profile, so the attribute_mapping is computed
-    but never used. This test documents the actual (buggy) behavior.
+    Old flat keys are renamed via attribute_mapping before nesting
+    (issue #226): `model`/`temperature` land under `llm:`.
     """
     old_profile = {"model": "gpt-4o", "temperature": 0.5}
     mock_dump = mock.MagicMock()
@@ -277,7 +276,7 @@ def test_migrate_profile_maps_old_keys():
         migrate_profile("/old/path", "/new/path")
     assert mock_dump.called
     dumped_profile = mock_dump.call_args[0][0]
-    assert dumped_profile == old_profile
+    assert dumped_profile == {"llm": {"model": "gpt-4o", "temperature": 0.5}}
 
 
 def test_reset_profile_raises_for_unknown_profile():
