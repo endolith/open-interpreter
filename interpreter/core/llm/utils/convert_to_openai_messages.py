@@ -5,6 +5,15 @@ import sys
 
 from PIL import Image
 
+# Image formats vision providers accept, mapped to their MIME suffixes.
+# Anything else detectable (BMP, TIFF, ...) is re-encoded to PNG below.
+SUPPORTED_IMAGE_FORMATS = {
+    "JPEG": "jpeg",
+    "PNG": "png",
+    "GIF": "gif",
+    "WEBP": "webp",
+}
+
 
 def convert_to_openai_messages(
     messages,
@@ -152,6 +161,31 @@ def convert_to_openai_messages(
                         raise Exception(
                             f"Unrecognized image format: {message['format']}"
                         )
+
+                # Sniff the real format from the bytes: a renamed file's declared
+                # extension may lie (JPEG bytes named .png), and some formats
+                # have no provider support. Supported formats pass through
+                # byte-for-byte; detectable-but-unsupported ones are
+                # re-encoded to PNG; undecodable bytes keep the declared
+                # extension so the pipeline never crashes here (#377).
+                try:
+                    probe = Image.open(io.BytesIO(base64.b64decode(encoded_string)))
+                    real_format = (probe.format or "").upper()
+                except Exception:
+                    real_format = ""
+                if real_format in SUPPORTED_IMAGE_FORMATS:
+                    extension = SUPPORTED_IMAGE_FORMATS[real_format]
+                elif real_format:
+                    img = Image.open(io.BytesIO(base64.b64decode(encoded_string)))
+                    buffered = io.BytesIO()
+                    try:
+                        img.save(buffered, format="PNG")
+                    except Exception:
+                        img.convert("RGB").save(buffered, format="PNG")
+                    encoded_string = base64.b64encode(buffered.getvalue()).decode(
+                        "utf-8"
+                    )
+                    extension = "png"
 
                 content = f"data:image/{extension};base64,{encoded_string}"
 
