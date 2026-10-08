@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 
@@ -143,7 +144,16 @@ def respond(interpreter):
 
                     print(provider_message)
 
-                    response = input()
+                    if interpreter.auto_run:
+                        # -y means yes to every prompt: take the fallback
+                        # without asking.
+                        response = "y"
+                    elif not sys.stdin.isatty():
+                        # No terminal to ask on (piped/headless): fail with
+                        # the original error instead of crashing on EOFError.
+                        raise
+                    else:
+                        response = input()
                     print("")  # <- Aesthetic choice
 
                     if response.strip().lower() == "y":
