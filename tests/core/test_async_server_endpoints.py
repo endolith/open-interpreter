@@ -78,18 +78,17 @@ def test_post_input_returns_success(client):
 
 
 def test_post_input_propagates_error(client, server_pair):
-    """POST / swallows input() failures and reports success.
+    """POST / turns an input() failure into a 500 instead of a silent success.
 
-    KNOWN BUG: the handler calls async_interpreter.input(payload) without
-    await, so the coroutine is never awaited and its exception is never
-    raised. It responds 200 "success" and the error path is dead code. This
-    test documents the current (wrong) behavior.
+    The handler used to call the coroutine without awaiting it, so the input
+    was never processed and the error path was dead code. It now awaits, and a
+    failing input surfaces as a 500 with the message.
     """
     _, interpreter = server_pair
     interpreter.input = mock.AsyncMock(side_effect=ValueError("boom"))
     response = client.post("/", json={"role": "user", "type": "message", "start": True})
-    assert response.status_code == 200
-    assert response.json() == {"status": "success"}
+    assert response.status_code == 500
+    assert response.json() == {"error": "boom"}
 
 
 def test_get_setting_returns_serialized_value(client):
@@ -118,6 +117,25 @@ def test_post_settings_unknown_top_level_key_returns_404(client):
     response = client.post("/settings", json={"no_such_setting": True})
     assert response.status_code == 404
     assert response.json() == {"error": "Setting no_such_setting not found"}
+
+
+def test_post_settings_dict_key_interpreter_lacks_returns_404(interpreter):
+    """A dict payload for a nested-settings key the interpreter lacks returns 404 (issue #365).
+
+    A dict payload for llm/computer takes a different branch than a scalar:
+    when the interpreter has no such attribute at all the response must be
+    that branch's "Setting ... not found" 404 — not the sub-setting 404 and
+    not a 500 from an attribute that was never there to set.
+    """
+    # create_router closes over the interpreter instance, so the attribute
+    # must disappear from the object it was built with, not from the module.
+    del interpreter.llm
+    client = TestClient(Server(interpreter).app)
+
+    response = client.post("/settings", json={"llm": {"sub": 1}})
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "Setting llm not found"}
 
 
 def test_chat_completion_rejects_non_user_last_message(client_no_raise):
