@@ -20,14 +20,10 @@ def truncate_output(data, max_output_chars=2800, add_scrollbars=False):
                "repeat shell commands with wc/grep/sed, etc. or break it down "
                "into smaller steps.\n\n")
 
-    # This won't work because truncated code is stored in interpreter.messages :/
-    # If the full code was stored, we could do this:
-    if add_scrollbars:
-        message = (
-            message.strip()
-            + f" Run `get_last_output()[0:{max_output_chars}]` to see the first page.\n\n"
-        )
-    # Then we have code in `terminal.py` which makes that function work. It should be a computer tool though to just access messages IMO. Or like, self.messages.
+    # add_scrollbars is retained for its callers but no longer appends a
+    # get_last_output() hint: that function was never defined (its terminal.py
+    # definition is guarded by `if False`), so the hint promised the model a
+    # way out that raised NameError (issue #278).
 
     # Remove previous truncation message if it exists
     if data.startswith(message):
