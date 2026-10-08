@@ -78,6 +78,10 @@ def terminal_interface(interpreter, message):
         interactive = True
 
     active_block = None
+    # Bound in the message/code start branches; initialized here so a
+    # confirmation that creates a block without a preceding start chunk
+    # cannot hit an UnboundLocalError at refresh time (#248).
+    render_cursor = False
     voice_subprocess = None
 
     while True:
