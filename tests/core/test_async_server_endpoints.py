@@ -99,41 +99,25 @@ def test_get_setting_returns_serialized_value(client):
     assert json.loads(json.loads(response.text)) == {"auto_run": False}
 
 
-def test_get_setting_unknown_name_returns_200_with_tuple_body(client):
-    """GET /settings/{name} for an unknown name returns 200 with an array body.
-
-    KNOWN BUG: the handler returns a Flask-style (content, status) tuple
-    which FastAPI does not interpret as a status code. The response is HTTP
-    200 with a JSON array [..., 404] instead of a 404 response.
-    """
+def test_get_setting_unknown_name_returns_404(client):
+    """GET /settings/{name} for an unknown name returns 404 (issue #365)."""
     response = client.get("/settings/no_such_setting")
-    assert response.status_code == 200
-    assert response.json() == [json.dumps({"error": "Setting not found"}), 404]
+    assert response.status_code == 404
+    assert response.json() == {"error": "Setting not found"}
 
 
-def test_post_settings_unknown_llm_subsetting_returns_200_with_tuple_body(client):
-    """POST /settings with an unknown llm sub-key returns 200 with an array body.
-
-    KNOWN BUG: same Flask-style tuple issue; should be a 404 response but is
-    HTTP 200 with a JSON array [..., 404].
-    """
+def test_post_settings_unknown_llm_subsetting_returns_404(client):
+    """POST /settings with an unknown llm sub-key returns 404 (issue #365)."""
     response = client.post("/settings", json={"llm": {"no_such_subkey": True}})
-    assert response.status_code == 200
-    assert response.json() == [
-        {"error": "Sub-setting no_such_subkey not found in llm"},
-        404,
-    ]
+    assert response.status_code == 404
+    assert response.json() == {"error": "Sub-setting no_such_subkey not found in llm"}
 
 
-def test_post_settings_unknown_top_level_key_returns_200_with_tuple_body(client):
-    """POST /settings with an unknown top-level key returns 200 with an array body.
-
-    KNOWN BUG: same Flask-style tuple issue; should be a 404 response but is
-    HTTP 200 with a JSON array [..., 404].
-    """
+def test_post_settings_unknown_top_level_key_returns_404(client):
+    """POST /settings with an unknown top-level key returns 404 (issue #365)."""
     response = client.post("/settings", json={"no_such_setting": True})
-    assert response.status_code == 200
-    assert response.json() == [{"error": "Setting no_such_setting not found"}, 404]
+    assert response.status_code == 404
+    assert response.json() == {"error": "Setting no_such_setting not found"}
 
 
 def test_chat_completion_rejects_non_user_last_message(client_no_raise):
@@ -380,34 +364,22 @@ def test_insecure_run_route(insecure_pair):
 
 
 def test_insecure_run_route_requires_language_and_code(insecure_pair):
-    """The /run route reports 200 with an array body when code is missing.
-
-    KNOWN BUG: Flask-style (content, status) tuple return; FastAPI does not
-    interpret the second element as a status code, so the response is HTTP
-    200 with a JSON array [..., 400] instead of a 400.
-    """
+    """The /run route reports 400 when code is missing (issue #365)."""
     client, _ = insecure_pair
 
     response = client.post("/run", json={"language": "python"})
-    assert response.status_code == 200
-    assert response.json() == [
-        {"error": "Both 'language' and 'code' are required."},
-        400,
-    ]
+    assert response.status_code == 400
+    assert response.json() == {"error": "Both 'language' and 'code' are required."}
 
 
 def test_insecure_run_route_propagates_error(insecure_pair):
-    """The /run route reports 200 with an array body when computer.run raises.
-
-    KNOWN BUG: same Flask-style tuple issue; should be a 500 response but is
-    HTTP 200 with a JSON array [..., 500].
-    """
+    """The /run route reports 500 when computer.run raises (issue #365)."""
     client, interpreter = insecure_pair
     interpreter.computer.run = mock.MagicMock(side_effect=RuntimeError("oops"))
 
     response = client.post("/run", json={"language": "python", "code": "1+1"})
-    assert response.status_code == 200
-    assert response.json() == [{"error": "oops"}, 500]
+    assert response.status_code == 500
+    assert response.json() == {"error": "oops"}
 
 
 def test_insecure_upload_route(insecure_pair, tmp_path):
@@ -425,11 +397,7 @@ def test_insecure_upload_route(insecure_pair, tmp_path):
 
 
 def test_insecure_upload_route_propagates_error(insecure_pair):
-    """The /upload route reports 200 with an array body when it cannot write.
-
-    KNOWN BUG: same Flask-style tuple issue; should be a 500 response but is
-    HTTP 200 with a JSON array [..., 500].
-    """
+    """The /upload route reports 500 when it cannot write (issue #365)."""
     client, _ = insecure_pair
 
     response = client.post(
@@ -437,11 +405,10 @@ def test_insecure_upload_route_propagates_error(insecure_pair):
         files={"file": ("in.txt", b"payload")},
         data={"path": "/no/such/dir/out.txt"},
     )
-    assert response.status_code == 200
-    assert response.json() == [
-        {"error": "[Errno 2] No such file or directory: '/no/such/dir/out.txt'"},
-        500,
-    ]
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": "[Errno 2] No such file or directory: '/no/such/dir/out.txt'"
+    }
 
 
 def test_insecure_download_route_with_slashes_not_registered(insecure_pair):
@@ -457,22 +424,17 @@ def test_insecure_download_route_with_slashes_not_registered(insecure_pair):
     assert response.status_code == 404
 
 
-def test_insecure_download_route_missing_file_reports_200_with_array_body(
+def test_insecure_download_route_missing_file_reports_500(
     insecure_pair,
 ):
-    """A missing file on /download reports 200 with an array body.
-
-    KNOWN BUG: same Flask-style tuple issue; should be a 500 response but is
-    HTTP 200 with a JSON array [..., 500].
-    """
+    """A missing file on /download reports 500 (issue #365)."""
     client, _ = insecure_pair
 
     response = client.get("/download/nope.bin")
-    assert response.status_code == 200
-    assert response.json() == [
-        {"error": "[Errno 2] No such file or directory: 'nope.bin'"},
-        500,
-    ]
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": "[Errno 2] No such file or directory: 'nope.bin'"
+    }
 
 
 def _deltas(body):
