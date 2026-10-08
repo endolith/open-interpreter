@@ -25,10 +25,16 @@ def run_text_llm(llm, params):
             # This happens sometimes
             continue
 
-        content = chunk["choices"][0]["delta"].get("content", "")
+        delta = chunk["choices"][0]["delta"]
+        content = delta.get("content", "")
+        # Thinking models (e.g. DeepSeek via OpenRouter) stream their chain
+        # of thought separately; providers require it passed back verbatim.
+        reasoning = delta.get("reasoning_content") or ""
 
-        if content == None:
+        if content == None and not reasoning:
             continue
+
+        content = content or ""
 
         accumulated_block += content
 
@@ -72,4 +78,7 @@ def run_text_llm(llm, params):
 
         # If we're not in a code block, send the output as a message
         if not inside_code_block:
-            yield {"type": "message", "content": content}
+            message_chunk = {"type": "message", "content": content}
+            if reasoning:
+                message_chunk["reasoning_content"] = reasoning
+            yield message_chunk

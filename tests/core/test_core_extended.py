@@ -359,3 +359,21 @@ def test_chat_sends_telemetry_on_error():
     ]
     assert len(error_calls) == 1
     assert error_calls[0][1]["properties"]["error"] == "API failed"
+
+
+def test_chat_accumulates_reasoning_content_across_chunks():
+    """Reasoning deltas on successive message chunks accumulate on the stored message (issue #215)."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = False
+    chunks = [
+        {"type": "message", "content": "a", "reasoning_content": "r1"},
+        {"type": "message", "content": "b", "reasoning_content": "r2"},
+    ]
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+    assert interpreter.messages[-1] == {
+        "role": "assistant",
+        "type": "message",
+        "content": "ab",
+        "reasoning_content": "r1r2",
+    }
