@@ -54,6 +54,11 @@ def convert_to_openai_messages(
             else:
                 new_message["content"] = message["content"]
 
+            if message.get("reasoning_content"):
+                # Thinking-model chains of thought must be passed back
+                # verbatim or providers reject follow-up requests (#215).
+                new_message["reasoning_content"] = message["reasoning_content"]
+
         elif message["type"] == "code":
             new_message["role"] = "assistant"
             if function_calling:
