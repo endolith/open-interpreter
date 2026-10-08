@@ -149,3 +149,127 @@ def test_import_skills_skips_when_disabled():
     skills = Skills(computer)
     skills.import_skills()
     computer.run.assert_not_called()
+
+
+def _computer(tmp_path, **overrides):
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir(exist_ok=True)
+    computer = SimpleNamespace(
+        import_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    computer.__dict__.update(overrides)
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    return computer, skills, skills_dir
+
+
+def test_import_skills_restores_save_skills_after_success(tmp_path):
+    """import_skills() leaves save_skills as it found it once skills load (issue #417).
+
+    The flag is disabled only for the duration of the import run so that
+    replayed skill code cannot trigger a recursive/side-effecting save, and
+    the user's setting is put back afterwards.
+    """
+    computer, skills, _ = _computer(tmp_path)
+    computer.save_skills = True
+    skills.import_skills()
+    assert computer.save_skills is True
+
+
+def test_import_skills_restores_save_skills_when_import_raises(tmp_path):
+    """A raise during the skill import still restores save_skills (issue #417).
+
+    Before the try/finally the assignment back was skipped on the error path,
+    leaving the interpreter permanently in save_skills=False.
+    """
+    computer, skills, _ = _computer(tmp_path)
+    computer.run = mock.Mock(side_effect=RuntimeError("boom"))
+    computer.save_skills = True
+
+    with pytest.raises(RuntimeError, match="boom"):
+        skills.import_skills()
+
+    assert computer.save_skills is True
+
+
+def test_import_skills_restores_save_skills_when_paths_too_large(tmp_path):
+    """The 100mb cap warning also restores save_skills (issue #417)."""
+    computer, skills, skills_dir = _computer(tmp_path)
+    big = skills_dir / "big.py"
+    big.write_bytes(b"0" * 64)
+    computer.save_skills = True
+
+    with mock.patch("interpreter.core.computer.skills.skills.os.path.getsize", return_value=200 * 1024 * 1024):
+        with pytest.raises(Warning, match="can't exceed 100mb"):
+            skills.import_skills()
+
+    assert computer.save_skills is True
+
+
+def test_import_skills_restores_save_skills_when_interpreter_raises(tmp_path):
+    """A raise from outside computer.run (e.g. interpreter.debug access) restores save_skills."""
+    computer, skills, _ = _computer(tmp_path)
+    computer.save_skills = True
+    computer.run = mock.Mock(side_effect=MemoryError("kaboom"))
+
+    with pytest.raises(MemoryError):
+        skills.import_skills()
+
+    assert computer.save_skills is True
+
+
+def test_import_skills_broken_skill_reports_and_restores(capsys, tmp_path):
+    """A skill producing a traceback is reported and save_skills is restored (issue #417)."""
+    computer, skills, skills_dir = _computer(tmp_path)
+    (skills_dir / "broken.py").write_text("def broken(): pass")
+    computer.save_skills = True
+    computer.run = mock.Mock(
+        side_effect=[
+            "Traceback (most recent call last): ...",
+            "Traceback (most recent call last): ...",
+        ]
+    )
+
+    skills.import_skills()
+
+    out = capsys.readouterr().out
+    assert "might be broken" in out
+    assert computer.save_skills is True
+
+
+def test_import_skills_broken_skill_debug_names_the_file(tmp_path, capsys):
+    """In debug mode the per-file fallback prints each skill's code (covers that branch)."""
+    computer, skills, skills_dir = _computer(tmp_path)
+    (skills_dir / "broken.py").write_text("def broken(): pass")
+    computer.interpreter = SimpleNamespace(debug=True)
+    computer.save_skills = True
+    computer.run = mock.Mock(
+        side_effect=[
+            "Traceback (most recent call last): ...",
+            "Traceback (most recent call last): ...",
+        ]
+    )
+
+    skills.import_skills()
+
+    out = capsys.readouterr().out
+    assert "IMPORTING SKILL:" in out
+    assert "def broken" in out
+    assert computer.save_skills is True
+
+
+def test_import_skills_debug_prints_code(tmp_path, capsys):
+    """debug=True prints the concatenated code before running it (covers the debug branch)."""
+    computer, skills, skills_dir = _computer(tmp_path)
+    (skills_dir / "s.py").write_text("y = 2")
+    computer.interpreter = SimpleNamespace(debug=True)
+    computer.save_skills = True
+
+    skills.import_skills()
+
+    out = capsys.readouterr().out
+    assert "IMPORTING SKILLS" in out
+    assert computer.save_skills is True
