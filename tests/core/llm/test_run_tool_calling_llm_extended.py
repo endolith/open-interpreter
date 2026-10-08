@@ -235,3 +235,11 @@ def test_auth_no_tool_call_does_not_raise(monkeypatch):
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "message", "content": "hello"}
     ]
+
+
+def test_message_chunk_carries_reasoning_delta():
+    """Reasoning deltas ride along on tool-path message chunks for history accumulation (issue #215)."""
+    llm = _make_llm([_chunk({"content": "hi", "reasoning_content": "because"})])
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "hi", "reasoning_content": "because"}
+    ]

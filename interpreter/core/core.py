@@ -405,6 +405,11 @@ class OpenInterpreter:
                             self.messages.append(chunk.copy())
                         else:
                             self.messages[-1]["content"] += chunk["content"]
+                            if chunk.get("reasoning_content"):
+                                self.messages[-1]["reasoning_content"] = (
+                                    self.messages[-1].get("reasoning_content", "")
+                                    + chunk["reasoning_content"]
+                                )
                 else:
                     # If they don't match, yield a end message for the last message type and a start message for the new one
                     if last_flag_base:

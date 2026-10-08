@@ -125,3 +125,31 @@ def test_execution_instructions_unappendable_message_reraises(capsys):
     with pytest.raises(TypeError):
         list(run_text_llm(llm, {"messages": [{"content": 123}]}))
     assert "params[\"messages\"][0]" in capsys.readouterr().out
+
+
+def test_reasoning_only_delta_yields_message_with_reasoning():
+    """A delta with None content but reasoning_content is kept, not skipped (issue #215)."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": None, "reasoning_content": "Let me think"}}]},
+            {"choices": [{"delta": {"content": "hi"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "", "reasoning_content": "Let me think"},
+        {"type": "message", "content": "hi"},
+    ]
+
+
+def test_reasoning_content_attached_per_chunk():
+    """Each message chunk carries its own reasoning delta for history accumulation (issue #215)."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "a", "reasoning_content": "r1"}}]},
+            {"choices": [{"delta": {"content": "b", "reasoning_content": "r2"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "a", "reasoning_content": "r1"},
+        {"type": "message", "content": "b", "reasoning_content": "r2"},
+    ]
