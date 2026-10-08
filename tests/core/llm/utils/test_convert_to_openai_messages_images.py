@@ -37,3 +37,14 @@ def test_image_base64_with_vision(interpreter):
     )
     assert result[0]["content"][0]["type"] == "image_url"
     assert "data:image/png;base64," in result[0]["content"][0]["image_url"]["url"]
+
+
+def test_image_unrecognized_format_names_the_format(interpreter):
+    """An image message with an unknown format raises naming that format."""
+    messages = [
+        {"role": "user", "type": "image", "format": "tiff", "content": "abc"}
+    ]
+    with pytest.raises(Exception, match="Unrecognized image format: tiff"):
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
