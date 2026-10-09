@@ -53,11 +53,11 @@ def run_text_llm(llm, params):
 
                 # Default to python if not specified
                 if language == "":
-                    if llm.interpreter.os == False:
-                        language = "python"
-                    elif llm.interpreter.os == False:
+                    if llm.interpreter.os:
                         # OS mode does this frequently. Takes notes with markdown code blocks
                         language = "text"
+                    else:
+                        language = "python"
                 else:
                     # Removes hallucinations containing spaces or non letters.
                     language = "".join(char for char in language if char.isalpha())
