@@ -178,6 +178,22 @@ def test_start_terminal_interface_reset_profile_flag(monkeypatch):
     sti.reset_profile.assert_called_once_with("default.yaml")
 
 
+def test_start_terminal_interface_bare_reset_profile_flag(monkeypatch):
+    """`--reset_profile` with no name resets the defaults and returns early.
+
+    argparse turns the bare flag into None, which the dispatch used to exclude
+    along with the "NOT_PROVIDED" sentinel that means the flag was never given.
+    The flag therefore fell through into a normal chat session, contradicting
+    the help text that documents the bare form.
+    """
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["oi", "--reset_profile"])
+
+    assert start_terminal_interface(interpreter) is None
+    sti.reset_profile.assert_called_once_with(None)
+    interpreter.chat.assert_not_called()
+
+
 def test_start_terminal_interface_fast_shortcut_selects_fast_profile(monkeypatch):
     """`--fast` loads the fast.yaml profile instead of the default."""
     sti, interpreter = _patch_module(monkeypatch)
