@@ -34,13 +34,6 @@ def render_message(interpreter, message):
     # Join the parts back into the message
     rendered_message = "".join(parts).strip()
 
-    if (
-        interpreter.debug == True and False  # DISABLED
-    ):  # debug will equal "server" if we're debugging the server specifically
-        print("\n\n\nSYSTEM MESSAGE\n\n\n")
-        print(rendered_message)
-        print("\n\n\n")
-
     interpreter.computer.save_skills = previous_save_skills_setting
 
     return rendered_message
