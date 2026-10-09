@@ -22,6 +22,37 @@ from interpreter.core.computer.terminal.languages import jupyter_language as jl
 from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
 
 
+def _join_listener(lang, timeout=10):
+    """Wait for the iopub listener, and never leave it running.
+
+    The listener is a plain (non-daemon) thread, so a test that failed to stop it
+    would not report a failure — it would hang the process at interpreter exit,
+    turning an ordinary assertion error into a CI job that times out with no
+    message. So the cleanup happens *before* the failure is raised, and only then
+    is the failure raised.
+
+    Cleanup is not allowed to be the passing result, though. Setting
+    `finish_flag` makes the listener call `interrupt_kernel()` and return
+    (jupyter_language's loop checks the flag first), so a listener that only
+    stopped because of the cleanup would still satisfy both assertions below —
+    the CTRL-C tests would pass even if the response never handled CTRL-C. The
+    first join therefore has to record that the response ended the listener on
+    its own, and the caller fails when it did not.
+    """
+    lang.listener_thread.join(timeout=timeout)
+    stopped_on_its_own = not lang.listener_thread.is_alive()
+    if not stopped_on_its_own:
+        lang.finish_flag = True
+        lang.listener_thread.join(timeout=timeout)
+    assert not lang.listener_thread.is_alive(), (
+        "listener did not finish, even after being asked to stop"
+    )
+    assert stopped_on_its_own, (
+        "listener only stopped after cleanup set finish_flag — the response "
+        "under test never ended it"
+    )
+
+
 def _delta(content):
     """A litellm-shaped streaming chunk."""
     return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content))])
@@ -80,8 +111,7 @@ def _run_listener(lang, monkeypatch, completion_response=None, api_key="sk-test"
     monkeypatch.setattr(jl.litellm, "completion", completion)
 
     lang._execute_code("print(1)", queue.Queue())
-    lang.listener_thread.join(timeout=10)
-    assert not lang.listener_thread.is_alive(), "listener did not finish"
+    _join_listener(lang)
     return completion
 
 
@@ -122,20 +152,24 @@ def test_ctrl_c_stops_the_program_instead_of_typing(monkeypatch):
     point is to send an interrupt, so the marker must be handled as a signal and
     nothing must be typed.
     """
-    lang = _language()
+    lang = _language(finish_after_first_poll=False)
     _run_listener(lang, monkeypatch, completion_response=["<input>CTRL-C</input>"])
 
     assert lang.kc.input.call_count == 0, "CTRL-C must not be typed as text"
-    assert lang.finish_flag is True
+    # The stub is told not to set finish_flag itself, so the only thing that can
+    # end the listener is the flag the CTRL-C branch sets — and ending it is what
+    # triggers the interrupt. With the stub closing the loop, `finish_flag` and
+    # the absence of a keystroke both held even if the response were ignored.
+    lang.km.interrupt_kernel.assert_called_once()
 
 
 def test_ctrl_c_is_matched_case_insensitively(monkeypatch):
     """The marker is uppercased before comparison, so `<input>ctrl-c</input>` works."""
-    lang = _language()
+    lang = _language(finish_after_first_poll=False)
     _run_listener(lang, monkeypatch, completion_response=["<input>ctrl-c</input>"])
 
     assert lang.kc.input.call_count == 0
-    assert lang.finish_flag is True
+    lang.km.interrupt_kernel.assert_called_once()
 
 
 def test_a_response_without_an_input_tag_types_nothing(monkeypatch):
@@ -165,15 +199,18 @@ def test_non_string_stream_chunks_are_ignored(monkeypatch):
         mock.Mock(
             return_value=[
                 SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=None))]),
-                _delta("nothing to type"),
+                # A tagged chunk *after* the None: if accumulation raised on the
+                # None, the listener would catch it and retry, and the old
+                # "nothing was typed" assertion would still pass. Reaching the
+                # second chunk is what proves the None was skipped.
+                _delta("<input>y</input>"),
             ]
         ),
     )
     lang._execute_code("print(1)", queue.Queue())
-    lang.listener_thread.join(timeout=10)
+    _join_listener(lang)
 
-    assert not lang.listener_thread.is_alive()
-    assert lang.kc.input.call_count == 0
+    lang.kc.input.assert_called_once_with("y")
 
 
 def test_the_api_key_is_only_sent_when_one_is_configured(monkeypatch):
