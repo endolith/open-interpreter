@@ -30,7 +30,7 @@ if "--os" in sys.argv:
 
     from importlib.metadata import version
     import requests
-    from packaging import version
+    from packaging import version as packaging_version
 
     def check_for_update():
         # Fetch the latest version from the PyPI API
@@ -40,7 +40,9 @@ if "--os" in sys.argv:
         # Get the current version using importlib.metadata
         current_version = version("open-interpreter")
 
-        return version.parse(latest_version) > version.parse(current_version)
+        return packaging_version.parse(latest_version) > packaging_version.parse(
+            current_version
+        )
 
     if check_for_update():
         print_markdown(
