@@ -805,3 +805,26 @@ def test_image_message_without_format_key_raises_keyerror(interpreter):
 
     with pytest.raises(KeyError):
         convert_to_openai_messages([message], vision=True, interpreter=interpreter)
+
+
+def test_reasoning_content_passed_back_verbatim(interpreter):
+    """Stored reasoning_content is echoed on the assistant message so thinking-model follow-ups are accepted (issue #215)."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "hi",
+            "reasoning_content": "thought one",
+        }
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [
+        {"role": "assistant", "content": "hi", "reasoning_content": "thought one"}
+    ]
+
+
+def test_message_without_reasoning_omits_the_key(interpreter):
+    """Messages without reasoning stay exactly role/content (issue #215)."""
+    messages = [{"role": "assistant", "type": "message", "content": "Hello"}]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "assistant", "content": "Hello"}]

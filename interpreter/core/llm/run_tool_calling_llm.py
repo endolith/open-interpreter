@@ -245,7 +245,12 @@ def run_tool_calling_llm(llm, request_params):
                         buffer = ""
 
             else:
-                yield {"type": "message", "content": delta["content"]}
+                message_chunk = {"type": "message", "content": delta["content"]}
+                if delta.get("reasoning_content"):
+                    message_chunk["reasoning_content"] = delta[
+                        "reasoning_content"
+                    ]
+                yield message_chunk
 
         if (
             accumulated_deltas.get("function_call")
