@@ -369,3 +369,25 @@ def test_take_screenshot_to_pil_all_returns_list_without_combine():
     assert isinstance(result, list)
     assert len(result) == 2
     assert pyautogui.screenshot.call_count == 2
+
+
+def test_get_text_online_uses_pytesseract():
+    """Being online is no longer a reason to upload the screen for OCR.
+
+    get_text_as_list_of_lists() used to POST the screenshot to a hosted
+    endpoint and only read it locally when that call failed (or when the
+    computer was offline). Local OCR is now the only path, so an offline=False
+    computer must still take it — otherwise restoring the online-only upload
+    branch would go unnoticed here while the find_text equivalent catches it.
+    """
+    computer = _make_offline_computer(offline=False)
+    display = _make_display(computer)
+
+    with mock.patch(
+        "interpreter.core.computer.display.display.pytesseract_get_text",
+        return_value="hello",
+    ) as pytesseract_get_text:
+        result = display.get_text_as_list_of_lists(screenshot="img")
+
+    pytesseract_get_text.assert_called_once_with("img")
+    assert result == "hello"
