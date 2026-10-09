@@ -31,16 +31,25 @@ def _join_listener(lang, timeout=10):
     message. So the cleanup happens *before* the failure is raised, and only then
     is the failure raised.
 
-    Raising is deliberately deferred to a second join: setting `finish_flag` is
-    what lets the loop return, and the assertion records whether it got there on
-    its own or only because of that.
+    Cleanup is not allowed to be the passing result, though. Setting
+    `finish_flag` makes the listener call `interrupt_kernel()` and return
+    (jupyter_language's loop checks the flag first), so a listener that only
+    stopped because of the cleanup would still satisfy both assertions below —
+    the CTRL-C tests would pass even if the response never handled CTRL-C. The
+    first join therefore has to record that the response ended the listener on
+    its own, and the caller fails when it did not.
     """
     lang.listener_thread.join(timeout=timeout)
-    if lang.listener_thread.is_alive():
+    stopped_on_its_own = not lang.listener_thread.is_alive()
+    if not stopped_on_its_own:
         lang.finish_flag = True
         lang.listener_thread.join(timeout=timeout)
     assert not lang.listener_thread.is_alive(), (
         "listener did not finish, even after being asked to stop"
+    )
+    assert stopped_on_its_own, (
+        "listener only stopped after cleanup set finish_flag — the response "
+        "under test never ended it"
     )
 
 
