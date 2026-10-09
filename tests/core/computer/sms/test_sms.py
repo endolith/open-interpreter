@@ -2,6 +2,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 import datetime
 import plistlib
 import sqlite3
@@ -90,20 +92,22 @@ def test_send_macos_runs_osascript_with_escaped_message():
     assert '"+1555"' in args[2]
 
 
-def test_send_escapes_quotes_before_backslashes():
-    """The escaping order is quotes-then-backslashes, so a quote gains two.
+@pytest.mark.xfail(reason="SMS.send() escapes quotes before backslashes (issue #412), so the backslash it adds for a quote is escaped a second time and a quote gains two backslashes instead of one")
+def test_send_escapes_backslashes_before_quotes():
+    """Backslashes are escaped first, so a quote gains exactly one.
 
-    "say \\"hi\\"" becomes \\\\"hi\\\\" in the script: the backslash added by
-    the quote escape is itself escaped by the second replacement. Pinned as
-    observed behavior — whether Messages interprets that correctly is a
-    separate question for a real Mac.
+    'say "hi"' becomes 'say \\"hi\\"' in the script: the quote escape adds
+    the only backslash, and the earlier backslash pass has nothing new to
+    double. Today the order is reversed, so the quote escape's backslash is
+    escaped again and the script holds 'say \\\\"hi\\\\"', which ends the
+    AppleScript string literal instead of preserving the quote.
     """
     sms = _mac_sms()
     with mock.patch("sys.platform", "darwin"):
         with mock.patch.object(sms_module.subprocess, "run") as run:
             sms.send("+1555", 'say "hi"')
     script = run.call_args[0][0][2]
-    assert 'say \\\\"hi\\\\"' in script
+    assert 'say \\"hi\\"' in script
 
 
 def _message_db(path, rows):
