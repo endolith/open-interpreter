@@ -416,3 +416,31 @@ def test_respond_requires_messages():
     interpreter.messages = []
     with pytest.raises(AssertionError, match="User message was not passed"):
         next(respond(interpreter))
+
+
+def test_respond_model_access_eof_at_prompt_re_raises_original_error():
+    """EOF at the fallback prompt is a decline, not a crash (CodeRabbit review of #441).
+
+    A TTY user pressing Ctrl-D raises EOFError from input(); treating it as an
+    answer would surface that raw error instead of the model-access error that
+    triggered the prompt. It must follow the decline path, which re-raises the
+    original, and must not set the hosted model.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.auto_run = False
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with (
+        mock.patch("builtins.input", side_effect=EOFError("EOF when reading a line")),
+        mock.patch("sys.stdin.isatty", return_value=True),
+    ):
+        with pytest.raises(Exception, match="have access") as exc_info:
+            list(respond(interpreter))
+
+    assert not isinstance(exc_info.value, EOFError)
+    assert interpreter.llm.model == "gpt-4o"
