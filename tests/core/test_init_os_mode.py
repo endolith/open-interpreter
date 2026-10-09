@@ -163,7 +163,9 @@ def _logic():
 
     namespace = {"installed_version": installed_version, "packaging_version": packaging.version}
     # Only the two functions, extracted verbatim from the branch.
-    source = __import__("pathlib").Path("interpreter/__init__.py").read_text(encoding="utf-8")
+    # Resolved from the repository root, not the working directory, so the
+    # direct tests also pass when pytest starts outside the repo.
+    source = __import__("pathlib").Path(_in_repo(), "interpreter", "__init__.py").read_text(encoding="utf-8")
     body = source[source.index("    def print_markdown("):source.index("    if check_for_update():")]
     # De-indent from the branch level so it compiles at module level.
     body = "\n".join(line[4:] if line.startswith("    ") else line for line in body.split("\n"))
