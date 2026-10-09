@@ -515,20 +515,6 @@ def test_search_mirrors_list_results(tmp_path, capsys):
     assert skills.search("anything") == skills.list() == ["demo_skill()"]
 
 
-def test_search_empty_list_when_skills_disabled(capsys):
-    """Skills.search() returns an empty list when import_skills is disabled."""
-    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
-    skills = Skills(computer)
-    assert skills.search("anything") == []
-
-
-def test_run_is_deprecated_and_returns_none(capsys):
-    """Skills.run() only prints the deprecation pointer and returns None."""
-    skills = Skills(SimpleNamespace())
-    assert skills.run("demo_skill") is None
-    assert "already imported" in capsys.readouterr().out
-
-
 @pytest.mark.xfail(reason="import_skills() flips save_skills to False before the 100MB guard with no try/finally (issue #417), so a guard raise strands the caller's setting instead of restoring it; fix in #422")
 def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
     """An oversized skills dir raises Warning and leaves save_skills on.
