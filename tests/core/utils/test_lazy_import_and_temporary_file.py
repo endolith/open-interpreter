@@ -159,3 +159,41 @@ def test_lazy_import_defers_loading(tmp_path, monkeypatch):
     assert module.VALUE == 42
     assert marker.exists(), "reading an attribute did not execute the module body"
 
+
+
+def test_create_temporary_file_returns_none_when_creation_fails(capsys, monkeypatch):
+    """A failed write returns None and prints, rather than raising.
+
+    Pinned as observed behaviour for #399: the `except` prints and falls off the
+    end, so the caller gets `None` and no exception. That is the trap — `None`
+    is indistinguishable from success at the call site, and `scan_code` passes it
+    straight to `os.path.dirname`. See the accompanying issue.
+    """
+    monkeypatch.setattr(
+        "tempfile.NamedTemporaryFile",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    result = create_temporary_file("x = 1", "py")
+
+    assert result is None
+    captured = capsys.readouterr().out
+    assert "Could not create temporary file." in captured
+    assert "disk full" in captured, "the underlying reason is printed for the user"
+
+
+def test_create_temporary_file_failure_does_not_leave_a_file_behind(tmp_path, monkeypatch, capsys):
+    """A failed creation leaves nothing on disk to clean up later.
+
+    `cleanup_temporary_file` is called on the same path, so a file that existed
+    despite the failure would be orphaned rather than cleaned.
+    """
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr(
+        "tempfile.NamedTemporaryFile",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    create_temporary_file("x = 1", "py")
+
+    assert list(tmp_path.iterdir()) == [], "a failed creation must not leave files"
