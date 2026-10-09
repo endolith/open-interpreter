@@ -777,7 +777,29 @@ def create_router(async_interpreter):
 
                 return False
 
-            await asyncio.gather(receive_input(), send_output())
+            # gather() would wait for both, but send_output() parks on
+            # `await output()` and only rechecks the socket at the top of its
+            # loop. When the client disconnects, receive_input() returns while
+            # send_output() stays parked; the next queue item then wakes this
+            # dead consumer (janus notifies the oldest waiter first), which
+            # steals the item before noticing the socket is gone. Every
+            # disconnect leaves one more parked consumer, each swallowing one
+            # message of the next turn. So run them as tasks and cancel the
+            # other the moment one finishes — a cancelled `await output()` does
+            # not dequeue, so the item is left for the live connection.
+            receive_task = asyncio.ensure_future(receive_input())
+            send_task = asyncio.ensure_future(send_output())
+            done, pending = await asyncio.wait(
+                {receive_task, send_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            for task in done:
+                task.result()  # re-raise anything the finished task failed with
 
         except Exception as e:
             error = traceback.format_exc() + "\n" + str(e)
