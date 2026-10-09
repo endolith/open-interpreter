@@ -67,3 +67,68 @@ def test_split_into_chunks_overlap_greater_than_tokens_returns_empty():
     """
     llm = type("Llm", (), {"model": "gpt-4"})()
     assert split_into_chunks("abcdefghij", tokens=5, llm=llm, overlap=6) == []
+
+
+def test_chunk_responses_flushes_the_open_chunk_when_the_budget_is_exceeded():
+    """A response that overflows the budget starts a new chunk rather than merging.
+
+    This is the path where a chunk is already open: the in-progress chunk is
+    flushed and the overflowing response begins the next one. The happy-path and
+    oversized-single tests never reach it, because they either never overflow or
+    overflow with nothing open yet.
+    """
+    llm = type("Llm", (), {"model": "gpt-4"})()
+    # 40 tokens total against a budget of 25: the first fits, the second cannot
+    # join it, so there must be two chunks rather than one oversized or a merge.
+    responses = ["word " * 20, "word " * 20]
+    result = chunk_responses(responses, tokens=25, llm=llm)
+
+    assert len(result) == 2
+    assert result[0].rstrip() == ("word " * 20).rstrip()
+    assert result[1].rstrip() == ("word " * 20).rstrip()
+
+
+def test_chunk_responses_falls_back_to_characters_without_tiktoken():
+    """An unknown model name switches to character-based chunking.
+
+    chunk_responses has a second, entirely separate implementation behind the
+    except branch, using a tokens*4 character budget and a blank-line separator.
+    It was previously exercised only in split_into_chunks, so a regression here
+    would not have been caught by the tiktoken tests.
+    """
+    llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
+    budget = 10 * 4  # the fallback measures characters, at tokens*4 per chunk
+    # Each response is deliberately larger than the whole budget, so each is
+    # appended standalone rather than merged — there is nothing to merge into.
+    responses = ["a" * (budget * 3), "b" * (budget * 3)]
+    result = chunk_responses(responses, tokens=10, llm=llm)
+
+    assert result == responses
+
+    # Responses that *do* fit are merged until the budget is reached, so the
+    # fallback genuinely chunks rather than always emitting one chunk per input.
+    small = ["a" * 10, "b" * 10, "c" * 10]
+    merged = chunk_responses(small, tokens=10, llm=llm)
+    assert len(merged) < len(small)
+    assert all(len(chunk) <= budget for chunk in merged)
+
+
+def test_chunk_responses_character_fallback_keeps_every_response():
+    """The fallback preserves all input content rather than dropping responses.
+
+    The character path is a rewrite of the token path, so "it ran without
+    raising" is not enough — the concatenation must still contain both inputs.
+    """
+    llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
+    responses = ["alpha" * 50, "beta" * 50]
+    result = chunk_responses(responses, tokens=10, llm=llm)
+
+    joined = "".join(result)
+    assert "alpha" in joined
+    assert "beta" in joined
+
+
+def test_chunk_responses_character_fallback_empty_list():
+    """The fallback branch also returns an empty list for no input."""
+    llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
+    assert chunk_responses([], tokens=10, llm=llm) == []

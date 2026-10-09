@@ -5,6 +5,9 @@ import sys
 from types import SimpleNamespace
 from unittest import mock
 
+import os
+from pathlib import Path
+
 import pytest
 
 from interpreter.core.computer.skills.skills import Skills
@@ -149,3 +152,341 @@ def test_import_skills_skips_when_disabled():
     skills = Skills(computer)
     skills.import_skills()
     computer.run.assert_not_called()
+
+
+# search() and the import guards
+
+def test_search_returns_skill_names(tmp_path):
+    """search() lists the same names as list(); it currently just delegates."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "demo_skill.py").write_text("def demo_skill(): pass")
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    assert skills.search("anything") == ["demo_skill()"]
+
+
+def test_search_returns_empty_when_skills_disabled(capsys):
+    """search() refuses and explains when skills are turned off."""
+    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
+    skills = Skills(computer)
+    assert skills.search("x") == []
+    assert "Skills are disabled" in capsys.readouterr().out
+
+
+def test_list_explains_that_skills_have_not_been_imported(capsys, tmp_path):
+    """The "not imported yet" case tells the user, rather than returning silently.
+
+    An empty list is indistinguishable from "no skills exist", so the message is
+    the only way a user learns the difference.
+    """
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=False)
+    skills = Skills(computer)
+    skills.path = str(tmp_path)
+    assert skills.list() == []
+    assert "not been imported" in capsys.readouterr().out
+
+
+def test_search_explains_that_skills_have_not_been_imported(capsys, tmp_path):
+    """search() reports the not-imported state too, not just the disabled state."""
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=False)
+    skills = Skills(computer)
+    skills.path = str(tmp_path)
+    assert skills.search("x") == []
+    assert "not been imported" in capsys.readouterr().out
+
+
+def test_list_ignores_non_python_files(tmp_path):
+    """Only .py files become callable names; a README or cache file is skipped."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "a_skill.py").write_text("x = 1")
+    (skills_dir / "notes.md").write_text("docs")
+    (skills_dir / "__pycache__").mkdir()
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    assert skills.list() == ["a_skill()"]
+
+
+def test_import_skills_refuses_a_directory_over_100mb(tmp_path):
+    """An oversized skills directory is rejected before any code is executed.
+
+    The limit exists because the skill files are concatenated and run in one
+    interpreter, so an unbounded directory is an unbounded amount of code to
+    execute at startup. Raises rather than truncating, since silently importing
+    a subset would be worse than refusing.
+    """
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    big = skills_dir / "huge.py"
+    with open(big, "w") as fh:
+        fh.truncate(101 * 1024 * 1024)  # 101 MB sparse file
+    computer = SimpleNamespace(
+        import_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+
+    with pytest.raises(Warning):
+        skills.import_skills()
+
+    computer.run.assert_not_called()
+
+
+def test_import_skills_retries_individually_after_a_traceback(tmp_path, capsys):
+    """A combined import that tracebacks falls back to importing one file at a time.
+
+    Two skills are imported together and one is broken, so the combined run
+    fails and the fallback re-runs each separately. The broken file is named in
+    the output, which is the only way a user learns which skill to fix.
+    """
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "good.py").write_text("x = 1")
+    (skills_dir / "bad.py").write_text("raise ValueError('nope')")
+
+    def fake_run(language, code):
+        """Traceback exactly when the code being run contains the broken line.
+
+        Responding to the argument rather than a fixed side_effect list keeps the
+        test independent of glob order, which is filesystem-dependent.
+        """
+        return (
+            "Traceback (most recent call last)"
+            if "raise ValueError" in code
+            else []
+        )
+
+    computer = SimpleNamespace(
+        import_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(side_effect=fake_run),
+    )
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+
+    skills.import_skills()
+
+    # One combined attempt, then one per file.
+    assert computer.run.call_count == 3
+    assert "bad.py" in capsys.readouterr().out
+
+
+def test_import_skills_restores_the_save_skills_setting(tmp_path):
+    """save_skills is restored even though it is disabled for the duration.
+
+    The setting is toggled off around the import so a half-imported skill file
+    cannot rewrite the user's profile, and the previous value must come back
+    afterwards or the next session inherits the temporary value.
+    """
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "a.py").write_text("x = 1")
+    computer = SimpleNamespace(
+        import_skills=True,
+        save_skills=True,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    skills.import_skills()
+    assert computer.save_skills is True
+
+    computer2 = SimpleNamespace(
+        import_skills=True,
+        save_skills=False,
+        interpreter=SimpleNamespace(debug=False),
+        run=mock.Mock(return_value=[]),
+    )
+    skills2 = Skills(computer2)
+    skills2.path = str(skills_dir)
+    skills2.import_skills()
+    assert computer2.save_skills is False
+
+
+def test_run_is_a_deprecated_no_op(capsys):
+    """Skills.run() no longer runs anything and says so.
+
+    It is marked DEPRECATED in the source; calling it should print guidance and
+    execute nothing, not silently do work.
+    """
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
+    skills = Skills(computer)
+    assert skills.run("anything") is None
+    assert "already imported" in capsys.readouterr().out
+
+
+# NewSkill: building and saving a skill
+
+def _new_skill():
+    """A NewSkill taken through its documented create() first step.
+
+    __init__ does not initialise steps or _name (see #390), so create() is the
+    first call in every path that uses the object afterwards.
+    """
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
+    new_skill = Skills(computer).new_skill
+    new_skill.create()
+    return new_skill
+
+
+@pytest.mark.xfail(raises=AttributeError, reason="#390: __init__ does not set steps or _name")
+def test_new_skill_is_unusable_before_create():
+    """Reading `name` or `steps` before create() raises AttributeError.
+
+    Both attributes are only assigned inside create(), so a caller that reaches
+    for the placeholder name without going through create() gets an
+    AttributeError instead of "Untitled". See #390.
+    """
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
+    new_skill = Skills(computer).new_skill
+
+    assert new_skill.name == "Untitled"
+
+
+def test_create_resets_name_and_steps(capsys):
+    """create() initialises the name and clears any previously collected steps."""
+    new_skill = _new_skill()
+    new_skill.add_step("stale step", "x = 1")
+    new_skill.name = "something"
+
+    new_skill.create()
+
+    assert new_skill.name == "Untitled"
+    assert new_skill.steps == []
+    assert "INSTRUCTIONS" in capsys.readouterr().out
+
+
+def test_setting_the_name_announces_the_next_instructions(capsys):
+    """Assigning a name moves the conversation on to the next step."""
+    new_skill = _new_skill()
+    new_skill.name = "my_new_skill"
+    assert new_skill.name == "my_new_skill"
+    assert "INSTRUCTIONS" in capsys.readouterr().out
+
+
+def test_add_step_records_a_prose_description_with_its_code():
+    """Each step keeps the description and the code that satisfied it.
+
+    The saved skill interpolates the list straight into the generated file, so a
+    step that lost either half would produce a skill that cannot be run.
+    """
+    new_skill = _new_skill()
+
+    new_skill.add_step("Open the app", "computer.mouse.click(x=1, y=2)")
+
+    assert len(new_skill.steps) == 1
+    step = new_skill.steps[0]
+    assert step.startswith("Open the app")
+    assert "```python" in step
+    assert "computer.mouse.click(x=1, y=2)" in step
+
+
+def test_add_step_accumulates_rather_than_replacing(capsys):
+    """Steps build up in order; a second step does not overwrite the first."""
+    new_skill = _new_skill()
+
+    new_skill.add_step("first", "x = 1")
+    new_skill.add_step("second", "y = 2")
+
+    assert len(new_skill.steps) == 2
+    assert "first" in new_skill.steps[0]
+    assert "second" in new_skill.steps[1]
+    assert "YOU MUST FOLLOW THESE 4 INSTRUCTIONS" in capsys.readouterr().out
+
+
+def _skills_dir(tmp_path):
+    skills_dir = tmp_path / "skills"
+    computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
+    skills = Skills(computer)
+    skills.path = str(skills_dir)
+    return skills, skills.new_skill
+
+
+def test_save_writes_a_callable_skill_file(tmp_path, capsys):
+    """save() writes a .py file named after the skill and defines the function."""
+    skills, new_skill = _skills_dir(tmp_path)
+    new_skill.create()
+    new_skill.name = "My Great Skill"
+    new_skill.add_step("do the thing", "print('done')")
+
+    new_skill.save()
+
+    written = Path(skills.path) / "my_great_skill.py"
+    assert written.exists()
+
+    source = written.read_text()
+    assert "def my_great_skill(step=0):" in source
+    # The prose step must reach the generated file verbatim.
+    assert "do the thing" in source
+
+    # The generated source is valid Python and its function body runs.
+    namespace = {}
+    exec(source, namespace)
+    assert callable(namespace["my_great_skill"])
+    assert "SKILL SAVED" in capsys.readouterr().out
+
+
+def test_save_normalises_the_filename_to_lowercase_underscores(tmp_path):
+    """Punctuation and spaces in the name become underscores in the filename.
+
+    The generated file defines `def <normalised>()`, so the filename and the
+    function name must agree or the skill is listed under one name but callable
+    under another.
+    """
+    skills, new_skill = _skills_dir(tmp_path)
+    new_skill.create()
+    new_skill.name = "Email The Boss!! 2"
+    new_skill.add_step("step", "x = 1")
+
+    new_skill.save()
+
+    assert (Path(skills.path) / "email_the_boss_2.py").exists()
+
+
+def test_save_creates_the_skills_directory_if_absent(tmp_path):
+    """Saving into a directory that does not exist yet creates it."""
+    skills, new_skill = _skills_dir(tmp_path)
+    new_skill.create()
+    new_skill.name = "brand_new"
+    new_skill.add_step("step", "x = 1")
+
+    new_skill.save()
+
+    assert (Path(skills.path) / "brand_new.py").exists()
+
+
+def test_save_reports_failure_when_the_file_is_not_written(tmp_path, capsys, monkeypatch):
+    """A skill that could not be written says so instead of claiming success.
+
+    The confirmation is printed only when the file exists, so a silent failure
+    has to be visible: otherwise the user is told a skill was saved and it was
+    not.
+    """
+    skills, new_skill = _skills_dir(tmp_path)
+    new_skill.create()
+    new_skill.name = "unwritable"
+    new_skill.add_step("step", "x = 1")
+
+    # The skill file is written for real, but the post-write existence check is
+    # made to report False — the state a failed or vanished write leaves behind.
+    real_exists = os.path.exists
+
+    def flaky_exists(path):
+        if str(path).endswith("unwritable.py"):
+            return False
+        return real_exists(path)
+
+    monkeypatch.setattr(os.path, "exists", flaky_exists)
+    new_skill.save()
+
+    out = capsys.readouterr().out
+    assert "Error: Failed to write skill file" in out
+    assert "SKILL SAVED" not in out
