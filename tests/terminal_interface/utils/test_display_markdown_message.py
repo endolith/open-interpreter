@@ -95,3 +95,23 @@ def test_single_plain_line_gets_no_trailing_blank_line(capsys):
         dmm.display_markdown_message("plain line")
 
     assert not capsys.readouterr().out.endswith("\n")
+
+
+def test_surrogate_line_degrades_to_escaped_placeholder(capsys):
+    """A line Rich cannot encode degrades to an escaped placeholder, not a crash (issue #384).
+
+    The fallback must not write the offending line back out verbatim:
+    print() raises the same UnicodeEncodeError on the same character.
+    unicode_escape keeps the content visible without re-raising.
+    """
+    with mock.patch.object(dmm, "rich_print", side_effect=UnicodeEncodeError("utf-8", "\ud800", 0, 1, "x")):
+        dmm.display_markdown_message("bad \ud800 line")
+
+    out = capsys.readouterr().out
+    assert "\\ud800" in out
+    assert "\ud800" not in out
+
+
+def test_real_surrogate_line_does_not_raise(capsys):
+    """End to end: a lone surrogate in the message never escapes display (issue #384)."""
+    dmm.display_markdown_message("bad \ud800 line")
