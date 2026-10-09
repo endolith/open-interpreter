@@ -152,6 +152,8 @@ class NewSkill:
     def __init__(self, skills):
         self.path = ""
         self.skills = skills
+        self.steps = []
+        self._name = "Untitled"
 
     def create(self):
         self.steps = []
