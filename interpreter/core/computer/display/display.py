@@ -272,9 +272,9 @@ class Display:
             screenshot = self.screenshot(show=False)
 
         # Read locally. This used to POST the screenshot to a hosted endpoint
-        # first, and only fall back to here when that failed.
-
-        # We'll only get here if 1) self.computer.offline = True, or the API failed
+        # first, and only fall back to here when that failed; keeping the
+        # screenshot on the user's machine is the point, so `offline` no
+        # longer changes this path.
 
         try:
             return pytesseract_get_text(screenshot)
