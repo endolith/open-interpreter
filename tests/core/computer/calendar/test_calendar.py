@@ -4,6 +4,8 @@ from unittest import mock
 
 import subprocess
 
+import pytest
+
 from interpreter.core.computer.calendar.calendar import Calendar
 
 
@@ -124,10 +126,40 @@ def test_create_event_success_names_the_calendar():
 
 
 def test_create_event_without_calendar_aborts_when_no_default():
-    """With no calendar and no discoverable default, nothing is created."""
+    """With no calendar and no discoverable default, nothing is created.
+
+    Mocks get_first_calendar() returning None, which is the empty-capture
+    result once get_first_calendar() unpacks the (stdout, stderr) tuple
+    correctly (issue #426). Today an empty capture instead yields "" (the
+    tuple's stdout element, stripped), so None is not yet the value a real
+    empty lookup produces — the empty-string case below pins that.
+    """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
         with mock.patch.object(cal, "get_first_calendar", return_value=None):
+            with mock.patch(RUN) as run:
+                result = cal.create_event(
+                    "Standup",
+                    datetime.datetime(2024, 1, 1, 9, 0),
+                    datetime.datetime(2024, 1, 1, 9, 30),
+                )
+    assert result == ("Can't find a default calendar. Please try again and specify a calendar name.")
+    run.assert_not_called()
+
+
+@pytest.mark.xfail(reason="create_event() checks `calendar is None`, so the empty string a real empty lookup returns today (issue #426) is used as a calendar name instead of aborting")
+def test_create_event_without_calendar_aborts_when_default_is_empty():
+    """An empty discovered calendar name aborts instead of creating in "".
+
+    A real empty lookup returns "" today (get_first_calendar()'s tuple
+    indexing strips an empty stdout to "" rather than returning None), and
+    create_event() only rejects None, so this currently proceeds to create
+    an event in a calendar named "". Until the production check rejects the
+    empty result, this documents the reachable abort that should happen.
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch.object(cal, "get_first_calendar", return_value=""):
             with mock.patch(RUN) as run:
                 result = cal.create_event(
                     "Standup",
@@ -216,28 +248,37 @@ def test_delete_event_success_path_returns_stdout_verbatim():
             )
 
 
-def test_delete_event_error_output_returns_first_character():
-    """A real stderr takes the `if stdout:` branch and returns stdout[0].
+@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards (issue #410), so stderr lands in the stdout slot and only its first character is returned")
+def test_delete_event_stderr_is_reported_as_the_error():
+    """A real stderr is reported as the deletion error, not truncated.
 
-    Because of the swapped unpacking, `stdout` holds actual stderr and
-    `stdout[0]` is its first *character*, not its first line. Pinned
-    exactly — any fix will flip this assertion.
+    Once delete_event() unpacks run_applescript_capture() as (stdout,
+    stderr), an empty stdout with stderr "execution error" falls into the
+    error branch and is wrapped. Today the swapped unpacking puts the stderr
+    text in the stdout slot and stdout[0] returns its first character,
+    so this currently returns "e".
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
         with mock.patch(CAPTURE, return_value=("", "execution error")):
-            assert cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work") == "e"
+            assert cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work") == (
+                "Error deleting event: execution error"
+            )
 
 
-def test_delete_event_non_success_stderr_becomes_error_message():
-    """Output without "successfully" is wrapped as an error message."""
+@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards (issue #410), so ordinary stdout is treated as stderr and wrapped as an error")
+def test_delete_event_returns_ordinary_stdout_verbatim():
+    """Ordinary stdout is returned as-is, not wrapped as an error message.
+
+    Once delete_event() unpacks run_applescript_capture() as (stdout,
+    stderr), a non-empty stdout is returned verbatim by the first branch.
+    Today the swapped unpacking puts the stdout text in the stderr slot and
+    it comes back as "Error deleting event: ...".
+    """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
         with mock.patch(CAPTURE, return_value=("some output", "")):
-            assert (
-                cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work")
-                == "Error deleting event: some output"
-            )
+            assert cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work") == "some output"
 
 
 def test_delete_event_silent_run_returns_unknown_error():
