@@ -67,6 +67,10 @@ class Vision:
         Gets OCR of image.
         """
 
+        # Set only when this call writes the image to disk itself, so the
+        # cleanup below never removes a caller-supplied path.
+        temp_file_path = None
+
         if lmc:
             if "base64" in lmc["format"]:
                 # # Extract the extension from the format, default to 'png' if not specified
@@ -118,6 +122,16 @@ class Vision:
                 "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
             )
             return ""
+        finally:
+            if temp_file_path is not None:
+                # NamedTemporaryFile(delete=False) leaves the file behind, and
+                # llm.run() calls ocr() for every image when the model has no
+                # vision support, so without this each image leaves a PNG in
+                # the temp directory for the life of the machine.
+                try:
+                    os.remove(temp_file_path)
+                except OSError:
+                    pass
 
     def query(
         self,
