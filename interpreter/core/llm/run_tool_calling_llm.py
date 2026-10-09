@@ -182,25 +182,43 @@ def run_tool_calling_llm(llm, request_params):
 
         delta = chunk["choices"][0]["delta"]
 
+        # Content in a delta of its own after a tool call is a judge layer's
+        # review of the code (see below). Content packed into the *same* delta
+        # as the tool call carries no such ordering: providers that collapse a
+        # turn into a single message (litellm's ollama_chat and Gemini
+        # builders) put the assistant's own text there. Position cannot tell
+        # the two apart once the message is collapsed, so the review tags do.
+        content_is_review = function_call_detected
+
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
+            content = delta.get("content")
+
+            if not function_call_detected and content:
+                content_is_review = any(
+                    tag in content for tag in ["<safe>", "<warning>", "<unsafe>"]
+                )
+
             function_call_detected = True
 
             # import pdb; pdb.set_trace()
             if len(delta["tool_calls"]) > 0 and delta["tool_calls"][0].function:
                 delta = {
                     # "id": delta["tool_calls"][0],
+                    # Carry the content across: rebuilding the delta out of the
+                    # tool call alone threw away text sent in the same message.
+                    "content": content,
                     "function_call": {
                         "name": delta["tool_calls"][0].function.name,
                         "arguments": delta["tool_calls"][0].function.arguments,
-                    }
+                    },
                 }
 
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
         if "content" in delta and delta["content"]:
-            if function_call_detected:
+            if content_is_review:
                 # More content after a code block? This is a code review by a judge layer.
 
                 # print("Code safety review:", delta["content"])
@@ -228,7 +246,6 @@ def run_tool_calling_llm(llm, request_params):
 
                     if re.search("</.*>$", accumulated_review):
                         buffer += delta["content"]
-                        continue
                     elif buffer:
                         yield {
                             "type": "review",
