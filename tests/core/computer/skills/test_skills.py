@@ -529,12 +529,14 @@ def test_run_is_deprecated_and_returns_none(capsys):
     assert "already imported" in capsys.readouterr().out
 
 
-def test_import_skills_size_guard_raises_and_strands_save_skills(tmp_path):
-    """An oversized skills dir raises Warning and leaves save_skills off.
+@pytest.mark.xfail(reason="import_skills() flips save_skills to False before the 100MB guard with no try/finally (issue #417), so a guard raise strands the caller's setting instead of restoring it; fix in #422")
+def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
+    """An oversized skills dir raises Warning and leaves save_skills on.
 
-    The 100MB guard fires after save_skills was flipped to False with no
-    try/finally, so the flag is never restored. Pinned exactly — a fix will
-    flip the save_skills assertion. Tracked as #417.
+    Once import_skills() restores the flag in a finally path, the guard
+    raise no longer strands the caller's setting: the run is still skipped
+    and save_skills is back to True. Today the restore is skipped, so the
+    flag stays False.
     """
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
@@ -545,7 +547,7 @@ def test_import_skills_size_guard_raises_and_strands_save_skills(tmp_path):
     with mock.patch("os.path.getsize", return_value=200 * 1024 * 1024):
         with pytest.raises(Warning, match="can't exceed 100mb"):
             skills.import_skills()
-    assert computer.save_skills is False
+    assert computer.save_skills is True
     computer.run.assert_not_called()
 
 

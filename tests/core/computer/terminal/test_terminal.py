@@ -192,6 +192,11 @@ def test_run_imports_computer_api_for_python_once(monkeypatch):
     )
     terminal = Terminal(computer=computer)
     monkeypatch.setattr("time.sleep", lambda seconds: None)
+    # Terminal.run() skips the computer-API import when this variable is
+    # "False" (the import payload itself sets it to stop recursive imports),
+    # so a leaked value would skip the run() this test asserts on. Pin it
+    # away to exercise the import path regardless of the environment.
+    monkeypatch.delenv("INTERPRETER_COMPUTER_API", raising=False)
 
     def fake_streaming_run(language, code, display=False):
         yield {"type": "console", "format": "output", "content": "done"}
