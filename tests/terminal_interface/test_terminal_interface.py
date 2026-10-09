@@ -303,6 +303,36 @@ def test_terminal_interface_confirming_code_builds_code_block():
     assert block.return_value.code == "print(1)"
 
 
+def test_terminal_interface_lone_confirmation_does_not_crash():
+    """A confirmation with no preceding start chunk still builds its block (issue #248).
+
+    The confirmation y-branch creates a CodeBlock without going through a
+    start branch, so render_cursor used to be unbound when the block was
+    refreshed below.
+    """
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.auto_run = False
+
+    def chat(message, display=False, stream=True):
+        """Emulate interpreter.chat with a lone confirmation chunk."""
+        yield {
+            "type": "confirmation",
+            "role": "assistant",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+
+    interpreter.chat = chat
+    with mock.patch.object(ti, "CodeBlock") as block:
+        with mock.patch("builtins.input", return_value="y"):
+            list(terminal_interface(interpreter, "run code"))
+
+    block.assert_called_once_with(interpreter)
+    assert block.return_value.language == "python"
+    assert block.return_value.code == "print(1)"
+
+
 def test_terminal_interface_safe_mode_auto_scans_code_before_run():
     """safe_mode auto automatically requests a semgrep scan of pending code."""
     import interpreter.terminal_interface.terminal_interface as ti
