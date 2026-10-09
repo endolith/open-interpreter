@@ -54,7 +54,10 @@ def display_output_cli(output):
                 # image = from_file(tmp_file.name)
                 # image.draw()
 
-                open_file(tmp_file.name)
+                path = tmp_file.name
+            # After the block: the file is closed and flushed, so the viewer
+            # opens the content instead of an empty file (#372).
+            open_file(path)
         elif output["format"] == "path":
             open_file(output["content"])
     elif "format" in output and output["format"] == "html":
@@ -63,13 +66,15 @@ def display_output_cli(output):
         ) as tmp_file:
             html = output["content"]
             tmp_file.write(html)
-            open_file(tmp_file.name)
+            path = tmp_file.name
+        open_file(path)
     elif "format" in output and output["format"] == "javascript":
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=".js", mode="w"
         ) as tmp_file:
             tmp_file.write(output["content"])
-            open_file(tmp_file.name)
+            path = tmp_file.name
+        open_file(path)
 
 
 def open_file(file_path):
