@@ -43,7 +43,7 @@ def test_code_block_yields_code_chunks():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": ""},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -86,7 +86,7 @@ def test_code_block_exit_returns():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": ""},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -101,7 +101,7 @@ def test_empty_language_defaults_to_python():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "code", "format": "python", "content": ""},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -125,3 +125,24 @@ def test_execution_instructions_unappendable_message_reraises(capsys):
     with pytest.raises(TypeError):
         list(run_text_llm(llm, {"messages": [{"content": 123}]}))
     assert "params[\"messages\"][0]" in capsys.readouterr().out
+
+
+def test_code_block_preserves_language_name_in_later_deltas():
+    """A language keyword appearing as code content in a later delta is preserved, not stripped.
+
+    Regression test: the fix for #378 strips the language line only from the first
+    accumulated chunk at code-block entry. Later deltas pass through unchanged, so
+    'python' inside the code (e.g. print('python')) must survive intact.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print('python')\n"}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
+    assert result == [
+        {"type": "code", "format": "python", "content": ""},
+        {"type": "code", "format": "python", "content": "print('python')\n"},
+    ]
