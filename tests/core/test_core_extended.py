@@ -322,6 +322,31 @@ def test_reset_resets_last_messages_count():
     assert interpreter.last_messages_count == 0
 
 
+def test_reset_starts_a_new_conversation_file(tmp_path):
+    """reset() drops conversation_filename along with the messages.
+
+    The autosave only picks a new name when the filename is falsy, so a stale
+    one makes the next turn reopen the previous conversation's file in "w"
+    mode and destroy it.
+    """
+    interpreter = OpenInterpreter(conversation_history_path=str(tmp_path))
+    interpreter.conversation_history = True
+
+    with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
+        interpreter.chat(message="first conversation about apples", display=False)
+    first_filename = interpreter.conversation_filename
+
+    interpreter.reset()
+    assert interpreter.conversation_filename is None
+
+    with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
+        interpreter.chat(message="second conversation about pears", display=False)
+
+    assert interpreter.conversation_filename != first_filename
+    with open(tmp_path / first_filename) as f:
+        assert json.load(f)[0]["content"] == "first conversation about apples"
+
+
 def test_chat_handles_generator_exit():
     """chat() resets responding flag when GeneratorExit is raised."""
     interpreter = OpenInterpreter()
