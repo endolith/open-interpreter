@@ -72,3 +72,26 @@ def test_system_info_runs_without_error(capsys):
     captured = capsys.readouterr().out
     assert "Python Version" in captured
     assert TEST_LLM_MODEL in captured
+
+
+def test_interpreter_info_truncates_oversized_message_inline(capsys):
+    """interpreter_info truncates a >2000-char message to 1000 chars without a handler (issue #385)."""
+    interpreter = SimpleNamespace(
+        offline=False,
+        llm=SimpleNamespace(
+            api_base=None,
+            supports_vision=False,
+            model=TEST_LLM_MODEL,
+            supports_functions=True,
+            context_window=8000,
+            max_tokens=1000,
+        ),
+        messages=[{"role": "user", "content": "x" * 3000}],
+        system_message="test",
+        auto_run=True,
+        computer=SimpleNamespace(import_computer_api=False),
+    )
+    info = system_debug_info.interpreter_info(interpreter)
+    assert "x" * 2000 not in info
+    assert "x" * 900 in info
+    assert capsys.readouterr().out == ""
