@@ -193,7 +193,7 @@ def test_query_reduce_chunks_summarises_each_chunk_separately():
             with pytest.raises(RuntimeError):
                 query_reduce_chunks(["a", "b"], llm, 10, "summarise")
 
-    # Order-insensitive on purpose. `query_map_chunks` submits through
+    # Order-insensitive on purpose. `query_reduce_chunks` submits through
     # ThreadPoolExecutor.map, which orders the *results* but not the workers'
     # execution: the thread handling "two" can append before the one handling
     # "one". What matters is that each chunk got its own call, not when.
