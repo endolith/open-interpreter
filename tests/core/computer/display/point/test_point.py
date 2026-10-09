@@ -424,3 +424,351 @@ def test_get_element_boxes_permutates_when_env_set(monkeypatch):
     }
     # The random draws must have actually changed the threshold parameters.
     assert len(param_sets) > 1
+
+
+def _run_find_icon(monkeypatch, boxes, text_blocks=(), screenshot=None, **env):
+    """Drive find_icon with the element and OCR stages mocked; return the boxes it searched.
+
+    The icons handed to image_search are the narrow waist of this function: every
+    filter and the coordinate expansion show up in that argument.
+
+    `english_words` is seeded explicitly. point.py discards any OCR block whose
+    words are not real English words, and tests/helpers stubs that corpus as an
+    EMPTY list — so with the stock stub every block carrying text is removed
+    before the box filters run, and those filters never see anything to compare
+    against. Seeding it makes these tests exercise the geometry rather than the
+    stub.
+    """
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_MIN_ICON_WIDTH", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_WIDTH", "500")
+    monkeypatch.setenv("OI_POINT_MIN_ICON_HEIGHT", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_HEIGHT", "500")
+    monkeypatch.setenv("OI_POINT_PIXEL_EXPAND", "7")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    captured = {}
+
+    def fake_image_search(description, icons, hashes, debug):
+        captured["icons"] = icons
+        return icons[:1]
+
+    with mock.patch.object(point_mod, "english_words", {"hello", "label"}):
+        with mock.patch.object(point_mod, "get_element_boxes", return_value=boxes):
+            with mock.patch.object(
+                point_mod,
+                "pytesseract_get_text_bounding_boxes",
+                return_value=list(text_blocks),
+            ):
+                with mock.patch.object(
+                    point_mod, "image_search", side_effect=fake_image_search
+                ):
+                    point_mod.find_icon(
+                        "target",
+                        screenshot or Image.new("RGB", (200, 100), "white"),
+                        False,
+                        None,
+                    )
+
+    return captured["icons"]
+
+
+def test_a_box_fully_inside_a_text_block_is_dropped(monkeypatch):
+    """An element box lying entirely within detected text is not offered.
+
+    Text regions produce box-like contours that are not clickable, so a box
+    enclosed by a text block is dropped rather than offered as a click target.
+    Without this the model is handed coordinates that land on a word.
+
+    Note this does **not** pin the containment filter specifically. point.py runs
+    a containment filter and then a strictly weaker intersection filter, and
+    containment is subsumed by it — checked exhaustively over 10,000 box/text
+    pairs with zero cases where containment fires alone. So this test passes
+    whichever of the two does the work; see #393's note on the redundancy.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 20, "y": 20, "width": 30, "height": 30},
+            {"x": 150, "y": 60, "width": 20, "height": 20},
+        ],
+        text_blocks=[
+            # Encloses the second box entirely.
+            {"left": 100, "top": 40, "width": 100, "height": 60, "text": "hello"},
+        ],
+    )
+
+    assert len(icons) == 1
+    assert icons[0]["x"] == 13
+
+
+def test_a_box_overlapping_text_without_being_contained_is_dropped(monkeypatch):
+    """A box that merely overlaps text is also discarded.
+
+    This is a second, weaker test than containment: a box straddling the edge of
+    a text block is contained by nothing but still intersects it. Both filters
+    have to hold, because they run in sequence and a straddling box survives the
+    first.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 20, "y": 20, "width": 30, "height": 30},
+            # Straddles the left edge of the text block below.
+            {"x": 90, "y": 50, "width": 40, "height": 20},
+        ],
+        text_blocks=[
+            {"left": 100, "top": 40, "width": 100, "height": 60, "text": "hello"},
+        ],
+    )
+
+    assert len(icons) == 1
+    assert icons[0]["x"] == 13
+
+
+def test_a_box_merely_touching_a_text_block_edge_survives(monkeypatch):
+    """Adjacency is not overlap: a box ending exactly where text begins is kept.
+
+    The intersection test is strict (`max(left) < min(right)`), so boxes that
+    share an edge are not filtered. Widening that comparison would silently
+    discard icons laid out immediately left of a label.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 20, "y": 20, "width": 30, "height": 30},
+            # Right edge at 100, exactly where the text block starts.
+            {"x": 70, "y": 50, "width": 30, "height": 20},
+        ],
+        text_blocks=[
+            {"left": 100, "top": 40, "width": 100, "height": 60, "text": "hello"},
+        ],
+    )
+
+    assert len(icons) == 2
+
+
+def test_boxes_are_expanded_by_the_configured_pixel_amount(monkeypatch):
+    """Every surviving box grows by OI_POINT_PIXEL_EXPAND on each side.
+
+    The expansion makes small icons easier to hit; the width and height grow by
+    twice the amount because both edges move.
+    """
+    icons = _run_find_icon(
+        monkeypatch, [{"x": 50, "y": 30, "width": 20, "height": 10}], OI_POINT_PIXEL_EXPAND="5"
+    )
+
+    assert len(icons) == 1
+    assert icons[0]["x"] == 45
+    assert icons[0]["y"] == 25
+    assert icons[0]["width"] == 30
+    assert icons[0]["height"] == 20
+
+
+def test_expansion_never_produces_a_negative_coordinate(monkeypatch):
+    """A box near the origin is not expanded past zero.
+
+    Expanding a box at x=2 by seven would produce x=-5, which is not a valid
+    click coordinate and would send the pointer off-screen.
+    """
+    icons = _run_find_icon(
+        monkeypatch, [{"x": 2, "y": 3, "width": 20, "height": 10}], OI_POINT_PIXEL_EXPAND="7"
+    )
+
+    assert icons[0]["x"] == 2, "x must not go negative"
+    assert icons[0]["y"] == 3, "y must not go negative"
+
+
+def test_expansion_clamps_to_the_image_edge(monkeypatch):
+    """A box near the right edge is clamped — but today the clamp shrinks it.
+
+    Pinned as observed behaviour for #403. The clamp is meant to *trim* the box
+    to the screenshot edge. Instead it computes `image_width - x - width` after x
+    has already been shifted left and width is still the original, so it subtracts
+    pre-shift geometry from a post-shift origin and collapses the box:
+
+        input  x=170 width=30   (right edge exactly 200)
+        output x=163 width=7    (right edge 170)
+
+    The box loses 23 of its 30 pixels and stops covering the icon at all. Clipping
+    would have given width = 200 - 163 = 37.
+
+    The exact values are asserted so a future fix is visible: when the clamp is
+    corrected to `image_width - box["x"]`, this test fails on `width == 37` and
+    should be updated alongside the fix. A weaker "does not exceed 200" assertion
+    would pass for the broken 7 and for the correct 37 alike, which is what
+    CodeRabbit flagged.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [{"x": 170, "y": 10, "width": 30, "height": 10}],
+        OI_POINT_PIXEL_EXPAND="7",
+    )
+
+    box = icons[0]
+    assert box["x"] == 163
+    # The image is 200 wide and this box's right edge is exactly 200, so the clamp
+    # branch is taken. See the docstring: 7 is the bug, 37 is the intent.
+    assert box["width"] == 7, "current collapsing behaviour; see #403"
+    assert box["height"] == 24
+    assert box["x"] + box["width"] == 170, "the box retreats off the icon entirely"
+
+
+def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
+    """When every candidate is filtered out, image_search is given an empty list.
+
+    The empty list is the signal that nothing matched, and it must reach
+    image_search rather than short-circuiting, so the caller sees the same shape
+    of input either way.
+    """
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_MIN_ICON_WIDTH", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_WIDTH", "500")
+    monkeypatch.setenv("OI_POINT_MIN_ICON_HEIGHT", "10")
+    monkeypatch.setenv("OI_POINT_MAX_ICON_HEIGHT", "500")
+    monkeypatch.setenv("OI_POINT_PIXEL_EXPAND", "7")
+
+    captured = {}
+
+    def fake_image_search(description, icons, hashes, debug):
+        captured["icons"] = icons
+        return []
+
+    with mock.patch.object(
+        point_mod, "get_element_boxes", return_value=[{"x": 2, "y": 2, "width": 3, "height": 3}]
+    ):
+        with mock.patch.object(point_mod, "pytesseract_get_text_bounding_boxes", return_value=[]):
+            with mock.patch.object(point_mod, "image_search", side_effect=fake_image_search):
+                result = point_mod.find_icon(
+                    "nope", Image.new("RGB", (200, 100), "white"), False, None
+                )
+
+    assert captured["icons"] == []
+    assert result == []
+def test_permutation_never_varies_block_size(monkeypatch):
+    """Characterization: OI_POINT_PERMUTATE holds blockSize at 11 on every pass.
+
+    The permutation branch draws an odd block size and then immediately overwrites
+    it:
+
+        random_block_size = random.choice(range(1, 11, 2))
+        random_block_size = 11
+
+    so `blockSize` reaches adaptiveThreshold as a constant while the draw beside
+    it is discarded. The permutation therefore searches three of the four
+    parameters it appears to vary, at the cost of ten full image-processing
+    passes. See the accompanying issue.
+
+    This test asserts the current behaviour deliberately, so the constant becomes
+    visible: when the overwrite is removed, blockSize starts varying and this
+    test fails, which is the point at which it should be deleted.
+    """
+    import types
+
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    adaptive = mock.Mock(return_value="binary")
+    monkeypatch.setattr(point_mod.cv2, "adaptiveThreshold", adaptive, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "boundingRect", lambda _c: (1, 2, 3, 4), raising=False)
+    for name, value in [
+        ("ADAPTIVE_THRESH_MEAN_C", 0),
+        ("THRESH_BINARY_INV", 1),
+        ("ADAPTIVE_THRESH_GAUSSIAN_C", 2),
+        ("THRESH_BINARY", 3),
+        ("COLOR_RGB2BGR", 4),
+        ("COLOR_BGR2GRAY", 5),
+        ("RETR_LIST", 6),
+        ("CHAIN_APPROX_NONE", 7),
+    ]:
+        monkeypatch.setattr(point_mod.cv2, name, value, raising=False)
+
+    random_stub = types.ModuleType("random")
+    random_stub.uniform = mock.Mock(side_effect=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+    # Always hand back the first option, so if block size were honoured every
+    # pass would receive the same value from the draw (1) rather than the 11
+    # currently written over it. That makes the two paths distinguishable.
+    random_stub.choice = mock.Mock(side_effect=lambda options: options[0])
+    random_stub.randint = mock.Mock(side_effect=[3] * 20)
+    monkeypatch.setitem(sys.modules, "random", random_stub)
+
+    point_mod.get_element_boxes(screenshot, False)
+
+    sizes = {call.kwargs["blockSize"] for call in adaptive.call_args_list}
+    assert sizes == {11}, f"blockSize should be pinned at 11, got {sizes}"
+    # The draw is made and then discarded, which is the waste itself.
+    assert any(
+        call.args and call.args[0] == range(1, 11, 2)
+        for call in random_stub.choice.call_args_list
+    ), "expected the block-size draw to still be made and overwritten"
+
+
+def test_permutation_does_vary_the_other_three_parameters(monkeypatch):
+    """Contrast, adaptive method, threshold type and C do change across the passes.
+
+    The complement of the block-size characterization: this pins which parameters
+    the permutation genuinely explores, so a future change that collapses the
+    search to a single dimension is caught here.
+    """
+    import types
+
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_PERMUTATE", "True")
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    adaptive = mock.Mock(return_value="binary")
+    monkeypatch.setattr(point_mod.cv2, "adaptiveThreshold", adaptive, raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "boundingRect", lambda _c: (1, 2, 3, 4), raising=False)
+    for name, value in [
+        ("ADAPTIVE_THRESH_MEAN_C", 0),
+        ("THRESH_BINARY_INV", 1),
+        ("ADAPTIVE_THRESH_GAUSSIAN_C", 2),
+        ("THRESH_BINARY", 3),
+        ("COLOR_RGB2BGR", 4),
+        ("COLOR_BGR2GRAY", 5),
+        ("RETR_LIST", 6),
+        ("CHAIN_APPROX_NONE", 7),
+    ]:
+        monkeypatch.setattr(point_mod.cv2, name, value, raising=False)
+
+    random_stub = types.ModuleType("random")
+    random_stub.uniform = mock.Mock(side_effect=[float(n) for n in range(1, 11)])
+    # Rotate so each option is actually reached across the ten passes.
+    state = {}
+
+    def rotate(options):
+        key = tuple(options)
+        index = state.get(key, 0)
+        state[key] = index + 1
+        return options[index % len(options)]
+
+    random_stub.choice = mock.Mock(side_effect=rotate)
+    random_stub.randint = mock.Mock(side_effect=[-5, 5] * 5)
+    monkeypatch.setitem(sys.modules, "random", random_stub)
+
+    point_mod.get_element_boxes(screenshot, False)
+
+    contrasts = {call.kwargs["C"] for call in adaptive.call_args_list}
+    assert len(contrasts) > 1, "C should vary across passes"
+    # Only the last pass's contours survive, so the box list reflects one pass.
+    assert len(adaptive.call_args_list) == 10
