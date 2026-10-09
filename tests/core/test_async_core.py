@@ -2366,7 +2366,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
             "role": "computer",
             "content": {"format": "python", "content": "print(1)"},
         }
-        self.interpreter.chat = mock.MagicMock(return_value=iter([confirmation]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([confirmation]))
 
         payloads = self._post_chat()
 
@@ -2374,7 +2374,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
             [p["choices"][0]["delta"]["content"] for p in payloads],
             ["Do you want to run this code?"],
         )
-        self.assertEqual(self.interpreter.chat.call_count, 1)
+        self.assertEqual(self.interpreter._respond_and_store.call_count, 1)
 
     def test_confirmation_frame_carries_the_full_chunk_envelope(self):
         """The approval frame is a complete chat.completion.chunk, not just text.
@@ -2388,7 +2388,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
             "role": "computer",
             "content": {"format": "python", "content": "print(1)"},
         }
-        self.interpreter.chat = mock.MagicMock(return_value=iter([confirmation]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([confirmation]))
 
         frame = self._post_chat()[0]
 
@@ -2410,7 +2410,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
         a renamed `choices`/`delta` key would break every non-code client.
         """
         message = {"type": "message", "role": "assistant", "content": "only"}
-        self.interpreter.chat = mock.MagicMock(return_value=iter([message]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([message]))
 
         frame = self._post_chat()[0]
 
@@ -2435,7 +2435,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
             {"type": "code", "role": "computer", "format": "python", "content": "x = 1"},
             {"type": "code", "role": "computer", "format": "python", "end": True},
         ]
-        self.interpreter.chat = mock.MagicMock(return_value=iter(chunks))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter(chunks))
 
         payloads = self._post_chat()
 
@@ -2451,14 +2451,13 @@ class TestOpenAIGeneratorChatPath(TestCase):
         The prompts escalate as the model stays silent; repeating or dropping one
         would change how many attempts a silent provider gets and what it sees.
         """
-        self.interpreter.chat = mock.MagicMock(return_value=iter([]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([]))
 
         self._post_chat()
 
         self.assertEqual(
-            [call.kwargs["message"] for call in self.interpreter.chat.call_args_list],
+            [m["content"] for m in self.interpreter.messages if m.get("role") == "user" and m.get("content") != "hi"],
             [
-                ".",
                 "Just say something, anything.",
                 "Hello? Answer please.",
                 "Are you there?",
@@ -2470,9 +2469,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
     def test_silent_prompts_are_retried_until_chunks_arrive(self):
         """Empty prompts yield nothing and fall through to the next prompt."""
         message = {"type": "message", "role": "assistant", "content": "second"}
-        self.interpreter.chat = mock.MagicMock(
-            side_effect=[iter([]), iter([message])]
-        )
+        self.interpreter._respond_and_store = mock.MagicMock(side_effect=[iter([]), iter([message])])
 
         payloads = self._post_chat()
 
@@ -2480,23 +2477,20 @@ class TestOpenAIGeneratorChatPath(TestCase):
             [p["choices"][0]["delta"]["content"] for p in payloads], ["second"]
         )
         asked = [
-            call.kwargs["message"]
-            for call in self.interpreter.chat.call_args_list
+            m["content"]
+            for m in self.interpreter.messages
+            if m.get("role") == "user" and m.get("content") != "hi"
         ]
-        self.assertEqual(asked[0], ".")
-        self.assertEqual(asked[1], "Just say something, anything.")
-        for call in self.interpreter.chat.call_args_list:
-            self.assertTrue(call.kwargs["stream"])
-            self.assertTrue(call.kwargs["display"])
+        self.assertEqual(asked, ["Just say something, anything."])
 
     def test_fully_silent_prompts_yield_an_empty_stream(self):
         """When every prompt stays silent, the stream carries no frames."""
-        self.interpreter.chat = mock.MagicMock(return_value=iter([]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([]))
 
         payloads = self._post_chat()
 
         self.assertEqual(payloads, [])
-        self.assertEqual(self.interpreter.chat.call_count, 6)
+        self.assertEqual(self.interpreter._respond_and_store.call_count, 6)
 
     def test_stop_set_during_streaming_suppresses_frames(self):
         """A stop raised while streaming drops the in-flight chunks silently."""
@@ -2509,7 +2503,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
                 [{"type": "message", "role": "assistant", "content": "too late"}]
             )
 
-        self.interpreter.chat = mock.MagicMock(side_effect=stop_then_yield)
+        self.interpreter._respond_and_store = mock.MagicMock(side_effect=stop_then_yield)
 
         payloads = self._post_chat()
 
@@ -2764,10 +2758,11 @@ class TestOpenAINonStreamingCompletion(TestCase):
         return self.client.post("/openai/chat/completions", json=body)
 
     def _stub_chat(self, content="canned"):
-        """Make interpreter.chat return one assistant message with the content."""
-        self.interpreter.chat = mock.MagicMock(
-            return_value=[{"role": "assistant", "type": "message", "content": content}]
-        )
+        """Make interpreter._respond_and_store return one assistant message with the content."""
+        def _store():
+            self.interpreter.messages.append({"role": "assistant", "type": "message", "content": content})
+            return iter([{"role": "assistant", "type": "message", "content": content}])
+        self.interpreter._respond_and_store = mock.MagicMock(side_effect=_store)
 
     def test_absent_stream_returns_a_single_completion_object(self):
         """A request without `stream` gets one JSON chat.completion object.

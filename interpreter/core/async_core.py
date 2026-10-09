@@ -932,59 +932,72 @@ def create_router(async_interpreter):
         made_chunk = False
 
         for message in [
-            ".",
+            # First try the content already in messages (appended by
+            # chat_completion) without adding any turn of our own; only if
+            # the model stays silent do the nudges below get appended.
+            None,
             "Just say something, anything.",
             "Hello? Answer please.",
             "Are you there?",
             "Can you respond?",
             "Please reply.",
         ]:
-            for i, chunk in enumerate(
-                async_interpreter.chat(message=message, stream=True, display=True)
-            ):
-                await asyncio.sleep(0)  # Yield control to the event loop
-                made_chunk = True
+            if message is not None:
+                async_interpreter.messages.append(
+                    {"role": "user", "type": "message", "content": message}
+                )
+            # Drive the turn directly: chat() cannot run without appending
+            # (display=False requires a message) or without prompting
+            # (display=True with no message reads input()).
+            async_interpreter.responding = True
+            try:
+                turn = async_interpreter._respond_and_store()
+                for i, chunk in enumerate(turn):
+                    await asyncio.sleep(0)  # Yield control to the event loop
+                    made_chunk = True
 
-                if (
-                    chunk["type"] == "confirmation"
-                    and async_interpreter.auto_run == False
-                ):
-                    await asyncio.sleep(0)
-                    output_content = "Do you want to run this code?"
-                    output_chunk = {
-                        "id": i,
-                        "object": "chat.completion.chunk",
-                        "created": time.time(),
-                        "model": "open-interpreter",
-                        "choices": [{"delta": {"content": output_content}}],
-                    }
-                    yield f"data: {json.dumps(output_chunk)}\n\n"
-                    break
+                    if (
+                        chunk["type"] == "confirmation"
+                        and async_interpreter.auto_run == False
+                    ):
+                        await asyncio.sleep(0)
+                        output_content = "Do you want to run this code?"
+                        output_chunk = {
+                            "id": i,
+                            "object": "chat.completion.chunk",
+                            "created": time.time(),
+                            "model": "open-interpreter",
+                            "choices": [{"delta": {"content": output_content}}],
+                        }
+                        yield f"data: {json.dumps(output_chunk)}\n\n"
+                        break
 
-                if async_interpreter.stop_event.is_set():
-                    break
+                    if async_interpreter.stop_event.is_set():
+                        break
 
-                output_content = None
+                    output_content = None
 
-                if chunk["type"] == "message" and "content" in chunk:
-                    output_content = chunk["content"]
-                if chunk["type"] == "code" and "start" in chunk:
-                    output_content = "```" + chunk["format"] + "\n"
-                if chunk["type"] == "code" and "content" in chunk:
-                    output_content = chunk["content"]
-                if chunk["type"] == "code" and "end" in chunk:
-                    output_content = "\n```\n"
+                    if chunk["type"] == "message" and "content" in chunk:
+                        output_content = chunk["content"]
+                    if chunk["type"] == "code" and "start" in chunk:
+                        output_content = "```" + chunk["format"] + "\n"
+                    if chunk["type"] == "code" and "content" in chunk:
+                        output_content = chunk["content"]
+                    if chunk["type"] == "code" and "end" in chunk:
+                        output_content = "\n```\n"
 
-                if output_content:
-                    await asyncio.sleep(0)
-                    output_chunk = {
-                        "id": i,
-                        "object": "chat.completion.chunk",
-                        "created": time.time(),
-                        "model": "open-interpreter",
-                        "choices": [{"delta": {"content": output_content}}],
-                    }
-                    yield f"data: {json.dumps(output_chunk)}\n\n"
+                    if output_content:
+                        await asyncio.sleep(0)
+                        output_chunk = {
+                            "id": i,
+                            "object": "chat.completion.chunk",
+                            "created": time.time(),
+                            "model": "open-interpreter",
+                            "choices": [{"delta": {"content": output_content}}],
+                        }
+                        yield f"data: {json.dumps(output_chunk)}\n\n"
+            finally:
+                async_interpreter.responding = False
 
             if made_chunk:
                 break
@@ -1022,82 +1035,97 @@ def create_router(async_interpreter):
             async_interpreter.auto_run = False
             return
 
+        if isinstance(last_message.content, str):
+            content_text = last_message.content
+        else:
+            # OpenAI parts-list content, as vision-capable clients send
+            content_text = " ".join(
+                str(part.get("text", ""))
+                for part in last_message.content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+
+        def append_user_content():
+            if type(last_message.content) == str:
+                async_interpreter.messages.append(
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": last_message.content,
+                    }
+                )
+                print(">", last_message.content)
+            else:
+                for content in last_message.content:
+                    if content["type"] == "text":
+                        async_interpreter.messages.append(
+                            {
+                                "role": "user",
+                                "type": "message",
+                                "content": content.get("text", ""),
+                            }
+                        )
+                        print(">", content.get("text", ""))
+                    elif content["type"] == "image_url":
+                        if "url" not in content["image_url"]:
+                            raise Exception("`url` must be in `image_url`.")
+                        url = content["image_url"]["url"]
+                        print("> [user sent an image]", url[:100])
+                        if "base64," not in url:
+                            raise Exception(
+                                '''Image must be in the format: "data:image/jpeg;base64,{base64_image}"'''
+                            )
+
+                        # data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA6oA...
+
+                        data = url.split("base64,")[1]
+                        format = "base64." + url.split(";")[0].split("/")[1]
+                        async_interpreter.messages.append(
+                            {
+                                "role": "user",
+                                "type": "image",
+                                "format": format,
+                                "content": data,
+                            }
+                        )
+
         run_code = False
         if (
             async_interpreter.messages
             and async_interpreter.messages[-1]["type"] == "code"
-            and last_message.content.lower().strip(".!?").strip() == "yes"
+            and content_text.lower().strip(".!?").strip() == "yes"
         ):
             run_code = True
-        elif type(last_message.content) == str:
-            async_interpreter.messages.append(
-                {
-                    "role": "user",
-                    "type": "message",
-                    "content": last_message.content,
-                }
-            )
-            print(">", last_message.content)
-        elif type(last_message.content) == list:
-            for content in last_message.content:
-                if content["type"] == "text":
-                    async_interpreter.messages.append(
-                        {"role": "user", "type": "message", "content": str(content)}
-                    )
-                    print(">", content)
-                elif content["type"] == "image_url":
-                    if "url" not in content["image_url"]:
-                        raise Exception("`url` must be in `image_url`.")
-                    url = content["image_url"]["url"]
-                    print("> [user sent an image]", url[:100])
-                    if "base64," not in url:
-                        raise Exception(
-                            '''Image must be in the format: "data:image/jpeg;base64,{base64_image}"'''
-                        )
-
-                    # data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA6oA...
-
-                    data = url.split("base64,")[1]
-                    format = "base64." + url.split(";")[0].split("/")[1]
-                    async_interpreter.messages.append(
-                        {
-                            "role": "user",
-                            "type": "image",
-                            "format": format,
-                            "content": data,
-                        }
-                    )
-
-        else:
-            if async_interpreter.context_mode:
-                # In context mode, we only respond if we received a {START} message
-                # Otherwise, we're just accumulating context
-                if last_message.content == "{START}":
-                    if async_interpreter.messages[-1]["content"] == "{START}":
-                        # Remove that {START} message that would have just been added
-                        async_interpreter.messages = async_interpreter.messages[:-1]
-                    last_start_time = time.time()
-                    if (
-                        async_interpreter.messages
-                        and async_interpreter.messages[-1].get("role") != "user"
-                    ):
-                        return
-                else:
-                    # Check if we're within 6 seconds of last_start_time
-                    current_time = time.time()
-                    if current_time - last_start_time <= 6:
-                        # Continue processing
-                        pass
-                    else:
-                        # More than 6 seconds have passed, so return
-                        return
-
-            else:
-                if last_message.content == "{START}":
-                    # This just sometimes happens I guess
-                    # Remove that {START} message that would have just been added
-                    async_interpreter.messages = async_interpreter.messages[:-1]
+        elif async_interpreter.context_mode:
+            # In context mode, we only respond on a {START} message.
+            # Otherwise we're just accumulating context.
+            if content_text.strip() == "{START}":
+                last_start_time = time.time()
+                if (
+                    async_interpreter.messages
+                    and async_interpreter.messages[-1].get("role") != "user"
+                ):
                     return
+                if not any(
+                    message.get("role") == "user"
+                    for message in async_interpreter.messages
+                ):
+                    # Nothing accumulated to answer yet
+                    return
+            else:
+                # Check if we're within 6 seconds of last_start_time
+                current_time = time.time()
+                if current_time - last_start_time > 6:
+                    # More than 6 seconds have passed: accumulate, don't respond
+                    append_user_content()
+                    return
+                # Within 6 seconds of {START}: fall through and respond
+                append_user_content()
+        elif content_text.strip() == "{START}":
+            # This just sometimes happens I guess — ignore it
+            return
+        else:
+            append_user_content()
 
         async_interpreter.stop_event.set()
         time.sleep(0.1)
@@ -1108,7 +1136,17 @@ def create_router(async_interpreter):
                 openai_compatible_generator(run_code), media_type="application/x-ndjson"
             )
         else:
-            messages = async_interpreter.chat(message=".", stream=False, display=True)
+            # The user content is already in messages: drive the turn
+            # directly. chat() cannot run without appending (display=False
+            # requires a message, which would duplicate the turn) or without
+            # prompting (display=True with no message reads input()).
+            async_interpreter.responding = True
+            try:
+                for _ in async_interpreter._respond_and_store():
+                    pass
+            finally:
+                async_interpreter.responding = False
+            messages = async_interpreter.messages
             content = messages[-1]["content"]
             return {
                 "id": "200",
