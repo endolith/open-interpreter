@@ -106,11 +106,11 @@ def query_reduce_chunks(responses, llm, chunk_size, query):
 
         # Use multithreading to summarize each chunk simultaneously
         with ThreadPoolExecutor() as executor:
-            summaries = list(
+            responses = list(
                 executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks)
             )
 
-    return summaries[0]
+    return responses[0]
 
 
 class Ai:
