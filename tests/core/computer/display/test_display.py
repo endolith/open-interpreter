@@ -323,6 +323,40 @@ def test_get_text_without_screenshot_captures_the_screen():
     assert pytesseract_get_text.call_args[0][0].mode == "RGB"
 
 
+class _OnlineComputer(SimpleNamespace):
+    """An online computer that fails loudly if the display builds an upload URL.
+
+    The removed hosted path addressed the screenshot with
+    f"{self.computer.api_base}/v0/text/". Reading api_base at all is therefore
+    the signal that a local-only path regressed into an upload.
+    """
+
+    @property
+    def api_base(self):
+        raise AssertionError("display must not contact a hosted OCR endpoint")
+
+
+def test_get_text_reads_locally_even_when_online():
+    """Being online is no longer a reason to send the screenshot anywhere.
+
+    get_text_as_list_of_lists() used to POST the screenshot to the server and
+    only fall back to local OCR when that call failed. Local OCR is now the
+    only path, whatever `offline` is set to — and the computer's api_base
+    raises on access, so a reintroduced upload fails here instead of quietly
+    reaching the network.
+    """
+    display = _make_display(_OnlineComputer(offline=False, api_base="http://unused"))
+
+    screenshot = Image.new("RGB", (10, 10))
+    with mock.patch(
+        "interpreter.core.computer.display.display.pytesseract_get_text",
+        return_value="hello",
+    ) as pytesseract_get_text:
+        result = display.get_text_as_list_of_lists(screenshot=screenshot)
+
+    pytesseract_get_text.assert_called_once_with(screenshot)
+    assert result == "hello"
+
 def _patch_screeninfo(monitors):
     screeninfo = mock.Mock()
     screeninfo.get_monitors.return_value = monitors
