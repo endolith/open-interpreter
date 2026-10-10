@@ -57,6 +57,9 @@ class Mail:
                     return f"{too_many_emails_msg}\n\n{stdout}"
                 else:
                     return stdout
+            # Anything else (e.g. an unrecognized error with no output) is
+            # not retryable: give up instead of looping forever.
+            break
 
     def send(self, to, subject, body, attachments=None):
         """
