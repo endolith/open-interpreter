@@ -266,14 +266,16 @@ def test_delete_event_stderr_is_reported_as_the_error():
             )
 
 
-@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards (issue #410), so ordinary stdout is treated as stderr and wrapped as an error")
+@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards and indexes stdout[0] (issue #410): ordinary stdout is treated as stderr and wrapped as an error, and fixing only the unpacking would still return just the first character")
 def test_delete_event_returns_ordinary_stdout_verbatim():
     """Ordinary stdout is returned as-is, not wrapped as an error message.
 
     Once delete_event() unpacks run_applescript_capture() as (stdout,
-    stderr), a non-empty stdout is returned verbatim by the first branch.
-    Today the swapped unpacking puts the stdout text in the stderr slot and
-    it comes back as "Error deleting event: ...".
+    stderr) and returns the full stdout, a non-empty stdout is returned
+    verbatim by the first branch. Today the swapped unpacking puts the
+    stdout text in the stderr slot and it comes back as
+    "Error deleting event: ..."; fixing only the unpacking would still
+    return just stdout[0].strip(), the first character.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
