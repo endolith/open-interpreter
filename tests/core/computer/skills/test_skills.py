@@ -515,14 +515,14 @@ def test_search_mirrors_list_results(tmp_path, capsys):
     assert skills.search("anything") == skills.list() == ["demo_skill()"]
 
 
-@pytest.mark.xfail(reason="import_skills() flips save_skills to False before the 100MB guard with no try/finally (issue #417), so a guard raise strands the caller's setting instead of restoring it; fix in #422")
 def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
     """An oversized skills dir raises Warning and leaves save_skills on.
 
     Once import_skills() restores the flag in a finally path, the guard
     raise no longer strands the caller's setting: the run is still skipped
     and save_skills is back to True. Today the restore is skipped, so the
-    flag stays False.
+    flag stays False. Only the restoration assertion is allowed to
+    expect-fail; the guard and no-run expectations stay hard failures.
     """
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
@@ -533,8 +533,13 @@ def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
     with mock.patch("os.path.getsize", return_value=200 * 1024 * 1024):
         with pytest.raises(Warning, match="can't exceed 100mb"):
             skills.import_skills()
-    assert computer.save_skills is True
     computer.run.assert_not_called()
+    try:
+        assert computer.save_skills is True
+    except AssertionError:
+        pytest.xfail(
+            reason="import_skills() flips save_skills to False before the 100MB guard with no try/finally (issue #417), so a guard raise strands the caller's setting; fix in #422"
+        )
 
 
 def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys):
