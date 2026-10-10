@@ -896,7 +896,7 @@ def create_router(async_interpreter):
         temperature: Optional[float] = None
         stream: Optional[bool] = False
 
-    async def openai_compatible_generator(run_code):
+    async def openai_compatible_generator(run_code, model):
         if run_code:
             print("Running code.\n")
             for i, chunk in enumerate(async_interpreter._respond_and_store()):
@@ -922,11 +922,12 @@ def create_router(async_interpreter):
                         "id": i,
                         "object": "chat.completion.chunk",
                         "created": time.time(),
-                        "model": "open-interpreter",
+                        "model": model,
                         "choices": [{"delta": {"content": output_content}}],
                     }
                     yield f"data: {json.dumps(output_chunk)}\n\n"
 
+            yield "data: [DONE]\n\n"
             return
 
         made_chunk = False
@@ -955,7 +956,7 @@ def create_router(async_interpreter):
                         "id": i,
                         "object": "chat.completion.chunk",
                         "created": time.time(),
-                        "model": "open-interpreter",
+                        "model": model,
                         "choices": [{"delta": {"content": output_content}}],
                     }
                     yield f"data: {json.dumps(output_chunk)}\n\n"
@@ -981,13 +982,15 @@ def create_router(async_interpreter):
                         "id": i,
                         "object": "chat.completion.chunk",
                         "created": time.time(),
-                        "model": "open-interpreter",
+                        "model": model,
                         "choices": [{"delta": {"content": output_content}}],
                     }
                     yield f"data: {json.dumps(output_chunk)}\n\n"
 
             if made_chunk:
                 break
+
+        yield "data: [DONE]\n\n"
 
     @router.post("/openai/chat/completions")
     async def chat_completion(request: ChatCompletionRequest):
@@ -1105,7 +1108,8 @@ def create_router(async_interpreter):
 
         if request.stream:
             return StreamingResponse(
-                openai_compatible_generator(run_code), media_type="application/x-ndjson"
+                openai_compatible_generator(run_code, request.model),
+                media_type="text/event-stream",
             )
         else:
             messages = async_interpreter.chat(message=".", stream=False, display=True)
