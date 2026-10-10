@@ -156,18 +156,52 @@ def test_wrong_credential_reports_failure_then_can_retry(ws_pair, monkeypatch):
         assert ws.receive_json() == {"auth": True}
 
 
-def test_payload_before_authentication_is_discarded_not_processed(ws_pair):
-    """LMC chunks sent pre-auth are swallowed (no input()), answered auth:False.
+def test_payload_before_authentication_is_queued_then_delivered(ws_pair):
+    """LMC chunks sent pre-auth are queued and delivered after auth (issue #249).
 
-    KNOWN BUG-ish: payloads silently disappear instead of being queued until
-    auth completes; clients unaware of the handshake lose their first message.
-    Documenting current behavior.
+    The client is still told each pre-auth frame is unauthenticated, but the
+    payload is held and reaches input() once the handshake completes instead
+    of being silently lost.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
         ws.send_text(json.dumps({"role": "user", "start": True}))
         assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    inp.assert_awaited_once_with({"role": "user", "start": True})
+
+
+def test_payload_before_authentication_never_delivered_without_auth(ws_pair):
+    """Queued pre-auth payloads are dropped with the connection if auth never completes."""
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
     assert inp.await_count == 0
+
+
+def test_binary_payload_before_authentication_is_queued_then_delivered(ws_pair):
+    """Binary frames sent pre-auth are queued and delivered raw after auth (issue #249)."""
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_bytes(b"\x00\x01binary")
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    inp.assert_awaited_once_with(b"\x00\x01binary")
+
+
+def test_failed_auth_attempt_is_never_queued(ws_pair, monkeypatch):
+    """A rejected credential is answered, not queued: after a later success only real payloads arrive."""
+    client, _, inp = ws_pair
+    monkeypatch.setenv("INTERPRETER_API_KEY", "secret")
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"auth": "bad"}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"auth": "secret"}))
+        assert ws.receive_json() == {"auth": True}
+    inp.assert_awaited_once_with({"role": "user", "start": True})
 
 
 def test_authenticated_chunk_forwarded_parsed(ws_pair):
