@@ -30,3 +30,41 @@ def test_get_non_macos(capsys):
         sms = SMS(computer=SimpleNamespace())
         assert sms.get() is None
     assert "Only supported on Mac" in capsys.readouterr().out
+
+
+def _run_send(message):
+    """Run SMS.send() on macOS with osascript stubbed; return (script, return)."""
+    sms = SMS(computer=SimpleNamespace())
+    with mock.patch("sys.platform", "darwin"), mock.patch("subprocess.run") as run:
+        result = sms.send("+15551234", message)
+    script = run.call_args[0][0][2]
+    return script, result
+
+
+def test_send_escapes_backslashes_before_quotes():
+    """Backslashes are escaped before quotes, so a trailing backslash survives (issue #412).
+
+    Doing it the other way double-escapes the backslash that was just
+    introduced for a quote, and one immediately before a quote escapes the
+    quote instead.
+    """
+    script, result = _run_send("back\\slash")
+
+    assert "back\\\\slash" in script
+    assert result == "Message sent successfully"
+
+
+def test_send_escapes_quotes():
+    """Double quotes are escaped so they do not terminate the AppleScript string."""
+    script, _ = _run_send('say "hi"')
+
+    assert 'say \\"hi\\"' in script
+
+
+def test_send_escapes_backslash_immediately_before_quote():
+    """A backslash just before a quote must not swallow that quote's escaping."""
+    script, _ = _run_send('path\\"end')
+
+    # The backslash becomes a literal escaped pair, and the quote is still
+    # escaped for AppleScript — both, not one at the expense of the other.
+    assert 'path\\\\\\"end' in script
