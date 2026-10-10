@@ -235,3 +235,102 @@ def test_auth_no_tool_call_does_not_raise(monkeypatch):
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "message", "content": "hello"}
     ]
+
+
+# Parallel tool calls (issue #415): helpers that normalize both the object
+# shape the OpenAI SDK returns and the dict shape some proxies emit.
+
+from interpreter.core.llm.run_tool_calling_llm import (
+    _function_name_and_arguments,
+    _queue_extra_tool_call,
+    _queued_tool_call_chunk,
+    _tool_call_entry_function,
+    _tool_call_entry_key,
+)
+
+
+def _dict_entry(index=None, name="browser", arguments='{"url": "x"}', cid="call_2"):
+    entry = {"function": {"name": name, "arguments": arguments}, "id": cid}
+    if index is not None:
+        entry["index"] = index
+    return entry
+
+
+def test_entry_function_reads_object_shape():
+    """The SDK object shape exposes .function."""
+    assert _tool_call_entry_function(_tool_call("a", "{}")) is not None
+
+
+def test_entry_function_reads_dict_shape():
+    """Proxy implementations return dicts; the function payload is still found."""
+    assert _tool_call_entry_function(_dict_entry())["name"] == "browser"
+
+
+def test_function_name_and_arguments_reads_dict_shape():
+    """Name and arguments are read from a dict function payload as well as an object."""
+    name, arguments = _function_name_and_arguments(
+        {"name": "browser", "arguments": '{"url": "x"}'}
+    )
+    assert (name, arguments) == ("browser", '{"url": "x"}')
+
+
+def test_entry_key_prefers_index_over_id():
+    """Streamed chunks repeat the index but only carry the id once, so index leads."""
+    assert _tool_call_entry_key(_dict_entry(index=1), 0) == ("index", 1)
+
+
+def test_entry_key_falls_back_to_id():
+    """A non-streamed entry with an id but no index keeps that id."""
+    assert _tool_call_entry_key(_dict_entry(index=None, cid="call_9"), 0) == "call_9"
+
+
+def test_entry_key_falls_back_to_position():
+    """No index and no id: position is the only stable identity."""
+    entry = {"function": {"name": "browser", "arguments": "{}"}}
+    assert _tool_call_entry_key(entry, 3) == ("pos", 3)
+
+
+def test_queue_extra_tool_call_stashes_call():
+    """A parallel call the pipeline cannot run this turn is queued on the interpreter."""
+    llm = _make_llm([])
+    _queue_extra_tool_call(llm, _dict_entry(), ("index", 1))
+
+    queued = llm.interpreter._pending_tool_calls
+    assert len(queued) == 1
+    assert queued[0]["name"] == "browser"
+
+
+def test_queue_extra_tool_call_concatenates_fragments():
+    """Fragments of one call across chunks share a key, so arguments accumulate."""
+    llm = _make_llm([])
+    _queue_extra_tool_call(llm, _dict_entry(arguments='{"url":'), ("index", 1))
+    _queue_extra_tool_call(llm, _dict_entry(arguments='"x"}'), ("index", 1))
+
+    queued = llm.interpreter._pending_tool_calls
+    assert len(queued) == 1
+    assert queued[0]["arguments"] == '{"url":"x"}'
+
+
+def test_queue_extra_tool_call_reuses_existing_queue():
+    """The queue is created once and appended to across turns."""
+    llm = _make_llm([])
+    _queue_extra_tool_call(llm, _dict_entry(index=1), ("index", 1))
+    _queue_extra_tool_call(llm, _dict_entry(index=2, cid="call_3"), ("index", 2))
+    assert len(llm.interpreter._pending_tool_calls) == 2
+
+
+def test_queue_extra_tool_call_skips_functionless_entry():
+    """An entry with no function payload cannot be run, so it is not queued."""
+    llm = _make_llm([])
+    _queue_extra_tool_call(llm, {"id": "call_1"}, ("pos", 0))
+    assert getattr(llm.interpreter, "_pending_tool_calls", []) == []
+
+
+def test_queued_tool_call_chunk_replays_as_stream_chunk():
+    """A queued call is replayed in the chunk shape the streaming loop consumes."""
+    chunk = _queued_tool_call_chunk(
+        {"id": "call_1", "name": "browser", "arguments": '{"url": "x"}'}
+    )
+    entry = chunk["choices"][0]["delta"]["tool_calls"][0]
+    assert entry.function.name == "browser"
+    assert entry.function.arguments == '{"url": "x"}'
