@@ -43,3 +43,36 @@ def test_create_event_non_macos():
             datetime.datetime(2024, 1, 1, 10, 0),
         )
     assert result == "This method is only supported on MacOS"
+
+
+def test_get_first_calendar_returns_stripped_name():
+    """get_first_calendar() unpacks the capture tuple and strips it (issue #426).
+
+    run_applescript_capture returns (stdout, stderr); the old code treated the
+    single return value as a tuple and stdout[0] yielded one character, so the
+    "default calendar" was a single letter and every event lookup missed.
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with mock.patch(
+        "interpreter.core.computer.calendar.calendar.platform.system",
+        return_value="Darwin",
+    ):
+        with mock.patch(
+            "interpreter.core.computer.calendar.calendar.run_applescript_capture",
+            return_value=("Work\n", ""),
+        ):
+            assert cal.get_first_calendar() == "Work"
+
+
+def test_get_first_calendar_returns_none_when_empty():
+    """No captured stdout means no default calendar, and None is returned."""
+    cal = Calendar(computer=SimpleNamespace())
+    with mock.patch(
+        "interpreter.core.computer.calendar.calendar.platform.system",
+        return_value="Darwin",
+    ):
+        with mock.patch(
+            "interpreter.core.computer.calendar.calendar.run_applescript_capture",
+            return_value=("", ""),
+        ):
+            assert cal.get_first_calendar() is None
