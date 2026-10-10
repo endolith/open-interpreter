@@ -799,7 +799,7 @@ def create_router(async_interpreter):
             async_interpreter.input(payload)
             return {"status": "success"}
         except Exception as e:
-            return {"error": str(e)}, 500
+            return JSONResponse(status_code=500, content={"error": str(e)})
 
     @router.post("/settings")
     async def set_settings(payload: Dict[str, Any]):
@@ -827,15 +827,23 @@ def create_router(async_interpreter):
                         if hasattr(getattr(async_interpreter, key), sub_key):
                             setattr(getattr(async_interpreter, key), sub_key, sub_value)
                         else:
-                            return {
-                                "error": f"Sub-setting {sub_key} not found in {key}"
-                            }, 404
+                            return JSONResponse(
+                                status_code=404,
+                                content={
+                                    "error": f"Sub-setting {sub_key} not found in {key}"
+                                },
+                            )
                 else:
-                    return {"error": f"Setting {key} not found"}, 404
+                    return JSONResponse(
+                        status_code=404,
+                        content={"error": f"Setting {key} not found"},
+                    )
             elif hasattr(async_interpreter, key):
                 setattr(async_interpreter, key, value)
             else:
-                return {"error": f"Setting {key} not found"}, 404
+                return JSONResponse(
+                    status_code=404, content={"error": f"Setting {key} not found"}
+                )
 
         return {"status": "success"}
 
@@ -846,9 +854,14 @@ def create_router(async_interpreter):
             try:
                 return json.dumps({setting: setting_value})
             except TypeError:
-                return {"error": "Failed to serialize the setting value"}, 500
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "Failed to serialize the setting value"},
+                )
         else:
-            return json.dumps({"error": "Setting not found"}), 404
+            return JSONResponse(
+                status_code=404, content={"error": "Setting not found"}
+            )
 
     if os.getenv("INTERPRETER_INSECURE_ROUTES", "").lower() == "true":
 
@@ -856,14 +869,17 @@ def create_router(async_interpreter):
         async def run_code(payload: Dict[str, Any]):
             language, code = payload.get("language"), payload.get("code")
             if not (language and code):
-                return {"error": "Both 'language' and 'code' are required."}, 400
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Both 'language' and 'code' are required."},
+                )
             try:
                 print(f"Running {language}:", code)
                 output = async_interpreter.computer.run(language, code)
                 print("Output:", output)
                 return {"output": output}
             except Exception as e:
-                return {"error": str(e)}, 500
+                return JSONResponse(status_code=500, content={"error": str(e)})
 
         @router.post("/upload")
         async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
@@ -872,7 +888,7 @@ def create_router(async_interpreter):
                     shutil.copyfileobj(file.file, output_file)
                 return {"status": "success"}
             except Exception as e:
-                return {"error": str(e)}, 500
+                return JSONResponse(status_code=500, content={"error": str(e)})
 
         @router.get("/download/{filename}")
         async def download_file(filename: str):
@@ -881,7 +897,7 @@ def create_router(async_interpreter):
                     open(filename, "rb"), media_type="application/octet-stream"
                 )
             except Exception as e:
-                return {"error": str(e)}, 500
+                return JSONResponse(status_code=500, content={"error": str(e)})
 
     ### OPENAI COMPATIBLE ENDPOINT
 
