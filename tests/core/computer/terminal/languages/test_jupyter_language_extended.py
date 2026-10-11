@@ -383,3 +383,73 @@ def test_preprocess_code_delegates_to_preprocess_python():
         "os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}
     ):
         assert lang.preprocess_code("x = 1\n\n") == "x = 1"
+
+
+def test_add_active_line_prints_recovers_when_substitution_breaks_parsing():
+    """A blank line inside an indented block doesn't stop markers being added.
+
+    `add_active_line_prints` replaces comment-only and empty lines with `pass` so
+    that AST line numbers stay aligned with the source. Inside an indented block
+    that substitution produces a dedented `pass`, which is a SyntaxError — so the
+    helper falls back to parsing the original text.
+
+    Without that fallback a function or class containing a blank line would fail
+    to run at all, with a SyntaxError pointing at a line the user never wrote. The
+    fallback is the only reason this input works, and it had no test.
+    """
+    code = "def f():\n\n    return 1\nprint(f())"
+
+    result = add_active_line_prints(code)
+
+    # Line numbers must still refer to the *original* source, not the rewritten
+    # one, or the UI would highlight the wrong line while code runs.
+    assert "##active_line3##" in result, (
+        "the marker before `return 1` should point at original line 3"
+    )
+    assert "##active_line4##" in result, (
+        "the marker before `print(f())` should point at original line 4"
+    )
+    assert "return 1" in result
+    assert "pass" not in result, (
+        "the fallback parses the original, so the substituted `pass` must not appear"
+    )
+
+
+def test_add_active_line_prints_recovers_for_a_class_with_a_blank_line():
+    """The same recovery applies to a class body, not just a function.
+
+    Pinned separately because the substitution happens per-line with no notion of
+    block nesting: the failure is structural, not specific to `def`.
+    """
+    code = "class C:\n\n    x = 1\nprint(C.x)"
+
+    result = add_active_line_prints(code)
+
+    assert "##active_line3##" in result
+    assert "pass" not in result
+    assert "x = 1" in result
+
+
+def test_add_active_line_prints_uses_the_processed_version_when_it_parses():
+    """When substitution is valid it is kept, so comment-only lines are neutralised.
+
+    The fallback is not unconditional: a top-level comment parses fine after
+    substitution, so the substituted version must still be used — otherwise a
+    comment containing a quote reaches the interpreter as code.
+
+    The blank line in the input is not there to test blank-line handling. I
+    originally asserted it was, on the theory that `ast` drops blank lines and
+    would shift the marker. Checked rather than assumed: `ast.parse` records the
+    real source line either way, so removing the `line == ""` substitution leaves
+    `x = 1` on line 3 in both cases. The blank-line substitution is defensive
+    rather than load-bearing, and no test here claims otherwise.
+    """
+    code = "# a comment with 'quotes'\n\nx = 1"
+
+    result = add_active_line_prints(code)
+
+    assert "pass" in result, "a parseable substitution should be used, not the original"
+    assert "quotes" not in result, "the comment should have been replaced, not carried through"
+    assert "##active_line3##" in result, (
+        "`x = 1` is on source line 3 and the marker must point there"
+    )
