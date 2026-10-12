@@ -1004,7 +1004,16 @@ class TestAsyncRespondProgress(TestCase):
                     self.interpreter.respond()
 
         self.assertIn("No chunks sent", str(caught.exception))
-        self.assertEqual(slept.call_count, 5)
+        # Count only the retry loop's own sleep(1) nudges: the patch lands on
+        # the shared stdlib time module, so time.sleep calls from unrelated
+        # background threads in the suite worker pollute a raw call_count on
+        # slow or loaded runners (observed 384 and 474 instead of 5 on macOS
+        # CI). The retry loop always sleeps exactly one second, so filtering
+        # by argument keeps the five-nudge pin exact without the pollution.
+        retry_sleeps = [
+            call for call in slept.call_args_list if call == mock.call(1)
+        ]
+        self.assertEqual(len(retry_sleeps), 5)
 
     def test_each_retry_appends_a_distinct_nudge(self):
         """Every retry appends a different escalating prompt to the transcript.

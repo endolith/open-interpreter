@@ -212,12 +212,17 @@ asyncio.run(run_endpoint())
 print("COMPLETED")
 """
 
+    # Budget generously: the regression this pins is an *infinite* spin, so any
+    # finite budget catches it. The child cold-imports the interpreter stack,
+    # which can exceed a tight budget on slow or heavily loaded runners
+    # (observed over 15s on macOS CI, especially under coverage
+    # instrumentation), flaking without a real regression.
     try:
         result = subprocess.run(
             [sys.executable, "-c", script],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         raise AssertionError(
