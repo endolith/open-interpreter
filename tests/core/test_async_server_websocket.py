@@ -170,6 +170,92 @@ def test_payload_before_authentication_is_discarded_not_processed(ws_pair):
     assert inp.await_count == 0
 
 
+@pytest.mark.xfail(
+    reason="#249: pre-auth payloads are dropped instead of queued",
+    strict=True,
+    raises=AssertionError,
+)
+def test_payload_before_authentication_is_queued_then_delivered(ws_pair):
+    """xfail for #249: a pre-auth payload must reach input() after the handshake.
+
+    Today the frame is answered {"auth": False} and then silently lost (see the
+    discard pin above), so the client loses its first message whenever it races
+    the handshake. The intended behavior is to hold the raw frame and deliver
+    it once authentication completes.
+
+    Pinned as xfail: it passes the day #249 is fixed.
+    """
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    inp.assert_awaited_once_with({"role": "user", "start": True})
+
+
+def test_payload_before_authentication_never_delivered_without_auth(ws_pair):
+    """Queued pre-auth payloads die with the connection if auth never completes.
+
+    No handshake means no delivery, under either behavior: today the frame is
+    dropped outright, and after #249 it is held but the queue is discarded on
+    disconnect. Either way input() is never reached.
+    """
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+    assert inp.await_count == 0
+
+
+@pytest.mark.xfail(
+    reason="#249: pre-auth binary frames are dropped instead of queued",
+    strict=True,
+    raises=AssertionError,
+)
+def test_binary_payload_before_authentication_is_queued_then_delivered(ws_pair):
+    """xfail for #249: a pre-auth binary frame must reach input() raw post-auth.
+
+    Same queue-then-deliver contract as the text payload above, except bytes
+    frames bypass JSON parsing and arrive unchanged — mirroring how
+    authenticated binary frames are already handled.
+
+    Pinned as xfail: it passes the day #249 is fixed.
+    """
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_bytes(b"\x00\x01binary")
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    inp.assert_awaited_once_with(b"\x00\x01binary")
+
+
+@pytest.mark.xfail(
+    reason="#249: pre-auth frames are dropped, so nothing survives to be filtered",
+    strict=True,
+    raises=AssertionError,
+)
+def test_failed_auth_attempt_is_never_queued(ws_pair, monkeypatch):
+    """xfail for #249: a rejected credential is answered, never queued.
+
+    Auth attempts must not enter the pending queue: replaying one post-handshake
+    would feed {"auth": ...} to input(). After a later successful handshake only
+    the real payload may arrive. Today nothing survives at all (everything is
+    dropped), so the final assertion fails alongside the queue tests above.
+
+    Pinned as xfail: it passes the day #249 is fixed.
+    """
+    client, _, inp = ws_pair
+    monkeypatch.setenv("INTERPRETER_API_KEY", "secret")
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"auth": "bad"}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"auth": "secret"}))
+        assert ws.receive_json() == {"auth": True}
+    inp.assert_awaited_once_with({"role": "user", "start": True})
+
+
 def test_authenticated_chunk_forwarded_parsed(ws_pair):
     """After the handshake, an LMC chunk reaches input() as the parsed dict."""
     client, _, inp = ws_pair
