@@ -115,7 +115,16 @@ jobs:
         shell: bash
         run: |
           uv pip install --system -e ".[server,dev]"
-          pytest -m "not integration and not darwin_ci" -q
+          pytest -m "not integration and not darwin_ci" -q \
+            --cov=interpreter \
+            --cov-branch \
+            --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-windows
+          path: coverage.xml
 
   test-macos:
     name: macOS
@@ -136,15 +145,26 @@ jobs:
       - name: Install and test
         run: |
           uv pip install --system -e ".[server,dev]"
-          pytest -m "not integration and not windows_ci" -q
+          pytest -m "not integration and not windows_ci" -q \
+            --cov=interpreter \
+            --cov-branch \
+            --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-macos
+          path: coverage.xml
 
   codecov:
     name: Upload to Codecov
-    needs: test-linux
+    needs: [test-linux, test-windows, test-macos]
     if: >-
       github.event_name != 'workflow_dispatch' &&
       !cancelled() &&
-      needs.test-linux.result == 'success'
+      needs.test-linux.result == 'success' &&
+      needs.test-windows.result == 'success' &&
+      needs.test-macos.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +172,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: coverage-report
+          path: coverage-linux
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-report-windows
+          path: coverage-windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-report-macos
+          path: coverage-macos
 
       - name: Require Codecov token
         if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
@@ -163,11 +194,30 @@ jobs:
             exit 1
           fi
 
-      - name: Upload coverage reports to Codecov
+      - name: Upload Linux coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
+          files: ./coverage-linux/coverage.xml
+          flags: linux
+          fail_ci_if_error: true
+          verbose: true
+
+      - name: Upload Windows coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-windows/coverage.xml
+          flags: windows
+          fail_ci_if_error: true
+          verbose: true
+
+      - name: Upload macOS coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-macos/coverage.xml
+          flags: macos
           fail_ci_if_error: true
           verbose: true
 
