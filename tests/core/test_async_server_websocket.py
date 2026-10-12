@@ -156,34 +156,12 @@ def test_wrong_credential_reports_failure_then_can_retry(ws_pair, monkeypatch):
         assert ws.receive_json() == {"auth": True}
 
 
-def test_payload_before_authentication_is_discarded_not_processed(ws_pair):
-    """LMC chunks sent pre-auth are swallowed (no input()), answered auth:False.
-
-    KNOWN BUG-ish: payloads silently disappear instead of being queued until
-    auth completes; clients unaware of the handshake lose their first message.
-    Documenting current behavior.
-    """
-    client, _, inp = ws_pair
-    with client.websocket_connect("/") as ws:
-        ws.send_text(json.dumps({"role": "user", "start": True}))
-        assert ws.receive_json() == {"auth": False}
-    assert inp.await_count == 0
-
-
-@pytest.mark.xfail(
-    reason="#249: pre-auth payloads are dropped instead of queued",
-    strict=True,
-    raises=AssertionError,
-)
 def test_payload_before_authentication_is_queued_then_delivered(ws_pair):
-    """xfail for #249: a pre-auth payload must reach input() after the handshake.
+    """A pre-auth payload reaches input() once the handshake completes (#249).
 
-    Today the frame is answered {"auth": False} and then silently lost (see the
-    discard pin above), so the client loses its first message whenever it races
-    the handshake. The intended behavior is to hold the raw frame and deliver
-    it once authentication completes.
-
-    Pinned as xfail: it passes the day #249 is fixed.
+    The frame is answered {"auth": False} while unauthenticated, held in the
+    server's pending queue, and delivered after a successful handshake instead
+    of being silently lost.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
@@ -196,9 +174,9 @@ def test_payload_before_authentication_is_queued_then_delivered(ws_pair):
 def test_payload_before_authentication_never_delivered_without_auth(ws_pair):
     """Queued pre-auth payloads die with the connection if auth never completes.
 
-    No handshake means no delivery, under either behavior: today the frame is
-    dropped outright, and after #249 it is held but the queue is discarded on
-    disconnect. Either way input() is never reached.
+    The pending queue exists only for the handshake: if the client disconnects
+    without authenticating, held frames are discarded with it and input() is
+    never reached.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
@@ -207,19 +185,12 @@ def test_payload_before_authentication_never_delivered_without_auth(ws_pair):
     assert inp.await_count == 0
 
 
-@pytest.mark.xfail(
-    reason="#249: pre-auth binary frames are dropped instead of queued",
-    strict=True,
-    raises=AssertionError,
-)
 def test_binary_payload_before_authentication_is_queued_then_delivered(ws_pair):
-    """xfail for #249: a pre-auth binary frame must reach input() raw post-auth.
+    """A pre-auth binary frame reaches input() raw once the handshake completes (#249).
 
     Same queue-then-deliver contract as the text payload above, except bytes
     frames bypass JSON parsing and arrive unchanged — mirroring how
     authenticated binary frames are already handled.
-
-    Pinned as xfail: it passes the day #249 is fixed.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
@@ -229,20 +200,12 @@ def test_binary_payload_before_authentication_is_queued_then_delivered(ws_pair):
     inp.assert_awaited_once_with(b"\x00\x01binary")
 
 
-@pytest.mark.xfail(
-    reason="#249: pre-auth frames are dropped, so nothing survives to be filtered",
-    strict=True,
-    raises=AssertionError,
-)
 def test_failed_auth_attempt_is_never_queued(ws_pair, monkeypatch):
-    """xfail for #249: a rejected credential is answered, never queued.
+    """A rejected credential is answered, never queued (#249).
 
     Auth attempts must not enter the pending queue: replaying one post-handshake
     would feed {"auth": ...} to input(). After a later successful handshake only
-    the real payload may arrive. Today nothing survives at all (everything is
-    dropped), so the final assertion fails alongside the queue tests above.
-
-    Pinned as xfail: it passes the day #249 is fixed.
+    the real payload arrives.
     """
     client, _, inp = ws_pair
     monkeypatch.setenv("INTERPRETER_API_KEY", "secret")
