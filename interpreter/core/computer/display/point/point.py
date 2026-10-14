@@ -700,37 +700,6 @@ def get_element_boxes(image_data, debug):
     if debug:
         print("WE HHERE")
 
-    if (
-        False
-    ):  # Disabled. I thought this would be faster but it's actually slower than just embedding all of them.
-        # Remove any boxes whose edges cross over any contours
-        filtered_boxes = []
-        for box in boxes:
-            crosses_contour = False
-            for contour in contours_contrasted:
-                if (
-                    cv2.pointPolygonTest(contour, (box["x"], box["y"]), False) >= 0
-                    or cv2.pointPolygonTest(
-                        contour, (box["x"] + box["width"], box["y"]), False
-                    )
-                    >= 0
-                    or cv2.pointPolygonTest(
-                        contour, (box["x"], box["y"] + box["height"]), False
-                    )
-                    >= 0
-                    or cv2.pointPolygonTest(
-                        contour,
-                        (box["x"] + box["width"], box["y"] + box["height"]),
-                        False,
-                    )
-                    >= 0
-                ):
-                    crosses_contour = True
-                    break
-            if not crosses_contour:
-                filtered_boxes.append(box)
-        boxes = filtered_boxes
-
     if debug:
         print("WE HHHERE")
 
