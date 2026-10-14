@@ -227,6 +227,7 @@ def get_downloads_path():
 
 
 def install_and_import(package):
+    module = None
     try:
         module = __import__(package)
     except ImportError:
@@ -249,11 +250,14 @@ def install_and_import(package):
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                module = __import__(package)
             except subprocess.CalledProcessError:
                 print(f"Failed to install package {package}.")
-                return
+                # module stays None: the finally below skips the export and
+                # the trailing return hands back None.
     finally:
-        globals()[package] = module
+        if module is not None:
+            globals()[package] = module
     return module
 
 
