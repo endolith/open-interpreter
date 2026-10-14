@@ -10,12 +10,14 @@ imported.
 from types import SimpleNamespace
 from unittest import mock
 
+import importlib
+
 import pytest
 from PIL import Image
 
 import sys
 
-from tests.helpers import install_point_heavy_deps
+from tests.helpers import install_point_heavy_deps, patch_expanduser
 
 
 def _import_point(monkeypatch):
@@ -772,3 +774,255 @@ def test_permutation_does_vary_the_other_three_parameters(monkeypatch):
     assert len(contrasts) > 1, "C should vary across passes"
     # Only the last pass's contours survive, so the box list reflects one pass.
     assert len(adaptive.call_args_list) == 10
+
+
+def test_take_screenshot_to_pil_captures_and_cleans_up_headless(
+    monkeypatch, tmp_path
+):
+    """take_screenshot_to_pil() loads the command's PNG and removes the file.
+
+    The `screencapture` subprocess is mocked, so nothing macOS-specific
+    executes — this is the headless twin of the darwin_ci test pinning the
+    same contract for the Linux/Windows lanes.
+    """
+    point_mod = _import_point(monkeypatch)
+
+    filename = str(tmp_path / "temp_screenshot.png")
+    Image.new("RGB", (50, 50), "blue").save(filename)
+
+    with mock.patch.object(point_mod.subprocess, "run") as run:
+        with mock.patch.object(point_mod.os, "remove") as remove:
+            result = point_mod.take_screenshot_to_pil(filename=filename)
+
+    run.assert_called_once_with(["screencapture", "-x", filename], check=True)
+    remove.assert_called_once_with(filename)
+    assert result.size == (50, 50)
+
+
+def test_find_icon_takes_screenshot_when_none_passed(monkeypatch):
+    """find_icon() with screenshot=None captures one instead of crashing."""
+    point_mod = _import_point(monkeypatch)
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+    with mock.patch.object(
+        point_mod, "take_screenshot_to_pil", return_value=screenshot
+    ) as snap:
+        with mock.patch.object(point_mod, "get_element_boxes", return_value=[]):
+            with mock.patch.object(
+                point_mod, "pytesseract_get_text_bounding_boxes", return_value=[]
+            ):
+                with mock.patch.object(
+                    point_mod, "image_search", return_value=[]
+                ):
+                    assert point_mod.find_icon("folder", None, False, None) == []
+
+    snap.assert_called_once_with()
+
+
+def _debug_find_icon_boxes():
+    """One icon box plus one non-overlapping text block for debug tests."""
+    boxes = [{"x": 10, "y": 10, "width": 30, "height": 30}]
+    text_blocks = [
+        {"left": 100, "top": 10, "width": 40, "height": 20, "text": "hello world"}
+    ]
+    return boxes, text_blocks
+
+
+def test_find_icon_debug_writes_stage_images(monkeypatch, tmp_path, capsys):
+    """find_icon(debug=True) saves every pipeline-stage image under oi-debug.
+
+    A synthetic screenshot plus mocked box/text/search stages keep the
+    test headless; patching english_words lets the text block survive the
+    dictionary filter so the text-drawing branches run too.
+    """
+    point_mod = _import_point(monkeypatch)
+    patch_expanduser(monkeypatch, point_mod, tmp_path)
+    monkeypatch.setattr(point_mod, "english_words", {"hello", "world"})
+    # The oi-debug dir is pre-created: find_icon saves stage images before
+    # its makedirs call, so a fresh dir would crash before reaching it.
+    debug_dir = tmp_path / "Desktop" / "oi-debug"
+    debug_dir.mkdir(parents=True)
+
+    screenshot = Image.new("RGB", (200, 100), "white")
+    boxes, text_blocks = _debug_find_icon_boxes()
+    with mock.patch.object(
+        point_mod, "get_element_boxes", return_value=[dict(boxes[0])]
+    ):
+        with mock.patch.object(
+            point_mod,
+            "pytesseract_get_text_bounding_boxes",
+            return_value=text_blocks,
+        ):
+            with mock.patch.object(
+                point_mod,
+                "image_search",
+                return_value=[{"coordinate": (0.25, 0.25)}],
+            ) as search:
+                result = point_mod.find_icon(
+                    "folder", screenshot, True, {"k": "v"}
+                )
+
+    assert result == [(0.25, 0.25)]
+    _, icons, hashes, _ = search.call_args[0]
+    assert len(icons) == 1
+    assert hashes == {"k": "v"}
+    debug_dir = tmp_path / "Desktop" / "oi-debug"
+    for name in (
+        "before_filtering_out_extremes.png",
+        "after_filtering_out_extremes.png",
+        "pytesseract_blocks_image.png",
+        "pytesseract_filtered_blocks_image.png",
+        "pytesseract_filtered_blocks_image_with_text.png",
+        "pytesseract_filtered_boxes_image.png",
+        "debug_image_after_filtering_boxes.png",
+        "debug_image_after_expanding_boxes.png",
+        "debug_image_after_combining_boxes.png",
+    ):
+        assert (debug_dir / name).is_file(), name
+    assert (tmp_path / "Desktop" / "point_vision.png").is_file()
+    out = capsys.readouterr().out
+    assert "STARTING" in out
+    assert "DONE" in out
+
+
+def test_find_icon_skips_combine_when_overlap_disabled(monkeypatch):
+    """OI_POINT_OVERLAP=False keeps overlapping boxes separate."""
+    point_mod = _import_point(monkeypatch)
+    monkeypatch.setenv("OI_POINT_OVERLAP", "False")
+
+    screenshot = Image.new("RGB", (200, 100), "white")
+    boxes = [
+        {"x": 10, "y": 10, "width": 30, "height": 30},
+        {"x": 20, "y": 20, "width": 30, "height": 30},
+    ]
+    with mock.patch.object(
+        point_mod, "get_element_boxes", return_value=[dict(b) for b in boxes]
+    ):
+        with mock.patch.object(
+            point_mod, "pytesseract_get_text_bounding_boxes", return_value=[]
+        ):
+            with mock.patch.object(
+                point_mod, "image_search", return_value=[]
+            ) as search:
+                point_mod.find_icon("folder", screenshot, False, {})
+
+    _, icons, _, _ = search.call_args[0]
+    assert len(icons) == 2
+
+
+def test_point_downloads_words_on_lookup_error(monkeypatch):
+    """A missing words corpus falls back to nltk.download("words")."""
+    install_point_heavy_deps(monkeypatch)
+    nltk_stub = sys.modules["nltk"]
+    calls = []
+
+    def flaky_words():
+        if not calls:
+            calls.append(1)
+            raise LookupError("missing corpus")
+        return ["hello"]
+
+    monkeypatch.setattr(nltk_stub.corpus.words, "words", flaky_words)
+    downloads = []
+    monkeypatch.setattr(
+        nltk_stub, "download", lambda *a, **k: downloads.append((a, k))
+    )
+
+    import interpreter.core.computer.display.point.point as point_mod
+
+    original_words = point_mod.english_words
+    try:
+        importlib.reload(point_mod)
+        assert downloads and downloads[0][0] == ("words",)
+        assert "hello" in point_mod.english_words
+    finally:
+        point_mod.english_words = original_words
+
+
+@pytest.mark.parametrize(
+    ("cuda_available", "mps_available", "expected_device"),
+    [(True, False, "cuda"), (False, True, "mps")],
+)
+def test_point_selects_non_cpu_device_when_available(
+    monkeypatch, cuda_available, mps_available, expected_device
+):
+    """The module-level device follows cuda, then mps, availability."""
+    install_point_heavy_deps(monkeypatch)
+    torch_stub = sys.modules["torch"]
+    monkeypatch.setattr(
+        torch_stub.cuda, "is_available", lambda: cuda_available
+    )
+    monkeypatch.setattr(
+        torch_stub.backends.mps, "is_available", lambda: mps_available
+    )
+    monkeypatch.setattr(torch_stub, "device", lambda name: name)
+
+    import interpreter.core.computer.display.point.point as point_mod
+
+    original_device = point_mod.device
+    try:
+        importlib.reload(point_mod)
+        assert point_mod.device == expected_device
+    finally:
+        point_mod.device = original_device
+
+
+def test_get_element_boxes_debug_saves_pipeline_images(
+    monkeypatch, tmp_path, capsys
+):
+    """get_element_boxes(debug=True) writes each pipeline stage image.
+
+    The cv2 pipeline is stubbed exactly like the non-debug test; only the
+    debug prints and image saves are new behavior under test.
+    """
+    point_mod = _import_point(monkeypatch)
+    patch_expanduser(monkeypatch, point_mod, tmp_path)
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+
+    monkeypatch.setattr(point_mod.cv2, "cvtColor", lambda *_a, **_k: "bgr", raising=False)
+    monkeypatch.setattr(
+        point_mod.cv2, "adaptiveThreshold", lambda *_a, **_k: "binary", raising=False
+    )
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "findContours",
+        lambda *_a, **_k: ([{"contour": 1}, {"contour": 2}], None),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "drawContours", lambda *_a, **_k: None, raising=False)
+    written = []
+    monkeypatch.setattr(
+        point_mod.cv2, "imwrite", lambda *a, **k: written.append(a[0]), raising=False
+    )
+    monkeypatch.setattr(
+        point_mod.cv2,
+        "boundingRect",
+        lambda contour: {"contour": 1} == contour and (5, 10, 20, 30) or (15, 25, 10, 5),
+        raising=False,
+    )
+    monkeypatch.setattr(point_mod.cv2, "ADAPTIVE_THRESH_MEAN_C", 0, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "THRESH_BINARY_INV", 1, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_RGB2BGR", 4, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "COLOR_BGR2GRAY", 5, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "RETR_LIST", 6, raising=False)
+    monkeypatch.setattr(point_mod.cv2, "CHAIN_APPROX_NONE", 7, raising=False)
+
+    boxes = point_mod.get_element_boxes(screenshot, True)
+
+    assert boxes == [
+        {"x": 5, "y": 10, "width": 20, "height": 30},
+        {"x": 15, "y": 25, "width": 10, "height": 5},
+    ]
+    staged = list((tmp_path / "Desktop" / "oi-debug").glob("*.jpg"))
+    assert len(staged) == 1
+    assert {path.rsplit("/", 1)[-1].split("_image_")[0] for path in written} == {
+        "gray_contrasted",
+        "binary_contrasted",
+        "contoured_contrasted",
+    }
+    out = capsys.readouterr().out
+    assert "TRYING:" in out
+    assert "WE HERE" in out
+    assert "WE HHERE" in out
+    assert "WE HHHERE" in out
