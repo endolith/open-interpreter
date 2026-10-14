@@ -311,7 +311,6 @@ class OpenInterpreter:
         Pulls from the respond stream, adding delimiters. Some things, like active_line, console, confirmation... these act specially.
         Also assembles new messages and adds them to `self.messages`.
         """
-        self.verbose = False
 
         # Utility function
         def is_ephemeral(chunk):
