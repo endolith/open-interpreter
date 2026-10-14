@@ -1025,7 +1025,10 @@ def test_get_element_boxes_debug_saves_pipeline_images(
     staged = list((tmp_path / "Desktop" / "oi-debug").glob("*.jpg"))
     assert len(staged) == 1
     assert len(written) == 6
-    assert {path.rsplit("/", 1)[-1].split("_image_")[0] for path in written} == {
+    assert {
+        path.replace("\\", "/").rsplit("/", 1)[-1].split("_image_")[0]
+        for path in written
+    } == {
         "gray_contrasted",
         "binary_contrasted",
         "contoured_contrasted",
