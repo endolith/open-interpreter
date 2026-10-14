@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 
@@ -143,7 +144,23 @@ def respond(interpreter):
 
                     print(provider_message)
 
-                    response = input()
+                    if interpreter.auto_run:
+                        # -y means yes to every prompt: take the fallback
+                        # without asking.
+                        response = "y"
+                    elif not sys.stdin.isatty():
+                        # No terminal to ask on (piped/headless): fail with
+                        # the original error instead of crashing on EOFError.
+                        raise
+                    else:
+                        try:
+                            response = input()
+                        except EOFError:
+                            # The user gave no answer (Ctrl-D / closed pipe).
+                            # Treat that as a decline so the original
+                            # model-access error surfaces, matching the
+                            # headless path above.
+                            response = "n"
                     print("")  # <- Aesthetic choice
 
                     if response.strip().lower() == "y":
