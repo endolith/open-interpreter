@@ -402,10 +402,10 @@ Use """ to write multi-line messages.
         open_storage_dir("models")
         return
 
-    if args.reset_profile is not None and args.reset_profile != "NOT_PROVIDED":
-        reset_profile(
-            args.reset_profile
-        )  # This will be None if they just ran `--reset_profile`
+    # "NOT_PROVIDED" means the flag was never passed. A bare `--reset_profile`
+    # parses to None, which reset_profile takes as "reset the defaults".
+    if args.reset_profile != "NOT_PROVIDED":
+        reset_profile(args.reset_profile)
         return
 
     if args.version:
