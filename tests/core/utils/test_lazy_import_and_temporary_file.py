@@ -161,22 +161,22 @@ def test_lazy_import_defers_loading(tmp_path, monkeypatch):
 
 
 
-def test_create_temporary_file_returns_none_when_creation_fails(capsys, monkeypatch):
-    """A failed write returns None and prints, rather than raising.
+def test_create_temporary_file_raises_when_creation_fails(capsys, monkeypatch):
+    """A failed write raises after printing, rather than returning None.
 
-    Pinned as observed behaviour for #399: the `except` prints and falls off the
-    end, so the caller gets `None` and no exception. That is the trap — `None`
-    is indistinguishable from success at the call site, and `scan_code` passes it
-    straight to `os.path.dirname`. See the accompanying issue.
+    Fixed in #433 for #399: the `except` used to print and fall off the end,
+    so the caller got `None` — indistinguishable from success at the call
+    site, and `scan_code` passed it straight to `os.path.dirname`. Now the
+    error is re-raised after printing, so callers see the real failure.
     """
     monkeypatch.setattr(
         "tempfile.NamedTemporaryFile",
         lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
     )
 
-    result = create_temporary_file("x = 1", "py")
+    with pytest.raises(OSError, match="disk full"):
+        create_temporary_file("x = 1", "py")
 
-    assert result is None
     captured = capsys.readouterr().out
     assert "Could not create temporary file." in captured
     assert "disk full" in captured, "the underlying reason is printed for the user"
@@ -194,6 +194,7 @@ def test_create_temporary_file_failure_does_not_leave_a_file_behind(tmp_path, mo
         lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
     )
 
-    create_temporary_file("x = 1", "py")
+    with pytest.raises(OSError, match="disk full"):
+        create_temporary_file("x = 1", "py")
 
     assert list(tmp_path.iterdir()) == [], "a failed creation must not leave files"
