@@ -234,11 +234,9 @@ def test_delete_event_without_calendar_aborts_when_no_default():
 def test_delete_event_success_path_returns_stdout_verbatim():
     """A clean run returns the script's own output text.
 
-    `stderr, stdout = run_applescript_capture(script)` unpacks the
-    (stdout, stderr) tuple backwards, so the "stdout" branch below actually
-    sees stderr — but with empty stderr the first branch is falsy and the
-    `elif stderr:` branch (holding real stdout) matches "successfully" and
-    returns it whole. Tracked as an issue; pinned until fixed.
+    delete_event() unpacks run_applescript_capture() as (stdout, stderr)
+    (fixed in #425), so a non-empty stdout is returned verbatim by the
+    first branch.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
@@ -248,15 +246,28 @@ def test_delete_event_success_path_returns_stdout_verbatim():
             )
 
 
-@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards (issue #410), so stderr lands in the stdout slot and only its first character is returned")
+def test_delete_event_success_word_in_stderr_returns_stderr_verbatim():
+    """A "successfully" stderr with empty stdout is returned as-is.
+
+    Some Calendar backends report success on stderr; the `elif stderr:`
+    branch returns that text whole instead of wrapping it as an error.
+    Covers the inner branch the corrected unpacking would otherwise leave
+    unexecuted.
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("", "Event deleted successfully.")):
+            assert (
+                cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work") == "Event deleted successfully."
+            )
+
+
 def test_delete_event_stderr_is_reported_as_the_error():
     """A real stderr is reported as the deletion error, not truncated.
 
-    Once delete_event() unpacks run_applescript_capture() as (stdout,
-    stderr), an empty stdout with stderr "execution error" falls into the
-    error branch and is wrapped. Today the swapped unpacking puts the stderr
-    text in the stdout slot and stdout[0] returns its first character,
-    so this currently returns "e".
+    delete_event() unpacks run_applescript_capture() as (stdout, stderr)
+    (fixed in #425), so an empty stdout with stderr "execution error" falls
+    into the error branch and is wrapped.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
@@ -266,16 +277,12 @@ def test_delete_event_stderr_is_reported_as_the_error():
             )
 
 
-@pytest.mark.xfail(reason="delete_event() unpacks the (stdout, stderr) tuple backwards and indexes stdout[0] (issue #410): ordinary stdout is treated as stderr and wrapped as an error, and fixing only the unpacking would still return just the first character")
 def test_delete_event_returns_ordinary_stdout_verbatim():
     """Ordinary stdout is returned as-is, not wrapped as an error message.
 
-    Once delete_event() unpacks run_applescript_capture() as (stdout,
-    stderr) and returns the full stdout, a non-empty stdout is returned
-    verbatim by the first branch. Today the swapped unpacking puts the
-    stdout text in the stderr slot and it comes back as
-    "Error deleting event: ..."; fixing only the unpacking would still
-    return just stdout[0].strip(), the first character.
+    delete_event() unpacks run_applescript_capture() as (stdout, stderr)
+    and returns the full stdout (fixed in #425), so a non-empty stdout is
+    returned verbatim by the first branch.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
