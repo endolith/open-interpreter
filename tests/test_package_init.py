@@ -41,7 +41,7 @@ def _stub_entrypoint(monkeypatch):
     raises=TypeError,
     reason="interpreter/__init__.py rebinds `version` via "
     "`from packaging import version`, so check_for_update() calls the "
-    "module and every --os import dies with TypeError (#461)",
+    "module and every --os import dies with TypeError (#407; fix in #430)",
     strict=False,
 )
 def test_os_flag_checks_for_update_then_runs_main(monkeypatch, capsys):
