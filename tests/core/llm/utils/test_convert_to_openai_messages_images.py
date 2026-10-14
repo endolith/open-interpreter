@@ -164,6 +164,28 @@ def test_image_unsupported_format_reencoded_to_png(interpreter):
     assert base64.b64decode(url.split(",", 1)[1])[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_image_unpngable_mode_falls_back_to_rgb(interpreter):
+    """A mode PNG cannot store (CMYK TIFF) is converted to RGB first (issue #377)."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("CMYK", (8, 8)).save(buf, format="TIFF")
+    raw = base64.b64encode(buf.getvalue()).decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.tiff", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split(",", 1)[1])[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_image_supported_format_passes_through_untouched(interpreter):
     """PNG bytes keep their bytes and MIME (issue #377)."""
     raw = _encode_image("PNG")
