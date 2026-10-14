@@ -60,6 +60,7 @@ def handle_help(self, arguments):
         "%info": "Show system and interpreter information",
         "%jupyter": "Export the conversation to a Jupyter notebook file",
         "%markdown [path]": "Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.",
+        "%rename [title]": "Rename the saved conversation JSON on disk. With no title, the model generates one from the full chat (like the automatic title). With text, that string becomes the filename prefix directly.",
     }
 
     base_message = ["> **Available Commands:**\n\n"]
@@ -298,6 +299,15 @@ def jupyter(self, arguments):
     )
 
 
+def handle_rename_conversation(self, arguments):
+    title = arguments.strip()
+    if title:
+        self.rename_conversation_file_from_llm_title(manual_title=title)
+    else:
+        self.rename_conversation_file_from_llm_title(use_full_transcript=True)
+    print("")
+
+
 def markdown(self, export_path: str):
     # If it's an empty conversations
     if len(self.messages) == 0:
@@ -333,6 +343,7 @@ def handle_magic_command(self, user_input):
         "info": handle_info,
         "jupyter": jupyter,
         "markdown": markdown,
+        "rename": handle_rename_conversation,
     }
 
     user_input = user_input[1:].strip()  # Capture the part after the `%`
