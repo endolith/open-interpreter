@@ -39,6 +39,37 @@ def test_cleanup_missing_file_does_not_raise(capsys):
     assert "Could not clean up temporary file" in captured.out
 
 
+def test_create_temporary_file_without_an_extension():
+    """extension=None still yields a usable scratch file, with no suffix appended.
+
+    Languages with no file extension rely on the scratch file being created
+    without a stray separator in its name.
+    """
+    path = create_temporary_file("echo hi")
+    try:
+        assert os.path.isfile(path)
+        assert os.path.splitext(path)[1] == ""
+        with open(path) as f:
+            assert f.read() == "echo hi"
+    finally:
+        cleanup_temporary_file(path)
+
+
+def test_create_temporary_file_reports_failure_without_raising(capsys, monkeypatch):
+    """A failure to create the scratch file returns None and explains itself.
+
+    The caller is an optional safety feature (scan_code), so raising here would
+    turn a missing temp directory into a crashed turn.
+    """
+
+    def _boom(*args, **kwargs):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr("interpreter.core.utils.temporary_file.tempfile.NamedTemporaryFile", _boom)
+    assert create_temporary_file("x", "py") is None
+    assert "Could not create temporary file" in capsys.readouterr().out
+
+
 def test_lazy_import_returns_existing_module():
     """lazy_import returns the already-imported module object for a valid module name."""
     import json as json_module

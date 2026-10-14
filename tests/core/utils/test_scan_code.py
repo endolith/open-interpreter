@@ -1,5 +1,6 @@
 """Tests for semgrep-based scan_code without requiring semgrep on PATH."""
 
+import os
 from types import SimpleNamespace
 from unittest import mock
 
@@ -294,3 +295,37 @@ def test_scan_code_reports_a_temp_file_failure_clearly(tmp_path, capsys):
     ):
         with mock.patch("interpreter.core.utils.scan_code.cleanup_temporary_file"):
             scan_code.scan_code("x = 1", "python", interpreter)
+
+
+def test_the_scanned_file_does_not_outlive_the_scan():
+    """The scratch copy of the code is gone once the scan finishes.
+
+    It holds whatever the model was about to run, possibly including secrets, and
+    the temp directory is world-readable on most systems, so the file semgrep was
+    pointed at must not be left behind. Every other test here mocks
+    cleanup_temporary_file, so this is the only one that proves the real teardown
+    actually removes the file.
+    """
+    real_create = scan_code.create_temporary_file
+    created = {}
+
+    def _recording_create(contents, extension=None, verbose=False):
+        path = real_create(contents, extension, verbose=verbose)
+        created["path"] = path
+        return path
+
+    spinner = mock.Mock()
+    spinner.__enter__ = mock.Mock(return_value=spinner)
+    spinner.__exit__ = mock.Mock(return_value=False)
+
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch.object(
+        scan_code, "create_temporary_file", side_effect=_recording_create
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run",
+        return_value=mock.Mock(returncode=0),
+    ), mock.patch.object(scan_code, "yaspin", create=True) as yaspin:
+        yaspin.return_value.green.right.binary = spinner
+        scan_code.scan_code("secret = 'value'", "python", _scan_interpreter())
+
+    assert created["path"] is not None
+    assert not os.path.exists(created["path"])
