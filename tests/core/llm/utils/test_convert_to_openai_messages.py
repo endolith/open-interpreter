@@ -94,6 +94,29 @@ def test_console_empty_output(interpreter):
     assert result[0]["content"] == "No output"
 
 
+def test_console_missing_content_without_function_calling(interpreter):
+    """A console message with no content key converts without KeyError (issue #221).
+
+    The missing key is normalized to empty output before the
+    function_calling branch, so text-mode conversion treats it like "".
+    """
+    messages = [{"role": "computer", "type": "console", "format": "output"}]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[0]["role"] == "user"
+    assert result[0]["content"] == "(no output)"
+
+
+def test_console_missing_content_with_function_calling(interpreter):
+    """A console message with no content key converts in function-calling mode too (issue #221)."""
+    messages = [{"role": "computer", "type": "console", "format": "output"}]
+    result = convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+    assert result[0]["content"] == "No output"
+
+
 def test_recipient_not_assistant_skipped(interpreter):
     """Messages addressed to a non-assistant recipient are omitted from the OpenAI payload."""
     messages = [
@@ -250,8 +273,8 @@ def test_function_calling_false_merges_same_role(interpreter):
 
 
 def test_image_missing_format_raises(interpreter):
-    """Image messages without a format field raise because the encoder cannot choose an encoding."""
-    with pytest.raises(Exception, match="format"):
+    """Image messages without a format field raise the descriptive error (issue #371)."""
+    with pytest.raises(Exception, match="Format of the image is not specified"):
         convert_to_openai_messages(
             [{"role": "user", "type": "image", "content": "data"}],
             vision=True,
@@ -793,15 +816,13 @@ def test_non_string_console_content_is_coerced_to_str(interpreter):
 
 
 def test_image_message_without_format_key_raises_keyerror(interpreter):
-    """An image chunk with no "format" key fails with a KeyError today.
+    """An image chunk with no "format" key raises the descriptive error (issue #371).
 
-    The code reads message["format"] before its own "format not in message"
-    guard, so the intended "Format of the image is not specified." message is
-    currently unreachable and a KeyError surfaces instead. This pins that
-    behavior deliberately; if the guard is ever fixed, this test should change
-    to expect the descriptive exception.
+    The guard now runs before the first message["format"] read, so the
+    intended "Format of the image is not specified." message surfaces
+    instead of KeyError.
     """
     message = {"role": "user", "type": "image", "content": "/tmp/pic.png"}
 
-    with pytest.raises(KeyError):
+    with pytest.raises(Exception, match="Format of the image is not specified"):
         convert_to_openai_messages([message], vision=True, interpreter=interpreter)
