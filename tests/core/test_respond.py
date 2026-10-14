@@ -74,6 +74,26 @@ def test_text_language_converted_to_assistant_message():
     assert "notes here" in interpreter.messages[-1]["content"]
 
 
+def test_py_alias_normalizes_to_python():
+    """A ```py fence runs as python: canonical format stored, run called with 'python' (issue #323)."""
+    interpreter = _code_interpreter(language="py", code="x = 1")
+    seen = []
+    inner_run = interpreter.computer.run
+
+    def recording_run(lang, code_to_run, **run_kwargs):
+        seen.append(lang)
+        return inner_run(lang, code_to_run, **run_kwargs)
+
+    interpreter.computer.run = recording_run
+    interpreter.computer.terminal = SimpleNamespace(
+        languages=[FakeLanguage()],
+        get_language=lambda lang: FakeLanguage() if lang in ("python", "py") else None,
+    )
+    list(itertools.islice(respond(interpreter), 10))
+    assert seen and all(lang == "python" for lang in seen)
+    assert interpreter.messages[-1]["format"] == "python"
+
+
 def test_functions_execute_hallucination_parsed():
     """LLM hallucinations like functions.execute({...}) are parsed into real executable code."""
     code = 'functions.execute({"language": "python", "code": "7*6"})'
