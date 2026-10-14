@@ -42,9 +42,8 @@ def test_mail_get_on_macos_runs_applescript():
 def test_mail_get_caps_large_requests_with_a_warning():
     """Asking for 60 emails caps the script at 50 and prefixes the warning.
 
-    The message text says "10 emails" while the code caps at 50 — pinned
-    exactly as written, since either the message or the cap looks wrong and
-    changing one without the other would hide which.
+    The message now names the real cap (fixed in #421 for #413): both the
+    script's repeat bound and the warning say 50.
     """
     mail = Mail(computer=SimpleNamespace())
     with _darwin():
@@ -52,7 +51,7 @@ def test_mail_get_caps_large_requests_with_a_warning():
             result = mail.get(number=60)
     script = capture.call_args[0][0]
     assert "repeat with i from 1 to 50" in script
-    assert result.startswith("This method is limited to 10 emails, returning the first 10: ")
+    assert result.startswith("This method is limited to 50 emails, returning the first 50: ")
     assert result.endswith("inbox data")
 
 
