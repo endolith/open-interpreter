@@ -31,7 +31,19 @@ def convert_to_openai_messages(
 
     #     messages = [message for message in messages if message.get("type") != "code"]
 
-    for message in messages:
+    # The user message template wraps the last thing the user said, so that
+    # message has to be located by position: LMC messages carry no id, so
+    # comparing them by value also matched every earlier message that happened
+    # to repeat the same text. Only "message" types are candidates, because a
+    # user-role image (the terminal stores a dragged-in image as text plus a
+    # separate image message) is never handled by the branch below, so
+    # selecting it dropped the template from that turn entirely.
+    last_user_message_index = None
+    for index, message in enumerate(messages):
+        if message.get("role") == "user" and message.get("type") == "message":
+            last_user_message_index = index
+
+    for index, message in enumerate(messages):
         # Is this for thine eyes?
         if "recipient" in message and message["recipient"] != "assistant":
             continue
@@ -44,7 +56,7 @@ def convert_to_openai_messages(
             ]  # This should never be `computer`, right?
 
             if message["role"] == "user" and (
-                message == [m for m in messages if m["role"] == "user"][-1]
+                index == last_user_message_index
                 or interpreter.always_apply_user_message_template
             ):
                 # Only add the template for the last message?
@@ -279,12 +291,16 @@ def convert_to_openai_messages(
                         {"role": current_role, "content": "\n".join(current_content)}
                     )
                     current_content = []
+                # A non-string message ends the group, so forget its role too:
+                # keeping it made the next message of a different role flush an
+                # empty group under the stale role first.
+                current_role = None
                 combined_messages.append(message)
 
         # Add the last message
         if current_content:
             combined_messages.append(
-                {"role": current_role, "content": " ".join(current_content)}
+                {"role": current_role, "content": "\n".join(current_content)}
             )
 
         new_messages = combined_messages
