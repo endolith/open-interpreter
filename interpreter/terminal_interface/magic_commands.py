@@ -253,7 +253,8 @@ def install_and_import(package):
                 module = __import__(package)
             except subprocess.CalledProcessError:
                 print(f"Failed to install package {package}.")
-                return None
+                # module stays None: the finally below skips the export and
+                # the trailing return hands back None.
     finally:
         if module is not None:
             globals()[package] = module
