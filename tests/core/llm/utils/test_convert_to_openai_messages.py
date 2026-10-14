@@ -816,16 +816,14 @@ def test_non_string_console_content_is_coerced_to_str(interpreter):
     assert result[0]["content"] == str(["line one", "line two"])
 
 
-def test_image_message_without_format_key_raises_keyerror(interpreter):
-    """An image chunk with no "format" key fails with a KeyError today.
+def test_image_message_without_format_key_raises_descriptive_error(interpreter):
+    """An image chunk with no "format" key fails with a descriptive error.
 
-    The code reads message["format"] before its own "format not in message"
-    guard, so the intended "Format of the image is not specified." message is
-    currently unreachable and a KeyError surfaces instead. This pins that
-    behavior deliberately; if the guard is ever fixed, this test should change
-    to expect the descriptive exception.
+    The guard is fixed: message.get("format", "") no longer raises KeyError
+    before the "format not in message" check, so the intended "Format of the
+    image is not specified." message surfaces instead of a bare KeyError.
     """
     message = {"role": "user", "type": "image", "content": "/tmp/pic.png"}
 
-    with pytest.raises(KeyError):
+    with pytest.raises(Exception, match="Format of the image is not specified"):
         convert_to_openai_messages([message], vision=True, interpreter=interpreter)
