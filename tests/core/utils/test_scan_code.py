@@ -1,11 +1,19 @@
 """Tests for semgrep-based scan_code without requiring semgrep on PATH."""
 
+import os
+import shutil
 from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 
 from interpreter.core.utils import scan_code
+
+
+@pytest.fixture(autouse=True)
+def _semgrep_present(monkeypatch):
+    """Pretend semgrep is installed: the which-gate is not under test here."""
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/semgrep")
 
 
 def test_scan_code_runs_and_cleans_up(tmp_path):
@@ -92,11 +100,11 @@ def _interpreter(safe_mode="auto", verbose=False):
 
 
 def test_semgrep_command_targets_the_temp_file_in_its_directory():
-    """The semgrep command cds into the temp dir and scans the temp file by name.
+    """The semgrep command scans the temp file by basename with cwd set.
 
-    The command must run from the file's directory so semgrep resolves its config
-    relative to the file; a dropped `cd`, wrong flags, or a full path where a
-    basename is expected would scan nothing.
+    The command is an arg list run with cwd= and no shell (fixed in #442
+    for #375): a temp dir containing spaces works unquoted, and a dropped
+    basename or a full path where a basename is expected would scan nothing.
     """
     temp_path = "/tmp/fake_scan.py"
     with mock.patch(
@@ -113,9 +121,17 @@ def test_semgrep_command_targets_the_temp_file_in_its_directory():
         scan_code.scan_code("print(1)", "python", _interpreter())
 
     cmd = run.call_args[0][0]
-    assert cmd.startswith("cd /tmp &&")
-    assert "semgrep scan --config auto --quiet --error fake_scan.py" in cmd
-    assert run.call_args.kwargs["shell"] is True
+    assert cmd == [
+        "semgrep",
+        "scan",
+        "--config",
+        "auto",
+        "--quiet",
+        "--error",
+        "fake_scan.py",
+    ]
+    assert run.call_args.kwargs["cwd"] == os.path.dirname(temp_path)
+    assert "shell" not in run.call_args.kwargs
 
 
 def test_clean_scan_reports_no_issues(capsys):
@@ -271,26 +287,129 @@ def test_scan_code_still_cleans_up_when_the_temp_file_cannot_be_created(tmp_path
     assert run.call_count == 0, "semgrep must not run without a file to scan"
 
 
-@pytest.mark.xfail(
-    reason="#399: create_temporary_file returns None on failure, so scan_code "
-    "raises an unrelated TypeError from os.path.dirname",
-    strict=True,
-)
-def test_scan_code_reports_a_temp_file_failure_clearly(tmp_path, capsys):
-    """A temp-file failure should name the cause, not raise TypeError from os.
+def test_missing_semgrep_prints_guidance_without_running(capsys):
+    """With no semgrep binary, the user is told to install it and nothing runs (issue #373).
 
-    `create_temporary_file` swallows its exception and returns `None`, and
-    `scan_code` passes that straight to `os.path.dirname`, so the user sees
-    "expected str, bytes or os.PathLike object, not NoneType" from a stdlib call
-    that has nothing to do with the disk.
-
-    Strict xfail: it passes the day #399 is fixed. Pinned as-is because the
-    current message actively misdirects.
+    Previously the shell exited nonzero and subprocess.run returned normally,
+    so nothing was printed at all — the user could not tell whether the scan
+    ran, passed, or was skipped.
     """
     interpreter = _scan_interpreter()
+    with mock.patch("shutil.which", return_value=None), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file"
+    ) as create_temp, mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run"
+    ) as run:
+        scan_code.scan_code("print(1)", "python", interpreter)
 
-    with mock.patch(
-        "interpreter.core.utils.scan_code.create_temporary_file", return_value=None
+    out = capsys.readouterr().out
+    assert "Could not scan python code" in out
+    assert "semgrep" in out
+    create_temp.assert_not_called()
+    run.assert_not_called()
+
+
+def test_temp_creation_failure_skips_scan(capsys):
+    """A temp-file failure skips the optional scan instead of aborting the turn (issue #374).
+
+    create_temporary_file swallows its own errors and returns None rather
+    than raising, so scan_code must treat a None return as "skip the scan"
+    instead of crashing in os.path.dirname. Also closes #399, whose strict
+    xfail pinned the same TypeError-from-dirname crash with no assertions.
+    """
+    interpreter = _scan_interpreter()
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value=None,
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.cleanup_temporary_file"
+    ) as cleanup, mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run"
+    ) as run:
+        scan_code.scan_code("print(1)", "python", interpreter)  # must not raise
+
+    run.assert_not_called()
+    cleanup.assert_not_called()
+    assert "No issues were found" not in capsys.readouterr().out
+
+
+def test_temp_creation_raise_still_skips_scan():
+    """A raising temp helper still skips the scan via the defensive except (issue #374).
+
+    The real helper returns None (covered above), but the except stays as
+    defense for e.g. language_class.file_extension access failing inside
+    the same try block.
+    """
+    interpreter = _scan_interpreter()
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        side_effect=OSError("No space left on device"),
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.cleanup_temporary_file"
+    ) as cleanup, mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run"
+    ) as run:
+        scan_code.scan_code("print(1)", "python", interpreter)  # must not raise
+
+    run.assert_not_called()
+    cleanup.assert_not_called()
+
+
+def test_no_yaspin_falls_back_to_nullcontext():
+    """Without yaspin installed the scan runs inside a nullcontext (covers the spinner fallback)."""
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value="/tmp/fake_scan.py",
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.cleanup_temporary_file"
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run",
+        return_value=mock.Mock(returncode=0),
+    ) as run, mock.patch.object(
+        scan_code, "yaspin", None
     ):
-        with mock.patch("interpreter.core.utils.scan_code.cleanup_temporary_file"):
-            scan_code.scan_code("x = 1", "python", interpreter)
+        scan_code.scan_code("print(1)", "python", _scan_interpreter())
+    run.assert_called_once()
+
+
+def test_verbose_temp_failure_names_the_error(capsys):
+    """A temp-file failure in verbose mode prints the underlying error (issue #374)."""
+    with mock.patch("shutil.which", return_value="/usr/bin/semgrep"), mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        side_effect=OSError("disk full"),
+    ):
+        scan_code.scan_code("print(1)", "python", _scan_interpreter(verbose=True))
+    assert "disk full" in capsys.readouterr().out
+
+
+def test_verbose_scan_prints_progress(capsys, tmp_path):
+    """Verbose mode narrates the scan target before running semgrep."""
+    temp_path = str(tmp_path / "scan.py")
+    interpreter = _scan_interpreter(verbose=True)
+    with mock.patch(
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        return_value=temp_path,
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.cleanup_temporary_file"
+    ), mock.patch(
+        "interpreter.core.utils.scan_code.subprocess.run",
+        return_value=mock.Mock(returncode=0),
+    ):
+        scan_code.scan_code("print(1)", "python", interpreter)
+    assert "Scanning python code" in capsys.readouterr().out
+
+
+def test_missing_yaspin_import_disables_spinner():
+    """When yaspin cannot be imported the module degrades to no spinner instead of crashing."""
+    import importlib
+    import sys
+
+    with mock.patch.dict(sys.modules, {"yaspin": None, "yaspin.spinners": None}):
+        try:
+            importlib.reload(scan_code)
+            assert scan_code.yaspin is None
+            assert scan_code.Spinners is None
+        finally:
+            sys.modules.pop("yaspin", None)
+            sys.modules.pop("yaspin.spinners", None)
+            importlib.reload(scan_code)
