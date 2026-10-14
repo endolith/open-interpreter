@@ -532,7 +532,9 @@ def string_to_python(code_as_string):
             if docstring:
                 body = body[1:]
 
-            code_body = ast.unparse(body[0]).replace("\n", "\n    ")
+            # Unparse the whole remaining body, not just body[0], so
+            # multi-line functions keep every statement (#222).
+            code_body = ast.unparse(body).replace("\n", "\n    ")
 
             func_info = {
                 "name": node.name,
