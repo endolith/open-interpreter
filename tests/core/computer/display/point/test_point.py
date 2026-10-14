@@ -820,10 +820,16 @@ def test_find_icon_takes_screenshot_when_none_passed(monkeypatch):
 
 
 def _debug_find_icon_boxes():
-    """One icon box plus one non-overlapping text block for debug tests."""
+    """One icon box plus three non-overlapping text blocks for debug tests.
+
+    The first block is non-dictionary text so the word-filter rejects it
+    (covering the filter-False loop-back branch); the other two survive.
+    """
     boxes = [{"x": 10, "y": 10, "width": 30, "height": 30}]
     text_blocks = [
-        {"left": 100, "top": 10, "width": 40, "height": 20, "text": "hello world"}
+        {"left": 100, "top": 10, "width": 40, "height": 20, "text": "xqz kvj"},
+        {"left": 100, "top": 40, "width": 40, "height": 20, "text": "hello world"},
+        {"left": 10, "top": 60, "width": 40, "height": 20, "text": "hello"},
     ]
     return boxes, text_blocks
 
@@ -1014,8 +1020,11 @@ def test_get_element_boxes_debug_saves_pipeline_images(
         {"x": 5, "y": 10, "width": 20, "height": 30},
         {"x": 15, "y": 25, "width": 10, "height": 5},
     ]
+    # A second call reuses the existing debug dir, covering the skip-makedirs branch.
+    assert point_mod.get_element_boxes(screenshot, True) == boxes
     staged = list((tmp_path / "Desktop" / "oi-debug").glob("*.jpg"))
     assert len(staged) == 1
+    assert len(written) == 6
     assert {path.rsplit("/", 1)[-1].split("_image_")[0] for path in written} == {
         "gray_contrasted",
         "binary_contrasted",

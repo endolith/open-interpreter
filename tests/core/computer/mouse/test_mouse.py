@@ -332,6 +332,83 @@ def test_move_text_multiple_matches_annotates_and_raises(monkeypatch):
     mouse_mod.display.assert_called_once()
 
 
+def test_move_text_kwarg_with_screenshot_skips_capture(monkeypatch):
+    """Mouse.move(text=, screenshot=) uses the given shot without capturing."""
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+    from PIL import Image
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+    computer = SimpleNamespace(
+        display=SimpleNamespace(
+            width=100,
+            height=100,
+            screenshot=mock.Mock(),
+            find=mock.Mock(
+                return_value=[
+                    {"coordinates": (0.2, 0.3), "similarity": 1, "text": "ok"}
+                ]
+            ),
+        ),
+        emit_images=False,
+        verbose=False,
+    )
+    mouse = mouse_mod.Mouse(computer)
+    with mock.patch(
+        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+    ) as smooth:
+        mouse.move(text="ok", screenshot=screenshot)
+
+    computer.display.screenshot.assert_not_called()
+    smooth.assert_called_once_with(20, 30)
+
+
+def test_move_verbose_with_screenshot_skips_recapture(monkeypatch):
+    """verbose=True reuses a provided screenshot instead of capturing."""
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+    from PIL import Image
+
+    import numpy as np
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+    computer = SimpleNamespace(
+        display=SimpleNamespace(
+            width=100,
+            height=100,
+            screenshot=mock.Mock(),
+        ),
+        emit_images=False,
+        verbose=True,
+    )
+    mouse = mouse_mod.Mouse(computer)
+    canvas = np.zeros((10, 10, 3), dtype=np.uint8)
+    cv2 = mock.Mock()
+    cv2.cvtColor.return_value = canvas
+    monkeypatch.setattr(mouse_mod, "cv2", cv2)
+    with mock.patch(
+        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+    ) as smooth:
+        with mock.patch(
+            "interpreter.core.computer.mouse.mouse.plt"
+        ) as shown:
+            mouse.move(x=10, y=20, screenshot=screenshot)
+
+    computer.display.screenshot.assert_not_called()
+    smooth.assert_called_once_with(10, 20)
+    shown.imshow.assert_called_once()
+
+
+def test_double_click_without_args_skips_move():
+    """double_click() with no target clicks in place without moving."""
+    mouse = _make_mouse()
+    patcher, pyautogui = _patch_pyautogui()
+    with patcher:
+        with mock.patch.object(mouse, "move") as move:
+            mouse.double_click()
+
+    move.assert_not_called()
+    pyautogui.doubleClick.assert_called_once_with(button="left", interval=0.1)
+
+
 def test_move_icon_multiple_matches_annotates_and_raises(monkeypatch):
     """Multiple icon matches with emit_images draw numbered circles, then
     raise a disambiguation ValueError."""
