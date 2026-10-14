@@ -750,3 +750,218 @@ def test_mock_llm_javascript_step_writes_file(
 
     assert (tmp_path / "pj.txt").read_text() == "third"
     assert "JavaScript step complete." in messages[-1]["content"]
+
+
+_SHELL_RECOVERY_PROMPT = (
+    "Please demonstrate shell recovery: write with python, fail with shell, "
+    "then fix with shell and report back."
+)
+
+
+def _assert_shell_recovery_complete(tmp_path, messages):
+    """The shell chain wrote with python, failed with shell, fixed with shell.
+
+    sr2.txt embeds sr1.txt's content, proving the fixing shell step
+    observed the filesystem state left by the earlier steps. The failing
+    step proves a shell error (non-zero exit, stderr) does not wedge the
+    loop — execution continues afterwards. Full conversation:
+
+    - User
+      - message: "Please demonstrate shell recovery: ..."
+    - Assistant
+      - code (python): write "one" to sr1.txt
+    - Computer
+      - console output (empty)
+    - Assistant
+      - code (shell): cat sr-missing.txt
+    - Computer
+      - console output (stderr, non-zero exit)
+    - Assistant
+      - code (shell): cat sr1.txt > sr2.txt
+    - Computer
+      - console output
+    - Assistant
+      - message: "Shell recovery complete."
+    """
+    assert (tmp_path / "sr1.txt").read_text() == "one"
+    assert (tmp_path / "sr2.txt").read_text().strip() == "one"
+    assert "Shell recovery complete." in messages[-1]["content"]
+    formats = [m.get("format") for m in messages if m.get("type") == "code"]
+    assert formats == ["python", "shell", "shell"]
+    console_text = "\n".join(
+        m.get("content", "")
+        for m in messages
+        if m.get("type") == "console" and isinstance(m.get("content"), str)
+    )
+    assert "No such file" in console_text
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(180)
+def test_mock_llm_shell_recovery_tool_chain(mock_llm_server, monkeypatch, tmp_path):
+    """A failing shell step does not wedge the tool-calling loop.
+
+    The mock server emits python-write, then a shell step catting a
+    missing file (stderr, non-zero exit), then a shell step fixing it by
+    reading the python step's file — the shell counterpart to the tool
+    chain's python fail/recover pair.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        _SHELL_RECOVERY_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    _assert_shell_recovery_complete(tmp_path, messages)
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(120)
+def test_mock_llm_shell_recovery_text_chain(mock_llm_server, monkeypatch, tmp_path):
+    """The same shell recovery in code-block mode.
+
+    Conversation (code arrives as fenced text blocks, not tool_calls):
+
+    - User
+      - message: "Please demonstrate shell recovery: ..."
+    - Assistant
+      - message: ```python block writing "one" to sr1.txt
+    - Computer
+      - console output (empty)
+    - Assistant
+      - message: ```shell block catting sr-missing.txt
+    - Computer
+      - console output (stderr, non-zero exit)
+    - Assistant
+      - message: ```shell block catting sr1.txt into sr2.txt
+    - Computer
+      - console output
+    - Assistant
+      - message: "Shell recovery complete."
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    messages = interpreter.chat(
+        _SHELL_RECOVERY_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    _assert_shell_recovery_complete(tmp_path, messages)
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(120)
+def test_mock_llm_text_tool_chain_with_auth(mock_llm_server, monkeypatch, tmp_path):
+    """The full text-mode chain passes with authentication enforced.
+
+    INTERPRETER_REQUIRE_AUTHENTICATION guards function calls, not fenced
+    code blocks, so the whole write/edit/fail/recover chain runs without
+    a judge layer — the env-var dimension of the tool-chain suite, proving
+    the guard does not trip on code that arrives as text.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTHENTICATION", "true")
+    interpreter = _mock_interpreter(mock_llm_server, auto_run=True)
+
+    messages = interpreter.chat(
+        _TOOL_CHAIN_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    _assert_tool_chain_complete(interpreter, tmp_path, messages)
+
+
+_RAGGED_PARALLEL_PROMPT = "Please run a ragged parallel turn and report back."
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(180)
+@pytest.mark.xfail(
+    reason="a function=None entry poisons the whole streaming turn: the "
+    "chunk is dropped and the valid sibling entry never runs (issue #254)"
+)
+def test_mock_llm_ragged_parallel_skips_malformed_entry(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """A malformed parallel entry is skipped and the valid one still runs.
+
+    The mock server sends one assistant turn whose entry 0 has
+    function=None (as real providers emit for entries the model started
+    but never completed) and whose entry 1 is a valid python write. The
+    intended behavior mirrors the non-streaming merge: skip the malformed
+    entry, execute the valid one, then talk.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        _RAGGED_PARALLEL_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    assert (tmp_path / "r1.txt").read_text() == "ragged"
+    assert "Ragged parallel complete." in messages[-1]["content"]
+
+
+_R_PROMPT = "As an r language demo, write the word 'fourth' to r.txt with r."
+
+needs_r = pytest.mark.skipif(
+    shutil.which("R") is None, reason="R is not on PATH"
+)
+
+
+@pytest.mark.linux_ci
+@needs_r
+@pytest.mark.timeout(180)
+def test_mock_llm_r_step_writes_file(mock_llm_server, monkeypatch, tmp_path):
+    """An R tool step runs and writes its file.
+
+    The mock server's R scenario serves a single execute(r) call, proving
+    the tool-call path routes a fourth language beyond the python/shell
+    steps used elsewhere and the node-gated javascript step. Skips where
+    R is unavailable.
+    """
+    require_bash_compatible_shell()
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        _R_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    assert (tmp_path / "r.txt").read_text().strip() == "fourth"
+    assert "R step complete." in messages[-1]["content"]
+
+
+_APPLESCRIPT_PROMPT = 'As an applescript demo, return "hi" with applescript.'
+
+
+@pytest.mark.darwin_ci
+@pytest.mark.timeout(180)
+def test_mock_llm_applescript_step_returns_value(
+    mock_llm_server, monkeypatch, tmp_path
+):
+    """An AppleScript tool step runs through osascript and returns its value.
+
+    The mock server's AppleScript scenario serves a single
+    execute(applescript) call, proving the tool-call path reaches
+    OS-scripting languages. Runs on macOS only, mirroring the osascript
+    smoke in test_platform_ci.py.
+    """
+    monkeypatch.chdir(tmp_path)
+    interpreter = _mock_tool_interpreter(mock_llm_server)
+
+    messages = interpreter.chat(
+        _APPLESCRIPT_PROMPT, display=False, stream=False, blocking=True
+    )
+
+    console_text = "\n".join(
+        m.get("content", "")
+        for m in messages
+        if m.get("type") == "console" and isinstance(m.get("content"), str)
+    )
+    assert "hi" in console_text
+    assert "AppleScript step complete." in messages[-1]["content"]

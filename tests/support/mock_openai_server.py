@@ -2,10 +2,13 @@
 
 Requests are dispatched on their content, first match wins:
 - tool mode (the request carries a tools parameter): persist_tool_deltas,
-  then tool_chain_tool_deltas, then polyglot_tool_deltas,
-  then a "Hello, World!" fallback.
-- text mode: persist_text_reply, then tool_chain_text_reply, then pick_reply's
-  keyword branches, then the same fallback.
+  then tool_chain_tool_deltas, then parallel_tool_deltas, then
+  polyglot_tool_deltas, then ragged_parallel_tool_deltas, then
+  shell_recovery_tool_deltas, then r_tool_deltas, then
+  applescript_tool_deltas, then a "Hello, World!" fallback.
+- text mode: persist_text_reply, then tool_chain_text_reply, then
+  shell_recovery_text_reply, then pick_reply's keyword branches, then the
+  same fallback.
 
 Vocabulary used by this module's docstrings:
 - "trigger phrase": user text that starts a scenario (e.g. a prompt asking
@@ -438,6 +441,201 @@ def polyglot_tool_deltas(messages: list) -> list[dict] | None:
     return None
 
 
+_RAGGED_PARALLEL_KEYWORD = "ragged parallel"
+_RAGGED_VALID_CODE = 'with open("r1.txt", "w") as f:\n    f.write("ragged")'
+
+
+def ragged_parallel_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for a ragged parallel turn, or None.
+
+    One assistant turn carries TWO tool_calls entries where entry 0 is
+    malformed (`function` is None, as real providers emit for entries the
+    model started but never completed) and entry 1 is a valid python
+    write — the streaming counterpart to the merge_deltas function=None
+    case (#254). The simulated conversation:
+
+    - User
+      - message: "Please run a ragged parallel turn: ..."
+    - Assistant
+      - tool_call entry [index 0]: malformed, function is None
+      - tool_call execute(python) [index 1]: write "ragged" to r1.txt
+    - Tool(s)
+      - result(s)
+    - Assistant
+      - message: "Ragged parallel complete."
+
+    There is no text-mode variant: like the parallel scenario, raggedness
+    is only expressible as tool_calls deltas.
+    """
+    history = _user_history_text(messages).lower()
+    if _RAGGED_PARALLEL_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _RAGGED_PARALLEL_KEYWORD)
+    if turns == 0:
+        python_args = json.dumps({"language": "python", "code": _RAGGED_VALID_CODE})
+        return [
+            {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_ragged_0",
+                        "type": "function",
+                        "function": None,
+                    },
+                    {
+                        "index": 1,
+                        "id": "call_ragged_1",
+                        "type": "function",
+                        "function": {"name": "execute", "arguments": python_args},
+                    },
+                ]
+            }
+        ]
+    if turns == 1:
+        return [{"content": "Ragged parallel complete."}]
+    return None
+
+
+_SHELL_RECOVERY_KEYWORD = "shell recovery"
+_SHELL_REC_WRITE_CODE = 'with open("sr1.txt", "w") as f:\n    f.write("one")'
+_SHELL_REC_FAIL_CODE = "cat sr-missing.txt"
+_SHELL_REC_FIX_CODE = "cat sr1.txt > sr2.txt"
+
+
+def shell_recovery_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the shell error-recovery scenario, or None.
+
+    The tool chain covers python failing and recovering; this covers the
+    same loop for shell — a failing shell step (non-zero exit, stderr)
+    must not wedge the conversation, and the next step still executes:
+
+    - User
+      - message: "Please demonstrate shell recovery: ..."
+    - Assistant
+      - tool_call execute(python): write "one" to sr1.txt
+    - Tool
+      - result (empty output)
+    - Assistant
+      - tool_call execute(shell): cat sr-missing.txt
+    - Tool
+      - result (stderr, non-zero exit)
+    - Assistant
+      - tool_call execute(shell): cat sr1.txt > sr2.txt
+    - Tool
+      - result
+    - Assistant
+      - message: "Shell recovery complete."
+    """
+    history = _user_history_text(messages).lower()
+    if _SHELL_RECOVERY_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _SHELL_RECOVERY_KEYWORD)
+    if turns == 0:
+        arguments = json.dumps({"language": "python", "code": _SHELL_REC_WRITE_CODE})
+        return [_tool_call_delta("call_sr1", "execute", arguments)]
+    if turns == 1:
+        arguments = json.dumps({"language": "shell", "code": _SHELL_REC_FAIL_CODE})
+        return [_tool_call_delta("call_sr2", "execute", arguments)]
+    if turns == 2:
+        arguments = json.dumps({"language": "shell", "code": _SHELL_REC_FIX_CODE})
+        return [_tool_call_delta("call_sr3", "execute", arguments)]
+    if turns == 3:
+        return [{"content": "Shell recovery complete."}]
+    return None
+
+
+def shell_recovery_text_reply(messages: list) -> str | None:
+    """Plain-text reply for the shell-recovery scenario in code-block mode.
+
+    Same conversation as shell_recovery_tool_deltas, but each assistant
+    code turn arrives as a fenced text block instead of a tool_calls
+    delta.
+    """
+    history = _user_history_text(messages).lower()
+    if _SHELL_RECOVERY_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _SHELL_RECOVERY_KEYWORD)
+    if turns == 0:
+        return "```python\n" + _SHELL_REC_WRITE_CODE + "\n```"
+    if turns == 1:
+        return "```shell\n" + _SHELL_REC_FAIL_CODE + "\n```"
+    if turns == 2:
+        return "```shell\n" + _SHELL_REC_FIX_CODE + "\n```"
+    if turns == 3:
+        return "Shell recovery complete."
+    return None
+
+
+_R_KEYWORD = "r language demo"
+_R_CODE = 'writeLines("fourth", "r.txt")'
+
+
+def r_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the fourth-language scenario, or None.
+
+    A single R step through the same tool-call path the python, shell,
+    and javascript steps use. The simulated conversation:
+
+    - User
+      - message: "As an r language demo, write ... with r."
+    - Assistant
+      - tool_call execute(r): write "fourth" to r.txt
+    - Tool
+      - result
+    - Assistant
+      - message: "R step complete."
+
+    No text-mode variant: like the polyglot scenario, the point is the
+    tool-call language routing.
+    """
+    history = _user_history_text(messages).lower()
+    if _R_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _R_KEYWORD)
+    if turns == 0:
+        arguments = json.dumps({"language": "r", "code": _R_CODE})
+        return [_tool_call_delta("call_r_demo", "execute", arguments)]
+    if turns == 1:
+        return [{"content": "R step complete."}]
+    return None
+
+
+_APPLESCRIPT_KEYWORD = "applescript demo"
+_APPLESCRIPT_CODE = 'return "hi"'
+
+
+def applescript_tool_deltas(messages: list) -> list[dict] | None:
+    """Streaming deltas for the AppleScript scenario, or None.
+
+    A single AppleScript step through the same tool-call path the other
+    languages use, proving scenario coverage reaches OS-scripting
+    languages (executed on macOS via osascript). The simulated
+    conversation:
+
+    - User
+      - message: 'As an applescript demo, return "hi" with applescript.'
+    - Assistant
+      - tool_call execute(applescript): return "hi"
+    - Tool
+      - result
+    - Assistant
+      - message: "AppleScript step complete."
+
+    No text-mode variant: like the polyglot scenario, the point is the
+    tool-call language routing.
+    """
+    history = _user_history_text(messages).lower()
+    if _APPLESCRIPT_KEYWORD not in history:
+        return None
+    turns = _assistant_count_since(messages, _APPLESCRIPT_KEYWORD)
+    if turns == 0:
+        arguments = json.dumps({"language": "applescript", "code": _APPLESCRIPT_CODE})
+        return [_tool_call_delta("call_as_demo", "execute", arguments)]
+    if turns == 1:
+        return [{"content": "AppleScript step complete."}]
+    return None
+
+
 def _persist_step(keyword: str, turn: int):
     """One step of the cross-prompt state scenario, or None when done.
 
@@ -674,6 +872,14 @@ class _Handler(BaseHTTPRequestHandler):
             if deltas is None:
                 deltas = polyglot_tool_deltas(messages)
             if deltas is None:
+                deltas = ragged_parallel_tool_deltas(messages)
+            if deltas is None:
+                deltas = shell_recovery_tool_deltas(messages)
+            if deltas is None:
+                deltas = r_tool_deltas(messages)
+            if deltas is None:
+                deltas = applescript_tool_deltas(messages)
+            if deltas is None:
                 deltas = [{"content": "Hello, World!"}]
             if stream:
                 self.send_response(200)
@@ -731,6 +937,8 @@ class _Handler(BaseHTTPRequestHandler):
         content = persist_text_reply(messages)
         if content is None:
             content = tool_chain_text_reply(messages)
+        if content is None:
+            content = shell_recovery_text_reply(messages)
         if content is None:
             content = pick_reply(body)
 

@@ -5,9 +5,14 @@ import pytest
 
 from tests.support.mock_openai_server import (
     MockOpenAIServer,
+    applescript_tool_deltas,
     merge_tool_calls,
     parallel_tool_deltas,
     pick_reply,
+    r_tool_deltas,
+    ragged_parallel_tool_deltas,
+    shell_recovery_text_reply,
+    shell_recovery_tool_deltas,
     stream_reply_chunks,
     tool_chain_tool_deltas,
 )
@@ -467,3 +472,137 @@ def test_polyglot_tool_deltas_ignore_unrelated_prompts():
         )
         is None
     )
+
+
+def test_ragged_parallel_tool_deltas_emit_malformed_plus_valid_entry():
+    """Turn zero carries a malformed entry 0 and a valid python entry 1."""
+    messages = [{"role": "user", "content": "run a ragged parallel turn: go"}]
+    deltas = ragged_parallel_tool_deltas(messages)
+    assert len(deltas) == 1
+    entries = deltas[0]["tool_calls"]
+    assert [entry["index"] for entry in entries] == [0, 1]
+    assert entries[0]["function"] is None
+    assert entries[1]["function"]["name"] == "execute"
+    assert "r1.txt" in entries[1]["function"]["arguments"]
+
+
+def test_ragged_parallel_tool_deltas_talk_then_release():
+    """The ragged scenario talks at turn one and releases afterwards."""
+    first_turn = [
+        {"role": "user", "content": "run a ragged parallel turn: go"},
+        {"role": "assistant", "content": ""},
+    ]
+    assert ragged_parallel_tool_deltas(first_turn) == [
+        {"content": "Ragged parallel complete."}
+    ]
+    first_turn.append({"role": "assistant", "content": "Ragged parallel complete."})
+    first_turn.append({"role": "user", "content": "Say hello."})
+    assert ragged_parallel_tool_deltas(first_turn) is None
+
+
+def test_ragged_parallel_tool_deltas_ignore_unrelated_prompts():
+    """Prompts without the keyword never enter the ragged scenario."""
+    messages = [{"role": "user", "content": "Please demonstrate a tool chain"}]
+    assert ragged_parallel_tool_deltas(messages) is None
+    messages = [{"role": "user", "content": "run two things in parallel: go"}]
+    assert ragged_parallel_tool_deltas(messages) is None
+
+
+def test_shell_recovery_tool_deltas_run_write_fail_fix_then_talk():
+    """Turns zero to two write with python, fail with shell, fix with shell."""
+    messages = [{"role": "user", "content": "demonstrate shell recovery: go"}]
+    first = shell_recovery_tool_deltas(messages)
+    args = json.loads(first[0]["tool_calls"][0]["function"]["arguments"])
+    assert args["language"] == "python"
+    assert "sr1.txt" in args["code"]
+    messages.append({"role": "assistant", "content": ""})
+    second = shell_recovery_tool_deltas(messages)
+    args = json.loads(second[0]["tool_calls"][0]["function"]["arguments"])
+    assert args["language"] == "shell"
+    assert "sr-missing" in args["code"]
+    messages.append({"role": "assistant", "content": ""})
+    third = shell_recovery_tool_deltas(messages)
+    args = json.loads(third[0]["tool_calls"][0]["function"]["arguments"])
+    assert args["language"] == "shell"
+    assert "sr2.txt" in args["code"]
+    messages.append({"role": "assistant", "content": ""})
+    assert shell_recovery_tool_deltas(messages) == [
+        {"content": "Shell recovery complete."}
+    ]
+    messages.append({"role": "assistant", "content": "Shell recovery complete."})
+    messages.append({"role": "user", "content": "Say hello."})
+    assert shell_recovery_tool_deltas(messages) is None
+
+
+def test_shell_recovery_tool_deltas_ignore_unrelated_prompts():
+    """Prompts without the keyword never enter the shell-recovery scenario."""
+    messages = [{"role": "user", "content": "Please demonstrate a tool chain"}]
+    assert shell_recovery_tool_deltas(messages) is None
+    assert shell_recovery_text_reply(messages) is None
+
+
+def test_shell_recovery_text_reply_mirrors_tool_turns():
+    """The text-mode variant serves the same write/fail/fix code as fences."""
+    messages = [{"role": "user", "content": "demonstrate shell recovery: go"}]
+    assert "sr1.txt" in shell_recovery_text_reply(messages)
+    assert shell_recovery_text_reply(messages).startswith("```python")
+    messages.append({"role": "assistant", "content": ""})
+    assert "sr-missing" in shell_recovery_text_reply(messages)
+    assert shell_recovery_text_reply(messages).startswith("```shell")
+    messages.append({"role": "assistant", "content": ""})
+    assert "sr2.txt" in shell_recovery_text_reply(messages)
+    messages.append({"role": "assistant", "content": ""})
+    assert shell_recovery_text_reply(messages) == "Shell recovery complete."
+    messages.append({"role": "assistant", "content": "Shell recovery complete."})
+    messages.append({"role": "user", "content": "Say hello."})
+    assert shell_recovery_text_reply(messages) is None
+
+
+def test_r_tool_deltas_emit_r_step_then_talk_then_release():
+    """Turn zero serves one execute(r) call, turn one talks, then releases."""
+    messages = [
+        {"role": "user", "content": "as an r language demo, write to r.txt: go"}
+    ]
+    deltas = r_tool_deltas(messages)
+    assert len(deltas) == 1
+    args = json.loads(deltas[0]["tool_calls"][0]["function"]["arguments"])
+    assert args["language"] == "r"
+    assert "r.txt" in args["code"]
+    messages.append({"role": "assistant", "content": ""})
+    assert r_tool_deltas(messages) == [{"content": "R step complete."}]
+    messages.append({"role": "assistant", "content": "R step complete."})
+    messages.append({"role": "user", "content": "Say hello."})
+    assert r_tool_deltas(messages) is None
+
+
+def test_r_tool_deltas_ignore_unrelated_prompts():
+    """Prompts without the keyword never enter the R scenario."""
+    messages = [{"role": "user", "content": "Please demonstrate a tool chain"}]
+    assert r_tool_deltas(messages) is None
+    messages = [
+        {"role": "user", "content": "As a polyglot demo, write with javascript."}
+    ]
+    assert r_tool_deltas(messages) is None
+
+
+def test_applescript_tool_deltas_emit_step_then_talk_then_release():
+    """Turn zero serves one execute(applescript) call, then talks, releases."""
+    messages = [{"role": "user", "content": 'as an applescript demo, return "hi": go'}]
+    deltas = applescript_tool_deltas(messages)
+    assert len(deltas) == 1
+    args = json.loads(deltas[0]["tool_calls"][0]["function"]["arguments"])
+    assert args["language"] == "applescript"
+    assert "hi" in args["code"]
+    messages.append({"role": "assistant", "content": ""})
+    assert applescript_tool_deltas(messages) == [
+        {"content": "AppleScript step complete."}
+    ]
+    messages.append({"role": "assistant", "content": "AppleScript step complete."})
+    messages.append({"role": "user", "content": "Say hello."})
+    assert applescript_tool_deltas(messages) is None
+
+
+def test_applescript_tool_deltas_ignore_unrelated_prompts():
+    """Prompts without the keyword never enter the AppleScript scenario."""
+    messages = [{"role": "user", "content": "Please demonstrate a tool chain"}]
+    assert applescript_tool_deltas(messages) is None
