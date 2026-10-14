@@ -551,12 +551,17 @@ def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys)
         assert language == "python"
         return "Traceback: Boom" if "raise Boom" in code else "ok"
 
-    computer = _enabled_computer(run=mock.Mock(side_effect=fake_run))
+    computer = _enabled_computer(
+        run=mock.Mock(side_effect=fake_run),
+        interpreter=SimpleNamespace(debug=True),
+    )
     skills = Skills(computer)
     skills.path = str(skills_dir)
     skills.import_skills()
     assert computer.run.call_count == 3
     out = capsys.readouterr().out
+    assert "IMPORTING SKILLS:" in out, "the combined run is announced in debug mode"
+    assert "IMPORTING SKILL:" in out, "each fallback run is announced in debug mode"
     assert "might be broken" in out
     assert "bad.py" in out
     assert computer.save_skills is True
