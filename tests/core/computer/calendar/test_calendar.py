@@ -170,6 +170,27 @@ def test_create_event_without_calendar_aborts_when_default_is_empty():
     run.assert_not_called()
 
 
+def test_get_first_calendar_returns_stripped_name():
+    """get_first_calendar() unpacks the capture tuple and strips it (issue #426).
+
+    run_applescript_capture returns (stdout, stderr); the old code bound the
+    whole tuple to stdout, so stdout[0] yielded one character and the
+    "default calendar" was a single letter (fixed in #427).
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("Work\n", "")):
+            assert cal.get_first_calendar() == "Work"
+
+
+def test_get_first_calendar_returns_none_when_empty():
+    """No captured stdout means no default calendar, and None is returned."""
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("", "")):
+            assert cal.get_first_calendar() is None
+
+
 def test_create_event_uses_discovered_default_calendar():
     """With no calendar given, the first calendar becomes the target."""
     cal = Calendar(computer=SimpleNamespace())

@@ -295,8 +295,8 @@ class Calendar:
             end tell
             return firstCalendarName
             """
-        stdout = run_applescript_capture(script)
+        stdout, stderr = run_applescript_capture(script)
         if stdout:
-            return stdout[0].strip()
+            return stdout.strip()
         else:
             return None
