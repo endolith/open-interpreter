@@ -255,3 +255,148 @@ def test_smooth_move_to_eases_then_lands_exactly():
 
     assert fake_pyautogui.moveTo.call_count == 3
     assert fake_pyautogui.moveTo.call_args_list[-1] == mock.call(10, 20)
+
+
+def test_cv2_import_failure_falls_back_to_none(monkeypatch):
+    """A failing cv2 lazy import leaves module cv2 as None (Marimo path)."""
+    import importlib
+
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.utils.lazy_import as lazy_source
+
+    real_lazy_import = lazy_source.lazy_import
+
+    def selective_lazy_import(name):
+        if name == "cv2":
+            raise Exception("no cv2")
+        return real_lazy_import(name)
+
+    with mock.patch(
+        "interpreter.core.utils.lazy_import.lazy_import",
+        side_effect=selective_lazy_import,
+    ):
+        try:
+            importlib.reload(mouse_mod)
+            assert mouse_mod.cv2 is None
+        finally:
+            importlib.reload(mouse_mod)
+
+
+def _image_display(monkeypatch, mouse_mod, find_result, emit_images=True):
+    """Computer fake with a real screenshot and mocked draw backends."""
+    from PIL import Image
+
+    import numpy as np
+
+    screenshot = Image.new("RGB", (100, 100), "white")
+    computer = SimpleNamespace(
+        display=SimpleNamespace(
+            width=100,
+            height=100,
+            screenshot=mock.Mock(return_value=screenshot),
+            find=mock.Mock(return_value=find_result),
+        ),
+        emit_images=emit_images,
+        verbose=False,
+    )
+    canvas = np.zeros((10, 10, 3), dtype=np.uint8)
+    cv2 = mock.Mock()
+    cv2.cvtColor.return_value = canvas
+    cv2.COLOR_BGR2GRAY = 0
+    cv2.COLOR_GRAY2RGB = 1
+    monkeypatch.setattr(mouse_mod, "cv2", cv2)
+    shown = mock.Mock()
+    monkeypatch.setattr(mouse_mod, "plt", shown)
+    monkeypatch.setattr(mouse_mod, "display", mock.Mock())
+    return computer, screenshot
+
+
+def test_move_text_multiple_matches_annotates_and_raises(monkeypatch):
+    """Multiple text matches with emit_images draw numbered circles, then
+    raise a disambiguation ValueError listing each candidate."""
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+
+    matches = [
+        {"coordinates": (0.1, 0.2), "similarity": 1, "text": "save"},
+        {"coordinates": (0.5, 0.6), "similarity": 1, "text": "save"},
+    ]
+    computer, _ = _image_display(monkeypatch, mouse_mod, matches)
+    mouse = mouse_mod.Mouse(computer)
+
+    with pytest.raises(ValueError, match="multiple times"):
+        mouse.move("save")
+
+    computer.display.screenshot.assert_called_once_with(show=False)
+    mouse_mod.cv2.circle.assert_called()
+    mouse_mod.cv2.putText.assert_called()
+    mouse_mod.display.assert_called_once()
+
+
+def test_move_icon_multiple_matches_annotates_and_raises(monkeypatch):
+    """Multiple icon matches with emit_images draw numbered circles, then
+    raise a disambiguation ValueError."""
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+
+    computer, _ = _image_display(monkeypatch, mouse_mod, [(0.1, 0.1), (0.9, 0.9)])
+    mouse = mouse_mod.Mouse(computer)
+
+    with pytest.raises(ValueError, match="multiple times"):
+        mouse.move(icon="floppy", screenshot=computer.display.screenshot())
+
+    mouse_mod.cv2.circle.assert_called()
+    mouse_mod.plt.imshow.assert_called_once()
+
+
+def test_move_verbose_draws_target_circle(monkeypatch):
+    """verbose=True draws a circle at the scaled target, then smooth-moves."""
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+    from PIL import Image
+
+    screenshot = Image.new("RGB", (200, 100), "white")
+    computer = SimpleNamespace(
+        display=SimpleNamespace(
+            width=100,
+            height=50,
+            screenshot=mock.Mock(return_value=screenshot),
+        ),
+        emit_images=False,
+        verbose=True,
+    )
+    mouse = mouse_mod.Mouse(computer)
+    with mock.patch.object(mouse_mod, "cv2", mock.Mock()):
+        with mock.patch(
+            "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        ) as smooth:
+            with mock.patch(
+                "interpreter.core.computer.mouse.mouse.plt"
+            ) as shown:
+                mouse.move(x=10, y=20)
+
+    smooth.assert_called_once_with(10, 20)
+    shown.imshow.assert_called_once()
+    shown.show.assert_called_once()
+
+
+def test_click_variants_forward_to_move_then_click(monkeypatch):
+    """click/double/triple/right-click move first when given a target."""
+    import interpreter.core.computer.mouse.mouse as mouse_mod
+
+    computer = SimpleNamespace(
+        display=SimpleNamespace(width=100, height=100),
+        emit_images=False,
+        verbose=False,
+    )
+    mouse = mouse_mod.Mouse(computer)
+    patcher, pyautogui = _patch_pyautogui()
+    with patcher:
+        with mock.patch.object(mouse, "move") as move:
+            mouse.click(x=1, y=2)
+            mouse.double_click("ok")
+            mouse.triple_click(icon="x")
+            mouse.right_click(x=3, y=4)
+
+    assert move.call_count == 4
+    pyautogui.click.assert_called_once_with(button="left", clicks=1, interval=0.1)
+    pyautogui.doubleClick.assert_called_once_with(button="left", interval=0.1)
+    pyautogui.tripleClick.assert_called_once_with(button="left", interval=0.1)
+    pyautogui.rightClick.assert_called_once_with()
