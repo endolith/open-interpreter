@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 
+from interpreter import OpenInterpreter
 from interpreter.core.respond import respond
 
 
@@ -366,3 +367,75 @@ def test_respond_requires_messages():
     interpreter.messages = []
     with pytest.raises(AssertionError, match="User message was not passed"):
         next(respond(interpreter))
+
+
+def test_respond_loop_stops_when_the_reply_adds_nothing():
+    """A reply that leaves the transcript unchanged makes no progress, so loop
+    mode must stop instead of re-sending the identical request forever. Without
+    this, an empty completion (a content filter stop, an empty provider
+    response) livelocks respond() and bills one request per spin."""
+    interpreter = _code_interpreter()
+    interpreter.messages = [
+        {"role": "assistant", "type": "message", "content": "Working on it."}
+    ]
+    interpreter.loop = True
+    interpreter.loop_message = "Proceed."
+    interpreter.loop_breakers = ["The task is complete"]
+
+    calls = {"n": 0}
+
+    def run(msgs):
+        calls["n"] += 1
+        if calls["n"] > 5:
+            raise RuntimeError("respond() kept re-prompting after an empty reply")
+        # An empty reply: nothing is yielded, so nothing is ever stored.
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert calls["n"] == 1
+
+
+def test_loop_mode_terminates_on_empty_completions():
+    """End to end, through the real llm.run and _respond_and_store: when the
+    provider returns empty completions, chat() in loop mode must return instead
+    of re-sending the same paid request at an unchanging transcript."""
+    interpreter = OpenInterpreter(
+        disable_telemetry=True, conversation_history=False, loop=True
+    )
+    interpreter.llm.model = "gpt-4o"
+    interpreter.llm._is_loaded = True
+    interpreter.llm.api_key = "x"
+    interpreter.llm.supports_functions = False
+    interpreter.llm.supports_vision = False
+    interpreter.llm.context_window = 8000
+    interpreter.llm.max_tokens = 1000
+
+    calls = {"n": 0}
+
+    def completions(**params):
+        calls["n"] += 1
+        if calls["n"] > 5:
+            raise RuntimeError("loop mode kept re-prompting after an empty reply")
+        if calls["n"] == 1:
+            yield {
+                "choices": [
+                    {"delta": {"content": "Working on it."}, "finish_reason": None}
+                ]
+            }
+            yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        else:
+            # An empty reply, e.g. a content filter stop.
+            yield {
+                "choices": [
+                    {"delta": {"content": None}, "finish_reason": "content_filter"}
+                ]
+            }
+
+    interpreter.llm.completions = completions
+
+    interpreter.chat("do the thing", display=False)
+
+    assert calls["n"] == 2
+    assert interpreter.messages[-1]["content"].strip() == "Working on it."
