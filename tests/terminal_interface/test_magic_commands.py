@@ -316,15 +316,29 @@ def test_install_and_import_installs_via_pip_then_imports():
     assert result is fake
 
 
+_real_import = __import__
+
+
+def _missing_somedummy(name, *args, **kwargs):
+    """Pretend only `somedummy` is missing; delegate anything else for real.
+
+    Blanket-mocking `builtins.__import__` also breaks imports made by test
+    and measurement machinery running inside the mocked window (notably
+    coverage's tracer on 3.14, which under-reported the new `if` in #261),
+    so the fake fails just the package under test.
+    """
+    if name == "somedummy":
+        raise ImportError("missing")
+    return _real_import(name, *args, **kwargs)
+
+
 def test_install_and_import_pip_failure_returns_none():
     """When pip fails and pip3 also fails, install_and_import returns None.
 
     Regression test for #250: the failure paths previously left `module`
     unbound, so the finally block raised UnboundLocalError.
     """
-    with mock.patch(
-        "builtins.__import__", side_effect=ImportError("missing")
-    ):
+    with mock.patch("builtins.__import__", side_effect=_missing_somedummy):
         with mock.patch.object(
             magic_commands.subprocess,
             "check_call",
@@ -346,10 +360,18 @@ def test_install_and_import_pip3_success_imports():
     from the finally block.
     """
     fake = object()
-    with mock.patch(
-        "builtins.__import__",
-        side_effect=[ImportError("missing"), fake],
-    ):
+    calls = {"count": 0}
+
+    def _import_once_missing(name, *args, **kwargs):
+        """Fail the first `somedummy` import, return the fake after install."""
+        if name == "somedummy":
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise ImportError("missing")
+            return fake
+        return _real_import(name, *args, **kwargs)
+
+    with mock.patch("builtins.__import__", side_effect=_import_once_missing):
         with mock.patch.object(
             magic_commands.subprocess,
             "check_call",
