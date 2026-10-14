@@ -110,15 +110,13 @@ def test_get_email_address_suggests_similar_contacts():
     assert "Alice Smith" in result
 
 
-@pytest.mark.xfail(reason='get_email_address() compares against "No contacts found" exactly (issue #411), so the real lookup result "No contacts found." misses and falls into the similar-contacts suggestion')
 def test_get_email_address_no_contacts_found():
     """With no similar contacts, the email lookup returns a plain message.
 
     The real empty lookup returns "No contacts found." (with the period —
-    see get_full_names_from_first_name()). Once get_email_address()
-    recognises that spelling, this mock follows the no-contacts path.
-    Today the exact comparison misses and the result is instead offered
-    back as a similar-contact suggestion.
+    see get_full_names_from_first_name()). Fixed in #420: the comparison
+    now matches the sentinel instead of falling into the similar-contact
+    suggestion branch.
     """
     contacts = Contacts(computer=SimpleNamespace())
     with _darwin():
