@@ -38,6 +38,7 @@ def _stub_entrypoint(monkeypatch):
 
 
 @pytest.mark.xfail(
+    raises=TypeError,
     reason="interpreter/__init__.py rebinds `version` via "
     "`from packaging import version`, so check_for_update() calls the "
     "module and every --os import dies with TypeError (#461)",

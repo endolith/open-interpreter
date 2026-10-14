@@ -271,15 +271,16 @@ def test_cv2_import_failure_falls_back_to_none(monkeypatch):
             raise Exception("no cv2")
         return real_lazy_import(name)
 
-    with mock.patch(
-        "interpreter.core.utils.lazy_import.lazy_import",
-        side_effect=selective_lazy_import,
-    ):
-        try:
+    try:
+        with mock.patch(
+            "interpreter.core.utils.lazy_import.lazy_import",
+            side_effect=selective_lazy_import,
+        ):
             importlib.reload(mouse_mod)
             assert mouse_mod.cv2 is None
-        finally:
-            importlib.reload(mouse_mod)
+    finally:
+        # Runs after the patch is removed, so the normal cv2 binding returns.
+        importlib.reload(mouse_mod)
 
 
 def _image_display(monkeypatch, mouse_mod, find_result, emit_images=True):
@@ -472,7 +473,12 @@ def test_click_variants_forward_to_move_then_click(monkeypatch):
             mouse.triple_click(icon="x")
             mouse.right_click(x=3, y=4)
 
-    assert move.call_count == 4
+    assert move.call_args_list == [
+        mock.call(x=1, y=2),
+        mock.call("ok"),
+        mock.call(icon="x"),
+        mock.call(x=3, y=4),
+    ]
     pyautogui.click.assert_called_once_with(button="left", clicks=1, interval=0.1)
     pyautogui.doubleClick.assert_called_once_with(button="left", interval=0.1)
     pyautogui.tripleClick.assert_called_once_with(button="left", interval=0.1)
