@@ -269,20 +269,26 @@ def test_image_precedence_puts_png_before_others():
     assert queued == [{"type": "image", "format": "base64.png", "content": "PNGDATA"}]
 
 
-def test_an_unsupported_mime_type_produces_nothing():
-    """Characterization: a mime type outside the list is dropped with no chunk.
+def test_an_unsupported_mime_type_is_reported_not_dropped():
+    """A mime type outside the list leaves a record instead of vanishing.
 
-    The `elif` chain has no fallback, so anything it does not name disappears
-    without a warning — `application/json`, `image/svg+xml` and `text/markdown`
-    all land here. Recorded because the drop is invisible: the snippet appears to
-    produce no output and there is nothing in the transcript explaining why.
+    Fixed in #434 for #404: the `elif` chain gained a fallback, so
+    `application/json`, `image/svg+xml` and `text/markdown` report
+    themselves as unrendered output instead of disappearing without a
+    warning — a drop is no longer mistaken for no output.
     """
     lang = _language()
     queued = _run_listener(
         lang, [_msg("display_data", {"data": {"application/json": '{"a": 1}'}})]
     )
 
-    assert queued == []
+    assert queued == [
+        {
+            "type": "console",
+            "format": "output",
+            "content": "(unrendered application/json output)",
+        }
+    ]
 
 
 def test_a_stop_event_interrupts_the_kernel():
