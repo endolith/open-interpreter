@@ -209,38 +209,38 @@ class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
         self.assertEqual(response.status_code, 403)
         self.assertTrue(self.interpreter.context_mode)
 
-    def test_post_settings_unknown_key_answers_200_with_a_tuple_body(self):
-        """An unknown top-level key yields a JSON array and a 200, not a 404.
+    def test_post_settings_unknown_key_answers_404(self):
+        """An unknown top-level key answers 404 with a JSON error body.
 
-        The handler returns `({"error": ...}, 404)`, but FastAPI serialises the
-        tuple as the response body and answers 200, so the intended status never
-        reaches the caller. Pinned as-is: the report asks for characterization
-        tests, so this is recorded rather than changed.
+        Fixed in #242: the handler returned `({"error": ...}, 404)`, but
+        FastAPI serialised the tuple as the response body and answered 200,
+        so the intended status never reached the caller. Now the status is
+        real.
         """
         response = self.client.post("/settings", json={"not_a_real_setting": 1})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("not found", response.json()[0]["error"])
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("not found", response.json()["error"])
 
-    def test_post_settings_unknown_llm_subkey_answers_200_with_a_tuple_body(self):
-        """An unknown llm sub-key has the same tuple-body-200 shape as above."""
+    def test_post_settings_unknown_llm_subkey_answers_404(self):
+        """An unknown llm sub-key answers 404 with a JSON error body."""
         response = self.client.post("/settings", json={"llm": {"not_a_field": 1}})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("not found", response.json()[0]["error"])
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("not found", response.json()["error"])
 
-    def test_get_setting_unserialisable_value_answers_200_with_a_tuple_body(self):
-        """A setting that cannot be JSON-encoded reports the error in a 200 body.
+    def test_get_setting_unserialisable_value_answers_500(self):
+        """A setting that cannot be JSON-encoded answers 500 with a JSON body.
 
-        Same tuple-return shape as the 404 branches: the 500 in
-        `({"error": ...}, 500)` never becomes a status code.
+        Same tuple-return shape as the 404 branches had: the 500 in
+        `({"error": ...}, 500)` never became a status code until #242.
         """
         self.interpreter.not_serialisable = object()
 
         response = self.client.get("/settings/not_serialisable")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Failed to serialize", response.json()[0]["error"])
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("Failed to serialize", response.json()["error"])
 
 
 class TestHomeEndpointTemplate(_UnauthenticatedServerTestCase):
