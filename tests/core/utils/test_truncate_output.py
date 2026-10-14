@@ -34,11 +34,16 @@ def test_retruncate_keeps_truncated_shape():
     assert "Output truncated" in second
 
 
-def test_add_scrollbars_appends_hint():
-    """add_scrollbars=True appends a get_last_output() hint to the truncation banner."""
+def test_add_scrollbars_never_mentions_missing_helper():
+    """add_scrollbars=True no longer appends a get_last_output() hint (issue #278).
+
+    That function was never defined, so the hint promised the model a way out
+    that raised NameError. The banner must never reference it, with or without
+    the flag.
+    """
     data = "b" * 5000
     result = truncate_output(data, max_output_chars=100, add_scrollbars=True)
-    assert "get_last_output()" in result
+    assert "get_last_output()" not in result
 
 
 def test_exactly_at_limit_not_truncated():
