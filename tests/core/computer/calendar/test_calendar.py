@@ -234,15 +234,29 @@ def test_delete_event_without_calendar_aborts_when_no_default():
 def test_delete_event_success_path_returns_stdout_verbatim():
     """A clean run returns the script's own output text.
 
-    `stderr, stdout = run_applescript_capture(script)` unpacks the
-    (stdout, stderr) tuple backwards, so the "stdout" branch below actually
-    sees stderr — but with empty stderr the first branch is falsy and the
-    `elif stderr:` branch (holding real stdout) matches "successfully" and
-    returns it whole. Tracked as an issue; pinned until fixed.
+    delete_event() unpacks run_applescript_capture() as (stdout, stderr)
+    (fixed in #425), so a non-empty stdout is returned verbatim by the
+    first branch.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
         with mock.patch(CAPTURE, return_value=("Event deleted successfully.", "")):
+            assert (
+                cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work") == "Event deleted successfully."
+            )
+
+
+def test_delete_event_success_word_in_stderr_returns_stderr_verbatim():
+    """A "successfully" stderr with empty stdout is returned as-is.
+
+    Some Calendar backends report success on stderr; the `elif stderr:`
+    branch returns that text whole instead of wrapping it as an error.
+    Covers the inner branch the corrected unpacking would otherwise leave
+    unexecuted.
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("", "Event deleted successfully.")):
             assert (
                 cal.delete_event("X", datetime.datetime(2024, 1, 1), calendar="Work") == "Event deleted successfully."
             )
