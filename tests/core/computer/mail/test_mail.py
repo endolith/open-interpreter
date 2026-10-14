@@ -90,24 +90,18 @@ def test_mail_get_breaks_when_item_count_unparseable():
     capture.assert_called_once()
 
 
-def test_mail_get_unparseable_short_error_never_stops_asking():
-    """An unparseable short-mailbox error neither retries nor breaks.
+def test_mail_get_unparseable_short_error_breaks_out():
+    """An unparseable short-mailbox error breaks out instead of looping.
 
-    With empty stdout and no "item N" to parse, the loop body makes no
-    progress and `retries` never increments, so get() keeps re-sending the
-    same script. Pinned by exhausting the mock: after the scripted responses
-    run out, the mock raises StopIteration instead of get() returning, and
-    every call asked for the same count. Tracked as #409.
+    With empty stdout and no "item N" to parse, there is nothing retryable:
+    get() gives up after the first attempt and returns None (fixed in #424 —
+    the loop used to spin forever here, re-sending the same script).
     """
     mail = Mail(computer=SimpleNamespace())
     with _darwin():
         with mock.patch(CAPTURE, return_value=("", "Can’t get messages")) as capture:
-            capture.side_effect = [("", "Can’t get messages")] * 3
-            with pytest.raises(StopIteration):
-                mail.get(number=5)
-    assert capture.call_count == 4
-    for call in capture.call_args_list:
-        assert "repeat with i from 1 to 5" in call[0][0]
+            assert mail.get(number=5) is None
+    capture.assert_called_once()
 
 
 def test_mail_get_unread_filters_by_read_status():
