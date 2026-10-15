@@ -176,3 +176,26 @@ def test_unknown_extension_labels_bytes_by_detected_format(interpreter):
     url = result[0]["content"][0]["image_url"]["url"]
     assert url.startswith("data:image/jpeg;base64,")
     assert base64.b64decode(url.split(",", 1)[1]) == raw
+
+
+def test_garbage_bytes_with_unknown_extension_fall_back_to_png(interpreter):
+    """Undetectable bytes under an unknown extension stay PNG-labelled.
+
+    When PIL cannot even open the payload, there is no detected format, so
+    the PNG fallback applies as before instead of crashing the conversion.
+    """
+    messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "base64.bin",
+            "content": base64.b64encode(b"not an image at all").decode(),
+        }
+    ]
+
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=False, interpreter=interpreter
+    )
+
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
