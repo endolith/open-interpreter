@@ -394,3 +394,63 @@ def test_websocket_task_failure_is_reported_as_server_error():
         if message.get("type") == "error"
     ]
     assert errors, "the task failure was not recorded as a server error"
+
+
+def test_websocket_endpoint_cancellation_cancels_child_tasks():
+    """Cancelling the endpoint (server shutdown) must not strand child tasks.
+
+    asyncio.wait, unlike gather, does not cancel its children when the waiter
+    itself is cancelled. Without finally-cleanup, a shutdown cancel landing
+    while the endpoint waits leaves send_task parked on the shared output
+    queue, where it later steals the next turn's first message as a stale
+    consumer. Cancel the endpoint mid-flight and require prompt
+    CancelledError with no lingering tasks.
+    """
+    import asyncio
+
+    from starlette.routing import WebSocketRoute
+    from starlette.websockets import WebSocketState
+
+    async def run():
+        interpreter = AsyncInterpreter()
+        interpreter.require_acknowledge = False
+
+        server = Server(interpreter)
+        endpoint = next(
+            r.endpoint
+            for r in server.app.routes
+            if isinstance(r, WebSocketRoute) and r.path == "/"
+        )
+
+        class ParkingWebSocket:
+            """Socket that never sends anything and never disconnects."""
+
+            def __init__(self):
+                self.headers = {}
+                self.client_state = WebSocketState.CONNECTED
+
+            async def accept(self):
+                pass
+
+            async def receive(self):
+                await asyncio.Future()  # parks forever
+
+            async def send_text(self, data):
+                pass
+
+            async def send_bytes(self, data):
+                pass
+
+        task = asyncio.ensure_future(endpoint(ParkingWebSocket()))
+        await asyncio.sleep(0.5)  # let both children park
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        lingering = [
+            t
+            for t in asyncio.all_tasks()
+            if t is not asyncio.current_task() and not t.done()
+        ]
+        assert not lingering, "endpoint cancellation stranded child tasks"
+
+    asyncio.run(run())
