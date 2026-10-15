@@ -603,6 +603,21 @@ def test_new_skill_usable_before_create():
     assert len(new_skill.steps) == 1
 
 
+def test_new_skill_save_before_create(tmp_path):
+    """save() on a fresh NewSkill writes the file instead of raising AttributeError.
+
+    The PR objective explicitly includes this scenario: name and steps used to
+    exist only after create(), so an early save() died on a missing attribute.
+    The skills path is redirected to tmp_path so the test never touches the
+    real skills directory.
+    """
+    computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
+    skills = Skills(computer)
+    skills.path = str(tmp_path)
+    skills.new_skill.save()
+    assert (tmp_path / "untitled.py").exists()
+
+
 def test_new_skill_create_starts_fresh():
     """create() resets name/steps so a new teaching session starts from a clean object."""
     computer = SimpleNamespace(import_skills=False, _has_imported_skills=False)
