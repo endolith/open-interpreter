@@ -280,7 +280,7 @@ async def run_endpoint():
     server = Server(interpreter)
     endpoint = next(
         r.endpoint
-        for r in server.app.routes
+        for r in server.router.routes
         if isinstance(r, WebSocketRoute) and r.path == "/"
     )
 
@@ -363,7 +363,7 @@ def test_websocket_task_failure_is_reported_as_server_error():
     server = Server(interpreter)
     endpoint = next(
         r.endpoint
-        for r in server.app.routes
+        for r in server.router.routes
         if isinstance(r, WebSocketRoute) and r.path == "/"
     )
 
@@ -418,7 +418,7 @@ def test_websocket_endpoint_cancellation_cancels_child_tasks():
         server = Server(interpreter)
         endpoint = next(
             r.endpoint
-            for r in server.app.routes
+            for r in server.router.routes
             if isinstance(r, WebSocketRoute) and r.path == "/"
         )
 
