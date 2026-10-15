@@ -233,3 +233,41 @@ def test_process_messages_preserves_non_tool_messages():
     result = process_messages(messages)
 
     assert result == messages
+
+def test_tool_calls_empty_function_fields_skipped():
+    """An entry with empty name and arguments does not hide a later valid one.
+
+    Some providers emit a truthy function block carrying neither a name nor
+    any argument text. Converting it would create an empty call, stop the
+    scan, and wrongly flag a function call; such entries are skipped so the
+    later valid entry still converts (CodeRabbit review of #262).
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                function=SimpleNamespace(name="", arguments="")
+                            ),
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": "print(1)"}',
+                                ),
+                            ),
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]

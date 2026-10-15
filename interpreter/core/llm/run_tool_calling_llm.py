@@ -204,6 +204,13 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     name = getattr(function, "name", None)
                     arguments = getattr(function, "arguments", None)
+                if not name and not arguments:
+                    # A truthy function block carrying neither a name nor any
+                    # argument text is unusable: keep scanning later entries
+                    # instead of converting an empty call and stopping here.
+                    # (A nameless continuation with argument text still falls
+                    # through to the conversion below.)
+                    continue
                 converted_call = {"name": name, "arguments": arguments}
                 break
             if converted_call is not None:
