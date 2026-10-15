@@ -789,15 +789,21 @@ def create_router(async_interpreter):
             # not dequeue, so the item is left for the live connection.
             receive_task = asyncio.ensure_future(receive_input())
             send_task = asyncio.ensure_future(send_output())
-            done, pending = await asyncio.wait(
-                {receive_task, send_task}, return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+            try:
+                done, pending = await asyncio.wait(
+                    {receive_task, send_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                # asyncio.wait does not cancel its children when this endpoint
+                # is itself cancelled (uvicorn shutdown), unlike gather, so
+                # clean up on every exit path or a parked send_task survives.
+                for task in (receive_task, send_task):
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
             for task in done:
                 task.result()  # re-raise anything the finished task failed with
 
