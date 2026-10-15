@@ -296,6 +296,29 @@ class SubprocessLanguage(BaseLanguage):
                     self.output_queue.put(
                         {"type": "console", "format": "output", "content": line}
                     )
+            # The stream hit EOF without the end marker: the shell itself exited
+            # (user code ran `exit`, or `set -e`/errexit killed it before the
+            # appended capture commands ran). A per-block EXIT trap cannot cover
+            # this -- the shell is persistent across blocks, so a trap would only
+            # fire when the whole session ends, not per block. Without this epilogue
+            # `done` is never set and run() spins forever. Report the shell's
+            # status and end the turn; the next block restarts the dead process via
+            # the write retry in run(). Only the stdout reader reports: both
+            # streams hit EOF on process death, and one report is enough.
+            if not is_error_stream and not self.done.is_set():
+                returncode = self.process.poll() if self.process else None
+                if returncode is None:
+                    detail = "the shell exited"
+                else:
+                    detail = f"the shell exited with code {returncode}"
+                self.output_queue.put(
+                    {
+                        "type": "console",
+                        "format": "output",
+                        "content": f"\n[{detail}; it will restart on the next command.]",
+                    }
+                )
+                self.done.set()
         except ValueError as e:
             if "operation on closed file" in str(e):
                 if self.verbose:

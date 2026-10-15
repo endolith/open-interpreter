@@ -36,10 +36,18 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
         # itself would report that echo's status (always 0) rather than the
         # user's. add_active_line_prints skips lines that run nothing for the
         # same reason: a marker echo after the last real command would set $?.
-        code = code.replace(
-            '\necho "##end_of_execution##"',
-            '\n__oi_exit_code=$?\necho "##end_of_execution##$__oi_exit_code"',
-        )
+        # Only the marker this method's own pipeline appended is rewritten: the
+        # user's code may itself contain the same echo line (e.g. inside a
+        # heredoc), and rewriting those would corrupt their output. The
+        # appended marker is the last occurrence, so split there.
+        marker = '\necho "##end_of_execution##"'
+        head, sep, tail = code.rpartition(marker)
+        if sep:
+            code = (
+                head
+                + '\n__oi_exit_code=$?\necho "##end_of_execution##$__oi_exit_code"'
+                + tail
+            )
         end_marker = '\necho "##end_of_execution##$__oi_exit_code"'
         return self._insert_cwd_marker(code, end_marker)
 
