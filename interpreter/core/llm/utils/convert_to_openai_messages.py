@@ -153,7 +153,32 @@ def convert_to_openai_messages(
                             f"Unrecognized image format: {message['format']}"
                         )
 
-                content = f"data:image/{extension};base64,{encoded_string}"
+                # The extension came straight off the filename or the data URI,
+                # so it may be "jpg" or "JPG" — neither of which PIL registers
+                # as a save format ("JPEG" is the only spelling it knows), and
+                # Image.save would raise KeyError below. PIL's own extension
+                # registry maps every alias it knows to its canonical format
+                # name. The data URI mimetype is that format lowercased, so
+                # "jpg" becomes the standard "jpeg" the type expects.
+                save_format = Image.registered_extensions().get(
+                    "." + extension.lower()
+                )
+                if save_format is None:
+                    # Unknown extension (e.g. ".bin"): the bytes pass through
+                    # unmodified unless shrunk, so labeling them with a
+                    # fallback format would misstate their type (a JPEG served
+                    # as data:image/png). Detect the real format from the image
+                    # header instead; only an undetectable payload keeps PNG.
+                    try:
+                        with Image.open(
+                            io.BytesIO(base64.b64decode(encoded_string))
+                        ) as probe:
+                            save_format = probe.format or "PNG"
+                    except Exception:
+                        save_format = "PNG"
+                mimetype = save_format.lower()
+
+                content = f"data:image/{mimetype};base64,{encoded_string}"
 
                 if shrink_images:
                     # Shrink to less than 5mb
@@ -184,13 +209,13 @@ def convert_to_openai_messages(
 
                             # Convert the image back to base64
                             buffered = io.BytesIO()
-                            img.save(buffered, format=extension)
+                            img.save(buffered, format=save_format)
                             encoded_string = base64.b64encode(
                                 buffered.getvalue()
                             ).decode("utf-8")
 
                             # Set the content
-                            content = f"data:image/{extension};base64,{encoded_string}"
+                            content = f"data:image/{mimetype};base64,{encoded_string}"
 
                             # Recalculate the size of the content in bytes
                             content_size_bytes = sys.getsizeof(str(content))

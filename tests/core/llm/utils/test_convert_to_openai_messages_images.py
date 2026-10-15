@@ -107,3 +107,95 @@ def test_shrink_gives_up_after_ten_passes_and_still_sends_the_image(
     assert base64.b64decode(url.split(",", 1)[1]) == stub.saved_bytes
     assert stub.resizes == 10, "the retry budget is ten passes"
     assert "Attempted to shrink the image but failed" in capsys.readouterr().out
+
+
+def _oversized_jpeg_path(tmp_path, name):
+    """A JPEG on disk whose base64 exceeds the 5MB shrink threshold."""
+    import os
+
+    from PIL import Image
+
+    img = Image.frombytes("RGB", (2200, 2200), os.urandom(2200 * 2200 * 3))
+    p = tmp_path / name
+    img.save(str(p), format="JPEG", quality=100)
+    return str(p)
+
+
+@pytest.mark.parametrize("name", ["photo.jpeg", "photo.jpg", "photo.JPG"])
+def test_shrinking_a_large_jpeg_does_not_raise_on_the_extension(interpreter, tmp_path, name):
+    """A .jpg/.JPG over 5MB shrinks instead of crashing with KeyError from PIL.
+
+    The extension was passed to Image.save verbatim, but PIL registers the save
+    format as "JPEG" — "JPG"/"jpg" raise KeyError. That propagated out of
+    Llm.run and, via the bare except in the terminal, killed the CLI. The
+    extension is now mapped through PIL's own registry, and the emitted data
+    URI mimetype is normalised (jpg -> jpeg) to match.
+    """
+    path = _oversized_jpeg_path(tmp_path, name)
+    messages = [{"role": "user", "type": "image", "format": "path", "content": path}]
+
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=True, interpreter=interpreter
+    )
+
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/jpeg;base64,")
+    # actually shrunk below the 5 MB budget
+    assert len(url) / 1024 / 1024 < 5
+
+
+def test_unknown_extension_labels_bytes_by_detected_format(interpreter):
+    """A JPEG with an unrecognized extension is served as image/jpeg, not png.
+
+    With an unknown extension the bytes pass through unmodified (below the
+    shrink threshold), so the data URI mimetype must describe the actual
+    bytes. Falling back to PNG mislabeled JPEG bytes as data:image/png.
+    The real format is now detected from the image header (CodeRabbit
+    review of #347).
+    """
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(buf, format="JPEG")
+    raw = buf.getvalue()
+    messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "base64.bin",
+            "content": base64.b64encode(raw).decode(),
+        }
+    ]
+
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=True, interpreter=interpreter
+    )
+
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/jpeg;base64,")
+    assert base64.b64decode(url.split(",", 1)[1]) == raw
+
+
+def test_garbage_bytes_with_unknown_extension_fall_back_to_png(interpreter):
+    """Undetectable bytes under an unknown extension stay PNG-labelled.
+
+    When PIL cannot even open the payload, there is no detected format, so
+    the PNG fallback applies as before instead of crashing the conversion.
+    """
+    messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "base64.bin",
+            "content": base64.b64encode(b"not an image at all").decode(),
+        }
+    ]
+
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=False, interpreter=interpreter
+    )
+
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/png;base64,")
