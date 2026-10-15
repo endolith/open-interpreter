@@ -161,7 +161,8 @@ def start_terminal_interface(interpreter):
             "nickname": "dt",
             "help_text": "disables sending of basic anonymous usage stats",
             "type": bool,
-            "default": False,
+            # No default: an attribute-bound argument must stay None when it
+            # isn't passed, or set_attributes would apply it over the profile.
             "attribute": {"object": interpreter, "attr_name": "disable_telemetry"},
         },
         {
@@ -184,7 +185,9 @@ def start_terminal_interface(interpreter):
             "help_text": "optionally enable safety mechanisms like code scanning; valid options are off, ask, and auto",
             "type": str,
             "choices": ["off", "ask", "auto"],
-            "default": "off",
+            # No default: an attribute-bound argument must stay None when it
+            # isn't passed, or set_attributes would apply it over the profile.
+            # OpenInterpreter already defaults safe_mode to "off".
             "attribute": {"object": interpreter, "attr_name": "safe_mode"},
         },
         {
@@ -417,12 +420,6 @@ Use """ to write multi-line messages.
     if args.no_highlight_active_line:
         interpreter.highlight_active_line = False
 
-    # if safe_mode and auto_run are enabled, safe_mode disables auto_run
-    if interpreter.auto_run and (
-        interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto"
-    ):
-        setattr(interpreter, "auto_run", False)
-
     ### Set attributes on interpreter, so that a profile script can read the arguments passed in via the CLI
 
     set_attributes(args, arguments)
@@ -476,10 +473,18 @@ Use """ to write multi-line messages.
     ### Set attributes on interpreter, because the arguments passed in via the CLI should override profile
 
     set_attributes(args, arguments)
-    interpreter.disable_telemetry = (
-        os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
-        or args.disable_telemetry
-    )
+
+    # The environment variable can only turn telemetry off, never back on
+    if os.getenv("DISABLE_TELEMETRY", "false").lower() == "true":
+        interpreter.disable_telemetry = True
+
+    # if safe_mode and auto_run are enabled, safe_mode disables auto_run.
+    # This has to run last, once the profile and the CLI flags have both been
+    # applied, or it would only ever see the constructor's defaults.
+    if interpreter.auto_run and (
+        interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto"
+    ):
+        interpreter.auto_run = False
 
     ### Set some helpful settings we know are likely to be true
 
