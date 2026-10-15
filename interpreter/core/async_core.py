@@ -685,7 +685,18 @@ def create_router(async_interpreter):
                         # If we've sent all unsent messages, get a new output
                         if not async_interpreter.unsent_messages:
                             output = await async_interpreter.output()
-                            success = await send_message(output)
+                            try:
+                                success = await send_message(output)
+                            except asyncio.CancelledError:
+                                # Cancelled mid-delivery (e.g. the client went
+                                # away while awaiting acknowledgement): delivery
+                                # is unconfirmed and this fresh output lives
+                                # nowhere else, so park it for the next
+                                # connection instead of dropping it. Queued
+                                # outputs need no such guard — they stay in
+                                # the deque until a confirmed send pops them.
+                                async_interpreter.unsent_messages.append(output)
+                                raise
                             if not success:
                                 async_interpreter.unsent_messages.append(output)
                                 if async_interpreter.debug:
