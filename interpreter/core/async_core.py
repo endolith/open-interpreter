@@ -685,7 +685,18 @@ def create_router(async_interpreter):
                         # If we've sent all unsent messages, get a new output
                         if not async_interpreter.unsent_messages:
                             output = await async_interpreter.output()
-                            success = await send_message(output)
+                            try:
+                                success = await send_message(output)
+                            except asyncio.CancelledError:
+                                # Cancelled mid-delivery (e.g. the client went
+                                # away while awaiting acknowledgement): delivery
+                                # is unconfirmed and this fresh output lives
+                                # nowhere else, so park it for the next
+                                # connection instead of dropping it. Queued
+                                # outputs need no such guard — they stay in
+                                # the deque until a confirmed send pops them.
+                                async_interpreter.unsent_messages.append(output)
+                                raise
                             if not success:
                                 async_interpreter.unsent_messages.append(output)
                                 if async_interpreter.debug:
@@ -777,7 +788,35 @@ def create_router(async_interpreter):
 
                 return False
 
-            await asyncio.gather(receive_input(), send_output())
+            # gather() would wait for both, but send_output() parks on
+            # `await output()` and only rechecks the socket at the top of its
+            # loop. When the client disconnects, receive_input() returns while
+            # send_output() stays parked; the next queue item then wakes this
+            # dead consumer (janus notifies the oldest waiter first), which
+            # steals the item before noticing the socket is gone. Every
+            # disconnect leaves one more parked consumer, each swallowing one
+            # message of the next turn. So run them as tasks and cancel the
+            # other the moment one finishes — a cancelled `await output()` does
+            # not dequeue, so the item is left for the live connection.
+            receive_task = asyncio.ensure_future(receive_input())
+            send_task = asyncio.ensure_future(send_output())
+            try:
+                done, pending = await asyncio.wait(
+                    {receive_task, send_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                # asyncio.wait does not cancel its children when this endpoint
+                # is itself cancelled (uvicorn shutdown), unlike gather, so
+                # clean up on every exit path or a parked send_task survives.
+                for task in (receive_task, send_task):
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+            for task in done:
+                task.result()  # re-raise anything the finished task failed with
 
         except Exception as e:
             error = traceback.format_exc() + "\n" + str(e)

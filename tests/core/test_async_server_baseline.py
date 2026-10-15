@@ -238,3 +238,219 @@ print("COMPLETED")
         "endpoint subprocess did not report completion "
         f"(stdout={result.stdout!r} stderr={result.stderr!r})"
     )
+
+
+def test_send_output_is_cancelled_when_the_client_disconnects():
+    """A client that disconnects with nothing queued must not leave a parked consumer.
+
+    send_output() blocks on `await output()` when the queue is empty, and only
+    rechecks the socket at the top of its loop. With gather() waiting for both
+    coroutines, a disconnect returned receive_input() while send_output() stayed
+    parked on the shared queue forever. The next item put by any turn then woke
+    that dead consumer first (janus notifies the oldest waiter), which stole the
+    item before noticing the socket was gone — one message swallowed per stale
+    connection, growing with server uptime.
+
+    Here the queue is empty and never fed, so a parked send_output() never
+    returns on its own: the endpoint must cancel it when receive_input() ends,
+    or the coroutine hangs. Run in a subprocess with a hard OS timeout, since a
+    hang cannot be caught by an in-process wait_for.
+    """
+
+    import subprocess
+    import sys
+
+    script = """
+import asyncio
+import os
+from collections import deque
+
+os.environ["INTERPRETER_REQUIRE_AUTH"] = "False"
+
+from interpreter.core.async_core import AsyncInterpreter, Server
+from starlette.routing import WebSocketRoute
+from starlette.websockets import WebSocketState
+
+
+async def run_endpoint():
+    interpreter = AsyncInterpreter()
+    interpreter.require_acknowledge = False
+    interpreter.unsent_messages = deque()  # nothing queued, so send_output parks
+
+    server = Server(interpreter)
+    endpoint = next(
+        r.endpoint
+        for r in server.app.routes
+        if isinstance(r, WebSocketRoute) and r.path == "/"
+    )
+
+    class DisconnectingWebSocket:
+        def __init__(self):
+            self.headers = {}
+            self.client_state = WebSocketState.CONNECTED
+
+        async def accept(self):
+            pass
+
+        async def receive(self):
+            # The client drops immediately; receive_input() returns.
+            return {"type": "websocket.disconnect"}
+
+        async def send_text(self, data):
+            pass
+
+        async def send_bytes(self, data):
+            pass
+
+    # If send_output() is not cancelled it parks on the empty queue forever and
+    # this never returns.
+    await asyncio.wait_for(endpoint(DisconnectingWebSocket()), timeout=8)
+
+
+asyncio.run(run_endpoint())
+print("COMPLETED")
+"""
+
+    # Budget generously, matching the sibling test above: the regression this
+    # pins is an *infinite* hang, so any finite budget catches it, while the
+    # child cold-imports the interpreter stack, which can exceed a tight budget
+    # on slow or heavily loaded runners (observed over 15s on macOS CI,
+    # especially under coverage instrumentation).
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        raise AssertionError(
+            "endpoint did not return after the client disconnected — "
+            "send_output was left parked on the queue"
+        )
+
+    assert result.returncode == 0, (
+        f"endpoint subprocess failed: rc={result.returncode} "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "COMPLETED" in result.stdout, (
+        f"endpoint did not report completion (stdout={result.stdout!r} stderr={result.stderr!r})"
+    )
+
+
+def test_websocket_task_failure_is_reported_as_server_error():
+    """A failing websocket task surfaces as a server error, not a crash.
+
+    Both halves of the endpoint swallow ordinary exceptions, so the only
+    thing that can still reach the connection handler is a task itself
+    failing (here: receive_input dies because the error report it tried to
+    send also failed). task.result() re-raises it into the outer handler,
+    which records a server error for the next connection and returns.
+    Without that re-raise the failure would escape the endpoint and kill
+    the connection with nothing recorded.
+    """
+    import asyncio
+    from collections import deque
+
+    from starlette.routing import WebSocketRoute
+    from starlette.websockets import WebSocketState
+    from websockets.exceptions import ConnectionClosedOK
+
+    interpreter = AsyncInterpreter()
+    interpreter.require_acknowledge = False
+    interpreter.unsent_messages = deque()
+
+    server = Server(interpreter)
+    endpoint = next(
+        r.endpoint
+        for r in server.app.routes
+        if isinstance(r, WebSocketRoute) and r.path == "/"
+    )
+
+    class FailingReportWebSocket:
+        """Connected socket whose sends fail and whose input is garbage."""
+
+        def __init__(self):
+            self.headers = {}
+            self.client_state = WebSocketState.CONNECTED
+
+        async def accept(self):
+            pass
+
+        async def receive(self):
+            return {"type": "websocket.receive", "text": "{invalid json"}
+
+        async def send_text(self, data):
+            raise ConnectionClosedOK(None, None)
+
+        async def send_bytes(self, data):
+            raise ConnectionClosedOK(None, None)
+
+    asyncio.run(endpoint(FailingReportWebSocket()))
+
+    errors = [
+        message
+        for message in interpreter.unsent_messages
+        if message.get("type") == "error"
+    ]
+    assert errors, "the task failure was not recorded as a server error"
+
+
+def test_websocket_endpoint_cancellation_cancels_child_tasks():
+    """Cancelling the endpoint (server shutdown) must not strand child tasks.
+
+    asyncio.wait, unlike gather, does not cancel its children when the waiter
+    itself is cancelled. Without finally-cleanup, a shutdown cancel landing
+    while the endpoint waits leaves send_task parked on the shared output
+    queue, where it later steals the next turn's first message as a stale
+    consumer. Cancel the endpoint mid-flight and require prompt
+    CancelledError with no lingering tasks.
+    """
+    import asyncio
+
+    from starlette.routing import WebSocketRoute
+    from starlette.websockets import WebSocketState
+
+    async def run():
+        interpreter = AsyncInterpreter()
+        interpreter.require_acknowledge = False
+
+        server = Server(interpreter)
+        endpoint = next(
+            r.endpoint
+            for r in server.app.routes
+            if isinstance(r, WebSocketRoute) and r.path == "/"
+        )
+
+        class ParkingWebSocket:
+            """Socket that never sends anything and never disconnects."""
+
+            def __init__(self):
+                self.headers = {}
+                self.client_state = WebSocketState.CONNECTED
+
+            async def accept(self):
+                pass
+
+            async def receive(self):
+                await asyncio.Future()  # parks forever
+
+            async def send_text(self, data):
+                pass
+
+            async def send_bytes(self, data):
+                pass
+
+        task = asyncio.ensure_future(endpoint(ParkingWebSocket()))
+        await asyncio.sleep(0.5)  # let both children park
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        lingering = [
+            t
+            for t in asyncio.all_tasks()
+            if t is not asyncio.current_task() and not t.done()
+        ]
+        assert not lingering, "endpoint cancellation stranded child tasks"
+
+    asyncio.run(run())
