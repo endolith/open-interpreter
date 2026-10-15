@@ -92,7 +92,7 @@ def respond(interpreter):
                     f"""> Max budget exceeded
 
                     **Session spend:** ${litellm._current_cost}
-                    **Max budget:** ${interpreter.max_budget}
+                    **Max budget:** ${interpreter.llm.max_budget}
 
                     Press CTRL-C then run `interpreter --max_budget [higher USD amount]` to proceed.
                 """
