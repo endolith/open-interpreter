@@ -142,3 +142,37 @@ def test_shrinking_a_large_jpeg_does_not_raise_on_the_extension(interpreter, tmp
     assert url.startswith("data:image/jpeg;base64,")
     # actually shrunk below the 5 MB budget
     assert len(url) / 1024 / 1024 < 5
+
+
+def test_unknown_extension_labels_bytes_by_detected_format(interpreter):
+    """A JPEG with an unrecognized extension is served as image/jpeg, not png.
+
+    With an unknown extension the bytes pass through unmodified (below the
+    shrink threshold), so the data URI mimetype must describe the actual
+    bytes. Falling back to PNG mislabeled JPEG bytes as data:image/png.
+    The real format is now detected from the image header (CodeRabbit
+    review of #347).
+    """
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(buf, format="JPEG")
+    raw = buf.getvalue()
+    messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "base64.bin",
+            "content": base64.b64encode(raw).decode(),
+        }
+    ]
+
+    result = convert_to_openai_messages(
+        messages, vision=True, shrink_images=True, interpreter=interpreter
+    )
+
+    url = result[0]["content"][0]["image_url"]["url"]
+    assert url.startswith("data:image/jpeg;base64,")
+    assert base64.b64decode(url.split(",", 1)[1]) == raw
