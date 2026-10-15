@@ -990,7 +990,10 @@ class TestTerminalLanguages(unittest.TestCase):
         bash = Bash()
         bash_result = bash.preprocess_code("make 2>nul")
         self.assertIn("make 2>/dev/null", bash_result)
-        self.assertIn('echo "##end_of_execution##"', bash_result)
+        # Bash's end marker carries the captured exit status (see
+        # test_bash_exit_code.py); the plain marker text only survives in
+        # shells without exit-code reporting, like PowerShell below.
+        self.assertIn('echo "##end_of_execution##$__oi_exit_code"', bash_result)
         with patch(
             "interpreter.core.terminal.languages.powershell.resolve_powershell_executable",
             return_value="pwsh",
