@@ -95,7 +95,7 @@ class CodeBlock(BaseBlock):
             self.live.refresh()
             self.live.stop()
 
-        if self.code.strip():
+        if self.code:
             self._print_permanent_block(self.code, "code")
             # Update code_lines_popped to maintain relative line numbering
             self.code_lines_popped += len(self.code.split('\n'))
@@ -108,7 +108,13 @@ class CodeBlock(BaseBlock):
 
     def _print_permanent_block(self, content, format_type):
         """Helper to render a completed segment and print it directly to console."""
-        if not content.strip():
+        if format_type == "code":
+            # Code panels show code verbatim: leading/trailing blank lines are
+            # part of the code (e.g. an append block starting with \n\n) and
+            # must not be trimmed, or the panel misrepresents what will run.
+            if not content:
+                return
+        elif not content.strip():
             return
 
         if format_type == "code":
@@ -120,7 +126,7 @@ class CodeBlock(BaseBlock):
             )
             code_table.add_column()
 
-            code_lines = content.strip().split("\n")
+            code_lines = content.split("\n")
             for line in code_lines:
                 syntax = Syntax(
                     line,
@@ -195,7 +201,7 @@ class CodeBlock(BaseBlock):
         # If active line highlighting is disabled, we permanently render the code block when it finishes
         # streaming to avoid repeated refreshes corrupting terminal history.
         # We know it's finished streaming if self.active_line is not None OR self.output has content.
-        if not should_highlight and self.code.strip() and (self.active_line is not None or self.output.strip()):
+        if not should_highlight and self.code and (self.active_line is not None or self.output.strip()):
             self._print_permanent_block(self.code, "code")
             self.code_lines_popped += len(self.code.split('\n'))
             self.code = ""
@@ -205,7 +211,7 @@ class CodeBlock(BaseBlock):
         # print it once in finalize().
 
         # Render the remaining content
-        if not self.code.strip() and not self.output.strip():
+        if not self.code and not self.output.strip():
             self.live.update("")
             return
 
@@ -213,7 +219,7 @@ class CodeBlock(BaseBlock):
         # or this is a write edit preview (content is the target file body).
         write_preview = self.language == "write" and self.target_path
         # write previews need syntax even when active_line highlighting is off.
-        use_syntax_panel = self.code.strip() and (
+        use_syntax_panel = self.code and (
             write_preview or (should_highlight and self.active_line is not None)
         )
         if use_syntax_panel:
@@ -233,7 +239,7 @@ class CodeBlock(BaseBlock):
             syntax_language = self._syntax_language()
 
             # Add each line of code to the table
-            code_lines = code.strip().split("\n")
+            code_lines = code.split("\n")
             for i, line in enumerate(code_lines, start=1):
                 if i == self.active_line:
                     # This is the active line, print it with a white background
@@ -296,8 +302,8 @@ class CodeBlock(BaseBlock):
         # Otherwise, stream as raw non-highlighted text in a Live sliding window
         # Prepare streaming buffer lines
         buffer_lines = []
-        if self.code.strip():
-            buffer_lines.extend(self.code.strip().split('\n'))
+        if self.code:
+            buffer_lines.extend(self.code.split('\n'))
         if self.output.strip():
             if buffer_lines:
                 buffer_lines.append("") # Spacer
