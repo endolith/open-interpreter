@@ -83,6 +83,10 @@ edit_tool_schema = {
             "  yq    — yq (mikefarah) expression (multi-line OK). Supports YAML, JSON, TOML, XML, CSV, "
             "properties files.\n"
             "  poke  — GNU poke statements for binary files; the file is auto-opened (never use .file) and statements apply in place. Addresses are offsets WITH a unit suffix, never bare integers (a bare 0 fails with 'expected offset, got int'): #b counts bits, #B counts bytes, so byte N is N#B, i.e. 8*N#b. Example: uint8 @ 0#B = 0x5A; sets the first byte to 'Z'.\n"
+            "  append — code is appended verbatim to the end of the file (file must exist). "
+            "No separator newline is added: when the file does not end with a blank line, "
+            "start code with \\n (e.g. '\\n## Header\\n...') or the text runs onto the last line. "
+            "Line endings are converted to match the file (CRLF preserved).\n"
             "  patch — a BARE unified diff: '--- <file>' / '+++ <file>' header lines then @@ hunks. "
             "Do NOT wrap it in '*** Begin Patch' / '*** Update File:' / '*** End Patch' — patch "
             "cannot read that envelope and reports 'Only garbage was found in the patch input'. "
@@ -100,7 +104,7 @@ edit_tool_schema = {
                 "language": {
                     "type": "string",
                     "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | gawk | jq | yq | poke | patch",
+                    "description": "write | sed | gawk | jq | yq | poke | append | patch",
                 },
                 "code": {
                     "type": "string",
@@ -1119,8 +1123,10 @@ def run_tool_calling_llm(llm, request_params):
                     error_msg = "edit: 'code' is required."
                 elif not isinstance(edit_code, str):
                     error_msg = f"edit: 'code' must be a string, got {type(edit_code).__name__}"
-                elif not edit_code.strip() and edit_language != "write":
+                elif not edit_code.strip() and edit_language not in ("write", "append"):
                     error_msg = f"edit: 'code' cannot be empty for language {edit_language!r}."
+                elif edit_language == "append" and not edit_code:
+                    error_msg = "edit: 'code' cannot be empty for language 'append'."
                 elif not edit_target:
                     error_msg = "edit: 'target' is required."
                 elif not os.path.isabs(edit_target):
