@@ -206,7 +206,16 @@ def apply_profile(interpreter, profile, profile_path):
             for i in interpreter.computer.languages
             if i.name.lower() in [l.lower() for l in profile["computer"]["languages"]]
         ]
-        del profile["computer"]["languages"]
+        # Drop the key from a copy so the caller's dictionary keeps the
+        # filter for repeated applications of the same profile.
+        profile = {
+            **profile,
+            "computer": {
+                key: value
+                for key, value in profile["computer"].items()
+                if key != "languages"
+            },
+        }
 
     apply_profile_to_object(interpreter, profile)
 
@@ -253,7 +262,17 @@ def migrate_profile(old_path, new_path):
             # Move to the next level of the nested structure
             current_level = current_level[part]
         # Set the value at the deepest level
-        current_level[keys[-1]] = value
+        if (
+            isinstance(value, dict)
+            and keys[-1] in current_level
+            and isinstance(current_level[keys[-1]], dict)
+        ):
+            # A legacy nested dict (e.g. `llm`) must merge with settings
+            # already created from flat keys (e.g. `model` -> `llm.model`)
+            # instead of replacing them.
+            current_level[keys[-1]] = {**current_level[keys[-1]], **value}
+        else:
+            current_level[keys[-1]] = value
 
     profile = reformatted_profile
 
