@@ -17,6 +17,7 @@ from interpreter.core.tools.file_edit import (
     _write_temp_script,
     _yq_eval_argv_candidates,
     dry_run_edit,
+    run_append,
     run_edit,
     run_gawk,
     run_jq,
@@ -31,6 +32,7 @@ from interpreter.core.tools.file_edit import (
 class TestEditLanguagesRegistry(unittest.TestCase):
     def test_expected_languages_registered(self):
         self.assertNotIn("comby", EDIT_LANGUAGES)
+        self.assertIn("append", EDIT_LANGUAGES)
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
         self.assertNotIn("ed", EDIT_LANGUAGES)
@@ -767,6 +769,68 @@ class TestDryRunPreviewIsADiff(unittest.TestCase):
         self.assertFalse(_looks_like_unified_diff("x = 1\ny = 2\n"))
         # An error message must not be mistaken for a diff either.
         self.assertFalse(_looks_like_unified_diff("sed: can't read f.txt\n"))
+
+
+class TestRunAppend(unittest.TestCase):
+    def test_append_verbatim_without_separator(self):
+        """Append adds no separator: without a leading newline the text joins the last line."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "# Title\n")
+            run_append(target, "body line\n")
+            self.assertEqual(
+                open(target, encoding="utf-8").read(), "# Title\nbody line\n"
+            )
+
+    def test_append_requires_leading_newline_for_spacing(self):
+        """Spacing (e.g. before a markdown header) needs an explicit leading newline."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "# Title\n")
+            run_append(target, "\n## Section\n")
+            self.assertEqual(
+                open(target, encoding="utf-8").read(), "# Title\n\n## Section\n"
+            )
+
+    def test_append_converts_lf_to_crlf(self):
+        """Appending LF text to a CRLF file keeps the file CRLF-only."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"@echo off\r\n")
+            run_append(target, "echo hi\n")
+            data = Path(target).read_bytes()
+            self.assertEqual(data, b"@echo off\r\necho hi\r\n")
+
+    def test_append_requires_existing_file(self):
+        """Append targets an existing file; it never creates one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "missing.txt")
+            with self.assertRaises(FileNotFoundError):
+                run_append(target, "text\n")
+
+    def test_append_rejects_empty_block(self):
+        """An empty block is a caller error, not a no-op."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "hi\n")
+            with self.assertRaises(ValueError):
+                run_append(target, "")
+
+    def test_append_dry_run_shows_diff(self):
+        """Dry-run previews the appended result as a unified diff."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "a\n")
+            preview = dry_run_edit("append", "b\n", target)
+            self.assertIsNotNone(preview)
+            self.assertIn("+b", preview["output"])
+
+    def test_append_via_dispatch(self):
+        """run_edit routes append to the append runner."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "a\n")
+            self.assertTrue(run_edit("append", "b\n", target).startswith("Appended"))
 
 
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
