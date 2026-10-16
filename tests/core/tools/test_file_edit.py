@@ -9,6 +9,8 @@ from unittest import mock
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _assert_mikefarah_yq,
+    _detect_newline_style,
+    _normalize_to_style,
     _poke_prepare_script,
     _reject_wrong_os_path,
     _validate_target,
@@ -82,6 +84,59 @@ class TestValidateTarget(unittest.TestCase):
             _reject_wrong_os_path("\\\\server\\share\\file.txt")
         with mock.patch("platform.system", return_value="Linux"):
             _reject_wrong_os_path("/home/test/file.txt")
+
+
+class TestNewlineStyle(unittest.TestCase):
+    def test_detect_crlf_lf_and_none(self):
+        """CRLF detection drives preservation; empty files have no style to keep."""
+        self.assertEqual(_detect_newline_style(b"a\r\nb\r\n"), b"\r\n")
+        self.assertEqual(_detect_newline_style(b"a\nb\n"), b"\n")
+        self.assertIsNone(_detect_newline_style(b""))
+        self.assertIsNone(_detect_newline_style(b"no-newline"))
+
+    def test_mixed_file_treated_as_crlf(self):
+        """Mixed endings converge to CRLF rather than flipping each edit."""
+        self.assertEqual(_detect_newline_style(b"a\r\nb\n"), b"\r\n")
+
+    def test_normalize_to_style_does_not_double_crlf(self):
+        """Normalizing via LF first avoids turning CRLF into CRCRLF."""
+        self.assertEqual(
+            _normalize_to_style(b"a\r\nb\n", b"\r\n"), b"a\r\nb\r\n"
+        )
+        self.assertEqual(
+            _normalize_to_style(b"a\r\nb\r\n", b"\n"), b"a\nb\n"
+        )
+
+
+class TestCrlfPreservation(unittest.TestCase):
+    def test_write_replacement_keeps_crlf(self):
+        """Rewriting a CRLF file (e.g. .bat) with LF text must not convert it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"@echo off\r\necho hi\r\n")
+            run_write(target, "@echo off\necho bye\n")
+            self.assertEqual(
+                Path(target).read_bytes(), b"@echo off\r\necho bye\r\n"
+            )
+
+    def test_write_new_file_keeps_given_endings(self):
+        """New files have no style to preserve, so they are written as given."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "new.txt")
+            run_write(target, "a\r\nb\r\n")
+            self.assertEqual(Path(target).read_bytes(), b"a\r\nb\r\n")
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_keeps_crlf(self):
+        """sed emits LF; the wrapper must restore CRLF afterwards."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"echo hi\r\necho bye\r\n")
+            run_sed(target, "s/hi/hello/")
+            data = Path(target).read_bytes()
+            self.assertIn(b"hello", data)
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+            self.assertIn(b"\r\n", data)
 
 
 class TestRunWrite(unittest.TestCase):
@@ -712,6 +767,28 @@ class TestDryRunPreviewIsADiff(unittest.TestCase):
         self.assertFalse(_looks_like_unified_diff("x = 1\ny = 2\n"))
         # An error message must not be mistaken for a diff either.
         self.assertFalse(_looks_like_unified_diff("sed: can't read f.txt\n"))
+
+
+@unittest.skipUnless(shutil.which("patch"), "patch not installed")
+class TestRunPatchCrlf(unittest.TestCase):
+    def test_patch_crlf_file_keeps_crlf(self):
+        """A patch with LF context applies to a CRLF file without converting it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"@echo off\r\necho hi\r\necho bye\r\necho end\r\n")
+            diff = (
+                "--- script.bat\n+++ script.bat\n"
+                "@@ -1,4 +1,4 @@\n"
+                " @echo off\n"
+                "-echo hi\n"
+                "+echo hello\n"
+                " echo bye\n"
+                " echo end\n"
+            )
+            run_patch(target, diff)
+            data = Path(target).read_bytes()
+            self.assertIn(b"echo hello\r\n", data)
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
 
 
 class TestPokeScript(unittest.TestCase):
