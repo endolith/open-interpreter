@@ -83,8 +83,6 @@ edit_tool_schema = {
             "  yq    — yq (mikefarah) expression (multi-line OK). Supports YAML, JSON, TOML, XML, CSV, "
             "properties files.\n"
             "  poke  — GNU poke statements for binary files; the file is auto-opened (never use .file) and statements apply in place. Addresses are offsets WITH a unit suffix, never bare integers (a bare 0 fails with 'expected offset, got int'): #b counts bits, #B counts bytes, so byte N is N#B, i.e. 8*N#b. Example: uint8 @ 0#B = 0x5A; sets the first byte to 'Z'.\n"
-            "  comby — structural match/replace: match template, then --- line, then rewrite "
-            "(or match on line 1, rewrite on following lines).\n"
             "  patch — a BARE unified diff: '--- <file>' / '+++ <file>' header lines then @@ hunks. "
             "Do NOT wrap it in '*** Begin Patch' / '*** Update File:' / '*** End Patch' — patch "
             "cannot read that envelope and reports 'Only garbage was found in the patch input'. "
@@ -102,7 +100,7 @@ edit_tool_schema = {
                 "language": {
                     "type": "string",
                     "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | gawk | jq | yq | poke | comby | patch",
+                    "description": "write | sed | gawk | jq | yq | poke | patch",
                 },
                 "code": {
                     "type": "string",

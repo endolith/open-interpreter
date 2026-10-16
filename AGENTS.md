@@ -13,8 +13,7 @@ Any feature branches that target `classic/develop` should have a `develop/` pref
 Tests **do** run on this branch — run them. The suite is currently green
 (`python -m pytest -m "not integration"` — 583 passed, 0 failed), so a failure is
 yours until shown otherwise. Skips are expected and legitimate: they gate on
-things a given machine does not have (`pwsh`, `R`, `yq`, `gawk`, `patch`, `poke`,
-`comby`), and each says which.
+things a given machine does not have (`pwsh`, `R`, `yq`, `gawk`, `patch`, `poke`), and each says which.
 
 Most unit tests here were written after the fact by an AI, assuming the code was
 correct — so a surprising failure is more often a bad test than a regression (see
