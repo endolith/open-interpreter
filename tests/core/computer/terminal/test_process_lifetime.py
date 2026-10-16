@@ -82,3 +82,36 @@ def test_terminate_is_idempotent():
 
     interpreter.computer.terminal.terminate()
     interpreter.computer.terminal.terminate()
+
+
+def test_terminate_live_terminals_survives_dead_runtime():
+    """The atexit hook terminates every live terminal and never raises.
+
+    A runtime that is already gone (terminate() raises) must not fail exit,
+    and the remaining terminals must still get their terminate() call.
+    """
+    from interpreter.core.computer.terminal.terminal import (
+        _LIVE_TERMINALS,
+        _terminate_live_terminals,
+    )
+
+    class DeadRuntime:
+        def terminate(self):
+            raise RuntimeError("already gone")
+
+    class LiveRuntime:
+        def __init__(self):
+            self.terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+    dead, live = DeadRuntime(), LiveRuntime()
+    _LIVE_TERMINALS.add(dead)
+    _LIVE_TERMINALS.add(live)
+    try:
+        _terminate_live_terminals()  # must not raise
+    finally:
+        _LIVE_TERMINALS.discard(dead)
+        _LIVE_TERMINALS.discard(live)
+    assert live.terminated is True
