@@ -50,7 +50,7 @@ jobs:
           done
           # Optional: each needs a release download or an extra repo. Report
           # rather than fail, so the skipped count in the log is explainable.
-          for bin in perl yq poke comby; do
+          for bin in perl yq poke; do
             if command -v "$bin" >/dev/null; then
               echo "present: $bin"
             else
