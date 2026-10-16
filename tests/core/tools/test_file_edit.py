@@ -931,6 +931,96 @@ class TestRunAppend(unittest.TestCase):
             self.assertTrue(run_edit("append", "b\n", target).startswith("Appended"))
 
 
+class TestEolConversionNotes(unittest.TestCase):
+    def test_write_notes_conversion_only_when_changed(self):
+        """The model must see that its block's newlines were altered — but only then.
+
+        Same-style rewrites keep the plain result so existing prompts and tests
+        that match on it never see the note.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"a\r\n")
+            out = run_write(crlf_target, "a\nb\n")
+            self.assertIn("note:", out)
+            self.assertIn("CRLF", out)
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"a\n")
+            self.assertNotIn("note:", run_write(lf_target, "a\nb\n"))
+
+    def test_append_notes_conversion_only_when_changed(self):
+        """Appending LF text to a CRLF file converts the block; the result says so."""
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"a\r\n")
+            self.assertIn("note:", run_append(crlf_target, "b\n"))
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"a\n")
+            self.assertNotIn("note:", run_append(lf_target, "b\n"))
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_notes_conversion_only_when_changed(self):
+        """sed output needing conversion for a CRLF target is reported, not silent.
+
+        sed preserves existing CRLF pairs, so a plain substitution converts
+        nothing (no note); a script introducing bare-LF breaks does convert.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"echo hi\r\n")
+            self.assertNotIn("note:", run_sed(crlf_target, "s/hi/bye/"))
+            Path(crlf_target).write_bytes(b"echo hi\r\n")
+            out = run_sed(crlf_target, r"s/hi/bye\nsecond/")
+            self.assertIn("note:", out)
+            self.assertEqual(
+                Path(crlf_target).read_bytes(), b"echo bye\r\nsecond\r\n"
+            )
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"echo hi\n")
+            self.assertNotIn("note:", run_sed(lf_target, "s/hi/bye/"))
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_preview_warns_of_pending_conversion(self):
+        """The human preview warns that applying will convert newlines."""
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"echo hi\r\necho bye\r\n")
+            out = dry_run_edit("sed", r"s/hi/HI\nEXTRA/", crlf_target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("Note:", out)
+            self.assertIn("CRLF", out)
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"echo hi\necho bye\n")
+            out = dry_run_edit("sed", "s/hi/HI/", lf_target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertNotIn("Note:", out)
+
+    def test_append_preview_warns_of_pending_conversion(self):
+        """The append preview warns when the block will be converted on apply."""
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"a\r\n")
+            out = dry_run_edit("append", "b\n", crlf_target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("Note:", out)
+
+    @unittest.skipUnless(shutil.which("patch"), "patch not installed")
+    def test_patch_notes_crlf_round_trip(self):
+        """A patch applied via the LF round-trip reports the conversion."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "f.bat")
+            Path(target).write_bytes(b"a\r\nb\r\n")
+            diff = (
+                "--- f.bat\n+++ f.bat\n"
+                "@@ -1,2 +1,2 @@\n"
+                " a\n"
+                "-b\n"
+                "+B\n"
+            )
+            self.assertIn("note:", run_patch(target, diff))
+            self.assertEqual(Path(target).read_bytes(), b"a\r\nB\r\n")
+
+
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
 class TestRunPatchCrlf(unittest.TestCase):
     def test_patch_crlf_file_keeps_crlf(self):
