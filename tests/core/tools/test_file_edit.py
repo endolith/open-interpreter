@@ -735,6 +735,61 @@ class TestDryRunPreviewIsADiff(unittest.TestCase):
             self.assertIn("no changes", out)
             self.assertLess(out.count("\n"), 3)
 
+    def test_crlf_file_with_nonmatching_pattern_previews_no_changes(self):
+        """A CRLF file must not preview as a full-file diff when nothing changed.
+
+        Regression: the preview diffed the universal-newline file read (LF)
+        against the tool's raw stdout (CRLF preserved by sed), so every line
+        read as removed-and-identical and the user approved a change that did
+        not exist. Anchors like ^charlie$ miss on CRLF files because the
+        pattern space holds charlie\\r.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "crlf_sed.txt")
+            Path(target).write_bytes(b"alpha\r\nBRAVO\r\ncharlie\r\n")
+            out = dry_run_edit("sed", "s/^charlie$/CHARLIE/", target)["output"]
+            self.assertIn("no changes", out)
+            self.assertNotIn("@@ ", out)
+
+    def test_crlf_file_preview_shows_only_the_changed_line(self):
+        """A matching edit on a CRLF file previews a minimal diff.
+
+        The style difference itself must not appear: context lines stay
+        unprefixed, only the edited line shows as -/+.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "crlf_sed.txt")
+            Path(target).write_bytes(b"alpha\r\nBRAVO\r\ncharlie\r\n")
+            out = dry_run_edit("sed", "s/charlie/CHARLIE/", target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("-charlie", out)
+            self.assertIn("+CHARLIE", out)
+            self.assertNotIn("-alpha", out)
+            self.assertNotIn("-BRAVO", out)
+
+    def test_append_preview_on_crlf_file_shows_only_appended_lines(self):
+        """Appending to a CRLF file must not preview existing lines as changed.
+
+        Same cause as the sed preview: the combined text keeps CRLF while the
+        file read does not, so every existing line read as changed.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.bat")
+            Path(target).write_bytes(b"alpha\r\nbravo\r\n")
+            out = dry_run_edit("append", "\n\ncharlie\n", target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("+charlie", out)
+            self.assertNotIn("-alpha", out)
+            self.assertNotIn("-bravo", out)
+
+    def test_write_preview_identical_crlf_content_reports_no_changes(self):
+        """Rewriting a CRLF file with identical CRLF content is a no-op preview."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "same.bat")
+            Path(target).write_bytes(b"a\r\nb\r\n")
+            preview = dry_run_edit("write", "a\r\nb\r\n", target)
+            self.assertIn("no changes", preview["output"])
+
     def test_undecodable_target_reports_that_no_preview_is_available(self):
         """A non-text target must not produce a fabricated diff.
 
