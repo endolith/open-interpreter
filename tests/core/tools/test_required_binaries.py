@@ -5,7 +5,7 @@ from unittest import mock
 from interpreter.core.tools import file_edit
 
 # Languages whose external binary every CI runner must provide. These are the
-# apt-available ones; yq (mikefarah build), comby, poke, R and pwsh each need a
+# apt-available ones; yq (mikefarah build), poke, R and pwsh each need a
 # release download or an extra apt repository, so they stay optional and their
 # tests skip.
 REQUIRED = ("sed", "gawk", "patch", "jq")

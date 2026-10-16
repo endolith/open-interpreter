@@ -10,7 +10,7 @@ Binary resolution mirrors resolve_bash.py: env-var override → PATH → Git usr
 The model never constructs shell command strings; flags and temp-file hygiene live here.
 
 In-place edit strategies (Windows cross-drive safety):
-  - stdout + atomic replace: sed, jq, yq, comby — tool emits the new file; we write a
+  - stdout + atomic replace: sed, jq, yq — tool emits the new file; we write a
     temp sibling in the target's parent directory and os.replace().
   - cwd in target's parent: gawk, patch — tool must edit in place (e.g. gawk without
     print); run with cwd set to the target directory so tool temps stay on that drive.
@@ -18,7 +18,6 @@ In-place edit strategies (Windows cross-drive safety):
 """
 
 import difflib
-import json
 import os
 import platform
 import re
@@ -32,7 +31,7 @@ from ..terminal.languages.resolve_bash import resolve_bash_executable
 EDIT_LANGUAGES = frozenset({
     "sed", "gawk", "jq", "write",
     "yq", "poke",
-    "comby", "patch",
+    "patch",
 })
 
 
@@ -111,23 +110,6 @@ def _normalize_yq_expression(code):
 
 def _resolve_poke():
     return _resolve_binary("INTERPRETER_POKE", ["poke"])
-
-
-def _resolve_comby():
-    return _resolve_binary("INTERPRETER_COMBY", ["comby"])
-
-
-def _comby_json_flag(comby):
-    """comby 1.7+ uses -json-lines; older builds accept -json."""
-    help_result = subprocess.run(
-        [comby, "-help"],
-        capture_output=True,
-        text=True,
-    )
-    help_text = (help_result.stdout or "") + (help_result.stderr or "")
-    if "-json-lines" in help_text:
-        return "-json-lines"
-    return "-json"
 
 
 def _resolve_patch():
@@ -506,78 +488,6 @@ def run_poke(target, code):
     return out if out else "poke: OK"
 
 
-def _split_comby_templates(code):
-    """Match and rewrite templates separated by a line containing only ---."""
-    stripped = code.strip()
-    if "\n---\n" in stripped:
-        match, rewrite = stripped.split("\n---\n", 1)
-        return match.strip(), rewrite.strip()
-    lines = stripped.splitlines()
-    if len(lines) < 2:
-        raise ValueError(
-            "comby: code must be match template and rewrite template "
-            "(two lines, or multiline blocks separated by a --- line)"
-        )
-    return lines[0].strip(), "\n".join(lines[1:]).strip()
-
-
-def _comby_rewritten_source(stdout_bytes):
-    """Parse comby -json / -json-lines stdout for rewritten_source."""
-    raw = (stdout_bytes or b"").decode("utf-8", errors="replace").strip()
-    if not raw:
-        raise RuntimeError("comby: empty output")
-
-    payloads = []
-    if raw.startswith("{"):
-        try:
-            payloads = [json.loads(raw)]
-        except json.JSONDecodeError:
-            payloads = []
-    if not payloads:
-        for line in raw.splitlines():
-            line = line.strip()
-            if line:
-                payloads.append(json.loads(line))
-
-    for data in payloads:
-        if isinstance(data, list):
-            if not data:
-                continue
-            data = data[0]
-        rewritten = data.get("rewritten_source")
-        if rewritten is not None:
-            return rewritten.encode("utf-8")
-
-    raise RuntimeError(
-        f"comby: no rewritten_source in JSON output: {raw[:200]!r}"
-    )
-
-
-def run_comby(target, code):
-    """Structural search/replace via comby -stdin -json-lines (single file, atomic write)."""
-    _validate_target(target, must_exist=True)
-    match, rewrite = _split_comby_templates(code)
-    if not match or not rewrite:
-        raise ValueError("comby: both match and rewrite templates are required")
-
-    comby = _resolve_comby()
-    json_flag = _comby_json_flag(comby)
-    source = Path(target).read_bytes()
-    result = subprocess.run(
-        [comby, "-stdin", json_flag, match, rewrite],
-        input=source,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        stderr = (result.stderr or b"").decode("utf-8", errors="replace")
-        stdout = (result.stdout or b"").decode("utf-8", errors="replace")
-        raise RuntimeError(
-            (stderr or stdout).strip() or f"comby exited with code {result.returncode}"
-        )
-    _atomic_replace_from_stdout(target, _comby_rewritten_source(result.stdout))
-    return "comby: OK"
-
-
 def _hunks_missing_trailing_context(code):
     """Return the 1-based hunk numbers whose last change has <2 context lines after it.
 
@@ -656,7 +566,7 @@ def _cleanup_patch_artifacts(target):
     reads as an unresolved edit on the next visit.
 
     Removing the backup unconditionally is a deliberate choice, not an
-    oversight: every other language in this module (sed, gawk, jq, yq, comby)
+    oversight: every other language in this module (sed, gawk, jq, yq)
     rewrites the target atomically and leaves no backup, so keeping patch's
     would make it the only language that silently deposits .orig files. Callers
     that want the original should copy it themselves before editing.
@@ -942,28 +852,6 @@ def dry_run_edit(language, code, target):
         result = _run_yq_eval(yq, expr, target)
         return _preview(result, diff_against=target)
 
-    if language == "comby":
-        _validate_target(target, must_exist=True)
-        match, rewrite = _split_comby_templates(code)
-        if not match or not rewrite:
-            raise ValueError("comby: both match and rewrite templates are required")
-        comby = _resolve_comby()
-        json_flag = _comby_json_flag(comby)
-        source = Path(target).read_bytes()
-        result = subprocess.run(
-            [comby, "-stdin", json_flag, match, rewrite],
-            input=source,
-            capture_output=True,
-        )
-        if result.returncode != 0:
-            return _preview(result)
-        try:
-            output = _comby_rewritten_source(result.stdout).decode("utf-8", errors="replace")
-        except RuntimeError as exc:
-            return {"output": str(exc), "ok": False}
-        preview = unified_edit_diff(target, output)
-        return {"output": preview if preview is not None else output, "ok": True}
-
     return None
 
 
@@ -993,8 +881,6 @@ def run_edit(language, code, target):
         return run_yq(target, code)
     if language == "poke":
         return run_poke(target, code)
-    if language == "comby":
-        return run_comby(target, code)
     if language == "patch":
         return run_patch(target, code)
     # unreachable given the set-membership check above

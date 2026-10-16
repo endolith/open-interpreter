@@ -9,10 +9,8 @@ from unittest import mock
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _assert_mikefarah_yq,
-    _comby_rewritten_source,
     _poke_prepare_script,
     _reject_wrong_os_path,
-    _split_comby_templates,
     _validate_target,
     _write_temp_script,
     _yq_eval_argv_candidates,
@@ -23,7 +21,6 @@ from interpreter.core.tools.file_edit import (
     run_yq,
     run_patch,
     run_poke,
-    run_comby,
     run_sed,
     run_write,
 )
@@ -31,7 +28,7 @@ from interpreter.core.tools.file_edit import (
 
 class TestEditLanguagesRegistry(unittest.TestCase):
     def test_expected_languages_registered(self):
-        self.assertIn("comby", EDIT_LANGUAGES)
+        self.assertNotIn("comby", EDIT_LANGUAGES)
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
         self.assertNotIn("ed", EDIT_LANGUAGES)
@@ -85,34 +82,6 @@ class TestValidateTarget(unittest.TestCase):
             _reject_wrong_os_path("\\\\server\\share\\file.txt")
         with mock.patch("platform.system", return_value="Linux"):
             _reject_wrong_os_path("/home/test/file.txt")
-
-
-class TestCombyJson(unittest.TestCase):
-    def test_rewritten_source_from_json_object(self):
-        payload = json.dumps({"rewritten_source": "value = 2\n"})
-        out = _comby_rewritten_source(payload.encode())
-        self.assertEqual(out, b"value = 2\n")
-
-    def test_rewritten_source_from_json_lines(self):
-        payload = json.dumps({"rewritten_source": "value = 2\n"})
-        out = _comby_rewritten_source((payload + "\n").encode())
-        self.assertEqual(out, b"value = 2\n")
-
-
-class TestCombyHelpers(unittest.TestCase):
-    def test_split_comby_multiline_separator(self):
-        match, rewrite = _split_comby_templates(":[x] = 1\n---\n:[x] = 2")
-        self.assertEqual(match, ":[x] = 1")
-        self.assertEqual(rewrite, ":[x] = 2")
-
-    def test_split_comby_two_lines(self):
-        match, rewrite = _split_comby_templates("foo\nbar")
-        self.assertEqual(match, "foo")
-        self.assertEqual(rewrite, "bar")
-
-    def test_split_comby_requires_two_parts(self):
-        with self.assertRaises(ValueError):
-            _split_comby_templates("only_one_line")
 
 
 class TestRunWrite(unittest.TestCase):
@@ -743,16 +712,6 @@ class TestDryRunPreviewIsADiff(unittest.TestCase):
         self.assertFalse(_looks_like_unified_diff("x = 1\ny = 2\n"))
         # An error message must not be mistaken for a diff either.
         self.assertFalse(_looks_like_unified_diff("sed: can't read f.txt\n"))
-
-
-@unittest.skipUnless(shutil.which("comby"), "comby not installed")
-class TestRunComby(unittest.TestCase):
-    def test_run_comby_stdin_replace(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "code.py")
-            run_write(target, "value = 1\n")
-            run_comby(target, "value = 1\n---\nvalue = 2\n")
-            self.assertEqual(open(target, encoding="utf-8").read(), "value = 2\n")
 
 
 class TestPokeScript(unittest.TestCase):
