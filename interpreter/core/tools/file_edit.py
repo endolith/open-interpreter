@@ -14,14 +14,15 @@ In-place edit strategies (Windows cross-drive safety):
     temp sibling in the target's parent directory and os.replace().
   - cwd in target's parent: gawk, patch — tool must edit in place (e.g. gawk without
     print); run with cwd set to the target directory so tool temps stay on that drive.
-  - direct open: poke (binary), write (create or replace).
+  - direct open: poke (binary), write (create or replace), append (append to existing).
 Line-ending policy (CRLF vs LF):
   - Text tools (sed, gawk, jq, yq) emit LF even when the target uses CRLF
     (e.g. .bat files), which used to silently convert the whole file. To avoid
     that, stdout-based rewrites and write-replacements are normalized back to
-    the target's original newline style before writing. Poke is binary and
-    never normalized. Patch is applied against an LF-normalized copy when the
-    target is CRLF, then converted back, so LF context lines still match.
+    the target's original newline style before writing, and append converts its
+    block to match. Poke is binary and never normalized. Patch is applied
+    against an LF-normalized copy when the target is CRLF, then converted back,
+    so LF context lines still match.
 """
 
 import difflib
@@ -38,7 +39,7 @@ from ..terminal.languages.resolve_bash import resolve_bash_executable
 EDIT_LANGUAGES = frozenset({
     "sed", "gawk", "jq", "write",
     "yq", "poke",
-    "patch",
+    "append", "patch",
 })
 
 
@@ -315,6 +316,32 @@ def run_write(target, code):
             data = _normalize_to_style(data, style)
     path.write_bytes(data)
     return f"Wrote {len(data)} bytes to {target}"
+
+
+def run_append(target, code):
+    """Append a block of text to the end of an existing file.
+
+    The block is appended verbatim — no separator newline is added. If the file
+    does not end with a newline (or blank line) and one is wanted (e.g. before
+    a markdown header), the code itself must start with one. The block's
+    newlines are converted to match the file's existing style so appending LF
+    text to a CRLF file does not mix styles.
+    """
+    _validate_target(target, must_exist=True)
+    if not isinstance(code, str) or not code:
+        raise ValueError("append: no text in code")
+    path = Path(target)
+    try:
+        original = path.read_bytes()
+    except OSError as exc:
+        raise FileNotFoundError(f"file not found: {target}") from exc
+    data = code.encode("utf-8")
+    style = _detect_newline_style(original)
+    if style is not None:
+        data = _normalize_to_style(data, style)
+    with open(path, "ab") as handle:
+        handle.write(data)
+    return f"Appended {len(data)} bytes to {target}"
 
 
 def _write_temp_script(code, suffix, prefix="oi-edit-"):
@@ -961,6 +988,31 @@ def dry_run_edit(language, code, target):
         result = _run_yq_eval(yq, expr, target)
         return _preview(result, diff_against=target)
 
+    if language == "append":
+        _validate_target(target, must_exist=True)
+        if not isinstance(code, str) or not code:
+            raise ValueError("append: no text in code")
+        try:
+            original_bytes = Path(target).read_bytes()
+        except OSError as exc:
+            raise FileNotFoundError(f"file not found: {target}") from exc
+        style = _detect_newline_style(original_bytes)
+        data = code.encode("utf-8")
+        if style is not None:
+            data = _normalize_to_style(data, style)
+        try:
+            original_text = original_bytes.decode("utf-8")
+            appended_text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return {
+                "output": f"append: preview unavailable ({Path(target).name} is not a text file)",
+                "ok": True,
+            }
+        preview = unified_edit_diff(target, original_text + appended_text)
+        if preview is not None:
+            return {"output": preview, "ok": True}
+        return {"output": "append: no changes (empty block)", "ok": True}
+
     return None
 
 
@@ -990,6 +1042,8 @@ def run_edit(language, code, target):
         return run_yq(target, code)
     if language == "poke":
         return run_poke(target, code)
+    if language == "append":
+        return run_append(target, code)
     if language == "patch":
         return run_patch(target, code)
     # unreachable given the set-membership check above
