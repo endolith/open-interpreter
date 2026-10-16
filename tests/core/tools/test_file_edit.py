@@ -109,6 +109,16 @@ class TestNewlineStyle(unittest.TestCase):
             _normalize_to_style(b"a\r\nb\r\n", b"\n"), b"a\nb\n"
         )
 
+    def test_normalize_leaves_lone_cr_alone(self):
+        """A lone CR is data, not a line break, on either style.
+
+        Only real line breaks translate; promoting a bare CR to a full
+        break corrupts output that re-emits it (e.g. gawk print $1, whose
+        field carries the CR on CRLF files).
+        """
+        self.assertEqual(_normalize_to_style(b"a\rb\n", b"\r\n"), b"a\rb\r\n")
+        self.assertEqual(_normalize_to_style(b"a\rb\r\n", b"\n"), b"a\rb\n")
+
 
 class TestCrlfPreservation(unittest.TestCase):
     def test_write_replacement_keeps_crlf(self):
@@ -139,6 +149,24 @@ class TestCrlfPreservation(unittest.TestCase):
             self.assertIn(b"hello", data)
             self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
             self.assertIn(b"\r\n", data)
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_literal_cr_in_replacement_survives_both_styles(self):
+        """s/charlie/x\\ry/ inserts a literal CR, not a line break.
+
+        Regression: the normalizer promoted the replacement's CR to a full
+        break (x\\r\\ny on CRLF files, x\\ny on LF ones) instead of writing
+        the CR byte like real sed does.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "crlf.txt")
+            Path(crlf_target).write_bytes(b"charlie\r\n")
+            run_sed(crlf_target, r"s/charlie/x\ry/")
+            self.assertEqual(Path(crlf_target).read_bytes(), b"x\ry\r\n")
+            lf_target = os.path.join(tmp, "lf.txt")
+            Path(lf_target).write_bytes(b"charlie\n")
+            run_sed(lf_target, r"s/charlie/x\ry/")
+            self.assertEqual(Path(lf_target).read_bytes(), b"x\ry\n")
 
 
 class TestRunWrite(unittest.TestCase):
@@ -298,6 +326,21 @@ class TestRunJq(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
 class TestRunGawk(unittest.TestCase):
+    def test_reemitted_field_keeps_cr_on_crlf_file(self):
+        """A field carrying CR (print $1 on CRLF) must not split the output line.
+
+        Regression: the normalizer promoted the CR inside $1 to a full line
+        break, pushing the rest of the printed line (e.g. a closing bracket)
+        onto the next line. Real gawk keeps the CR in the field.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "data.txt")
+            Path(target).write_bytes(b"alpha\r\nbravo\r\n")
+            run_gawk(target, '{ print "[" $1 "]" }')
+            self.assertEqual(
+                Path(target).read_bytes(), b"[alpha\r]\r\n[bravo\r]\r\n"
+            )
+
     def test_run_gawk_multiline_program(self):
         """A per-line gawk program must rewrite the file with its stdout."""
         with tempfile.TemporaryDirectory() as tmp:

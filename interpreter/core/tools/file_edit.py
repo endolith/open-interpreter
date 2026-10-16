@@ -224,17 +224,19 @@ def _detect_newline_style(data):
 
 
 def _normalize_to_style(data, style):
-    """Convert newlines in data to the given style (CRLF or LF).
+    """Convert line breaks in data to the given style (CRLF or LF).
 
-    Normalizes via LF first so existing CRLF pairs are not doubled: CRLF -> LF,
-    lone CR -> LF, then LF -> CRLF when the target style is CRLF.
+    Only real line breaks are translated: bare LF becomes CRLF for CRLF
+    targets, CRLF pairs become LF for LF targets. A lone CR is data, not a
+    line break — real tools write it verbatim (e.g. sed s/x/y\\ry/ inserts a
+    literal CR), so promoting it to a full break would corrupt output that
+    re-emits fields containing CRs (notably gawk print $1 on CRLF files).
     """
     if style is None:
         return data
-    text = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     if style == b"\r\n":
-        text = text.replace(b"\n", b"\r\n")
-    return text
+        return re.sub(rb"(?<!\r)\n", b"\r\n", data)
+    return data.replace(b"\r\n", b"\n")
 
 
 def _match_target_newlines(target, new_bytes):
@@ -242,7 +244,8 @@ def _match_target_newlines(target, new_bytes):
 
     Text tools emit LF even for CRLF targets (notably .bat files), which used
     to silently convert the whole file. When the original uses CRLF, lone LFs
-    become CRLF; when it uses LF, stray CRLF/CR become LF. Files with no
+    become CRLF; when it uses LF, stray CRLF pairs become LF. A lone CR is
+    left alone on both styles — it is data, not a line break. Files with no
     newlines (or missing files, e.g. new writes) are left untouched.
     """
     try:
