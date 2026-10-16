@@ -258,6 +258,29 @@ def _match_target_newlines(target, new_bytes):
     return _normalize_to_style(new_bytes, style)
 
 
+def _eol_style_name(target):
+    """Human name ("CRLF" or "LF") of the target file's newline style."""
+    try:
+        style = _detect_newline_style(Path(target).read_bytes())
+    except OSError:
+        style = None
+    return "CRLF" if style == b"\r\n" else "LF"
+
+
+def _eol_converted_note(target):
+    """Suffix for result strings when conversion to the target style changed bytes.
+
+    Callers compare first and append this only when bytes actually changed, so
+    same-style edits keep their plain "sed: OK" etc. The note rides the tool
+    result the model receives as the edit response, so the model sees that its
+    block's newlines were altered.
+    """
+    return (
+        f" (note: converted line endings to {_eol_style_name(target)}"
+        f" to match the target file)"
+    )
+
+
 def _atomic_replace_from_stdout(target, stdout_bytes):
     """Write tool stdout into target atomically via a temp file in the target's directory.
 
@@ -267,6 +290,9 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
     fresh mkstemp file would otherwise lose.
     Restores the target's original newline style (CRLF vs LF) so LF-emitting
     tools do not silently convert e.g. .bat files.
+
+    Returns True when newline conversion changed the written bytes, so callers
+    can note the alteration in their result string.
     """
     path = Path(target)
     # Read mode before replacing; target is validated to exist by callers.
@@ -274,7 +300,9 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
         original_mode = path.stat().st_mode
     except FileNotFoundError:
         original_mode = None
-    stdout_bytes = _match_target_newlines(target, stdout_bytes)
+    normalized = _match_target_newlines(target, stdout_bytes)
+    converted = normalized != stdout_bytes
+    stdout_bytes = normalized
     fd, tmp = tempfile.mkstemp(
         suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
     )
@@ -288,6 +316,7 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
     finally:
         if tmp and os.path.isfile(tmp):
             os.remove(tmp)
+    return converted
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +338,7 @@ def run_write(target, code):
     path = Path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = code.encode("utf-8")
+    converted = False
     if path.is_file():
         try:
             original = path.read_bytes()
@@ -316,9 +346,12 @@ def run_write(target, code):
             original = b""
         style = _detect_newline_style(original)
         if style is not None:
-            data = _normalize_to_style(data, style)
+            normalized = _normalize_to_style(data, style)
+            converted = normalized != data
+            data = normalized
     path.write_bytes(data)
-    return f"Wrote {len(data)} bytes to {target}"
+    result = f"Wrote {len(data)} bytes to {target}"
+    return result + (_eol_converted_note(target) if converted else "")
 
 
 def run_append(target, code):
@@ -340,11 +373,15 @@ def run_append(target, code):
         raise FileNotFoundError(f"file not found: {target}") from exc
     data = code.encode("utf-8")
     style = _detect_newline_style(original)
+    converted = False
     if style is not None:
-        data = _normalize_to_style(data, style)
+        normalized = _normalize_to_style(data, style)
+        converted = normalized != data
+        data = normalized
     with open(path, "ab") as handle:
         handle.write(data)
-    return f"Appended {len(data)} bytes to {target}"
+    result = f"Appended {len(data)} bytes to {target}"
+    return result + (_eol_converted_note(target) if converted else "")
 
 
 def _write_temp_script(code, suffix, prefix="oi-edit-"):
@@ -396,8 +433,8 @@ def run_sed(target, code):
         before_bytes = None
     if before_bytes is not None and before_bytes == new_bytes:
         return "sed: OK (no changes — pattern did not match)"
-    _atomic_replace_from_stdout(target, new_bytes)
-    return "sed: OK"
+    converted = _atomic_replace_from_stdout(target, new_bytes)
+    return "sed: OK" + (_eol_converted_note(target) if converted else "")
 
 
 def run_gawk(target, code):
@@ -443,14 +480,15 @@ def run_gawk(target, code):
         before_lines = before_bytes.count(b"\n")
         new_lines = new_bytes.count(b"\n")
         if before_lines >= 10 and new_lines <= max(2, before_lines // 10):
-            _atomic_replace_from_stdout(target, new_bytes)
-            return (
+            converted = _atomic_replace_from_stdout(target, new_bytes)
+            base = (
                 f"gawk: OK (warning: {before_lines} lines -> {new_lines} lines — "
                 "END-only output replaces the whole file; include per-line "
                 "print when transforming)"
             )
-    _atomic_replace_from_stdout(target, new_bytes)
-    return "gawk: OK"
+            return base + (_eol_converted_note(target) if converted else "")
+    converted = _atomic_replace_from_stdout(target, new_bytes)
+    return "gawk: OK" + (_eol_converted_note(target) if converted else "")
 
 
 def run_jq(target, code):
@@ -468,12 +506,12 @@ def run_jq(target, code):
         )
         if result.returncode != 0:
             _run_failed("jq", result)
-        _atomic_replace_from_stdout(target, result.stdout or b"")
+        converted = _atomic_replace_from_stdout(target, result.stdout or b"")
     finally:
         if os.path.isfile(filter_path):
             os.remove(filter_path)
 
-    return "jq: OK"
+    return "jq: OK" + (_eol_converted_note(target) if converted else "")
 
 
 def _yq_eval_argv_candidates(yq, expr, data_path):
@@ -528,9 +566,9 @@ def run_yq(target, code):
             "yq produced no output for a non-empty file "
             "(file was not modified; check the expression)"
         )
-    _atomic_replace_from_stdout(target, out)
+    converted = _atomic_replace_from_stdout(target, out)
 
-    return "yq: OK"
+    return "yq: OK" + (_eol_converted_note(target) if converted else "")
 
 
 def _poke_prepare_script(body, path):
@@ -732,9 +770,11 @@ def run_patch(target, code):
         except OSError:
             patched = original_bytes
         path.write_bytes(_normalize_to_style(patched, b"\r\n"))
+        converted = True
     else:
         # Non-CRLF targets: still normalize tool-introduced CRLF back to the
         # original style when one exists, mirroring the atomic-replace path.
+        converted = False
         try:
             patched = path.read_bytes()
         except OSError:
@@ -743,8 +783,10 @@ def run_patch(target, code):
             normalized = _normalize_to_style(patched, original_style)
             if normalized != patched:
                 path.write_bytes(normalized)
+                converted = True
     out = _subprocess_text(result)
-    return out if out else "patch: OK"
+    base = out if out else "patch: OK"
+    return base + (_eol_converted_note(target) if converted else "")
 
 
 def _raise_patch_failure(result, diff, target, reject=""):
@@ -858,6 +900,21 @@ def unified_edit_diff(target, new_text, *, context=3):
     return body or None
 
 
+def _pending_eol_note(target, new_bytes):
+    """Future-tense note for previews when applying the edit would convert newlines.
+
+    Returns "" when nothing would change, so previews stay exactly as before
+    for same-style edits. Only the human sees previews; the matching past-tense
+    note rides the run result the model receives (see _eol_converted_note).
+    """
+    if isinstance(new_bytes, bytes) and _match_target_newlines(target, new_bytes) != new_bytes:
+        return (
+            f"\nNote: applying this edit will convert line endings "
+            f"to {_eol_style_name(target)} to match the target file."
+        )
+    return ""
+
+
 def dry_run_edit(language, code, target):
     """Run the edit without modifying the file.
 
@@ -875,7 +932,8 @@ def dry_run_edit(language, code, target):
         if os.path.isfile(target):
             preview = unified_edit_diff(target, code)
             if preview is not None:
-                return {"output": preview, "ok": True}
+                note = _pending_eol_note(target, code.encode("utf-8"))
+                return {"output": preview + note, "ok": True}
             if _read_text_for_diff(target) is not None:
                 return {
                     "output": "write: no changes (content is identical to the current file)",
@@ -894,12 +952,14 @@ def dry_run_edit(language, code, target):
         if ok and diff_against is not None:
             raw = result.stdout
             if isinstance(raw, bytes):
+                note = _pending_eol_note(diff_against, raw)
                 new_text = raw.decode("utf-8", errors="replace")
             else:
+                note = ""
                 new_text = raw or ""
             preview = unified_edit_diff(diff_against, new_text)
             if preview is not None:
-                return {"output": preview, "ok": True}
+                return {"output": preview + note, "ok": True}
             # An empty diff with a decodable target means the edit changed
             # nothing. Say so in one line rather than falling through to the
             # raw output, which is the entire file and hides that fact.
@@ -1020,7 +1080,8 @@ def dry_run_edit(language, code, target):
             }
         preview = unified_edit_diff(target, original_text + appended_text)
         if preview is not None:
-            return {"output": preview, "ok": True}
+            note = _pending_eol_note(target, code.encode("utf-8"))
+            return {"output": preview + note, "ok": True}
         return {"output": "append: no changes (empty block)", "ok": True}
 
     return None
