@@ -827,17 +827,24 @@ def unified_edit_diff(target, new_text, *, context=3):
     locate it, and shrinks to the same size whether the file is ten lines or ten
     thousand.
 
-    Returns None when the content is undecodable or byte-identical to what is
+    Returns None when the content is undecodable or identical to what is
     already on disk, so the caller can fall back to the raw tool output.
+
+    Comparison is in LF space: line-ending style is managed (and reported)
+    separately by the runners, so a CRLF file versus LF tool output must not
+    read as every line changed. Both sides get the same universal-newline
+    treatment (CRLF -> LF, lone CR -> LF), matching how the file is read.
     """
     original = _read_text_for_diff(target)
     if original is None:
         return None
-    if original == new_text:
+    original_lf = original.replace("\r\n", "\n").replace("\r", "\n")
+    new_lf = new_text.replace("\r\n", "\n").replace("\r", "\n")
+    if original_lf == new_lf:
         return None
     diff = difflib.unified_diff(
-        original.splitlines(keepends=True),
-        new_text.splitlines(keepends=True),
+        original_lf.splitlines(keepends=True),
+        new_lf.splitlines(keepends=True),
         fromfile=Path(target).name,
         tofile=Path(target).name,
         n=context,
