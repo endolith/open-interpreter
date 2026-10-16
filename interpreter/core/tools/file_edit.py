@@ -15,6 +15,13 @@ In-place edit strategies (Windows cross-drive safety):
   - cwd in target's parent: gawk, patch — tool must edit in place (e.g. gawk without
     print); run with cwd set to the target directory so tool temps stay on that drive.
   - direct open: poke (binary), write (create or replace).
+Line-ending policy (CRLF vs LF):
+  - Text tools (sed, gawk, jq, yq) emit LF even when the target uses CRLF
+    (e.g. .bat files), which used to silently convert the whole file. To avoid
+    that, stdout-based rewrites and write-replacements are normalized back to
+    the target's original newline style before writing. Poke is binary and
+    never normalized. Patch is applied against an LF-normalized copy when the
+    target is CRLF, then converted back, so LF context lines still match.
 """
 
 import difflib
@@ -198,6 +205,55 @@ def _target_parent_dir(target):
     return str(Path(target).parent)
 
 
+def _detect_newline_style(data):
+    """Return b'\\r\\n' if the file uses CRLF, b'\\n' if LF-only, else None.
+
+    A file counts as CRLF when it contains at least one CRLF pair. Mixed files
+    (some CRLF, some lone LF) are treated as CRLF so normalization converges to
+    the dominant Windows style instead of flipping back and forth. Returns None
+    for empty files or files with no newlines, where there is no style to keep.
+    """
+    if not data:
+        return None
+    if b"\r\n" in data:
+        return b"\r\n"
+    if b"\n" in data:
+        return b"\n"
+    return None
+
+
+def _normalize_to_style(data, style):
+    """Convert newlines in data to the given style (CRLF or LF).
+
+    Normalizes via LF first so existing CRLF pairs are not doubled: CRLF -> LF,
+    lone CR -> LF, then LF -> CRLF when the target style is CRLF.
+    """
+    if style is None:
+        return data
+    text = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    if style == b"\r\n":
+        text = text.replace(b"\n", b"\r\n")
+    return text
+
+
+def _match_target_newlines(target, new_bytes):
+    """Normalize new_bytes to the newline style of the file at target.
+
+    Text tools emit LF even for CRLF targets (notably .bat files), which used
+    to silently convert the whole file. When the original uses CRLF, lone LFs
+    become CRLF; when it uses LF, stray CRLF/CR become LF. Files with no
+    newlines (or missing files, e.g. new writes) are left untouched.
+    """
+    try:
+        original = Path(target).read_bytes()
+    except OSError:
+        return new_bytes
+    style = _detect_newline_style(original)
+    if style is None:
+        return new_bytes
+    return _normalize_to_style(new_bytes, style)
+
+
 def _atomic_replace_from_stdout(target, stdout_bytes):
     """Write tool stdout into target atomically via a temp file in the target's directory.
 
@@ -205,6 +261,8 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
     Keeps temp files on the same drive as the target (Windows cannot rename across drives).
     Preserves the original file's permission bits (e.g. executable bit), which a
     fresh mkstemp file would otherwise lose.
+    Restores the target's original newline style (CRLF vs LF) so LF-emitting
+    tools do not silently convert e.g. .bat files.
     """
     path = Path(target)
     # Read mode before replacing; target is validated to exist by callers.
@@ -212,6 +270,7 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
         original_mode = path.stat().st_mode
     except FileNotFoundError:
         original_mode = None
+    stdout_bytes = _match_target_newlines(target, stdout_bytes)
     fd, tmp = tempfile.mkstemp(
         suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
     )
@@ -238,13 +297,24 @@ def run_write(target, code):
     get blocked, delete the file, write again. A write that would replace a
     file now previews as a diff first, so by the time this runs the user has
     confirmed the replacement.
+    When replacing, the new body is normalized to the existing file's newline
+    style (CRLF vs LF) so rewriting a CRLF file with LF text does not silently
+    convert it. New files are written as given.
     """
     _validate_target(target, must_exist=None)
     path = Path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(code.encode("utf-8"))
-    byte_count = len(code.encode("utf-8"))
-    return f"Wrote {byte_count} bytes to {target}"
+    data = code.encode("utf-8")
+    if path.is_file():
+        try:
+            original = path.read_bytes()
+        except OSError:
+            original = b""
+        style = _detect_newline_style(original)
+        if style is not None:
+            data = _normalize_to_style(data, style)
+    path.write_bytes(data)
+    return f"Wrote {len(data)} bytes to {target}"
 
 
 def _write_temp_script(code, suffix, prefix="oi-edit-"):
@@ -581,7 +651,13 @@ def _cleanup_patch_artifacts(target):
 
 
 def run_patch(target, code):
-    """Apply a unified diff (patch format) to an existing file."""
+    """Apply a unified diff (patch format) to an existing file.
+
+    When the target uses CRLF, the file is normalized to LF before patch runs
+    (diff context lines are LF) and converted back afterwards, so LF hunks
+    still match CRLF files without converting the file. On failure the original
+    bytes are restored so the LF normalization never leaks.
+    """
     _validate_target(target, must_exist=True)
     if not code.strip():
         raise ValueError("patch: diff body is empty")
@@ -592,18 +668,51 @@ def run_patch(target, code):
     if not diff.endswith("\n"):
         diff += "\n"
 
-    result = subprocess.run(
-        [patch_bin, "-p0", "--forward", path.name],
-        input=diff.encode("utf-8"),
-        capture_output=True,
-        cwd=_target_parent_dir(target),
-    )
+    original_bytes = path.read_bytes()
+    original_style = _detect_newline_style(original_bytes)
+    normalized_for_patch = False
+    if original_style == b"\r\n":
+        lf_bytes = original_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        if lf_bytes != original_bytes:
+            path.write_bytes(lf_bytes)
+            normalized_for_patch = True
+
+    try:
+        result = subprocess.run(
+            [patch_bin, "-p0", "--forward", path.name],
+            input=diff.encode("utf-8"),
+            capture_output=True,
+            cwd=_target_parent_dir(target),
+        )
+    except Exception:
+        if normalized_for_patch:
+            path.write_bytes(original_bytes)
+        raise
     # Read the reject before cleaning up: it is the only side-by-side of the
     # hunk against the file's real lines, and it is removed on both paths.
     reject = _read_patch_reject(target)
     _cleanup_patch_artifacts(target)
     if result.returncode != 0:
+        if normalized_for_patch:
+            path.write_bytes(original_bytes)
         _raise_patch_failure(result, diff, target, reject)
+    if normalized_for_patch:
+        try:
+            patched = path.read_bytes()
+        except OSError:
+            patched = original_bytes
+        path.write_bytes(_normalize_to_style(patched, b"\r\n"))
+    else:
+        # Non-CRLF targets: still normalize tool-introduced CRLF back to the
+        # original style when one exists, mirroring the atomic-replace path.
+        try:
+            patched = path.read_bytes()
+        except OSError:
+            patched = None
+        if patched is not None and original_style is not None:
+            normalized = _normalize_to_style(patched, original_style)
+            if normalized != patched:
+                path.write_bytes(normalized)
     out = _subprocess_text(result)
     return out if out else "patch: OK"
 
