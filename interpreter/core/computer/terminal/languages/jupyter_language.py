@@ -38,6 +38,14 @@ class JupyterLanguage(BaseLanguage):
     name = "Python"
     aliases = ["py"]
 
+    # msg_id of the execute_request currently being listened for, and a counter
+    # that fences a lingering listener off once a newer request starts: a
+    # listener only consumes the channel while its generation is current, so one
+    # left over from an abandoned run exits instead of stealing a newer run's
+    # messages. Class-level so a freshly built language is in a known state.
+    _execution_id = None
+    _listener_generation = 0
+
     def __init__(self, computer):
         self.computer = computer
 
@@ -51,8 +59,6 @@ class JupyterLanguage(BaseLanguage):
 
         self.listener_thread = None
         self.finish_flag = False
-        # msg_id of the execute_request currently being listened for.
-        self._execution_id = None
 
         # DISABLED because sometimes this bypasses sending it up to us for some reason!
         # Give it our same matplotlib backend
@@ -145,8 +151,26 @@ import matplotlib.pyplot as plt
             already_stopping = getattr(self, "finish_flag", False)
             self.finish_flag = True
             previous_listener.join(timeout=5)
+            if previous_listener.is_alive():
+                # Still stuck (e.g. inside the input-patience model call,
+                # which only notices the flag once it returns). Keep the stop
+                # signal set and give it more time — sending the next request
+                # now would let it consume this run's messages from the
+                # shared channel. Bounded so one stuck thread cannot hang
+                # new runs forever; the generation check below keeps any
+                # overlap from corrupting the new run.
+                for _ in range(5):
+                    previous_listener.join(timeout=5)
+                    if not previous_listener.is_alive():
+                        break
             if not already_stopping:
                 self.finish_flag = False
+
+        # Every request gets a generation number. A listener only consumes
+        # the channel while its generation is current; once a newer request
+        # starts, a lingering listener exits instead of stealing messages.
+        generation = getattr(self, "_listener_generation", 0) + 1
+        self._listener_generation = generation
 
         # Send the request first so its message id is known before anything
         # listens. Every iopub message carries the id of the request that
@@ -155,12 +179,16 @@ import matplotlib.pyplot as plt
         execution_id = self.kc.execute(code)
         self._execution_id = execution_id
 
-        def iopub_message_listener(execution_id=execution_id):
-            # Bound as a default so this listener always filters against the
+        def iopub_message_listener(execution_id=execution_id, generation=generation):
+            # Bound as defaults so this listener always filters against the
             # request id from its own execute call, even if a later run
             # overwrites self._execution_id.
             max_retries = 100
             while True:
+                if generation != self._listener_generation:
+                    # A newer request started: stop consuming the channel so
+                    # the current listener gets this run's messages.
+                    return
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
                 if self.finish_flag == True:
                     if DEBUG_MODE:
