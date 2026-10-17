@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from interpreter.core.llm.run_text_llm import run_text_llm
+from interpreter.core.llm.run_text_llm import _withheld_fence_chars, run_text_llm
 
 
 def _make_llm(chunks, execution_instructions=None, verbose=False, os_mode=False):
@@ -349,3 +349,39 @@ def test_stream_cut_off_inside_a_code_block_flushes_pending_code():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert _code_of(result) == "print(1)\n``"
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # No trailing backticks: nothing ambiguous.
+        ("", 0),
+        ("hello", 0),
+        ("a`b", 0),
+        # One or two trailing backticks: ambiguous, withheld whole.
+        ("`", 1),
+        ("ls`", 1),
+        ("a`b`", 1),
+        ("``", 2),
+        ("ls``", 2),
+        # Three or more is already a fence, so nothing is withheld — even
+        # though a four-backtick run also "ends with three", and "``" is
+        # itself a suffix of the fence.
+        ("```", 0),
+        ("ls```", 0),
+        ("````", 0),
+        ("`````", 0),
+        # A complete fence wins even when backticks follow ordinary text.
+        ("```py\nprint(1)\n```", 0),
+    ],
+)
+def test_withheld_fence_chars(text, expected):
+    """_withheld_fence_chars withholds exactly an incomplete trailing fence.
+
+    Pins the boundary the caller depends on: a trailing run of one or two
+    backticks is held back because the next chunk may complete a fence, while
+    three or more already form a fence and must be emitted immediately. The
+    four-backtick case is the one that a "does it end with two backticks"
+    implementation gets wrong, since it also ends with two.
+    """
+    assert _withheld_fence_chars(text) == expected
