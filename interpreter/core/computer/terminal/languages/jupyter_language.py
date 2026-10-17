@@ -133,7 +133,32 @@ import matplotlib.pyplot as plt
             yield {"type": "console", "format": "output", "content": content}
 
     def _execute_code(self, code, message_queue):
-        def iopub_message_listener():
+        # An earlier run's listener may still be alive if its generator was
+        # abandoned before it exited. It reads the same iopub channel, so
+        # stop and join it first — otherwise it would steal this run's
+        # messages and could set finish_flag on this run's idle status.
+        previous_listener = getattr(self, "listener_thread", None)
+        if previous_listener is not None and previous_listener.is_alive():
+            # Only clear the flag if this stop signal is ours: a caller may
+            # have set finish_flag to request an interrupt, and that request
+            # must still be honored by the new listener.
+            already_stopping = getattr(self, "finish_flag", False)
+            self.finish_flag = True
+            previous_listener.join(timeout=5)
+            if not already_stopping:
+                self.finish_flag = False
+
+        # Send the request first so its message id is known before anything
+        # listens. Every iopub message carries the id of the request that
+        # caused it in parent_header, which is the only way to tell this
+        # execution's output from an earlier one's.
+        execution_id = self.kc.execute(code)
+        self._execution_id = execution_id
+
+        def iopub_message_listener(execution_id=execution_id):
+            # Bound as a default so this listener always filters against the
+            # request id from its own execute call, even if a later run
+            # overwrites self._execution_id.
             max_retries = 100
             while True:
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
@@ -215,7 +240,7 @@ import matplotlib.pyplot as plt
                 # so anything that is not this execution's is skipped — before
                 # last_output_time, so stale traffic cannot pass for activity.
                 parent_id = (msg.get("parent_header") or {}).get("msg_id")
-                if parent_id and parent_id != self._execution_id:
+                if parent_id and parent_id != execution_id:
                     continue
 
                 self.last_output_time = time.time()
@@ -304,12 +329,6 @@ import matplotlib.pyplot as plt
                                 "content": data["application/javascript"],
                             }
                         )
-
-        # Send the request first so its message id is known before anything
-        # listens. Every iopub message carries the id of the request that
-        # caused it in parent_header, which is the only way to tell this
-        # execution's output from an earlier one's.
-        self._execution_id = self.kc.execute(code)
 
         self.listener_thread = threading.Thread(target=iopub_message_listener)
         # self.listener_thread.daemon = True
