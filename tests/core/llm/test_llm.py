@@ -195,10 +195,8 @@ def test_run_dispatches_to_text_runner_without_functions():
 
 
 def test_run_includes_optional_llm_params():
-    """llm.run forwards api_key/api_base/api_version/max_tokens/temperature and
-    the conversation_id when they're set."""
+    """llm.run forwards api_key/api_base/api_version/max_tokens/temperature."""
     interp = _interp()
-    interp.conversation_id = "conv-1"
     llm = Llm(interp)
     llm._is_loaded = True
     llm.supports_functions = True
@@ -223,7 +221,31 @@ def test_run_includes_optional_llm_params():
     assert params["api_version"] == "2024"
     assert params["max_tokens"] == 100
     assert params["temperature"] == 0.5
-    assert params["conversation_id"] == "conv-1"
+
+
+def test_run_never_sends_a_conversation_id():
+    """llm.run must not attach a conversation_id to the request.
+
+    conversation_id only ever existed to group chats for the hosted `i` model,
+    which was removed. Sending it to arbitrary providers leaks an internal
+    session identifier and confuses providers that do not know the field.
+    """
+    interp = _interp()
+    interp.conversation_id = "conv-1"
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )
+
+    assert "conversation_id" not in captured["params"]
 
 
 def test_run_auto_detects_function_support():
@@ -467,8 +489,13 @@ def test_fixed_litellm_completions_strips_latest_and_sets_stop_for_local():
     assert captured["stop"] == ["<|assistant|>", "<|end|>", "<|eot_id|>"]
 
 
-def test_run_model_i_sets_open_interpreter_endpoint():
-    """llm.run remaps model `i` to openai/i and configures the Open Interpreter endpoint."""
+def test_run_model_i_raises_removal_error():
+    """llm.run refuses the removed hosted `i` model with a clear message.
+
+    The hosted `i` model was shut down; its endpoint now accepts requests and
+    returns an empty body. Silently pointing at it produced sessions that
+    appeared to hang, so the model name must fail fast and name a replacement.
+    """
     interp = _interp()
     llm = Llm(interp)
     llm._is_loaded = True
@@ -476,19 +503,18 @@ def test_run_model_i_sets_open_interpreter_endpoint():
     llm.supports_vision = False
     llm.model = "i"
 
-    captured = _run_capture(
-        llm,
-        [
-            {"role": "system", "type": "message", "content": "s"},
-            {"role": "user", "type": "message", "content": "hi"},
-        ],
-    )
+    with pytest.raises(ValueError, match="has been removed"):
+        _run_capture(
+            llm,
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "hi"},
+            ],
+        )
 
-    assert captured["params"]["model"] == "openai/i"
-    assert llm.context_window == 7000
-    assert llm.api_key == "x"
-    assert llm.max_tokens == 1000
-    assert llm.api_base == "https://api.openinterpreter.com/v0"
+    assert llm.api_base is None
+    assert llm.api_key is None
+    assert not hasattr(interp, "conversation_id")
 
 
 def test_run_auto_detects_vision_support_true():
@@ -793,16 +819,16 @@ def test_load_swallows_get_model_info_error():
     assert llm.context_window is None
 
 
-def test_fixed_litellm_completions_keeps_drop_params_for_i():
-    """For the `i` model with a conversation_id, litellm.drop_params must stay False."""
+def test_fixed_litellm_completions_drops_unknown_params():
+    """litellm.drop_params stays True so unsupported params are dropped."""
     import interpreter.core.llm.llm as llm_mod
     from interpreter.core.llm.llm import fixed_litellm_completions
 
     with mock.patch.object(
         llm_mod.litellm, "completion", side_effect=lambda **params: iter(())
     ):
-        list(fixed_litellm_completions(model="i", conversation_id="c1", messages=[]))
-    assert llm_mod.litellm.drop_params is False
+        list(fixed_litellm_completions(model="gpt-4o", messages=[]))
+    assert llm_mod.litellm.drop_params is True
 
 
 def test_fixed_litellm_completions_exits_on_keyboard_interrupt():

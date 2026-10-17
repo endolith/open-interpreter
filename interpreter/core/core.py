@@ -78,7 +78,6 @@ class OpenInterpreter:
         skills_path=None,
         import_skills=False,
         multi_line=True,
-        contribute_conversation=False,
         plain_text_display=False,
     ):
         # State
@@ -97,7 +96,6 @@ class OpenInterpreter:
         self.disable_telemetry = disable_telemetry
         self.in_terminal_interface = in_terminal_interface
         self.multi_line = multi_line
-        self.contribute_conversation = contribute_conversation
         self.plain_text_display = plain_text_display
         self.highlight_active_line = True  # additional setting to toggle active line highlighting. Defaults to True
 
@@ -165,13 +163,6 @@ class OpenInterpreter:
     @property
     def anonymous_telemetry(self) -> bool:
         return not self.disable_telemetry and not self.offline
-
-    @property
-    def will_contribute(self):
-        overrides = (
-            self.offline or not self.conversation_history or self.disable_telemetry
-        )
-        return self.contribute_conversation and not overrides
 
     def chat(self, message=None, display=True, stream=False, blocking=True):
         try:

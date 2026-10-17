@@ -142,9 +142,6 @@ def _patch_module(monkeypatch):
     monkeypatch.setattr(sti, "check_for_update", mock.Mock(return_value=False))
     monkeypatch.setattr(sti, "validate_llm_settings", mock.Mock())
     monkeypatch.setattr(sti, "conversation_navigator", mock.Mock())
-    monkeypatch.setattr(
-        sti, "contribute_conversation_launch_logic", mock.Mock()
-    )
     monkeypatch.setattr(sti.time, "sleep", mock.Mock())
     monkeypatch.setattr(sti, "version", mock.Mock(return_value="0.2.5"))
     return sti, interpreter

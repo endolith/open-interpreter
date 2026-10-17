@@ -132,12 +132,20 @@ def test_validate_llm_settings_displays_model_set():
     interpreter.display_message.assert_called_with("> Model set to `custom-model`")
 
 
-def test_validate_llm_settings_i_model_note():
-    """validate_llm_settings shows the training-usage note when the model is `i`."""
+def test_validate_llm_settings_i_model_shows_no_training_note():
+    """validate_llm_settings shows no training note for the removed `i` model.
+
+    The hosted `i` model was shut down, so there is no hosted training data to
+    disclose; the notice would be a false claim to a user who typed `i`.
+    """
     interpreter = _interpreter(model="i")
     with mock.patch.dict("os.environ", {}, clear=True):
         validate_llm_settings(interpreter)
-    assert "will be used to train" in interpreter.display_message.call_args.args[0]
+    assert not [
+        call
+        for call in interpreter.display_message.call_args_list
+        if "train" in str(call)
+    ]
 
 
 def test_validate_llm_settings_ollama_loads():
