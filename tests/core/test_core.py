@@ -15,14 +15,22 @@ def test_reset_clears_messages():
     assert interpreter.messages == []
 
 
-def test_anonymous_telemetry_property():
-    """anonymous_telemetry is True only when telemetry is enabled and the interpreter is online."""
+def test_telemetry_settings_are_gone():
+    """The interpreter has no telemetry settings or gating property.
+
+    Telemetry was removed, so `disable_telemetry`, `anonymous_telemetry`, and
+    the `disable_telemetry` constructor argument no longer exist. Leaving the
+    property behind would suggest collection is still happening.
+    """
+    import inspect
+
+    assert "disable_telemetry" not in inspect.signature(
+        OpenInterpreter.__init__
+    ).parameters
+
     interpreter = OpenInterpreter()
-    interpreter.disable_telemetry = False
-    interpreter.offline = False
-    assert interpreter.anonymous_telemetry is True
-    interpreter.offline = True
-    assert interpreter.anonymous_telemetry is False
+    assert not hasattr(interpreter, "disable_telemetry")
+    assert not hasattr(interpreter, "anonymous_telemetry")
 
 
 def test_streaming_chat_string_message_appended():
@@ -86,7 +94,6 @@ def test_chat_creates_history_directory_and_saves(tmp_path):
     import json
 
     interpreter = OpenInterpreter(
-        disable_telemetry=True,
         conversation_history=True,
         conversation_history_path=str(tmp_path / "new-dir"),
     )
