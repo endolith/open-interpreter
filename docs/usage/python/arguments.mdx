@@ -53,7 +53,7 @@ interpreter.messages = messages # A list that resembles the one above
 
 <Info>This replaced `interpreter.local` in the New Computer Update (`0.2.0`). The `--local` flag loads the `local.py` profile, which sets `offline = True`.</Info>
 
-When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks, anonymous telemetry, conversation-contribution prompts, and offers to fall back to Open Interpreter's hosted `i` model. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
+When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks and anonymous telemetry. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
 
 ```python
 interpreter.offline = True  # Disables online features (e.g. update checks, telemetry)

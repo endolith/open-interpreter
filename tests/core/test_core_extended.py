@@ -221,23 +221,16 @@ def test_respond_and_store_ephemeral_chunks_not_stored():
     assert "active_line" not in stored_formats
 
 
-def test_will_contribute_property():
-    """will_contribute is True only when all contributing conditions are met."""
-    interpreter = OpenInterpreter()
-    interpreter.contribute_conversation = True
-    interpreter.offline = False
-    interpreter.conversation_history = True
-    interpreter.disable_telemetry = False
-    assert interpreter.will_contribute is True
+def test_conversation_contribution_setting_is_gone():
+    """The interpreter has no conversation-contribution setting any more.
 
-    interpreter.offline = True
-    assert interpreter.will_contribute is False
-    interpreter.offline = False
-    interpreter.conversation_history = False
-    assert interpreter.will_contribute is False
-    interpreter.conversation_history = True
-    interpreter.disable_telemetry = True
-    assert interpreter.will_contribute is False
+    The hosted `i` model and the conversation-upload service were shut down, so
+    the setting and its `will_contribute` property are removed. Keeping them
+    would leave an API that silently uploads nothing.
+    """
+    interpreter = OpenInterpreter()
+    assert not hasattr(interpreter, "contribute_conversation")
+    assert not hasattr(interpreter, "will_contribute")
 
 
 def test_display_message_plain_text_mode(capsys):

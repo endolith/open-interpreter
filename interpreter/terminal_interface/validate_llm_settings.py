@@ -11,10 +11,6 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 from prompt_toolkit import prompt
 
-from interpreter.terminal_interface.contributing_conversations import (
-    contribute_conversation_launch_logic,
-)
-
 
 def validate_llm_settings(interpreter):
     """
@@ -96,15 +92,7 @@ def validate_llm_settings(interpreter):
         and not (len(interpreter.messages) == 1)
     ):
         interpreter.display_message(f"> Model set to `{interpreter.llm.model}`")
-    if len(interpreter.messages) == 1:
-        # Special message for "i {command}" usage
-        # interpreter.display_message(f"\n*{interpreter.llm.model} via Open Interpreter:*")
-        pass
 
-    if interpreter.llm.model == "i":
-        interpreter.display_message(
-            "***Note:*** *Conversations with this model will be used to train our open-source model.*\n"
-        )
     if "ollama" in interpreter.llm.model:
         interpreter.llm.load()
     return
