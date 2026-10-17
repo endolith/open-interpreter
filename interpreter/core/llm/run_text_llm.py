@@ -1,16 +1,21 @@
 FENCE = "```"
 
 
-def _incomplete_fence_length(text):
-    """How many trailing backticks might still grow into a fence.
+def _withheld_fence_chars(text):
+    """How many trailing backticks to hold back because they may still grow into a fence.
 
     A stream can split ``` across chunks, so a trailing run of one or two
     backticks is ambiguous: it may be literal prose (`ls`) or the start of a
-    fence. Those are held back until the next chunk disambiguates them. A run
-    of three is already a fence, so nothing is held back.
+    fence. Those are withheld until the next chunk disambiguates them. A run of
+    three is already a fence, so nothing is withheld.
     """
-    trailing = len(text) - len(text.rstrip("`"))
-    return trailing if trailing < 3 else 0
+    # Check for a complete fence before counting, rather than counting and
+    # comparing the count to len(FENCE) afterward. Order matters: a run of four
+    # also ends with three, and "``" is itself a suffix of the fence, so
+    # counting first makes it easy to read the comparison as redundant.
+    if text.endswith(FENCE):
+        return 0
+    return len(text) - len(text.rstrip("`"))
 
 
 def run_text_llm(llm, params):
@@ -65,9 +70,7 @@ def run_text_llm(llm, params):
 
                 if fence_at == -1:
                     # No fence yet: emit the prose that cannot be part of one.
-                    safe_end = len(accumulated) - _incomplete_fence_length(
-                        accumulated
-                    )
+                    safe_end = len(accumulated) - _withheld_fence_chars(accumulated)
                     if safe_end > cursor:
                         yield {
                             "type": "message",
@@ -118,7 +121,7 @@ def run_text_llm(llm, params):
             fence_at = accumulated.find(FENCE, cursor)
 
             if fence_at == -1:
-                safe_end = len(accumulated) - _incomplete_fence_length(accumulated)
+                safe_end = len(accumulated) - _withheld_fence_chars(accumulated)
                 if safe_end > cursor:
                     if language:
                         yield {
