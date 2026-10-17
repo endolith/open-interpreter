@@ -51,6 +51,10 @@ class _FakeLlm:
     supports_functions = True
     supports_vision = True
     retention_ratio = 0.8
+    # These tests pin the plain trim path (byte-equality, prefix stability,
+    # invalidation). This fake has no streaming run() for a summarizer, so
+    # it opts out of compaction; test_compaction.py covers the summarize hook.
+    compact_history = False
 
     def __init__(self):
         self.interpreter = _FakeInterpreter()

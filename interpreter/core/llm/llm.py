@@ -41,6 +41,7 @@ _TOOL_CALLING_INSTRUCTIONS = (
 # from .run_function_calling_llm import run_function_calling_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
+from .utils.compaction import CompactionError
 from .utils.conversion_cache import cached_convert_and_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
@@ -383,7 +384,22 @@ class Llm:
         # prefixes are not reconverted or recounted. In-memory only.
         self._conversion_cache = None
 
-    def run(self, messages, *, auxiliary_title_request=False):
+        # LLM-written compaction of truncated history (see compaction.py):
+        # when cache-aware trimming drops messages, the dropped slice is
+        # distilled into a structured summary carried in the omission note.
+        # True by default; set `compact_history: false` under `llm` in your
+        # profile for the plain omission note with no summarizer calls.
+        self.compact_history = True
+
+        # Running compaction state {"text", "covered"} (see compaction.py).
+        # In-memory only, like the conversion cache above.
+        self._compaction = None
+
+        # Output cap for the compaction summarizer call, stashed by
+        # run_compaction_summary around its llm.run call (see compaction.py).
+        self._compaction_max_tokens = None
+
+    def run(self, messages, *, auxiliary_title_request=False, auxiliary_compaction_request=False):
         """
         We're responsible for formatting the call into the llm.completions object,
         starting with LMC messages in interpreter.messages, going to OpenAI compatible messages into the llm,
@@ -393,6 +409,11 @@ class Llm:
 
         auxiliary_title_request: one-off naming completion — text path only, tight max_tokens,
         no reasoning request, LiteLLM timeout, and no code-execution system suffix on the prompt.
+
+        auxiliary_compaction_request: one-off compaction-summary completion — same
+        cheap-text treatment as a title request, except the output cap comes from
+        the compaction budget (stashed in _compaction_max_tokens) instead of the
+        title cap. Never triggers compaction itself (it runs uncached).
         """
 
         if not self._is_loaded:
@@ -541,6 +562,7 @@ class Llm:
         cache_aware = (
             bool(self.retention_ratio and self.context_window)
             and not auxiliary_title_request
+            and not auxiliary_compaction_request
         )
         if not cache_aware:
             # Convert to OpenAI messages format
@@ -633,6 +655,17 @@ Continuing...
                     messages = tt.trim(
                         messages, system_message=system_message, max_tokens=8000
                     )
+        except CompactionError as e:
+            # Compaction is fail-loud by design (see compaction.py): a failed
+            # summarization must abort the turn with history untouched — the
+            # next turn retries the same compaction — never proceed as if the
+            # history were intact. Re-raised past the fallback below, which
+            # would otherwise swallow it into an untrimmed request.
+            try:
+                self.interpreter.display_message(f"\n\n**Compaction failed:** {e}")
+            except Exception:
+                pass
+            raise
         except:
             # If we're trimming messages, this won't work.
             # If we're trimming from a model we don't know, this won't work.
@@ -806,7 +839,7 @@ Continuing...
         if self._is_hosted_i_model and hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
 
-        if auxiliary_title_request:
+        if auxiliary_title_request or auxiliary_compaction_request:
             # Avoid huge reasoning streams and hung streams with no wall clock (OpenRouter etc.).
             # Not a litellm re-import — this path still uses the same completions() generator.
             params["timeout"] = 120
@@ -818,7 +851,17 @@ Continuing...
             # we can't use it to branch here. A large cap is safe for all models: non-reasoning
             # models stop at "stop" well within this budget; reasoning models need the headroom
             # for thinking tokens before the title is produced.
-            params["max_tokens"] = min(int(params.get("max_tokens") or 2048), 2048)
+            if auxiliary_compaction_request:
+                # The compaction budget (5% of the window, clamped) is stashed
+                # by run_compaction_summary and stated in-prompt; reasoning
+                # models need headroom above it for thinking tokens, same as
+                # titles above. The headroom scales with the cap so the hard
+                # ceiling stays well inside the retention margin the summary
+                # was cut to free.
+                cap = self._compaction_max_tokens or 1500
+                params["max_tokens"] = cap + max(512, cap)
+            else:
+                params["max_tokens"] = min(int(params.get("max_tokens") or 2048), 2048)
             params["include_reasoning"] = False
             params.pop("reasoning_effort", None)
             if "stream_options" in params:
@@ -855,7 +898,7 @@ Continuing...
                 print("\n")
             print("\n\n\n")
 
-        if self.supports_functions and not auxiliary_title_request:
+        if self.supports_functions and not auxiliary_title_request and not auxiliary_compaction_request:
             # yield from run_function_calling_llm(self, params)
             try:
                 yield from run_tool_calling_llm(self, params)

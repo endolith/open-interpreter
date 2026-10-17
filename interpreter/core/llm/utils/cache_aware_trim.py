@@ -146,13 +146,18 @@ def _extract_ts(message):
     return None
 
 
-def _omission_note(messages, cut):
+def _omission_note(messages, cut, compaction_summary=None):
     """Build the placeholder telling the model older messages were removed.
 
     `count` is the total number of messages omitted from the request; it grows
     (and the trailing timestamp advances) as later truncations drop more of the
     conversation, while the leading timestamp stays fixed at the oldest dropped
     message.
+
+    When `compaction_summary` is given, the note carries the LLM-written
+    distillation of the omitted conversation below its first line, so the
+    continuing turn still knows what came before.  The first line is
+    byte-identical either way.
     """
     count = cut
     first_ts = None
@@ -165,14 +170,18 @@ def _omission_note(messages, cut):
             last_ts = ts
     noun = "message" if count == 1 else "messages"
     if first_ts and last_ts:
-        return (
+        head = (
             f"[… {count} {noun} omitted from {first_ts} to {last_ts} "
             f"to fit context window …]"
         )
-    return f"[… {count} {noun} omitted to fit context window …]"
+    else:
+        head = f"[… {count} {noun} omitted to fit context window …]"
+    if compaction_summary:
+        return head + "\n\n[Summary of the omitted conversation:]\n" + compaction_summary
+    return head
 
 
-def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8, model=None, message_costs=None):
+def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8, model=None, message_costs=None, summarize=None):
     """Cache-aware truncation (Character.AI / prompt-poet algorithm).
 
     Instead of dropping the oldest single turn each call — which moves the
@@ -213,6 +222,13 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
     callers that already counted — e.g. an incremental conversion cache that
     stashed costs from the previous turn.
 
+    `summarize`, when given, is a callable taking the dropped prefix
+    (`messages[:cut]`) and returning the LLM-written summary of that slice to
+    embed in the placeholder.  It runs only on truncation events (never on
+    the pass-through path), and its exceptions propagate: a failed
+    summarization must abort the turn, never silently send a request the
+    model was never told is truncated.
+
     References:
     - https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
     - DeepSeek prompt-cache guidance: a retention ratio of 0.8 truncates 20% of
@@ -237,5 +253,8 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
 
     trimmed = [system_dict] + messages[cut:]
     if cut > 0:
-        trimmed.insert(1, {"role": "user", "content": _omission_note(messages, cut)})
+        summary = summarize(messages[:cut]) if summarize is not None else None
+        trimmed.insert(
+            1, {"role": "user", "content": _omission_note(messages, cut, summary)}
+        )
     return trimmed

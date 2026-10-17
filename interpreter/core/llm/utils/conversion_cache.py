@@ -61,6 +61,11 @@ secrets are present in tool output.
 import os
 
 from .cache_aware_trim import _count_message_tokens, cache_aware_trim
+from .compaction import (
+    CompactionError,
+    make_compaction_summarizer,
+    reset_compaction_coverage,
+)
 from .convert_to_openai_messages import convert_to_openai_messages
 
 
@@ -254,6 +259,19 @@ def _convert_suffix(llm, suffix, offset, seed):
     return converted, end_state
 
 
+def _compaction_summarizer(llm, model, full_converted, token_limit, use_cache):
+    """Build the trim's ``summarize()`` hook, or None when compaction is off.
+
+    Compaction only runs on cache-backed main turns: auxiliary requests (the
+    conversation title, and the compaction summarizer's own call) run with
+    ``use_cache=False`` and must neither summarize nor touch the state.
+    Opt-out is the ``compact_history`` profile flag (default on).
+    """
+    if not use_cache or not getattr(llm, "compact_history", True):
+        return None
+    return make_compaction_summarizer(llm, model, full_converted, token_limit)
+
+
 def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
     """Drop-in for the convert+split+trim sequence in ``Llm.run``.
 
@@ -319,6 +337,9 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
                     retention_ratio=ratio,
                     model=model,
                     message_costs=full_costs,
+                    summarize=_compaction_summarizer(
+                        llm, model, full_converted, token_limit, use_cache
+                    ),
                 )
                 try:
                     cache.extend(
@@ -331,6 +352,12 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
                 except Exception:
                     pass
                 return out
+            except CompactionError:
+                # Fail-loud (see compaction.py): a failed summarization must
+                # abort the turn with history untouched, never fall through
+                # to the full rebuild below — which would re-invoke the
+                # summarizer and mask the failure as a retry.
+                raise
             except Exception:
                 pass
 
@@ -376,6 +403,14 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
     system_message = converted[0]["content"]
     converted = converted[1:]
     costs = [_count_message_tokens([m], model) for m in converted]
+    if use_cache and getattr(llm, "compact_history", True):
+        # A full rebuild means the old converted-prefix indices no longer
+        # map: drop the coverage (keeping the text as the next anchor) so
+        # the next event summarizes its whole slice fresh.
+        try:
+            reset_compaction_coverage(llm)
+        except Exception:
+            pass
     out = cache_aware_trim(
         converted,
         system_message,
@@ -383,6 +418,9 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
         retention_ratio=ratio,
         model=model,
         message_costs=costs,
+        summarize=_compaction_summarizer(
+            llm, model, converted, token_limit, use_cache
+        ),
     )
     if use_cache and llm.supports_functions and isinstance(stored, list):
         try:
