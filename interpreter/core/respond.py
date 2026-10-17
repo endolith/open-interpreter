@@ -5,10 +5,59 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+import html2text
 import litellm
+from rich import print as rich_print
+from rich.markdown import Markdown
+from rich.panel import Panel
 
-from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .render_message import render_message
+
+
+def _error_body(error_str):
+    """Render a provider's error text, unwrapping an HTML body if that is what it is.
+
+    Returns a Rich-renderable. Gateways (OpenRouter, Cloudflare, nginx) often
+    answer a failed request with an HTML error page rather than JSON, and the
+    useful part is buried under <!DOCTYPE html>...
+    """
+    lower = error_str.lower()
+    markers = [i for i in (lower.find("<!doctype"), lower.find("<html")) if i != -1]
+    if not markers:
+        return error_str
+
+    try:
+        converter = html2text.HTML2Text()
+        converter.body_width = 0  # Let Rich handle reflowing
+        text = converter.handle(error_str[min(markers) :]).strip()
+    except Exception:
+        return error_str
+
+    return text or error_str
+
+
+def display_provider_error(error):
+    """Show the provider's own error message, boxed, instead of paraphrasing it.
+
+    The provider knows what went wrong and has usually already said it well.
+    Substituting our own prose loses the detail that makes the error
+    actionable (which parameter, which model, which account) and, when the
+    guess is wrong, actively misleads.
+    """
+    error_str = str(error)
+    if not error_str.strip():
+        # Some providers raise with no message at all. Naming the type is more
+        # use than an empty box.
+        error_str = type(error).__name__
+
+    rich_print(
+        Panel(
+            Markdown(_error_body(error_str)),
+            border_style="red",
+            title="Provider error",
+            title_align="left",
+        )
+    )
 
 
 def respond(interpreter):
@@ -100,65 +149,8 @@ def respond(interpreter):
                 break
 
             except Exception as e:
-                error_message = str(e).lower()
-                if (
-                    interpreter.offline == False
-                    and ("auth" in error_message or
-                         "api key" in error_message)
-                ):
-                    # Provide extra information on how to change API keys, if
-                    # we encounter that error (Many people writing GitHub
-                    # issues were struggling with this)
-                    output = traceback.format_exc()
-                    raise Exception(
-                        f"{output}\n\nThere might be an issue with your API key(s).\n\nTo reset your API key (we'll use OPENAI_API_KEY for this example, but you may need to reset your ANTHROPIC_API_KEY, HUGGINGFACE_API_KEY, etc):\n        Mac/Linux: 'export OPENAI_API_KEY=your-key-here'. Update your ~/.zshrc on MacOS or ~/.bashrc on Linux with the new key if it has already been persisted there.,\n        Windows: 'setx OPENAI_API_KEY your-key-here' then restart terminal.\n\n"
-                    )
-                elif (
-                    isinstance(e, litellm.exceptions.RateLimitError)
-                    and ("exceeded" in str(e).lower() or
-                         "insufficient_quota" in str(e).lower())
-                ):
-                    display_markdown_message(
-                        f""" > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
-
-                        To check your current usage and billing details, visit the [OpenAI billing page](https://platform.openai.com/settings/organization/billing/overview).
-
-                        You can also use `interpreter --max_budget [higher USD amount]` to set a budget for your sessions.
-                        """
-                    )
-
-                elif (
-                    interpreter.offline == False and "not have access" in str(e).lower()
-                ):
-                    # Check for invalid model in error message and then fallback.
-                    if (
-                        "invalid model" in error_message
-                        or "model does not exist" in error_message
-                    ):
-                        provider_message = f"\n\nThe model '{interpreter.llm.model}' does not exist or is invalid. Please check the model name and try again.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
-                    elif "groq" in error_message:
-                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. Please check with Groq for more details.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
-                    else:
-                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. If you are using an OpenAI model, you may need to add a payment method and purchase credits for the OpenAI API billing page (this is different from ChatGPT Plus).\n\nhttps://platform.openai.com/account/billing/overview\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n"
-
-                    print(provider_message)
-
-                    response = input()
-                    print("")  # <- Aesthetic choice
-
-                    if response.strip().lower() == "y":
-                        interpreter.llm.model = "i"
-                        interpreter.display_message(f"> Model set to `i`")
-                        interpreter.display_message(
-                            "***Note:*** *Conversations with this model will be used to train our open-source model.*\n"
-                        )
-
-                    else:
-                        raise
-                elif interpreter.offline and not interpreter.os:
-                    raise
-                else:
-                    raise
+                display_provider_error(e)
+                raise
 
         ### RUN CODE (if it's there) ###
 
