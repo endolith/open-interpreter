@@ -576,26 +576,6 @@ system_message: "You are Open Interpreter..."
 
 </CodeGroup>
 
-### Disable Telemetry
-
-Opt out of [telemetry](telemetry/telemetry).
-
-<CodeGroup>
-
-```bash Terminal
-interpreter --disable_telemetry
-```
-
-```python Python
-interpreter.anonymized_telemetry = False
-```
-
-```yaml Profile
-disable_telemetry: true
-```
-
-</CodeGroup>
-
 ### Offline
 
 When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks and anonymous telemetry. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.

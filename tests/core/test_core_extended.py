@@ -331,24 +331,20 @@ def test_chat_handles_generator_exit():
     assert interpreter.responding is False
 
 
-def test_chat_sends_telemetry_on_error():
-    """When chat errors and telemetry is on, an error telemetry event is sent."""
+def test_chat_reraises_error_without_telemetry():
+    """When chat errors, the error propagates and nothing is reported anywhere.
+
+    Telemetry was removed, so an error must simply reach the caller. This also
+    pins that the error string is not swallowed on its way out.
+    """
     interpreter = OpenInterpreter()
-    interpreter.disable_telemetry = False
-    interpreter.offline = False
 
     def raise_error(*args, **kwargs):
         """Simulate an error during streaming."""
         raise ValueError("API failed")
 
     with mock.patch.object(interpreter, "_streaming_chat", side_effect=raise_error):
-        with mock.patch("interpreter.core.core.send_telemetry") as mock_telemetry:
-            try:
-                interpreter.chat(message="hello", stream=True)
-            except ValueError:
-                pass
-    error_calls = [
-        c for c in mock_telemetry.call_args_list if c[0][0] == "errored"
-    ]
-    assert len(error_calls) == 1
-    assert error_calls[0][1]["properties"]["error"] == "API failed"
+        with pytest.raises(ValueError, match="API failed"):
+            interpreter.chat(message="hello", stream=True)
+
+    assert interpreter.responding is False
