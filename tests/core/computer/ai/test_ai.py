@@ -425,7 +425,10 @@ def test_query_reduce_chunks_reduces_until_one_response_remains():
         result = ai_mod.query_reduce_chunks(["a", "b", "c", "d"], llm, 2000, "q")
 
     assert result == "summary(summary(a+b)+summary(c+d))"
-    assert calls == ["a+b", "c+d", "summary(a+b)+summary(c+d)"]
+    # First-pass summaries run in worker threads, so their order is not fixed.
+    # The final reduction call always runs after the first pass completes.
+    assert sorted(calls[:-1]) == ["a+b", "c+d"]
+    assert calls[-1] == "summary(a+b)+summary(c+d)"
 
 
 def test_query_reduce_chunks_stops_when_a_pass_makes_no_progress():
@@ -448,4 +451,6 @@ def test_query_reduce_chunks_stops_when_a_pass_makes_no_progress():
 
     assert result == "same-size-summary"
     # One pass over both responses, then a single merge of what was left.
-    assert calls == ["big1", "big2", "same-size-summary\n\nsame-size-summary"]
+    # First-pass order is not fixed (worker threads); the merge runs last.
+    assert sorted(calls[:-1]) == ["big1", "big2"]
+    assert calls[-1] == "same-size-summary\n\nsame-size-summary"
