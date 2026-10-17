@@ -15,7 +15,6 @@ import json
 import logging
 import subprocess
 import time
-import uuid
 
 import requests
 import tokentrim as tt
@@ -114,15 +113,14 @@ class Llm:
         ]:
             model = "claude-sonnet-4-6"
             self.model = "claude-sonnet-4-6"
-        # Setup our model endpoint
+        # The free, hosted `i` model was shut down. Fail loudly instead of
+        # silently pointing at a dead endpoint.
         if model == "i":
-            model = "openai/i"
-            if not hasattr(self.interpreter, "conversation_id"):  # Only do this once
-                self.context_window = 7000
-                self.api_key = "x"
-                self.max_tokens = 1000
-                self.api_base = "https://api.openinterpreter.com/v0"
-                self.interpreter.conversation_id = str(uuid.uuid4())
+            raise ValueError(
+                "The hosted `i` model has been removed. "
+                "Please choose a different model, e.g. `interpreter --model gpt-4o` "
+                "or `interpreter --local` for a local model."
+            )
 
         # Detect function support
         if self.supports_functions == None:
@@ -297,8 +295,6 @@ Continuing...
             params["max_tokens"] = self.max_tokens
         if self.temperature is not None:
             params["temperature"] = self.temperature
-        if hasattr(self.interpreter, "conversation_id"):
-            params["conversation_id"] = self.interpreter.conversation_id
 
         # Set some params directly on LiteLLM
         if self.max_budget:
@@ -411,12 +407,7 @@ def fixed_litellm_completions(**params):
         # Kinda hacky, but this helps sometimes
         params["stop"] = ["<|assistant|>", "<|end|>", "<|eot_id|>"]
 
-    if params.get("model") == "i" and "conversation_id" in params:
-        litellm.drop_params = (
-            False  # If we don't do this, litellm will drop this param!
-        )
-    else:
-        litellm.drop_params = True
+    litellm.drop_params = True
 
     params["model"] = params["model"].replace(":latest", "")
 
