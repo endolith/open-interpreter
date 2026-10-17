@@ -4,7 +4,12 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.respond import _pending_code_message, respond
+from interpreter.core.respond import (
+    _error_body,
+    _pending_code_message,
+    display_provider_error,
+    respond,
+)
 
 
 class FakeLanguage:
@@ -139,6 +144,18 @@ def test_respond_assembles_full_system_message():
     assert "COMPUTER MSG" in content
 
 
+def _panel_text(mock_rich_print):
+    """Return the text a Panel was asked to render.
+
+    str(Panel) is just the object repr, so assertions reach into the Markdown
+    renderable the Panel wraps and read its source text -- that is what the
+    user ends up looking at once Rich renders it.
+    """
+    panel = mock_rich_print.call_args[0][0]
+    renderable = panel.renderable
+    return str(getattr(renderable, "markup", renderable))
+
+
 def test_respond_handles_budget_exceeded():
     """respond() reports the session/max budget and stops on BudgetExceededError.
 
@@ -164,24 +181,39 @@ def test_respond_handles_budget_exceeded():
     assert "5" in shown  # the limit is reported, not swallowed by an AttributeError
 
 
-def test_respond_auth_error_raises_with_key_instructions():
-    """Auth/api-key errors are re-raised with instructions for resetting the key."""
+def test_respond_shows_the_providers_own_auth_error():
+    """An auth error is shown verbatim and re-raised, not rewritten as OpenAI advice.
+
+    The provider's message names the provider and the credential that failed,
+    which is what the reader needs. Substituting generic "issue with your API
+    key" text lost that, and pointed users at OPENAI_API_KEY regardless of
+    which provider had actually refused the request.
+    """
     interpreter = _message_interpreter()
     interpreter.offline = False
 
     def run(msgs):
-        raise Exception("invalid api key")
+        raise Exception("litellm.AuthenticationError: anthropic api key sk-ant-... invalid")
 
     interpreter.llm.run = run
-    with pytest.raises(Exception, match="To reset your API key"):
-        list(respond(interpreter))
+    with mock.patch("interpreter.core.respond.rich_print") as rich:
+        with pytest.raises(Exception, match="anthropic api key"):
+            list(respond(interpreter))
+
+    assert "anthropic api key" in _panel_text(rich)
 
 
-def test_respond_rate_limit_quota_shows_billing_message():
-    """Rate-limit/quota errors print the OpenAI billing hint instead of raising."""
+def test_respond_does_not_swallow_a_rate_limit_error():
+    """A quota failure reaches the caller instead of ending the session silently.
+
+    The old handler printed a billing paragraph and did not re-raise, so a rate
+    limit ended the turn with no output and no exception -- the user saw a
+    message and then nothing else happened.
+    """
     import litellm
 
     interpreter = _message_interpreter()
+    interpreter.offline = False
 
     def run(msgs):
         raise litellm.exceptions.RateLimitError(
@@ -189,48 +221,51 @@ def test_respond_rate_limit_quota_shows_billing_message():
         )
 
     interpreter.llm.run = run
-    with mock.patch("interpreter.core.respond.display_markdown_message") as dm:
-        list(respond(interpreter))
-
-    dm.assert_called_once()
-    assert "quota" in dm.call_args[0][0].lower()
-
-
-def test_respond_model_access_prompt_switches_to_i_model():
-    """Accepting the 'no access' prompt switches the model to hosted `i`."""
-    interpreter = _message_interpreter()
-    interpreter.offline = False
-    interpreter.llm.model = "gpt-4o"
-
-    def run(msgs):
-        raise Exception("You do not have access to this model")
-
-    interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="y"):
-        list(respond(interpreter))
-
-    assert interpreter.llm.model == "i"
-    assert "Model set to `i`" in interpreter.display_message.call_args_list[0][0][0]
-
-
-def test_respond_model_access_prompt_no_raises():
-    """Declining the 'no access' prompt re-raises the original error."""
-    interpreter = _message_interpreter()
-    interpreter.offline = False
-    interpreter.llm.model = "gpt-4o"
-
-    def run(msgs):
-        raise Exception("You do not have access to this model")
-
-    interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="n"):
-        with pytest.raises(Exception, match="have access"):
+    with mock.patch("interpreter.core.respond.rich_print") as rich:
+        with pytest.raises(litellm.exceptions.RateLimitError):
             list(respond(interpreter))
 
+    assert "exceeded your current quota" in _panel_text(rich)
 
-def test_respond_offline_errors_are_re_raised():
-    """Offline sessions re-raise model-access errors rather than prompting."""
+
+def test_respond_reports_a_mistyped_model_as_a_mistyped_model():
+    """A wrong model name is reported as a wrong model name, not a billing problem.
+
+    The provider says "The model 'gpt-4oo' does not exist or you do not have
+    access to it". The old handler looked for the literal substring "model does
+    not exist", which does not appear there, so it fell through to its default
+    branch and told the user to add a payment method.
+    """
     interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.llm.model = "gpt-4oo"
+
+    def run(msgs):
+        raise Exception(
+            "litellm.BadRequestError: The model `gpt-4oo` does not exist "
+            "or you do not have access to it."
+        )
+
+    interpreter.llm.run = run
+    with mock.patch("interpreter.core.respond.rich_print") as rich:
+        with pytest.raises(Exception, match="does not exist"):
+            list(respond(interpreter))
+
+    rendered = _panel_text(rich)
+    assert "does not exist" in rendered
+    assert "payment method" not in rendered
+    assert "billing" not in rendered.lower()
+
+
+def test_respond_error_does_not_prompt_or_change_the_model():
+    """An access error shows the provider's message and re-raises, with no prompt.
+
+    The old handler asked whether to switch to Open Interpreter's hosted `i`
+    model and blocked on input(), which also broke headless runs. Nothing is
+    asked and the configured model is left alone.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
     interpreter.llm.model = "gpt-4o"
 
     def run(msgs):
@@ -238,10 +273,60 @@ def test_respond_offline_errors_are_re_raised():
 
     interpreter.llm.run = run
     with mock.patch("builtins.input") as prompt:
-        with pytest.raises(Exception, match="have access"):
-            list(respond(interpreter))
+        with mock.patch("interpreter.core.respond.rich_print"):
+            with pytest.raises(Exception, match="have access"):
+                list(respond(interpreter))
 
     prompt.assert_not_called()
+    assert interpreter.llm.model == "gpt-4o"
+
+
+def test_display_provider_error_names_the_exception_type_when_there_is_no_message():
+    """A provider that raises without a message still produces a usable panel.
+
+    Empty-string errors are rare but real; an empty box tells the user nothing
+    about what failed.
+    """
+    with mock.patch("interpreter.core.respond.rich_print") as rich:
+        display_provider_error(Exception(""))
+
+    assert "Exception" in _panel_text(rich)
+
+
+def test_display_provider_error_unwraps_an_html_body():
+    """An HTML error page is converted to readable text instead of shown as markup.
+
+    Gateways commonly answer a failed request with an HTML page. Rendered as
+    Markdown, the markup is noise that buries the status line the user needs.
+    """
+    error = (
+        "litellm.APIError: OpenrouterException - <!DOCTYPE html><html><body>"
+        "<h1>502 Bad Gateway</h1></body></html>"
+    )
+    rendered = str(_error_body(error))
+
+    assert "502 Bad Gateway" in rendered
+    assert "<!DOCTYPE" not in rendered
+
+
+def test_display_provider_error_leaves_plain_text_alone():
+    """A normal error message is passed through untouched."""
+    error = "litellm.BadRequestError: unsupported parameter: 'reasoning_effort'"
+    assert _error_body(error) == error
+
+
+def test_respond_offline_errors_are_re_raised():
+    """Offline sessions re-raise errors rather than swallowing them."""
+    interpreter = _message_interpreter()
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with mock.patch("interpreter.core.respond.rich_print"):
+        with pytest.raises(Exception, match="have access"):
+            list(respond(interpreter))
 
 
 def test_respond_rewrites_import_computer():
