@@ -3,7 +3,7 @@ name = "open-interpreter"
 version = "0.4.3" # Use "-rc1", "-rc2", etc. for pre-release versions
 description = "Let language models run code"
 readme = "README.md"
-requires-python = ">=3.10,<4"
+requires-python = ">=3.11,<4"
 authors = [
     { name = "Killian Lucas", email = "killian@openinterpreter.com" },
     { name = "endolith", email = "endolith@gmail.com" },
@@ -116,7 +116,7 @@ omit = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 exclude = ["examples"]
 
 [tool.ruff.lint]
