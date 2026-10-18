@@ -4,10 +4,12 @@ description: "Frequently Asked Questions"
 ---
 
 <Accordion title="Does Open Interpreter ensure that my data doesn't leave my computer?">
-  As long as you're using a local language model, your messages / personal info
-  won't leave your computer. If you use a cloud model, we send your messages +
-  custom instructions to the model. That is the only place your conversation
-  goes. Anonymous usage telemetry has been removed, as has the hosted `i` model
-  and the conversation-contribution feature — none of them is collected or sent
-  any more. Details are [here](/telemetry/telemetry).
+  As long as you're using a local language model, your messages and personal
+  info are not sent to a model provider. The browser tool is an exception: its
+  search queries go to Open Interpreter's API endpoint (`computer.api_base`) by
+  default, even when the model is local. If you use a cloud model, we send your
+  messages and custom instructions to that provider. Anonymous usage telemetry
+  has been removed, as has the hosted `i` model and the conversation-contribution
+  feature — none of them is collected or sent any more. Details are
+  [here](/telemetry/telemetry).
 </Accordion>
