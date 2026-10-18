@@ -55,7 +55,7 @@ def _tool_call_entry_key(entry, position):
     chunk — which preserves today's behavior exactly for single-call flows.
     """
     if isinstance(entry, dict):
-        if "index" in entry:
+        if entry.get("index") is not None:
             return ("index", entry["index"])
         return entry.get("id") or ("pos", position)
     index = getattr(entry, "index", None)
@@ -246,10 +246,27 @@ def run_tool_calling_llm(llm, request_params):
 
     pending_calls = getattr(llm.interpreter, "_pending_tool_calls", None)
     if pending_calls:
+        queued_token = pending_calls[0].get("messages")
+        current = list(request_params["messages"] or [{}])
+        if current[-1].get("role") == "user" and (
+            queued_token is None or current != queued_token
+        ):
+            # A new user turn arrived after these calls were queued (or the
+            # entry predates queue provenance): drop them instead of
+            # replaying stale calls without an LLM request. An unchanged
+            # retry still serves the queue, and continuations whose last
+            # message is assistant/computer output are unaffected.
+            pending_calls.clear()
+    if pending_calls:
         # A previous turn received more tool calls than the pipeline can
         # execute at once: serve the next queued call now, without spending
         # an LLM call, so every call runs in turn order.
-        stream = [_queued_tool_call_chunk(pending_calls.pop(0))]
+        queued = pending_calls.pop(0)
+        if queued.get("review"):
+            # The original response passed the judge layer; carry its
+            # verdict so the replayed call passes the check below too.
+            accumulated_review = queued["review"]
+        stream = [_queued_tool_call_chunk(queued)]
     else:
         stream = llm.completions(**request_params)
 
@@ -295,7 +312,7 @@ def run_tool_calling_llm(llm, request_params):
             for key, extra_entry in keyed:
                 if key != primary_call_key:
                     _queue_extra_tool_call(llm, extra_entry, key)
-            if not primary_entries:
+            if not (primary_entries and first_function):
                 # This chunk carries only queued calls: keep it out of the
                 # accumulator (raw entries are not mergeable) while
                 # preserving any message content it may hold.
@@ -410,6 +427,15 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
+
+    for queued in getattr(llm.interpreter, "_pending_tool_calls", []) or []:
+        # Stamp this response's judge-layer verdict on the calls it queued,
+        # so replaying them on a later turn carries the original verdict.
+        # Entries left over from an earlier response keep their own. Also
+        # snapshot the messages they were queued for, so a later user turn
+        # is recognized as new input (stale) rather than a retry (serve).
+        queued.setdefault("review", accumulated_review)
+        queued.setdefault("messages", list(request_params["messages"]))
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
