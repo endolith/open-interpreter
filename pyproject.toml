@@ -28,14 +28,15 @@ dependencies = [
     "yaspin>=3.0.2,<4.0.0",
     "shortuuid>=1.0.13,<2.0.0",
     "litellm>=1.105.1,!=1.106.0,!=1.106.1,<2.0.0", # 1.106.0/.1 import an undeclared `mcp` package; permanent, not a temporary pin. https://github.com/BerriAI/litellm/issues/46045
-    "starlette>=0.37.2,<0.38.0",
+    "starlette>=1.8.0,<2.0.0",
+    "python-multipart>=0.0.32,<1.0.0",
     "html2text>=2025.4.15,<2026.0.0",
     "selenium>=4.24.0,<5.0.0",
     "webdriver-manager>=4.0.2,<5.0.0",
     "anthropic>=0.37.1,<0.38.0",
     "pyautogui>=0.9.54,<0.10.0",
-    "fastapi>=0.111.0,<0.112.0",
-    "uvicorn>=0.30.1,<0.31.0",
+    "fastapi>=0.143.3,<0.144.0",
+    "uvicorn>=0.54.0,<0.55.0",
 ]
 
 [project.optional-dependencies]
@@ -64,9 +65,9 @@ local = [
     "easyocr>=1.7.1,<2.0.0",
 ]
 server = [
-    "fastapi>=0.111.0,<0.112.0",
+    "fastapi>=0.143.3,<0.144.0",
     "janus>=2.0.0,<3.0.0",
-    "uvicorn>=0.30.1,<0.31.0",
+    "uvicorn>=0.54.0,<0.55.0",
 ]
 dev = [
     "black>=23.10.1,<24.0.0",

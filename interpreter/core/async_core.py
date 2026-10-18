@@ -1128,6 +1128,10 @@ class Server:
     def __init__(self, async_interpreter, host=None, port=None):
         self.app = FastAPI()
         router = create_router(async_interpreter)
+        # Expose the router itself: newer FastAPI keeps include_router()
+        # entries as lazy wrappers in app.routes instead of the flattened
+        # routes, so app.routes can no longer be introspected directly.
+        self.router = router
         self.authenticate = authenticate_function
 
         # Add authentication middleware
