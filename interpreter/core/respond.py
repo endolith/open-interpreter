@@ -50,7 +50,12 @@ def _error_body(error_str):
     try:
         converter = html2text.HTML2Text()
         converter.body_width = 0  # Let Rich handle reflowing
-        text = converter.handle(error_str[min(markers) :]).strip()
+        start = min(markers)
+        # The text before the markup names the exception class and provider,
+        # which is the context this panel exists to show. Keep it.
+        prefix = error_str[:start].strip()
+        body = converter.handle(error_str[start:]).strip()
+        text = f"{prefix}\n\n{body}".strip() if prefix else body
     except Exception:
         return error_str
 
