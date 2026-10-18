@@ -47,7 +47,7 @@ def test_get_settings_messages(server_client):
 def test_server_registers_websocket_route():
     """The async server exposes a WebSocket handler at /."""
     server = Server(AsyncInterpreter())
-    paths = {getattr(route, "path", None) for route in server.app.routes}
+    paths = {getattr(route, "path", None) for route in server.router.routes}
     assert "/" in paths
 
 
@@ -180,7 +180,7 @@ async def run_endpoint():
     server = Server(interpreter)
     endpoint = next(
         r.endpoint
-        for r in server.app.routes
+        for r in server.router.routes
         if isinstance(r, WebSocketRoute) and r.path == "/"
     )
 
