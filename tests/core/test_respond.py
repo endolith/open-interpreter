@@ -293,6 +293,7 @@ def test_display_provider_error_unwraps_an_html_body():
     rendered = str(_error_body(error))
 
     assert "502 Bad Gateway" in rendered
+    assert "OpenrouterException" in rendered
     assert "<!DOCTYPE" not in rendered
 
 
@@ -446,3 +447,36 @@ def test_respond_requires_messages():
     interpreter.messages = []
     with pytest.raises(AssertionError, match="User message was not passed"):
         next(respond(interpreter))
+
+
+def test_error_body_without_prefix_returns_converted_body():
+    """An error that starts with markup converts without a prefix line.
+
+    When there is no exception text before the HTML marker, the converted
+    body stands alone instead of gaining a leading blank line.
+    """
+    error = "<!DOCTYPE html><html><body><h1>502 Bad Gateway</h1></body></html>"
+    rendered = str(_error_body(error))
+
+    assert "502 Bad Gateway" in rendered
+    assert "<!DOCTYPE" not in rendered
+
+
+def test_error_body_returns_original_when_conversion_fails(monkeypatch):
+    """A crashing HTML converter falls back to the raw error text.
+
+    The panel must never hide the provider's message behind a converter
+    bug, so _error_body returns the input untouched on failure.
+    """
+    import interpreter.core.respond as respond_module
+
+    class _BoomConverter:
+        body_width = 0
+
+        def handle(self, *_args, **_kwargs):
+            raise ValueError("converter blew up")
+
+    monkeypatch.setattr(respond_module.html2text, "HTML2Text", _BoomConverter)
+    error = "litellm.APIError: Problem - <!DOCTYPE html><html><body>x</body></html>"
+
+    assert _error_body(error) == error
