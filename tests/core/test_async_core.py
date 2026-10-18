@@ -788,7 +788,6 @@ class TestAsyncRespondApproval(TestCase):
     def _run_respond_with_chunks(self, chunks, approve=True):
         """Run respond() in a thread over the given chunks, then grant or deny approval."""
         import threading
-        import time
 
         def fake_store():
             """Yield the test chunks as the stored response stream."""
@@ -802,11 +801,32 @@ class TestAsyncRespondApproval(TestCase):
 
             worker = threading.Thread(target=respond_thread)
             worker.start()
-            time.sleep(0.05)
-            self.interpreter._approval_granted = approve
-            self.interpreter._approval_event.set()
-            worker.join(timeout=5)
-            self.assertFalse(worker.is_alive())
+            try:
+                # Wait until the worker has parked on the approval event: it
+                # sets pending_confirmation, then clears the event and queues
+                # complete_message just before waiting. A fixed sleep could
+                # land before the clear and wipe out this thread's set(),
+                # deadlocking the join below.
+                wait_until(
+                    lambda: self.interpreter.pending_confirmation is not None
+                    and complete_message
+                    in [
+                        call.args[0]
+                        for call in self.mock_q.put.call_args_list
+                    ],
+                    "respond() never parked on the approval event",
+                    fail=self.fail,
+                )
+                self.interpreter._approval_granted = approve
+                self.interpreter._approval_event.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+            finally:
+                # Never leave a parked non-daemon worker behind to hang the
+                # suite if an assertion above fails.
+                if worker.is_alive():
+                    self.interpreter._approval_event.set()
+                    worker.join(timeout=5)
 
     def test_respond_waits_for_approval_then_continues(self):
         """With auto_run off, confirmation chunks pause until go approves the digest."""
