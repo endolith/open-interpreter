@@ -215,3 +215,30 @@ def test_image_path_extension_ignored_in_favor_of_bytes(interpreter, tmp_path):
         )
     )
     assert url.startswith("data:image/jpeg;base64,")
+
+
+def test_image_undecodable_bytes_keep_declared_extension(interpreter):
+    """Bytes the probe can name but neither save path can decode are passed through (issue #377).
+
+    A truncated BMP still reports format BMP, so it reaches the re-encode
+    path — but both the direct PNG save and the RGB fallback raise while
+    decoding. The original payload and declared extension must be preserved
+    instead of letting the exception escape.
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="BMP")
+    raw = base64.b64encode(buf.getvalue()[:60]).decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.bmp", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url == f"data:image/bmp;base64,{raw}"

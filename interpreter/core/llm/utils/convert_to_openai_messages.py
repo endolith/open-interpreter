@@ -176,16 +176,25 @@ def convert_to_openai_messages(
                 if real_format in SUPPORTED_IMAGE_FORMATS:
                     extension = SUPPORTED_IMAGE_FORMATS[real_format]
                 elif real_format:
-                    img = Image.open(io.BytesIO(base64.b64decode(encoded_string)))
-                    buffered = io.BytesIO()
                     try:
-                        img.save(buffered, format="PNG")
+                        img = Image.open(io.BytesIO(base64.b64decode(encoded_string)))
+                        buffered = io.BytesIO()
+                        try:
+                            img.save(buffered, format="PNG")
+                        except Exception:
+                            # A partial save may have left garbage behind;
+                            # start fresh so the fallback is not appended to it.
+                            buffered = io.BytesIO()
+                            img.convert("RGB").save(buffered, format="PNG")
+                        encoded_string = base64.b64encode(buffered.getvalue()).decode(
+                            "utf-8"
+                        )
+                        extension = "png"
                     except Exception:
-                        img.convert("RGB").save(buffered, format="PNG")
-                    encoded_string = base64.b64encode(buffered.getvalue()).decode(
-                        "utf-8"
-                    )
-                    extension = "png"
+                        # Undecodable bytes (e.g. a truncated file the probe
+                        # could still name) keep the declared extension and
+                        # original payload so the pipeline never crashes here.
+                        pass
 
                 content = f"data:image/{extension};base64,{encoded_string}"
 
