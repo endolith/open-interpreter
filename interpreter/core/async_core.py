@@ -1112,22 +1112,33 @@ def create_router(async_interpreter):
         if last_message.role != "user":
             raise ValueError("Last message must be from the user.")
 
-        if last_message.content == "{STOP}":
+        if isinstance(last_message.content, str):
+            content_text = last_message.content
+        else:
+            # OpenAI parts-list content, as vision-capable clients send
+            content_text = " ".join(
+                str(part.get("text", ""))
+                for part in last_message.content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        token = content_text.strip()
+
+        if token == "{STOP}":
             # Handle special STOP token
             async_interpreter.stop_event.set()
             time.sleep(5)
             async_interpreter.stop_event.clear()
             return
 
-        if last_message.content in ["{CONTEXT_MODE_ON}", "{REQUIRE_START_ON}"]:
+        if token in ["{CONTEXT_MODE_ON}", "{REQUIRE_START_ON}"]:
             async_interpreter.context_mode = True
             return
 
-        if last_message.content in ["{CONTEXT_MODE_OFF}", "{REQUIRE_START_OFF}"]:
+        if token in ["{CONTEXT_MODE_OFF}", "{REQUIRE_START_OFF}"]:
             async_interpreter.context_mode = False
             return
 
-        if last_message.content == "{AUTO_RUN_ON}":
+        if token == "{AUTO_RUN_ON}":
             # Enabling auto-run here would bypass the /settings guard that
             # reserves this switch for the operator. Disabling it stays
             # allowed, since it can only make the server safer.
@@ -1138,19 +1149,9 @@ def create_router(async_interpreter):
                 },
             )
 
-        if last_message.content == "{AUTO_RUN_OFF}":
+        if token == "{AUTO_RUN_OFF}":
             async_interpreter.auto_run = False
             return
-
-        if isinstance(last_message.content, str):
-            content_text = last_message.content
-        else:
-            # OpenAI parts-list content, as vision-capable clients send
-            content_text = " ".join(
-                str(part.get("text", ""))
-                for part in last_message.content
-                if isinstance(part, dict) and part.get("type") == "text"
-            )
 
         def append_user_content():
             if type(last_message.content) == str:
@@ -1252,13 +1253,14 @@ def create_router(async_interpreter):
             # requires a message, which would duplicate the turn) or without
             # prompting (display=True with no message reads input()).
             async_interpreter.responding = True
+            start_len = len(async_interpreter.messages)
             try:
                 for _ in async_interpreter._respond_and_store():
                     pass
             finally:
                 async_interpreter.responding = False
-            messages = async_interpreter.messages
-            content = messages[-1]["content"]
+            new_messages = async_interpreter.messages[start_len:]
+            content = new_messages[-1]["content"] if new_messages else ""
             return {
                 "id": "200",
                 "object": "chat.completion",
