@@ -288,3 +288,29 @@ def test_auth_no_tool_call_does_not_raise(monkeypatch):
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "message", "content": "hello"}
     ]
+
+
+def test_narration_sharing_a_later_delta_with_a_tool_call_is_a_message():
+    """Narration packed with a tool-call continuation is streamed as a message, not a review.
+
+    The verdict-tag classification must run for every delta carrying both
+    content and tool calls: untagged narration in a later mixed delta must not
+    inherit review status from the earlier tool call that set
+    function_call_detected.
+    """
+    llm = _make_llm(
+        [
+            _chunk({"tool_calls": [_tool_call("execute", '{"language": "python", "code": "pri')]}),
+            _chunk(
+                {
+                    "content": "And here's why.",
+                    "tool_calls": [_tool_call("execute", 'nt(1)"}')],
+                }
+            ),
+        ]
+    )
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "pri"},
+        {"type": "message", "content": "And here's why."},
+        {"type": "code", "format": "python", "content": "nt(1)"},
+    ]
