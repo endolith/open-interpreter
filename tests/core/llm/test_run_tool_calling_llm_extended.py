@@ -283,7 +283,8 @@ def test_review_verdict_sharing_a_delta_with_the_tool_call_counts_as_a_review(mo
         ]
     )
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "print(1)"}
+        {"type": "code", "format": "python", "content": "print(1)"},
+        {"type": "review", "format": "safe", "content": "fine"},
     ]
 
 
@@ -327,3 +328,94 @@ def test_reasoning_preserved_when_delta_has_tool_call():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "message", "content": "", "reasoning_content": "r"}
     ]
+
+
+def test_narration_sharing_a_later_delta_with_a_tool_call_is_a_message():
+    """Narration packed with a tool-call continuation is streamed as a message, not a review.
+
+    The verdict-tag classification must run for every delta carrying both
+    content and tool calls: untagged narration in a later mixed delta must not
+    inherit review status from the earlier tool call that set
+    function_call_detected.
+    """
+    llm = _make_llm(
+        [
+            _chunk({"tool_calls": [_tool_call("execute", '{"language": "python", "code": "pri')]}),
+            _chunk(
+                {
+                    "content": "And here's why.",
+                    "tool_calls": [_tool_call("execute", 'nt(1)"}')],
+                }
+            ),
+        ]
+    )
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "pri"},
+        {"type": "message", "content": "And here's why."},
+        {"type": "code", "format": "python", "content": "nt(1)"},
+    ]
+
+
+def test_tool_calls_empty_function_fields_skipped():
+    """An entry with empty name and arguments does not hide a later valid one."""
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        SimpleNamespace(
+                            function=SimpleNamespace(name="", arguments="")
+                        ),
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": "print(1)"}',
+                        ),
+                    ]
+                }
+            )
+        ]
+    )
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+def test_open_review_body_in_later_mixed_delta_stays_a_review():
+    """A review opened earlier stays a review when its body shares a mixed delta."""
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": "print(1)"}',
+                        )
+                    ]
+                }
+            ),
+            _chunk({"content": "<safe>Looks "}),
+            _chunk(
+                {
+                    "content": "good</safe>",
+                    "tool_calls": [_tool_call("execute", '{"language": "python", "code": "print(2)"}')],
+                }
+            ),
+        ]
+    )
+
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert any(
+        chunk.get("type") == "review" and chunk.get("content") == "Looks "
+        for chunk in result
+    )
+    assert any(
+        chunk.get("type") == "review" and chunk.get("content") == "good"
+        for chunk in result
+    )
+    assert not any(
+        chunk.get("type") == "message" and "good" in str(chunk.get("content"))
+        for chunk in result
+    )
