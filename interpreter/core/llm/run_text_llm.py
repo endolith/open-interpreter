@@ -40,6 +40,14 @@ def run_text_llm(llm, params):
 
         if accumulated_block.endswith("`"):
             # We might be writing "```" one token at a time.
+            if reasoning:
+                # The fence parser suppresses this chunk; emit thinking-model
+                # reasoning on its own so providers get it back verbatim.
+                yield {
+                    "type": "message",
+                    "content": "",
+                    "reasoning_content": reasoning,
+                }
             continue
 
         # Did we just enter a code block?
@@ -49,10 +57,26 @@ def run_text_llm(llm, params):
 
         # Did we just exit a code block?
         if inside_code_block and "```" in accumulated_block:
+            if reasoning:
+                # The closing fence ends the turn; emit reasoning first so it
+                # still reaches stored history.
+                yield {
+                    "type": "message",
+                    "content": "",
+                    "reasoning_content": reasoning,
+                }
             return
 
         # If we're in a code block,
         if inside_code_block:
+            if reasoning:
+                # Code chunks carry no reasoning; emit it on its own message
+                # so it still reaches stored history.
+                yield {
+                    "type": "message",
+                    "content": "",
+                    "reasoning_content": reasoning,
+                }
             # If we don't have a `language`, find it
             if language is None and "\n" in accumulated_block:
                 language = accumulated_block.split("\n")[0]
