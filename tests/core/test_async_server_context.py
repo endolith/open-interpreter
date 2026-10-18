@@ -235,3 +235,44 @@ def test_parts_list_yes_while_code_pending():
         response = _post(client, [{"type": "text", "text": "yes"}])
 
     assert response.status_code == 200
+
+
+def test_parts_list_control_token_recognized():
+    """Control tokens work as parts-list content, not just plain strings.
+
+    Vision-capable clients send [{"type": "text", "text": "..."}]. Comparing
+    the raw content against "{CONTEXT_MODE_ON}" never matches that shape, so
+    the token was stored as a user turn and answered by the model instead of
+    toggling context mode.
+    """
+    interpreter, client = _make()
+    response = _post(client, [{"type": "text", "text": "{CONTEXT_MODE_ON}"}])
+    assert response.status_code == 200
+    assert interpreter.context_mode is True
+    assert all(
+        m.get("content") != "{CONTEXT_MODE_ON}" for m in interpreter.messages
+    )
+
+
+def test_silent_turn_returns_empty_string_not_user_echo():
+    """A turn that appends no message replies "", not the user's text.
+
+    The non-streaming path returned messages[-1], which is the just-appended
+    user turn when _respond_and_store() yields nothing — echoing the prompt
+    back as the assistant reply.
+    """
+
+    def fake_silent_respond(interp):
+        if False:
+            yield {}
+
+    with mock.patch("interpreter.core.core.respond", fake_silent_respond):
+        interpreter, client = _make()
+        response = _post(client, "hello?")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["choices"][0]["message"]["content"] == ""
+    assert [(m["role"], m["content"]) for m in interpreter.messages] == [
+        ("user", "hello?")
+    ]

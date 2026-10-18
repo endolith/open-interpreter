@@ -1012,29 +1012,6 @@ def create_router(async_interpreter):
         if last_message.role != "user":
             raise ValueError("Last message must be from the user.")
 
-        if last_message.content == "{STOP}":
-            # Handle special STOP token
-            async_interpreter.stop_event.set()
-            time.sleep(5)
-            async_interpreter.stop_event.clear()
-            return
-
-        if last_message.content in ["{CONTEXT_MODE_ON}", "{REQUIRE_START_ON}"]:
-            async_interpreter.context_mode = True
-            return
-
-        if last_message.content in ["{CONTEXT_MODE_OFF}", "{REQUIRE_START_OFF}"]:
-            async_interpreter.context_mode = False
-            return
-
-        if last_message.content == "{AUTO_RUN_ON}":
-            async_interpreter.auto_run = True
-            return
-
-        if last_message.content == "{AUTO_RUN_OFF}":
-            async_interpreter.auto_run = False
-            return
-
         if isinstance(last_message.content, str):
             content_text = last_message.content
         else:
@@ -1044,6 +1021,30 @@ def create_router(async_interpreter):
                 for part in last_message.content
                 if isinstance(part, dict) and part.get("type") == "text"
             )
+        token = content_text.strip()
+
+        if token == "{STOP}":
+            # Handle special STOP token
+            async_interpreter.stop_event.set()
+            time.sleep(5)
+            async_interpreter.stop_event.clear()
+            return
+
+        if token in ["{CONTEXT_MODE_ON}", "{REQUIRE_START_ON}"]:
+            async_interpreter.context_mode = True
+            return
+
+        if token in ["{CONTEXT_MODE_OFF}", "{REQUIRE_START_OFF}"]:
+            async_interpreter.context_mode = False
+            return
+
+        if token == "{AUTO_RUN_ON}":
+            async_interpreter.auto_run = True
+            return
+
+        if token == "{AUTO_RUN_OFF}":
+            async_interpreter.auto_run = False
+            return
 
         def append_user_content():
             if type(last_message.content) == str:
@@ -1141,13 +1142,14 @@ def create_router(async_interpreter):
             # requires a message, which would duplicate the turn) or without
             # prompting (display=True with no message reads input()).
             async_interpreter.responding = True
+            start_len = len(async_interpreter.messages)
             try:
                 for _ in async_interpreter._respond_and_store():
                     pass
             finally:
                 async_interpreter.responding = False
-            messages = async_interpreter.messages
-            content = messages[-1]["content"]
+            new_messages = async_interpreter.messages[start_len:]
+            content = new_messages[-1]["content"] if new_messages else ""
             return {
                 "id": "200",
                 "object": "chat.completion",
