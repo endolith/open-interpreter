@@ -237,3 +237,54 @@ def test_reasoning_content_attached_per_chunk():
         {"type": "message", "content": "a", "reasoning_content": "r1"},
         {"type": "message", "content": "b", "reasoning_content": "r2"},
     ]
+
+
+def test_reasoning_survives_split_fence_guard():
+    """Reasoning arriving while the fence parser holds a chunk is still emitted (issue #215).
+
+    When accumulated output ends in a backtick the parser `continue`s past the
+    chunk, which used to drop any reasoning delta riding along with it.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "code `"}}]},
+            {
+                "choices": [
+                    {"delta": {"content": None, "reasoning_content": "thinking"}}
+                ]
+            },
+            {"choices": [{"delta": {"content": "more"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "", "reasoning_content": "thinking"},
+        {"type": "message", "content": "more"},
+    ]
+
+
+def test_reasoning_inside_code_block_is_emitted():
+    """Reasoning arriving mid-code-block is emitted on its own message (issue #215).
+
+    Code chunks carry no reasoning, and the message branch is skipped inside a
+    fence, so the reasoning used to never reach stored history.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "print(1)\n",
+                            "reasoning_content": "r-code",
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "message", "content": "", "reasoning_content": "r-code"},
+        {"type": "code", "format": "python", "content": "print(1)\n"},
+    ]

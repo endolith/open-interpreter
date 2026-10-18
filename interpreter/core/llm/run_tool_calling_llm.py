@@ -182,6 +182,12 @@ def run_tool_calling_llm(llm, request_params):
 
         delta = chunk["choices"][0]["delta"]
 
+        # Thinking-model reasoning must reach history even when this delta
+        # carries no usable content (a reasoning-only delta, or one the
+        # tool-call transform below replaces). Capture it before the
+        # transform drops it.
+        reasoning = delta.get("reasoning_content") or ""
+
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
             function_call_detected = True
@@ -198,6 +204,19 @@ def run_tool_calling_llm(llm, request_params):
 
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
+
+        if reasoning and not (
+            "content" in delta and delta["content"] and not function_call_detected
+        ):
+            # No message chunk below will carry this reasoning (a
+            # reasoning-only delta, a delta replaced by the tool-call
+            # transform, or judge-review content), so emit it on its own for
+            # history accumulation.
+            yield {
+                "type": "message",
+                "content": "",
+                "reasoning_content": reasoning,
+            }
 
         if "content" in delta and delta["content"]:
             if function_call_detected:
