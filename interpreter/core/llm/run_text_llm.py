@@ -18,6 +18,19 @@ def _withheld_fence_chars(text):
     return len(text) - len(text.rstrip("`"))
 
 
+def _find_closing_fence(text, start):
+    """Find a fence that begins a line; a mid-line ``` is code content.
+
+    Models often emit code that itself contains fences (a quoted "```" in a
+    string literal, a heredoc writing a README). CommonMark only accepts a
+    closing fence at the start of a line, so anything else is body text.
+    """
+    at = text.find(FENCE, start)
+    while at > 0 and text[at - 1] != "\n":
+        at = text.find(FENCE, at + 1)
+    return at
+
+
 def run_text_llm(llm, params):
     ## Setup
 
@@ -118,7 +131,7 @@ def run_text_llm(llm, params):
                     language = "".join(char for char in language if char.isalpha())
                 cursor = newline_at + 1
 
-            fence_at = accumulated.find(FENCE, cursor)
+            fence_at = _find_closing_fence(accumulated, cursor)
 
             if fence_at == -1:
                 safe_end = len(accumulated) - _withheld_fence_chars(accumulated)

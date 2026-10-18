@@ -385,3 +385,24 @@ def test_withheld_fence_chars(text, expected):
     implementation gets wrong, since it also ends with two.
     """
     assert _withheld_fence_chars(text) == expected
+
+
+def test_mid_line_fence_does_not_close_code_block():
+    """A ``` in the middle of a line is code content, not the closing fence.
+
+    Models emit code that itself contains fences (a quoted ``` in a string
+    literal, a heredoc writing Markdown). CommonMark only accepts a closing
+    fence at the start of a line; anything else is body text that must reach
+    the runner intact rather than truncating the block early.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": 'x = "```"\nprint(1)\n'}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
+    assert result == [
+        {"type": "code", "format": "python", "content": 'x = "```"\nprint(1)\n'},
+    ]
