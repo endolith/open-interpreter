@@ -198,17 +198,23 @@ def run_tool_calling_llm(llm, request_params):
 
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
-            # Content packed into the *same* delta as the tool call is the
-            # assistant's own text on providers that collapse a turn into one
-            # message; see content_is_review above. Deltas arrive as dicts or
-            # objects depending on the provider/litellm version, hence both.
+            # Content packed into the *same* delta as a tool call carries no
+            # ordering, so the verdict tags classify it — independently for
+            # every such delta, not just the first. A later delta mixing the
+            # assistant's narration with a tool-call continuation must not
+            # inherit review status from the earlier call. Deltas arrive as
+            # dicts or objects depending on the provider/litellm version,
+            # hence both.
             if isinstance(delta, dict):
                 content = delta.get("content")
             else:
                 content = getattr(delta, "content", None)
 
-            if not function_call_detected and content:
-                content_is_review = any(
+            if content:
+                # A review already opened by an earlier content-only delta must
+                # stay a review even when the body arrives with a later
+                # tool-call fragment and contains no opening tag itself.
+                content_is_review = review_category is not None or any(
                     tag in content for tag in ["<safe>", "<warning>", "<unsafe>"]
                 )
 
