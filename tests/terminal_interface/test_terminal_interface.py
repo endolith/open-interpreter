@@ -581,3 +581,57 @@ def test_terminal_interface_message_content_without_start_crashes():
     interpreter.chat = chat
     with pytest.raises(AttributeError):
         list(terminal_interface(interpreter, "hi"))
+
+
+def test_terminal_interface_returns_to_prompt_after_provider_error():
+    """A provider error in interactive mode returns to the prompt.
+
+    terminal_interface() used to re-raise chat() errors unconditionally, so
+    one failed request killed the CLI. It now closes any active block and
+    continues the prompt loop when interactive, mirroring the
+    KeyboardInterrupt branch. The KeyboardInterrupt from the second prompt
+    proves the loop survived the RuntimeError and exited gracefully.
+    """
+    interpreter = _make_interpreter()
+    interpreter.chat = mock.Mock(side_effect=RuntimeError("Provider error"))
+
+    with mock.patch("builtins.input", side_effect=["hi", KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    interpreter.chat.assert_called_once_with("hi", display=False, stream=True)
+
+
+def test_terminal_interface_reraises_provider_error_when_not_interactive():
+    """A single-message (non-interactive) run still surfaces chat() errors.
+
+    Scripts driving a one-shot message must see the failure, so the generic
+    handler preserves the re-raise when there is no prompt loop to return to.
+    """
+    interpreter = _make_interpreter()
+    interpreter.chat = mock.Mock(side_effect=RuntimeError("Provider error"))
+
+    with pytest.raises(RuntimeError, match="Provider error"):
+        list(terminal_interface(interpreter, "hi"))
+
+
+def test_terminal_interface_provider_error_closes_active_block():
+    """A provider error mid-block still closes the open code block.
+
+    If the failure lands after a start chunk created a live block, the
+    generic handler ends it before returning to the prompt, so the next
+    turn does not inherit a half-open render.
+    """
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        yield {"type": "code", "role": "assistant", "start": True, "format": "python"}
+        raise RuntimeError("Provider error")
+
+    interpreter.chat = mock.Mock(side_effect=chat)
+
+    with mock.patch("builtins.input", side_effect=["hi", KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    interpreter.chat.assert_called_once_with("hi", display=False, stream=True)

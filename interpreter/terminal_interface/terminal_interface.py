@@ -539,7 +539,17 @@ def terminal_interface(interpreter, message):
                 continue
             else:
                 break
-        except:
+        except Exception:
+            # A provider error mid-turn should return to the prompt, not kill
+            # the CLI. Mirror the KeyboardInterrupt branch: close any active
+            # block, continue when interactive, re-raise otherwise.
+            if "active_block" in locals() and active_block:
+                active_block.end()
+                active_block = None
+
             if interpreter.debug:
                 system_info(interpreter)
+
+            if interactive:
+                continue
             raise
