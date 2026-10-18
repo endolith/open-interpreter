@@ -210,6 +210,11 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     name = getattr(function, "name", None)
                     arguments = getattr(function, "arguments", None)
+                if name is None and arguments is None:
+                    # An entry with neither a name nor arguments carries
+                    # nothing to merge; keep scanning the list for a usable
+                    # entry rather than selecting this one.
+                    continue
                 converted_call = {"name": name, "arguments": arguments}
                 break
             if converted_call is not None:

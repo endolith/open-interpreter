@@ -316,3 +316,42 @@ def test_judge_verdict_single_chunk_is_not_dropped():
         {"type": "code", "format": "python", "content": "print(1)"},
         {"type": "review", "format": "safe", "content": "Looks fine"},
     ]
+
+
+def test_tool_calls_nameless_argumentless_entry_skipped():
+    """An entry with neither a name nor arguments does not hide a later valid entry.
+
+    A present-but-empty function object is truthy, so the selection loop used
+    to pick it and never reach a valid `execute` entry later in the same list.
+    Arguments-only continuations (name=None, arguments set) must still be
+    selected, so only the doubly-empty entry is skipped.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                function=SimpleNamespace(name=None, arguments=None)
+                            ),
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": "print(1)"}',
+                                ),
+                            ),
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
