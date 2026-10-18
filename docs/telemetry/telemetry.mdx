@@ -8,11 +8,11 @@ Open Interpreter no longer collects any usage information. There is nothing to o
 
 Earlier versions posted anonymous usage events to a third-party analytics service (PostHog) hosted by the project's previous maintainers. Since this repository is no longer maintained by them, continuing to send usage data there would mean shipping it to an organization whose maintainers cannot see or delete it. The collector has been removed from the codebase rather than left in place behind a flag, so no code path remains that could send anything.
 
-Nothing about your usage is collected or transmitted to Open Interpreter or anyone else. The hosted `i` model and the conversation-contribution feature were removed for the same reason: they posted your conversations to `api.openinterpreter.com`, which no longer serves either.
+Open Interpreter itself no longer collects anything about your usage and sends no telemetry or conversation contributions anywhere. There is nothing to opt out of. Requests to a configured remote model still send conversation data to that provider, as any LLM client must. The hosted `i` model and the conversation-contribution feature were removed for the same reason: they posted your conversations to `api.openinterpreter.com`, which no longer serves either.
 
 ## What this means for existing configuration
 
-The following settings are gone. They are no longer read, and leaving them in place has no effect other than an unrecognized-key warning from the profile loader.
+The Python setting and profile key are no longer read, and leaving them in place has no effect. The CLI flag is no longer recognized; retaining it prints an unrecognized-argument message and exits with status 1.
 
 ### Python
 

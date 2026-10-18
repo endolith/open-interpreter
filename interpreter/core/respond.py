@@ -131,30 +131,20 @@ def respond(interpreter):
                     interpreter.offline == False and "not have access" in str(e).lower()
                 ):
                     # Check for invalid model in error message and then fallback.
+                    # (The hosted `i` model was removed, so there is nothing to
+                    # offer here — show the provider message and re-raise.)
                     if (
                         "invalid model" in error_message
                         or "model does not exist" in error_message
                     ):
-                        provider_message = f"\n\nThe model '{interpreter.llm.model}' does not exist or is invalid. Please check the model name and try again.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
+                        provider_message = f"\n\nThe model '{interpreter.llm.model}' does not exist or is invalid. Please check the model name and try again.\n\n"
                     elif "groq" in error_message:
-                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. Please check with Groq for more details.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
+                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. Please check with Groq for more details.\n\n"
                     else:
-                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. If you are using an OpenAI model, you may need to add a payment method and purchase credits for the OpenAI API billing page (this is different from ChatGPT Plus).\n\nhttps://platform.openai.com/account/billing/overview\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n"
+                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. If you are using an OpenAI model, you may need to add a payment method and purchase credits for the OpenAI API billing page (this is different from ChatGPT Plus).\n\nhttps://platform.openai.com/account/billing/overview\n\n"
 
                     print(provider_message)
-
-                    response = input()
-                    print("")  # <- Aesthetic choice
-
-                    if response.strip().lower() == "y":
-                        interpreter.llm.model = "i"
-                        interpreter.display_message(f"> Model set to `i`")
-                        interpreter.display_message(
-                            "***Note:*** *Conversations with this model will be used to train our open-source model.*\n"
-                        )
-
-                    else:
-                        raise
+                    raise
                 elif interpreter.offline and not interpreter.os:
                     raise
                 else:
