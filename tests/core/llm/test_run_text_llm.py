@@ -385,3 +385,74 @@ def test_withheld_fence_chars(text, expected):
     implementation gets wrong, since it also ends with two.
     """
     assert _withheld_fence_chars(text) == expected
+
+
+def test_mid_line_fence_does_not_close_code_block():
+    """A ``` in the middle of a line is code content, not the closing fence.
+
+    Models emit code that itself contains fences (a quoted ``` in a string
+    literal, a heredoc writing Markdown). CommonMark only accepts a closing
+    fence at the start of a line; anything else is body text that must reach
+    the runner intact rather than truncating the block early.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": 'x = "```"\nprint(1)\n'}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
+    assert result == [
+        {"type": "code", "format": "python", "content": 'x = "```"\nprint(1)\n'},
+    ]
+
+
+def test_indented_closing_fence_closes_the_block():
+    """Up to three leading spaces are allowed on a closing fence."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n"}}]},
+            {"choices": [{"delta": {"content": "   ```\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n"
+
+
+def test_closing_fence_with_trailing_text_is_code():
+    """A line starting with ``` but trailing text does not close the block."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n"}}]},
+            {"choices": [{"delta": {"content": "```python\nmore\n"}}]},
+            {"choices": [{"delta": {"content": "```\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n```python\nmore\n"
+
+
+def test_split_closing_fence_candidate_is_held():
+    """A fence split across deltas closes instead of being emitted as code."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n  `"}}]},
+            {"choices": [{"delta": {"content": "``\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n"
+
+
+def test_split_candidate_with_trailing_text_is_code():
+    """A held candidate that gains trailing text becomes ordinary code."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n  ``"}}]},
+            {"choices": [{"delta": {"content": "x\n"}}]},
+            {"choices": [{"delta": {"content": "```\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n  ``x\n"

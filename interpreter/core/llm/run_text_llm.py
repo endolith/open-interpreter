@@ -18,6 +18,45 @@ def _withheld_fence_chars(text):
     return len(text) - len(text.rstrip("`"))
 
 
+def _find_closing_fence(text, start, at_eof=False):
+    """Find a CommonMark closing fence at or after ``start``.
+
+    A closing fence is a line with up to three leading spaces, three or more
+    backticks, and only spaces/tabs after them. Mid-line fences and fences with
+    trailing text are code content.
+
+    Returns ``(fence_start, safe_end)``. ``fence_start`` is None when no
+    complete fence is present. ``safe_end`` is the point up to which code can
+    be emitted now: it holds an unterminated line that could still grow into a
+    fence, and otherwise extends to the end of the buffer.
+    """
+    pos = start
+    while pos <= len(text):
+        newline = text.find("\n", pos)
+        end = len(text) if newline == -1 else newline
+        line = text[pos:end]
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        backticks = len(stripped) - len(stripped.lstrip("`"))
+        trailing = stripped[backticks:]
+        if indent <= 3 and backticks >= len(FENCE) and not trailing.strip():
+            if newline != -1 or at_eof:
+                return pos, pos
+            return None, pos
+        if newline == -1:
+            # An unterminated tail made only of spaces/backticks can still grow
+            # into a fence; hold it. Anything else is ordinary code.
+            if (
+                indent <= 3
+                and not trailing.strip()
+                and set(stripped) <= {"`", " ", "\t"}
+            ):
+                return None, pos
+            return None, len(text)
+        pos = newline + 1
+    return None, len(text)
+
+
 def run_text_llm(llm, params):
     ## Setup
 
@@ -118,10 +157,9 @@ def run_text_llm(llm, params):
                     language = "".join(char for char in language if char.isalpha())
                 cursor = newline_at + 1
 
-            fence_at = accumulated.find(FENCE, cursor)
+            fence_at, safe_end = _find_closing_fence(accumulated, cursor)
 
-            if fence_at == -1:
-                safe_end = len(accumulated) - _withheld_fence_chars(accumulated)
+            if fence_at is None:
                 if safe_end > cursor:
                     if language:
                         yield {
@@ -134,6 +172,19 @@ def run_text_llm(llm, params):
 
             # Closing fence: emit the remaining body and stop.
             if fence_at > cursor and language:
+                yield {
+                    "type": "code",
+                    "format": language,
+                    "content": accumulated[cursor:fence_at],
+                }
+            return
+
+    # A closing fence may be complete only because the stream ended (no
+    # trailing newline); resolve it before flushing the tail as code.
+    if inside_code_block and language is not None:
+        fence_at, _ = _find_closing_fence(accumulated, cursor, at_eof=True)
+        if fence_at is not None:
+            if fence_at > cursor:
                 yield {
                     "type": "code",
                     "format": language,
