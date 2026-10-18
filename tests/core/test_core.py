@@ -136,7 +136,6 @@ def test_chat_does_not_overwrite_an_existing_conversation_file(tmp_path):
     existing.write_text(json.dumps([{"role": "user", "content": "old"}]))
 
     interpreter = OpenInterpreter(
-        disable_telemetry=True,
         conversation_history=True,
         conversation_history_path=str(history),
     )
@@ -150,3 +149,22 @@ def test_chat_does_not_overwrite_an_existing_conversation_file(tmp_path):
     assert json.loads(existing.read_text()) == [{"role": "user", "content": "old"}]
     assert interpreter.conversation_filename != existing.name
     assert len(list(history.glob("*.json"))) == 2
+
+
+def test_removed_telemetry_parameter_does_not_shift_positionals():
+    """Legacy positional calls fail instead of silently mapping to another setting."""
+    with pytest.raises(TypeError, match="positional"):
+        OpenInterpreter(
+            [],
+            False,
+            False,
+            False,
+            False,
+            2800,
+            "off",
+            True,
+            False,
+            "loop message",
+            [],
+            "legacy disable_telemetry value",
+        )

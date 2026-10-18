@@ -56,6 +56,7 @@ class OpenInterpreter:
             "Let me know what you'd like to do next.",
             "Please provide more information.",
         ],
+        *,
         in_terminal_interface=False,
         conversation_history=True,
         conversation_filename=None,
