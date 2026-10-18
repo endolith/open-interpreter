@@ -884,7 +884,6 @@ Continuing...
         # Other providers get the id via a header instead, if they want it at all.
         if self._is_hosted_i_model and hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
-            params["conversation_id"] = self.interpreter.conversation_id
 
         if auxiliary_title_request:
             # Avoid huge reasoning streams and hung streams with no wall clock (OpenRouter etc.).
