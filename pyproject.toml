@@ -18,7 +18,7 @@ dependencies = [
     "pyreadline3>=3.4.1,<4.0.0; sys_platform == 'win32'",
     "html2image>=2.0.4.3,<3.0.0",
     "send2trash>=2.0.0,<3.0.0",
-    "ipykernel>=6.26.0,<7.0.0",
+    "ipykernel>=7.4.0,<8.0.0",
     "jupyter-client>=8.6.0,<9.0.0",
     "matplotlib>=3.8.2,<4.0.0",
     "tiktoken>=0.8.0",
