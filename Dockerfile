@@ -16,7 +16,7 @@ ENV HOST 0.0.0.0
 RUN mkdir -p interpreter scripts
 COPY interpreter/ interpreter/
 COPY scripts/ scripts/
-COPY poetry.lock pyproject.toml README.md ./
+COPY pyproject.toml README.md ./
 
 # Expose port 8000
 EXPOSE 8000
