@@ -341,6 +341,34 @@ auto_run: true
 
 </CodeGroup>
 
+`auto_run` accepts three modes:
+
+- `prompt` (default) — ask before running every block.
+- `all` — run every block without asking.
+- `allowlist` — auto-run only code covered by a structural rule; everything else still asks.
+
+In `allowlist` mode, pressing `a` at the confirmation prompt offers rules that would cover the
+block. Rules are **structural**, not text patterns: bash rules name a command (with optional
+leading arguments) and python rules name a call or an import, and the block is parsed before it
+is matched. A block runs unattended only when *every* command/statement in it is covered and
+passes the built-in safety guards (no command substitution, no writes outside the null device,
+no sensitive paths, no interpreter one-liners).
+
+Rules can be added from a profile and a YAML file:
+
+```yaml Config
+auto_run: allowlist
+# auto_run_allowlist_file: ~/.interpreter/allowlist.yaml
+# auto_run_allowlist_rules:
+#   - {language: bash, command: git, args: [status]}
+#   - {language: python, call: help}
+#   - {language: python, import: json}
+# auto_run_allowlist_replace_builtin: false  # true drops the read-only built-in preset
+```
+
+Rules accepted from user files are validated but skipped (with a warning) if malformed, so a
+single bad entry never stops the interpreter from starting.
+
 #### `--loop`
 
 Runs Open Interpreter in a loop, requiring it to admit to completing or failing every task.

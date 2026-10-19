@@ -11,9 +11,14 @@ Features from this branch will eventually be merged into `main`.
 Any feature branches that target `classic/develop` should have a `develop/` prefix.  Most changes should just be committed directly to `classic/develop`, though.
 
 Tests **do** run on this branch — run them. The suite is currently green
-(`python -m pytest -m "not integration"` — 583 passed, 0 failed), so a failure is
+(`python -m pytest -m "not integration"` — 702 passed, 0 failed), so a failure is
 yours until shown otherwise. Skips are expected and legitimate: they gate on
 things a given machine does not have (`pwsh`, `R`, `yq`, `gawk`, `patch`, `poke`), and each says which.
+
+In a Docker sandbox, importing NumPy aborts the process with an Intel OpenMP
+affinity assertion (`OMP: Error #13 ... kmp_affinity.cpp`); prefix the test
+command with `MKL_THREADING_LAYER=SEQUENTIAL` to work around it. That is an
+environment quirk, not a project one.
 
 Most unit tests here were written after the fact by an AI, assuming the code was
 correct — so a surprising failure is more often a bad test than a regression (see
@@ -79,6 +84,18 @@ drive-by fix; give the fix its own commit instead.
   'keyword')` signature lister, loaded by path in `jupyter_language.py`).
   `prompt_choice` takes only exact single letters and re-prompts on anything
   else.
+- `interpreter/core/utils/execution_allowlist.py` — the `auto_run: allowlist`
+  mode. Rules are **structural**: bash rules name a command (+ optional leading
+  args), python rules name a call or an import. Code is parsed by
+  `code_parser.py` before matching, and a block runs unattended only when every
+  command/statement is covered and passes the guards (no command substitution,
+  no non-null redirects, no sensitive paths, no interpreter/wrapper commands).
+- `interpreter/core/utils/code_parser.py` — the only place that knows
+  tree-sitter (**bash**, a hard dependency) and the stdlib `ast` (**python**).
+  Returns normalised shapes (`ShellCommand`, safe-expression / import helpers).
+  `shell_chain.py` no longer splits chains — rewriting now belongs here.
+- `interpreter/core/utils/safe_imports.py` — `SIDE_EFFECT_FREE_IMPORTS`, shared
+  by the allowlist's `import` rules and the redundant-import stripper.
 - `interpreter/core/tools/file_edit.py` — file-editing tool.
 - `scripts/wtf.py` — standalone "fix my last terminal error" CLI.
 - **Dead or fragile live code**: `Skills.run()` (in `core/toolbox/skills`),
