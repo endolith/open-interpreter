@@ -18,6 +18,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 from jupyter_client import KernelManager
 
+from ...utils.safe_imports import SIDE_EFFECT_FREE_IMPORTS
 from ..base_language import BaseLanguage
 
 DEBUG_MODE = False
@@ -806,66 +807,6 @@ print(__oi_res)
         return preprocess_python(code)
 
 
-# Modules we're willing to drop a redundant top-level `import X` for. Only
-# side-effect-free imports that LLMs habitually repeat at the top of every cell
-# are listed. Deliberately NOT included: modules whose import has side effects
-# (e.g. matplotlib picks a backend), and the near-universal aliased imports
-# (`import numpy as np`, `import pandas as pd`, `import matplotlib.pyplot as plt`)
-# — those have aliases/dots and are never stripped anyway. Stripping also
-# requires the module to already be bound in the kernel, so a first import
-# (with any real side effect) is never affected.
-REMOVABLE_BOILERPLATE_IMPORTS = frozenset(
-    {
-        "os",
-        "sys",
-        "re",
-        "json",
-        "time",
-        "datetime",
-        "random",
-        "math",
-        "subprocess",
-        "glob",
-        "shutil",
-        "pathlib",
-        "string",
-        "typing",
-        "tempfile",
-        "uuid",
-        "hashlib",
-        "base64",
-        "io",
-        "csv",
-        "statistics",
-        "secrets",
-        "pprint",
-        "copy",
-        "warnings",
-        "platform",
-        "textwrap",
-        "collections",
-        "functools",
-        "itertools",
-        "logging",
-        "argparse",
-        "heapq",
-        "bisect",
-        "decimal",
-        "fractions",
-        "operator",
-        "queue",
-        "threading",
-        "struct",
-        "zlib",
-        "gzip",
-        "pickle",
-        "sqlite3",
-        "socket",
-        "requests",
-    }
-)
-
-
 def strip_redundant_imports(code, imported_modules):
     """Drop top-level ``import X`` lines for boilerplate modules already bound.
 
@@ -876,9 +817,9 @@ def strip_redundant_imports(code, imported_modules):
     is never stripped: it may re-bind a name that was assigned earlier (e.g.
     ``os = "string"`` followed by ``import os``) or be an intentional mid-cell
     import, so removing it could break the code. The module must also be in
-    REMOVABLE_BOILERPLATE_IMPORTS: a deliberately tiny allowlist of
-    side-effect-free stdlib modules that LLMs habitually re-import and that the
-    kernel already binds at startup. Anything else — matplotlib and other
+    SIDE_EFFECT_FREE_IMPORTS: a deliberately tiny allowlist of side-effect-free
+    stdlib modules that LLMs habitually re-import and that the kernel already
+    binds at startup. Anything else — matplotlib and other
     imports with side effects, aliased/dotted/``from X import y`` lines, and
     indented function-scope imports — is always left alone.
 
@@ -903,7 +844,7 @@ def strip_redundant_imports(code, imported_modules):
                     continue
                 if all(
                     name in imported_modules
-                    and name in REMOVABLE_BOILERPLATE_IMPORTS
+                    and name in SIDE_EFFECT_FREE_IMPORTS
                     for name in names
                 ):
                     removed.extend(names)  # redundant boilerplate — drop the line
