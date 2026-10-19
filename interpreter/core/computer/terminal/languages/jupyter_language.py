@@ -113,6 +113,7 @@ import matplotlib.pyplot as plt
         #         with open(f"{skill_library_path}/{filename}.py", "w") as file:
         #             file.write(function_code)
 
+        self._retire_listener()
         self.finish_flag = False
         try:
             try:
@@ -356,6 +357,22 @@ import matplotlib.pyplot as plt
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+
+    def _retire_listener(self):
+        """Signal and join the previous run's listener before a new block starts.
+
+        Ctrl-C abandons run() while its listener thread may not yet have
+        observed finish_flag. Resetting the flag for the next block would lose
+        the pending kernel interrupt, and the orphaned listener would keep
+        consuming the shared iopub channel — stealing the new block's messages
+        and tripping its idle detection. Retiring first lets the pending
+        interrupt complete (the listener interrupts the kernel on its way out)
+        and removes the listener before it can cross-talk.
+        """
+        listener = getattr(self, "listener_thread", None)
+        if listener is not None and listener.is_alive():
+            self.finish_flag = True
+            listener.join(timeout=10)
 
     def stop(self):
         self.finish_flag = True

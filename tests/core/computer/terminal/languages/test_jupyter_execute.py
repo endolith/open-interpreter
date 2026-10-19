@@ -176,3 +176,41 @@ def test_generator_exit_is_passed_on_rather_than_swallowed(monkeypatch):
     generator = lang.run("x = 1")
     with pytest.raises(GeneratorExit):
         next(generator)
+
+
+def test_a_new_run_retires_the_previous_runs_listener_first(monkeypatch):
+    """A new block signals and joins the old listener before resetting the flag.
+
+    Ctrl-C abandons run() while its listener thread may not yet have observed
+    the stop, so clearing finish_flag for the next block would lose the pending
+    kernel interrupt — and the orphaned listener would keep consuming the
+    shared iopub channel, stealing the new block's messages and tripping its
+    idle detection. The join must therefore happen while the flag is still set.
+    """
+    lang = _language()
+
+    retired = {}
+
+    class ParkedListener:
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            retired["flag_at_join"] = lang.finish_flag
+            retired["timeout"] = timeout
+
+    # stop() during the abandoned Ctrl-C'd block, whose listener never woke up.
+    lang.listener_thread = ParkedListener()
+    lang.finish_flag = True
+
+    monkeypatch.setattr(lang, "preprocess_code", lambda code: code)
+    monkeypatch.setattr(lang, "_execute_code", lambda code, q: None)
+    monkeypatch.setattr(lang, "_capture_output", lambda q: iter([]))
+
+    assert list(lang.run("x = 1")) == []
+    assert "flag_at_join" in retired, "the old listener must be joined first"
+    assert retired["flag_at_join"] is True, (
+        "the join must happen while the stop is still signalled, "
+        "before the new run clears the flag"
+    )
+    assert lang.finish_flag is False, "the new run starts with a clear flag"
