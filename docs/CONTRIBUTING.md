@@ -48,10 +48,6 @@ We will review PRs when possible and work with you to integrate your contributio
 
 **Note: for anyone testing the new `--local`, `--os`, and `--local --os` modes: a plain `pip install -e .` installs only the base dependencies, so executing those modes can fail when they import an omitted optional dependency. Install the extras for the modes you test with `pip install -e ".[local]"`, `pip install -e ".[os]"`, or `pip install -e ".[local,os]"`. You can edit the system messages for these modes in `interpreter/terminal_interface/profiles/defaults`.**
 
-### OS control
-
-Two desktop-control paths exist — see [OS Mode](guides/os-mode.mdx) for full detail: `interpreter --profile os` (maintained, provider-agnostic) and `interpreter --os` (separate deprecated Anthropic demo).
-
 Once you've forked the code and created a new branch for your work, you can run the fork in CLI mode by following these steps:
 
 1. CD into the project folder by running `cd open-interpreter`.
@@ -60,45 +56,6 @@ Once you've forked the code and created a new branch for your work, you can run 
 4. Run the program with `interpreter`. Run tests with `pytest -s -x`.
 
 Prefer conda? Create an env with `conda create -n open-interpreter python=3.12` and activate it, then run the same `pip install -e ".[dev]"`. Conda also lets you scope API keys to the env so they only exist while it's activated (`conda env config vars set OPENAI_API_KEY=...`).
-
-### Integration tests locally
-
-**Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped unless **both** conditions are met:
-
-1. `OI_RUN_INTEGRATION=1` — explicit opt-in (skipped by default even when a provider key is set)
-2. The provider key for the model under test is set. With `OI_INTEGRATION_MODEL` unset the tests use their historical OpenAI default, so that is `OPENAI_API_KEY`. Set `OI_INTEGRATION_MODEL` to use another provider: `openrouter/...` needs `OPENROUTER_API_KEY`, `anthropic/...` needs `ANTHROPIC_API_KEY`. Skipped when the matching key is unset, even with `OI_RUN_INTEGRATION=1`.
-
-CI sets `OI_INTEGRATION_MODEL` to `openrouter/~deepseek/deepseek-flash-latest` by default and provides `OPENROUTER_API_KEY`.
-
-```bash
-# Linux/macOS — default (OpenAI)
-export OPENAI_API_KEY=...
-OI_RUN_INTEGRATION=1 pytest -m integration
-
-# OpenRouter (what CI runs)
-export OPENROUTER_API_KEY=...
-export OI_INTEGRATION_MODEL=openrouter/~deepseek/deepseek-flash-latest
-OI_RUN_INTEGRATION=1 pytest -m integration
-
-# Windows
-set OI_INTEGRATION_MODEL=openrouter/~deepseek/deepseek-flash-latest
-set OPENROUTER_API_KEY=...
-set OI_RUN_INTEGRATION=1
-pytest -m integration
-```
-
-### CI test layout
-
-Jobs, Python versions, and pytest commands: `.github/workflows/python-package.yml`.
-
-| Job | Runner | What runs |
-| --- | --- | --- |
-| **Unit tests (Linux)** | `ubuntu-latest` | Unit suite + `linux_ci` language smokes; includes `mock_llm` (scenario-based local HTTP server, no API key) |
-| **Integration** | `ubuntu-latest` | `pytest -m integration` (same-repo PRs and `main` only) |
-| **Windows CI smoke** | `windows-latest` | `pytest -m windows_ci` (`tests/test_platform_ci.py`) |
-| **macOS CI smoke** | `macos-latest` | `pytest -m darwin_ci` (`tests/test_platform_ci.py`) |
-
-`linux_ci`, `windows_ci`, and `darwin_ci` skip on the wrong host. Plain `pytest` is enough for day-to-day unit testing.
 
 **Note**: This project uses [`black`](https://black.readthedocs.io/en/stable/index.html) and [`isort`](https://pypi.org/project/isort/) via a [`pre-commit`](https://pre-commit.com/) hook to ensure consistent code style. If you need to bypass it for some reason, you can `git commit` with the `--no-verify` flag.
 
