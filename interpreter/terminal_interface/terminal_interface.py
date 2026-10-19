@@ -29,6 +29,7 @@ from ..core.llm.utils.convert_to_openai_messages import (
 from ..core.utils.execution_allowlist import (
     persist_allowlist_rule,
     should_require_execution_confirmation,
+    suggest_allowlist_rules,
 )
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.sanitize_terminal_input import sanitize_terminal_input
@@ -101,6 +102,59 @@ def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True
         print("", flush=True)
     else:
         display_markdown_message(f"**Dry run:**\n\n{block}\n")
+
+
+def _describe_allowlist_rule(rule):
+    if "command" in rule:
+        args = " ".join(rule.get("args") or [])
+        return f"{rule['language']}: {rule['command']} {args}".rstrip()
+    if "call" in rule:
+        return f"{rule['language']}: {rule['call']}(...)"
+    return f"{rule['language']}: import {rule['import']}"
+
+
+def _choose_allowlist_candidates(candidates):
+    """Print the candidate rules and return the ones the user picked.
+
+    Candidates are numbered narrowest-first. The user answers with one or more
+    numbers (comma or space separated); anything that is not a valid number is
+    ignored, and an empty answer means "add nothing" — the code still runs this
+    once, it just isn't auto-run next time.
+    """
+    print("  Add a rule so this can auto-run next time?", flush=True)
+    for index, candidate in enumerate(candidates, start=1):
+        line = f"    [{index}] {candidate['label']}"
+        if candidate.get("warning"):
+            line += f"  ({candidate['warning']})"
+        print(line, flush=True)
+    answer = sanitize_terminal_input(input("  Numbers, or Enter to skip: ")).strip()
+    if not answer:
+        return []
+    chosen = []
+    for token in answer.replace(",", " ").split():
+        if not token.isdigit():
+            continue
+        position = int(token)
+        if 1 <= position <= len(candidates):
+            chosen.append(candidates[position - 1])
+    return chosen
+
+
+def _offer_allowlist_rules(interpreter, language, code):
+    """Let the user turn this code's structural rules into allowlist entries."""
+    candidates = suggest_allowlist_rules(language, code)
+    if not candidates:
+        print("  Nothing to add: this code can't be covered by an allowlist rule.", flush=True)
+        print("", flush=True)
+        return
+    added_any = False
+    for candidate in _choose_allowlist_candidates(candidates):
+        rule, added = persist_allowlist_rule(interpreter, candidate["rule"])
+        if added:
+            added_any = True
+            print(f"  Added to allowlist: {_describe_allowlist_rule(rule)}", flush=True)
+    if added_any:
+        print("", flush=True)
 
 
 def terminal_interface(interpreter, message):
@@ -461,15 +515,7 @@ def terminal_interface(interpreter, message):
                         response = prompt_choice(run_prompt, run_choices)
 
                         if response == "a":
-                            rule, added = persist_allowlist_rule(
-                                interpreter, language, code
-                            )
-                            if added:
-                                print(
-                                    f'  Added to allowlist: {rule["language"]} exact "{rule["pattern"]}"',
-                                    flush=True,
-                                )
-                                print("", flush=True)
+                            _offer_allowlist_rules(interpreter, language, code)
                             active_block = CodeBlock(interpreter)
                             active_block.margin_top = False
                             active_block.language = language
