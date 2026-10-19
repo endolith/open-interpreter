@@ -170,11 +170,7 @@ def load_allowlist_rules(interpreter):
 
     def add_rules(rule_list, source):
         for rule in rule_list:
-            try:
-                _validate_rule(rule, source)
-            except ValueError as error:
-                print(f"  [ignoring {source} allowlist rule: {error}]", flush=True)
-                continue
+            _validate_rule(rule, source)
             key = _rule_key(rule)
             if key in seen:
                 continue
@@ -189,8 +185,10 @@ def load_allowlist_rules(interpreter):
 
     add_rules(getattr(interpreter, "auto_run_allowlist_rules", None) or [], "profile")
 
-    allowlist_file = getattr(interpreter, "auto_run_allowlist_file", None) or DEFAULT_ALLOWLIST_FILE
-    add_rules(_load_rules_from_file(allowlist_file), "file")
+    allowlist_file = _expand_path(
+        getattr(interpreter, "auto_run_allowlist_file", None) or DEFAULT_ALLOWLIST_FILE
+    )
+    add_rules(_load_rules_from_file(allowlist_file), f"allowlist file {allowlist_file}")
 
     add_rules(getattr(interpreter, "_session_allowlist_rules", None) or [], "session")
 
@@ -247,6 +245,11 @@ def _shell_command_matches(command, rule):
         return False
     if "args" in rule:
         required = tuple(rule["args"])
+        if not required:
+            # An explicit empty list means "the bare command": unlike a missing
+            # `args` key (any arguments), `git` alone matches but `git status`
+            # does not. This mirrors how python `args: []` matches zero args.
+            return not command.args
         return command.args[: len(required)] == required
     return True
 
@@ -419,10 +422,19 @@ def persist_allowlist_rule(interpreter, rule):
     """Add a structural rule to the session and the allowlist file.
 
     Returns ``(rule, added)``; ``added`` is False when an equivalent rule is
-    already present in either place.
+    already present in either place. Existing file entries are validated too,
+    so a hand-edited file with a malformed rule raises rather than being
+    silently rewritten without it.
     """
     _validate_rule(rule, "session")
     rule = dict(rule)
+
+    allowlist_file = _expand_path(
+        getattr(interpreter, "auto_run_allowlist_file", None) or DEFAULT_ALLOWLIST_FILE
+    )
+    file_rules = _load_rules_from_file(allowlist_file)
+    for existing in file_rules:
+        _validate_rule(existing, f"allowlist file {allowlist_file}")
 
     session_rules = getattr(interpreter, "_session_allowlist_rules", None)
     if session_rules is None:
@@ -434,25 +446,14 @@ def persist_allowlist_rule(interpreter, rule):
         return rule, False
     session_rules.append(dict(rule))
 
-    allowlist_file = _expand_path(
-        getattr(interpreter, "auto_run_allowlist_file", None) or DEFAULT_ALLOWLIST_FILE
-    )
-    os.makedirs(os.path.dirname(allowlist_file), exist_ok=True)
-
-    file_rules = [existing for existing in _load_rules_from_file(allowlist_file) if _is_valid(existing)]
     if any(_rule_key(existing) == key for existing in file_rules):
         return rule, False
 
+    directory = os.path.dirname(allowlist_file)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     file_rules.append(dict(rule))
     with open(allowlist_file, "w", encoding="utf-8") as file:
         yaml.safe_dump({"rules": file_rules}, file, default_flow_style=False, sort_keys=False)
 
     return rule, True
-
-
-def _is_valid(rule):
-    try:
-        _validate_rule(rule, "file")
-        return True
-    except ValueError:
-        return False

@@ -366,8 +366,13 @@ auto_run: allowlist
 # auto_run_allowlist_replace_builtin: false  # true drops the read-only built-in preset
 ```
 
-Rules accepted from user files are validated but skipped (with a warning) if malformed, so a
-single bad entry never stops the interpreter from starting.
+For bash, `args` is a leading prefix: `args: [status]` covers `git status --short`, omitting
+`args` covers any arguments, and `args: []` covers only the bare command. For python, `args`
+lists argument kinds, so `args: []` likewise means no arguments.
+
+Allowlists (profile rules and the YAML file) are validated strictly: a malformed file or entry
+raises an error naming the file instead of being skipped or silently rewritten. A dropped rule
+still fails closed (the code asks), but it leaves the file saying something it does not.
 
 #### `--loop`
 

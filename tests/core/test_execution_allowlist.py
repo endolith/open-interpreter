@@ -1,3 +1,5 @@
+import pytest
+
 from interpreter.core.core import OpenInterpreter
 from interpreter.core.utils.execution_allowlist import (
     is_execution_allowlisted,
@@ -128,6 +130,84 @@ def test_profile_rule_with_args_matches_prefix_only():
 
     assert is_execution_allowlisted(interpreter, "bash", "git log --oneline")
     assert not is_execution_allowlisted(interpreter, "bash", "git push")
+
+
+def test_empty_args_rule_matches_bare_command_only(tmp_path):
+    """`args: []` means the bare command, not "any arguments".
+
+    Omitting `args` is the broad form; an explicit empty list narrows to the
+    command with no arguments, mirroring how python `args: []` matches zero
+    arguments. A user who writes `args: []` must not accidentally allow every
+    invocation of a mutating command.
+    """
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(tmp_path / "allowlist.yaml"),
+        auto_run_allowlist_replace_builtin=True,
+        auto_run_allowlist_rules=[{"language": "bash", "command": "git", "args": []}],
+    )
+
+    assert is_execution_allowlisted(interpreter, "bash", "git")
+    assert not is_execution_allowlisted(interpreter, "bash", "git status")
+
+
+def test_malformed_file_rule_raises_instead_of_being_skipped(tmp_path):
+    """A hand-edited rule with no language aborts rather than being ignored.
+
+    Silently dropping a rule still fails closed (the code asks), but it leaves
+    the user believing the file says something it does not. Fail loudly.
+    """
+    allowlist_file = tmp_path / "allowlist.yaml"
+    allowlist_file.write_text("rules:\n  - command: ls\n", encoding="utf-8")
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(allowlist_file),
+    )
+
+    with pytest.raises(ValueError, match="missing 'language'"):
+        is_execution_allowlisted(interpreter, "bash", "ls")
+
+
+def test_malformed_file_shape_raises(tmp_path):
+    """A file whose `rules` is not a list raises instead of loading as empty."""
+    allowlist_file = tmp_path / "allowlist.yaml"
+    allowlist_file.write_text("rules: oops\n", encoding="utf-8")
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(allowlist_file),
+    )
+
+    with pytest.raises(ValueError, match="must be a list"):
+        is_execution_allowlisted(interpreter, "bash", "ls")
+
+
+def test_invalid_profile_rule_raises(tmp_path):
+    """Profile rules are hand-edited config too, so they are validated strictly."""
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(tmp_path / "allowlist.yaml"),
+        auto_run_allowlist_rules=[{"language": "bash"}],
+    )
+
+    with pytest.raises(ValueError, match="needs a 'command'"):
+        is_execution_allowlisted(interpreter, "bash", "ls")
+
+
+def test_persist_does_not_rewrite_a_malformed_file(tmp_path):
+    """Persisting a rule leaves a malformed file untouched instead of dropping entries."""
+    allowlist_file = tmp_path / "allowlist.yaml"
+    original = "rules:\n  - command: ls\n"
+    allowlist_file.write_text(original, encoding="utf-8")
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(allowlist_file),
+    )
+
+    with pytest.raises(ValueError):
+        persist_allowlist_rule(interpreter, {"language": "bash", "command": "uname"})
+
+    assert allowlist_file.read_text(encoding="utf-8") == original
+    assert interpreter._session_allowlist_rules == []
 
 
 def test_should_require_execution_confirmation_for_code():
