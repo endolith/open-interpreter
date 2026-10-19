@@ -5,8 +5,8 @@ from interpreter.core.utils.execution_allowlist import (
     persist_allowlist_rule,
     should_require_execution_confirmation,
     should_require_execution_confirmation_for_code,
+    suggest_allowlist_rules,
 )
-from interpreter.core.utils.shell_chain import split_shell_chain
 
 
 def _interpreter(**kwargs):
@@ -14,48 +14,6 @@ def _interpreter(**kwargs):
     for key, value in kwargs.items():
         setattr(interpreter, key, value)
     return interpreter
-
-
-def test_split_shell_chain_basic():
-    """`cd /x && ls` splits into its two chained commands on the && operator."""
-    assert split_shell_chain("cd /x && ls") == ["cd /x", "ls"]
-
-
-def test_split_shell_chain_all_operators():
-    """All chain operators (&&, ||, ;, &) split at top level."""
-    assert split_shell_chain("a && b || c; d & e") == ["a", "b", "c", "d", "e"]
-
-
-def test_split_shell_chain_no_space_operator():
-    """An operator directly adjacent to a command (`cd /x;ls`) still splits."""
-    assert split_shell_chain("cd /x;ls") == ["cd /x", "ls"]
-    assert split_shell_chain("cd /x&&ls") == ["cd /x", "ls"]
-
-
-def test_split_shell_chain_quoted_operator_not_split():
-    """An operator inside quotes is part of the command, not a split point."""
-    assert split_shell_chain('echo "a && b"') == ['echo "a && b"']
-
-
-def test_split_shell_chain_escaped_space_not_split():
-    """An escaped space (`\\ `) stays inside one command; a real `&&` still splits."""
-    assert split_shell_chain(r"cd /x\ with\ space && ls") == ["cd /x\\ with\\ space", "ls"]
-
-
-def test_split_shell_chain_pipe_not_split():
-    """A bare pipe is not a chain operator — the whole pipeline stays one command."""
-    assert split_shell_chain("cd /x | wc") == ["cd /x | wc"]
-
-
-def test_split_shell_chain_drops_empty_pieces():
-    """A dangling operator (`cd /x &&`) yields just the real command."""
-    assert split_shell_chain("cd /x &&") == ["cd /x"]
-
-
-def test_split_shell_chain_custom_operators():
-    """The operator set is configurable — cmd has no `||`/`;`, so those don't split."""
-    assert split_shell_chain("a && b; c", operators=("&&", "&")) == ["a", "b; c"]
-    assert split_shell_chain("a && b; c", operators=(";",)) == ["a && b", "c"]
 
 
 def test_normalize_auto_run_mode():
@@ -79,23 +37,97 @@ def test_auto_run_bool_property_backcompat():
     assert interpreter.auto_run_mode == "allowlist"
 
 
-def test_builtin_allowlist_exact_matches():
+def test_builtin_rules_cover_read_only_commands():
+    """The built-in preset allows read-only commands, with or without arguments."""
     interpreter = _interpreter(auto_run_mode="allowlist")
 
     assert is_execution_allowlisted(interpreter, "bash", "ls")
-    assert is_execution_allowlisted(interpreter, "shell", "ls")
-    assert is_execution_allowlisted(interpreter, "cmd", "dir")
-    assert is_execution_allowlisted(interpreter, "python", "help(os)")
+    assert is_execution_allowlisted(interpreter, "bash", "ls -la")
+    assert is_execution_allowlisted(interpreter, "shell", "pwd")
+    assert is_execution_allowlisted(interpreter, "bash", "echo hi && ls")
 
-    assert not is_execution_allowlisted(interpreter, "bash", "ls -la")
-    assert not is_execution_allowlisted(interpreter, "bash", "ls; rm -rf /")
-    assert not is_execution_allowlisted(interpreter, "python", "help(json)")
-    assert not is_execution_allowlisted(interpreter, "python", "print(1)")
+    assert is_execution_allowlisted(interpreter, "bash", "git status")
+    assert is_execution_allowlisted(interpreter, "bash", "git status --short")
+    assert not is_execution_allowlisted(interpreter, "bash", "git push")
+
+
+def test_builtin_rules_cover_safe_python():
+    """Safe python calls and side-effect-free imports run; anything else asks."""
+    interpreter = _interpreter(auto_run_mode="allowlist")
+
+    assert is_execution_allowlisted(interpreter, "python", "help(os)")
+    assert is_execution_allowlisted(interpreter, "python", "print(1)")
+    assert is_execution_allowlisted(interpreter, "python", "import os\nimport json")
+
+    assert not is_execution_allowlisted(interpreter, "python", "import numpy")
+    assert not is_execution_allowlisted(interpreter, "python", "x = 1")
 
 
 def test_allowlist_disabled_outside_allowlist_mode():
     interpreter = _interpreter(auto_run_mode="prompt")
     assert not is_execution_allowlisted(interpreter, "bash", "ls")
+
+
+def test_every_command_in_a_chain_must_be_allowed():
+    """A block auto-runs only when no command in it is left uncovered."""
+    interpreter = _interpreter(auto_run_mode="allowlist")
+
+    assert is_execution_allowlisted(interpreter, "bash", "ls && pwd")
+    assert not is_execution_allowlisted(interpreter, "bash", "ls; rm -rf /")
+
+
+def test_python_call_arguments_must_be_safe():
+    """`help(os)` is inert, but `help(os.system(...))` evaluates a nested call."""
+    interpreter = _interpreter(auto_run_mode="allowlist")
+
+    assert is_execution_allowlisted(interpreter, "python", "print(os.sep)")
+    assert not is_execution_allowlisted(interpreter, "python", "help(os.system('rm -rf /'))")
+    assert not is_execution_allowlisted(interpreter, "python", "print(open('f').read())")
+
+
+def test_guards_block_substitution_and_sensitive_paths():
+    """Even an allowed command name is refused for destructive argument forms."""
+    interpreter = _interpreter(auto_run_mode="allowlist")
+
+    assert not is_execution_allowlisted(interpreter, "bash", "echo $(cat /etc/shadow)")
+    assert not is_execution_allowlisted(interpreter, "bash", "cat /etc/shadow")
+    assert not is_execution_allowlisted(interpreter, "bash", "cat ~/.ssh/id_rsa")
+    assert not is_execution_allowlisted(interpreter, "bash", "ls ..")
+
+
+def test_guards_block_file_writes_but_allow_null_device():
+    """Redirects to a real file ask; redirecting to the null device is inert."""
+    interpreter = _interpreter(auto_run_mode="allowlist")
+
+    assert not is_execution_allowlisted(interpreter, "bash", "echo hi > out.txt")
+    assert is_execution_allowlisted(interpreter, "bash", "ls 2>/dev/null")
+
+
+def test_interpreter_commands_can_never_be_allowlisted():
+    """Wrappers like `python`/`xargs` stay un-runnable even with an explicit rule."""
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_rules=[
+            {"language": "bash", "command": "python"},
+            {"language": "bash", "command": "xargs"},
+        ],
+    )
+
+    assert not is_execution_allowlisted(interpreter, "bash", "python script.py")
+    assert not is_execution_allowlisted(interpreter, "bash", "xargs ls")
+    # The preset still works alongside the refused rules.
+    assert is_execution_allowlisted(interpreter, "bash", "ls")
+
+
+def test_profile_rule_with_args_matches_prefix_only():
+    """A `command + args` rule matches that exact leading argument sequence."""
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_rules=[{"language": "bash", "command": "git", "args": ["log"]}],
+    )
+
+    assert is_execution_allowlisted(interpreter, "bash", "git log --oneline")
+    assert not is_execution_allowlisted(interpreter, "bash", "git push")
 
 
 def test_should_require_execution_confirmation_for_code():
@@ -104,7 +136,7 @@ def test_should_require_execution_confirmation_for_code():
 
     interpreter.auto_run_mode = "allowlist"
     assert should_require_execution_confirmation_for_code(interpreter, "bash", "ls") is False
-    assert should_require_execution_confirmation_for_code(interpreter, "bash", "pwd") is True
+    assert should_require_execution_confirmation_for_code(interpreter, "bash", "rm -rf /") is True
 
     interpreter.auto_run_mode = "prompt"
     assert should_require_execution_confirmation_for_code(interpreter, "bash", "ls") is True
@@ -121,7 +153,7 @@ def test_should_require_execution_confirmation_chunk():
     blocked = {
         "type": "confirmation",
         "format": "execution",
-        "content": {"type": "code", "format": "bash", "content": "pwd"},
+        "content": {"type": "code", "format": "bash", "content": "rm -rf /"},
     }
     edit = {
         "type": "confirmation",
@@ -134,31 +166,54 @@ def test_should_require_execution_confirmation_chunk():
     assert should_require_execution_confirmation(interpreter, edit) is True
 
 
-def test_persist_allowlist_rule(tmp_path):
+def test_suggest_allowlist_rules_bash_narrowest_first():
+    """Bash suggestions lead with the literal invocation, then broaden.
+
+    The literal rule carries the exact arguments; the broad `git` rule is
+    offered last and warns that it covers other subcommands.
+    """
+    candidates = suggest_allowlist_rules("bash", "git status --short")
+
+    labels = [candidate["label"] for candidate in candidates]
+    assert labels[0] == "git status --short"
+    assert "git status" in labels
+
+    broad = candidates[-1]
+    assert broad["rule"] == {"language": "bash", "command": "git"}
+    assert broad["warning"]
+
+
+def test_suggest_allowlist_rules_skips_unmatchable_units():
+    """Commands that the guards would always refuse are not offered."""
+    assert suggest_allowlist_rules("bash", "cat /etc/shadow") == []
+    assert suggest_allowlist_rules("bash", "$cmd foo") == []
+
+
+def test_suggest_allowlist_rules_python_call_kinds():
+    """A python call with arguments offers a typed form and a broad form."""
+    candidates = suggest_allowlist_rules("python", "help(os)")
+
+    rules = [candidate["rule"] for candidate in candidates]
+    assert {"language": "python", "call": "help", "args": ["object"]} in rules
+    assert {"language": "python", "call": "help"} in rules
+
+
+def test_persist_allowlist_rule_round_trip(tmp_path):
+    """A persisted rule is written to disk and makes the code auto-runnable."""
     allowlist_file = tmp_path / "allowlist.yaml"
     interpreter = _interpreter(
         auto_run_mode="allowlist",
         auto_run_allowlist_file=str(allowlist_file),
     )
 
-    rule, added = persist_allowlist_rule(interpreter, "bash", "pwd")
+    assert not is_execution_allowlisted(interpreter, "bash", "uname -a")
+
+    rule, added = persist_allowlist_rule(interpreter, {"language": "bash", "command": "uname"})
     assert added is True
-    assert rule["pattern"] == "pwd"
+    assert rule == {"language": "bash", "command": "uname"}
 
-    assert is_execution_allowlisted(interpreter, "bash", "pwd")
-
-    _, added_again = persist_allowlist_rule(interpreter, "bash", "pwd")
-    assert added_again is False
-
+    assert is_execution_allowlisted(interpreter, "bash", "uname -a")
     assert allowlist_file.is_file()
 
-
-def test_profile_rule_merge():
-    interpreter = _interpreter(
-        auto_run_mode="allowlist",
-        auto_run_allowlist_rules=[
-            {"language": "bash", "match": "exact", "pattern": "pwd"},
-        ],
-    )
-    assert is_execution_allowlisted(interpreter, "bash", "pwd")
-    assert is_execution_allowlisted(interpreter, "bash", "ls")
+    _, added_again = persist_allowlist_rule(interpreter, {"language": "bash", "command": "uname"})
+    assert added_again is False
