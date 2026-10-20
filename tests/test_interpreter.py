@@ -18,6 +18,14 @@ from interpreter.terminal_interface.utils.count_tokens import (
 
 interpreter = OpenInterpreter()
 interpreter.conversation_history = False
+
+# Integration tests normally run on OpenAI (gpt-4o, or gpt-4o-mini where a test
+# pins it). OI_INTEGRATION_MODEL points them at another provider without editing
+# the tests. CI sets it to a cheap OpenRouter model; unset keeps each test's
+# historical default.
+INTEGRATION_MODEL = os.environ.get("OI_INTEGRATION_MODEL")
+if INTEGRATION_MODEL:
+    interpreter.llm.model = INTEGRATION_MODEL
 #####
 
 import multiprocessing
@@ -510,6 +518,7 @@ def test_authenticated_acknowledging_breaking_server():
     import websockets
 
     async def test_fastapi_server():
+        """Drive the server over WebSocket: settings, secret-word, math, and file turns."""
         import asyncio
 
         async with websockets.connect(_server_ws_url()) as websocket:
@@ -523,7 +532,7 @@ def test_authenticated_acknowledging_breaking_server():
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
-                    "model": "gpt-4o-mini",
+                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
                 },
@@ -624,10 +633,16 @@ def test_authenticated_acknowledging_breaking_server():
 
 
 def run_server():
+    """Run the AsyncInterpreter server inside the spawned test process."""
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "False"
     if "INTERPRETER_API_KEY" in os.environ:
         del os.environ["INTERPRETER_API_KEY"]
     async_interpreter = AsyncInterpreter()
+    # Seed the model before the server starts: some phases (e.g. the vision
+    # turn) start a fresh server and never POST /settings to it, so without
+    # this they run the default OpenAI model.
+    if INTEGRATION_MODEL:
+        async_interpreter.llm.model = INTEGRATION_MODEL
     async_interpreter.print = False
     async_interpreter.server.run()
 
@@ -654,6 +669,7 @@ def test_server():
     import websockets
 
     async def test_fastapi_server():
+        """Drive the server over WebSocket: secret-word, math, and file turns."""
         nonlocal process
         import asyncio
 
@@ -667,7 +683,7 @@ def test_server():
             # Sending POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": "gpt-4o-mini"},
+                "llm": {"model": INTEGRATION_MODEL or "gpt-4o-mini"},
                 "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
@@ -705,7 +721,7 @@ def test_server():
             # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": "gpt-4o-mini"},
+                "llm": {"model": INTEGRATION_MODEL or "gpt-4o-mini"},
                 "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
@@ -991,7 +1007,7 @@ def test_generator():
     """Sends two messages, makes sure everything is correct with display both on and off."""
 
 
-    interpreter.llm.model = "gpt-4o-mini"
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
 
     for tests in [
         {"query": "What's 38023*40334? Use Python", "display": True},
@@ -1096,7 +1112,7 @@ def test_m_vision():
     ]
 
     interpreter.llm.supports_vision = False
-    interpreter.llm.model = "gpt-4o-mini"
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
     interpreter.llm.supports_functions = True
     interpreter.llm.context_window = 110000
     interpreter.llm.max_tokens = 4096
@@ -1136,7 +1152,7 @@ def test_skills():
 
     import json
 
-    interpreter.llm.model = "gpt-4o-mini"
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
 
     messages = ["USER: Hey can you search the web for me?\nAI: Sure!"]
 
@@ -1414,7 +1430,7 @@ def setup_function():
     interpreter.reset()
     interpreter.llm.temperature = 0
     interpreter.auto_run = True
-    interpreter.llm.model = "gpt-4o-mini"
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
     interpreter.llm.context_window = 123000
     interpreter.llm.max_tokens = 4096
     interpreter.llm.supports_functions = True
@@ -1498,7 +1514,7 @@ def test_vision():
     ]
 
     interpreter.llm.supports_vision = True
-    interpreter.llm.model = "gpt-4o-mini"
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
     interpreter.system_message += "\nThe user will show you an image of the code you write. You can view images directly.\n\nFor HTML: This will be run STATELESSLY. You may NEVER write '<!-- previous code here... --!>' or `<!-- header will go here -->` or anything like that. It is CRITICAL TO NEVER WRITE PLACEHOLDERS. Placeholders will BREAK it. You must write the FULL HTML CODE EVERY TIME. Therefore you cannot write HTML piecemeal—write all the HTML, CSS, and possibly Javascript **in one step, in one code block**. The user will help you review it visually.\nIf the user submits a filepath, you will also see the image. The filepath and user image will both be in the user's message.\n\nIf you use `plt.show()`, the resulting image will be sent to you. However, if you use `PIL.Image.show()`, the resulting image will NOT be sent to you."
     interpreter.llm.supports_functions = True
     interpreter.llm.context_window = 110000

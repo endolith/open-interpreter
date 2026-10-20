@@ -65,16 +65,26 @@ def integration_skip_reason() -> str | None:
     """Return a pytest skip reason when integration tests should not run, else None."""
     if os.environ.get("OI_RUN_INTEGRATION") != "1":
         return _INTEGRATION_OPT_IN_SKIP
+    model = os.environ.get("OI_INTEGRATION_MODEL", "")
+    if model.startswith("openrouter/"):
+        if not os.environ.get("OPENROUTER_API_KEY"):
+            return "OPENROUTER_API_KEY not set; skipping integration tests"
+        return None
+    if model.startswith(("claude", "anthropic/")):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            return "ANTHROPIC_API_KEY not set; skipping integration tests"
+        return None
     if not os.environ.get("OPENAI_API_KEY"):
         return _INTEGRATION_API_KEY_SKIP
     return None
 
 
 def pytest_configure(config):
+    """Register the custom markers used by the suite."""
     config.addinivalue_line(
         "markers",
         "integration: calls an LLM and may execute generated code; "
-        "requires OI_RUN_INTEGRATION=1 and OPENAI_API_KEY",
+        "requires OI_RUN_INTEGRATION=1 and the provider key for OI_INTEGRATION_MODEL",
     )
     config.addinivalue_line(
         "markers",
@@ -83,6 +93,7 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+    """Skip integration tests without opt-in/credentials, and wrong-OS markers."""
     reason = integration_skip_reason()
     if reason:
         skip_integration = pytest.mark.skip(reason=reason)
