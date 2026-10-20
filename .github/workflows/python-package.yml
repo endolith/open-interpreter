@@ -225,7 +225,8 @@ jobs:
     name: Integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Needs OPENAI_API_KEY. Only run where secrets are available and the code is trusted:
+    # Needs the provider key for OI_INTEGRATION_MODEL (OPENROUTER_API_KEY for the
+    # default openrouter/ model). Only run where secrets are available and trusted:
     # - pushes to main (post-merge verification)
     # - same-repository pull requests (fork PRs cannot access secrets on pull_request)
     # - manual dispatch after reviewing an external fork PR (Actions → Run workflow → pr_number)
@@ -268,6 +269,11 @@ jobs:
       - name: Run integration tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Baseline model for the integration job. Override with a repository
+          # variable to try another provider without editing the workflow.
+          OI_INTEGRATION_MODEL: ${{ vars.OI_INTEGRATION_MODEL || 'openrouter/openai/gpt-4o-mini' }}
           OI_RUN_INTEGRATION: "1"
         run: |
           uv pip install --system -e ".[server,dev]"
