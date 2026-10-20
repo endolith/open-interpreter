@@ -104,7 +104,7 @@ A `toolbox` object is ALREADY AVAILABLE in your execution environment, and can b
 {mac_only_note}{vision_note}
 Do NOT `import toolbox`, or try to import any of its sub-modules. The `toolbox` object is already available as a variable in your namespace.
 
-Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
+Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task. For any other object, call introspect(obj, 'keyword') first to list its real methods and signatures. Never guess how to use functions or what their return format is. Always explore and check things first.
 
     """.strip()
 
