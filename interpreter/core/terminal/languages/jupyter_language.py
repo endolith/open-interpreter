@@ -22,6 +22,33 @@ from ..base_language import BaseLanguage
 
 DEBUG_MODE = False
 
+
+def _build_introspect_install_code():
+    """Return kernel code installing the bare `introspect` global.
+
+    Loads interpreter/core/utils/introspect.py by absolute path (NOT
+    `import interpreter`, whose package __init__ constructs OpenInterpreter
+    and would slow every kernel boot). Returns None when the file is
+    missing so the caller can warn instead of failing the boot.
+    """
+    path = os.path.join(
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ),
+        "utils",
+        "introspect.py",
+    )
+    if not os.path.exists(path):
+        return None
+    return (
+        "import importlib.util as _oi_u\n"
+        "_oi_s = _oi_u.spec_from_file_location('_oi_introspect', %r)\n"
+        "_oi_m = _oi_u.module_from_spec(_oi_s)\n"
+        "_oi_s.loader.exec_module(_oi_m)\n"
+        "introspect = _oi_m.introspect\n"
+        "del _oi_u, _oi_s, _oi_m" % path
+    )
+
 # When running from an executable, ipykernel calls itself infinitely
 # This is a workaround to detect it and launch it manually
 if "ipykernel_launcher" in sys.argv:
@@ -157,6 +184,19 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
 
         for _ in self.run(ipython_config):
             pass
+
+        # Install the bare `introspect` global so the model lists an
+        # object's real methods/signatures before calling them, instead of
+        # guessing names. Unconditional (NOT via the lazy toolbox gate,
+        # which only fires when code mentions toolbox/ai2) so it never
+        # NameErrors on first use. Survives reset: terminate() drops the
+        # language instance, and the next run rebuilds it through __init__.
+        _oi_introspect_code = _build_introspect_install_code()
+        if _oi_introspect_code is None:
+            logging.warning("introspect.py not found; `introspect` unavailable")
+        else:
+            for _ in self.run(_oi_introspect_code):
+                pass
 
         # DISABLED because it doesn't work??
         # Disable color outputs in the terminal, which don't look good in OI and aren't useful
@@ -355,10 +395,18 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         {"type": "console", "format": "output", "content": line}
                     )
                 elif msg["msg_type"] == "error":
+                    ename = content.get("ename", "")
                     content = "\n".join(content["traceback"])
                     # Remove color codes
                     ansi_escape = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
                     content = ansi_escape.sub("", content)
+                    if ename in ("AttributeError", "NameError"):
+                        content += (
+                            "\n\nHint: if you guessed an attribute or method "
+                            "name, call introspect(<object>, '<keyword>') "
+                            "first to list the object's real methods and "
+                            "signatures, then use exactly what it shows."
+                        )
                     message_queue.put(
                         {
                             "type": "console",
@@ -551,7 +599,7 @@ import types as __oi_types
 import os as __oi_os
 __oi_globals = globals()
 __oi_cwd = __oi_os.getcwd()
-__oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps1', 'is_wsl', 'REPLHooks', 'get_last_command', 'PS1', 'ip', 'plt']
+__oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps1', 'is_wsl', 'REPLHooks', 'get_last_command', 'PS1', 'ip', 'plt', 'introspect']
 __oi_mods = []
 __oi_funcs = []
 __oi_vars = []

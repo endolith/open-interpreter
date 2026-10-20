@@ -129,6 +129,10 @@ def _signature_of(static, drop_first_allowed):
         drop_first = isinstance(static, classmethod)
     elif inspect.isfunction(func):
         drop_first = drop_first_allowed
+    elif inspect.ismethoddescriptor(func) or inspect.isbuiltin(func):
+        # C slot wrappers (e.g. list.append) are always methods; the
+        # self/cls/mcs name check below keeps plain builtins like len safe.
+        drop_first = drop_first_allowed
     try:
         sig = inspect.signature(func)
     except (ValueError, TypeError):
