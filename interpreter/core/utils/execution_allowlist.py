@@ -90,39 +90,55 @@ def _rule_key(rule):
     )
 
 
+class AllowlistConfigError(ValueError):
+    """A user-authored allowlist rule or file could not be understood."""
+
+
 def _validate_rule(rule, source="allowlist"):
     if not isinstance(rule, dict):
-        raise ValueError(f"Invalid rule in {source}: expected mapping, got {type(rule).__name__}")
-    language = (rule.get("language") or "").lower()
-    if not language:
-        raise ValueError(f"Rule in {source} missing 'language'")
+        raise AllowlistConfigError(
+            f"Invalid rule in {source}: expected a mapping, got {type(rule).__name__}: {rule!r}"
+        )
+    language_value = rule.get("language")
+    if not isinstance(language_value, str) or not language_value:
+        raise AllowlistConfigError(f"Rule in {source} is missing 'language': {rule!r}")
+    language = language_value.lower()
     if language in SHELL_LANGUAGES:
         if not isinstance(rule.get("command"), str) or not rule["command"]:
-            raise ValueError(f"Shell rule in {source} needs a 'command'")
+            raise AllowlistConfigError(f"Shell rule in {source} needs a 'command': {rule!r}")
         if "args" in rule and not isinstance(rule["args"], list):
-            raise ValueError(f"'args' in {source} must be a list")
+            raise AllowlistConfigError(f"'args' in {source} must be a list: {rule!r}")
         return
     if language == "python":
         keys = [key for key in ("call", "import") if key in rule]
         if len(keys) != 1:
-            raise ValueError(f"Python rule in {source} needs exactly one of 'call' or 'import'")
+            raise AllowlistConfigError(
+                f"Python rule in {source} needs exactly one of 'call' or 'import': {rule!r}"
+            )
         if "args" in rule and "call" not in rule:
-            raise ValueError(f"'args' in {source} only applies to a python 'call' rule")
+            raise AllowlistConfigError(
+                f"'args' in {source} only applies to a python 'call' rule: {rule!r}"
+            )
         return
-    raise ValueError(f"Unsupported rule language {language!r} in {source}")
+    raise AllowlistConfigError(f"Unsupported rule language {language!r} in {source}: {rule!r}")
 
 
 def _load_rules_from_file(path):
     path = _expand_path(path)
     if not os.path.isfile(path):
         return []
-    with open(path, "r", encoding="utf-8") as file:
-        data = yaml.safe_load(file) or {}
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = yaml.safe_load(file) or {}
+    except OSError as error:
+        raise AllowlistConfigError(f"Could not read allowlist file {path}: {error}") from error
+    except yaml.YAMLError as error:
+        raise AllowlistConfigError(f"Allowlist file is not valid YAML: {path}: {error}") from error
     if not isinstance(data, dict):
-        raise ValueError(f"Allowlist file must be a YAML mapping: {path}")
+        raise AllowlistConfigError(f"Allowlist file must be a YAML mapping: {path}")
     rules = data.get("rules") or []
     if not isinstance(rules, list):
-        raise ValueError(f"'rules' in allowlist file must be a list: {path}")
+        raise AllowlistConfigError(f"'rules' in allowlist file must be a list: {path}")
     return rules
 
 

@@ -7,12 +7,14 @@ here with mocked terminal input rather than through a full conversation.
 
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from interpreter.terminal_interface.terminal_interface import (
     _choose_allowlist_candidates,
     _describe_allowlist_rule,
     _offer_allowlist_rules,
+    terminal_interface,
 )
 
 
@@ -136,3 +138,17 @@ def test_offer_allowlist_rules_enter_persists_nothing(monkeypatch, tmp_path, cap
 
     assert not allowlist_file.exists()
     assert "Added to allowlist" not in capsys.readouterr().out
+
+
+def test_terminal_interface_reports_an_invalid_allowlist_before_chatting(tmp_path, capsys):
+    """A broken allowlist file exits with a message instead of a respond-loop traceback."""
+    allowlist_file = tmp_path / "allowlist.yaml"
+    allowlist_file.write_text("rules:\n  - {language: python}\n", encoding="utf-8")
+    interpreter = _stub_interpreter(allowlist_file)
+
+    with pytest.raises(SystemExit):
+        next(terminal_interface(interpreter, None))
+
+    output = capsys.readouterr().out
+    assert "Invalid allowlist configuration" in output
+    assert "needs exactly one of 'call' or 'import'" in output

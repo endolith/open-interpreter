@@ -2,6 +2,7 @@ import pytest
 
 from interpreter.core.core import OpenInterpreter
 from interpreter.core.utils.execution_allowlist import (
+    AllowlistConfigError,
     code_is_covered,
     is_execution_allowlisted,
     normalize_auto_run_mode,
@@ -216,7 +217,7 @@ def test_malformed_file_rule_raises_instead_of_being_skipped(tmp_path):
         auto_run_allowlist_file=str(allowlist_file),
     )
 
-    with pytest.raises(ValueError, match="missing 'language'"):
+    with pytest.raises(AllowlistConfigError, match="missing 'language'"):
         is_execution_allowlisted(interpreter, "bash", "ls")
 
 
@@ -229,7 +230,7 @@ def test_malformed_file_shape_raises(tmp_path):
         auto_run_allowlist_file=str(allowlist_file),
     )
 
-    with pytest.raises(ValueError, match="must be a list"):
+    with pytest.raises(AllowlistConfigError, match="must be a list"):
         is_execution_allowlisted(interpreter, "bash", "ls")
 
 
@@ -241,7 +242,26 @@ def test_invalid_profile_rule_raises(tmp_path):
         auto_run_allowlist_rules=[{"language": "bash"}],
     )
 
-    with pytest.raises(ValueError, match="needs a 'command'"):
+    with pytest.raises(AllowlistConfigError, match="needs a 'command'"):
+        is_execution_allowlisted(interpreter, "bash", "ls")
+
+
+def test_python_rule_without_call_or_import_names_the_offending_rule(tmp_path):
+    """A malformed python rule includes the rule itself so it can be fixed.
+
+    The common failure is a rule left over from an older shape, e.g. a python
+    rule carrying `command` instead of `call`/`import`.
+    """
+    allowlist_file = tmp_path / "allowlist.yaml"
+    allowlist_file.write_text(
+        "rules:\n  - {language: python, command: print}\n", encoding="utf-8"
+    )
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(allowlist_file),
+    )
+
+    with pytest.raises(AllowlistConfigError, match="'command': 'print'"):
         is_execution_allowlisted(interpreter, "bash", "ls")
 
 
@@ -255,7 +275,7 @@ def test_persist_does_not_rewrite_a_malformed_file(tmp_path):
         auto_run_allowlist_file=str(allowlist_file),
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(AllowlistConfigError):
         persist_allowlist_rule(interpreter, {"language": "bash", "command": "uname"})
 
     assert allowlist_file.read_text(encoding="utf-8") == original

@@ -27,6 +27,7 @@ from ..core.llm.utils.convert_to_openai_messages import (
     image_path_exceeds_shrink_threshold,
 )
 from ..core.utils.execution_allowlist import (
+    AllowlistConfigError,
     code_is_covered,
     load_allowlist_rules,
     persist_allowlist_rule,
@@ -178,6 +179,17 @@ def terminal_interface(interpreter, message):
     # after a window resize.
     os.environ.pop("COLUMNS", None)
     os.environ.pop("LINES", None)
+
+    # Surface a broken allowlist before the model spends a turn: the rules are
+    # read on every confirmation anyway, so failing here is the same error, just
+    # with a message instead of a traceback from inside the respond loop.
+    if getattr(interpreter, "auto_run_mode", None) == "allowlist":
+        try:
+            load_allowlist_rules(interpreter)
+        except AllowlistConfigError as error:
+            print(f"Invalid allowlist configuration: {error}", flush=True)
+            print("Fix the allowlist file (or remove it) and try again.", flush=True)
+            raise SystemExit(1)
 
     # Auto run and offline (this.. this isn't right) don't display messages.
     # Probably worth abstracting this to something like "debug_cli" at some point.
