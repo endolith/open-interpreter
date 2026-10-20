@@ -5,11 +5,6 @@ import time
 
 from importlib.metadata import version, PackageNotFoundError
 
-from interpreter.terminal_interface.contributing_conversations import (
-    contribute_conversation_launch_logic,
-    contribute_conversations,
-)
-
 from .conversation_navigator import conversation_navigator
 from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
@@ -157,14 +152,6 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "loop"},
         },
         {
-            "name": "disable_telemetry",
-            "nickname": "dt",
-            "help_text": "disables sending of basic anonymous usage stats",
-            "type": bool,
-            "default": False,
-            "attribute": {"object": interpreter, "attr_name": "disable_telemetry"},
-        },
-        {
             "name": "offline",
             "nickname": "o",
             "help_text": "turns off all online features (except the language model, if it's hosted)",
@@ -273,15 +260,6 @@ def start_terminal_interface(interpreter):
             "name": "version",
             "help_text": "get Open Interpreter's version number",
             "type": bool,
-        },
-        {
-            "name": "contribute_conversation",
-            "help_text": "let Open Interpreter use the current conversation to train an Open-Source LLM",
-            "type": bool,
-            "attribute": {
-                "object": interpreter,
-                "attr_name": "contribute_conversation",
-            },
         },
         {
             "name": "plain",
@@ -476,10 +454,6 @@ Use """ to write multi-line messages.
     ### Set attributes on interpreter, because the arguments passed in via the CLI should override profile
 
     set_attributes(args, arguments)
-    interpreter.disable_telemetry = (
-        os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
-        or args.disable_telemetry
-    )
 
     ### Set some helpful settings we know are likely to be true
 
@@ -567,8 +541,6 @@ Use """ to write multi-line messages.
 
     interpreter.in_terminal_interface = True
 
-    contribute_conversation_launch_logic(interpreter)
-
     # Standard in mode
     if args.stdin:
         stdin_input = input()
@@ -611,51 +583,7 @@ def main():
     try:
         start_terminal_interface(interpreter)
     except KeyboardInterrupt:
-        try:
-            interpreter.computer.terminate()
-
-            if not interpreter.offline and not interpreter.disable_telemetry:
-                feedback = None
-                if len(interpreter.messages) > 3:
-                    feedback = (
-                        input("\n\nWas Open Interpreter helpful? (y/n): ")
-                        .strip()
-                        .lower()
-                    )
-                    if feedback == "y":
-                        feedback = True
-                    elif feedback == "n":
-                        feedback = False
-                    else:
-                        feedback = None
-                    if feedback != None and not interpreter.contribute_conversation:
-                        if interpreter.llm.model == "i":
-                            contribute = "y"
-                        else:
-                            print(
-                                "\nThanks for your feedback! Would you like to send us this chat so we can improve?\n"
-                            )
-                            contribute = input("(y/n): ").strip().lower()
-
-                        if contribute == "y":
-                            interpreter.contribute_conversation = True
-                            interpreter.display_message(
-                                "\n*Thank you for contributing!*\n"
-                            )
-
-                if (
-                    interpreter.contribute_conversation or interpreter.llm.model == "i"
-                ) and interpreter.messages != []:
-                    conversation_id = (
-                        interpreter.conversation_id
-                        if hasattr(interpreter, "conversation_id")
-                        else None
-                    )
-                    contribute_conversations(
-                        [interpreter.messages], feedback, conversation_id
-                    )
-
-        except KeyboardInterrupt:
-            pass
+        # Ctrl-C ends the session quietly; the finally block does the cleanup.
+        pass
     finally:
         interpreter.computer.terminate()

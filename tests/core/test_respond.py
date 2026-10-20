@@ -188,8 +188,12 @@ def test_respond_rate_limit_quota_shows_billing_message():
     assert "quota" in dm.call_args[0][0].lower()
 
 
-def test_respond_model_access_prompt_switches_to_i_model():
-    """Accepting the 'no access' prompt switches the model to hosted `i`."""
+def test_respond_model_access_error_raises_without_prompt():
+    """Model-access errors print the provider message and re-raise (no prompt).
+
+    The hosted `i` model was removed, so there is nothing to offer as a
+    fallback; the error surfaces instead of asking to switch models.
+    """
     interpreter = _message_interpreter()
     interpreter.offline = False
     interpreter.llm.model = "gpt-4o"
@@ -198,11 +202,12 @@ def test_respond_model_access_prompt_switches_to_i_model():
         raise Exception("You do not have access to this model")
 
     interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="y"):
-        list(respond(interpreter))
+    with mock.patch("builtins.input") as prompt:
+        with pytest.raises(Exception, match="have access"):
+            list(respond(interpreter))
 
-    assert interpreter.llm.model == "i"
-    assert "Model set to `i`" in interpreter.display_message.call_args_list[0][0][0]
+    prompt.assert_not_called()
+    assert interpreter.llm.model == "gpt-4o"
 
 
 def test_respond_model_access_prompt_no_raises():
@@ -234,6 +239,50 @@ def test_respond_offline_errors_are_re_raised():
             list(respond(interpreter))
 
     prompt.assert_not_called()
+
+
+def test_respond_invalid_model_error_names_the_model(capsys):
+    """An access error that blames the model name prints an actionable message.
+
+    This branch is distinct from the generic no-access text: it tells the user
+    the model name is the problem. It is reachable only when the provider
+    reports both "not have access" and an invalid-model hint.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.llm.model = "not-a-real-model"
+
+    def run(msgs):
+        raise Exception("You do not have access to an invalid model: not-a-real-model")
+
+    interpreter.llm.run = run
+    with mock.patch("builtins.input") as prompt:
+        with pytest.raises(Exception, match="invalid model"):
+            list(respond(interpreter))
+
+    prompt.assert_not_called()
+    out = capsys.readouterr().out
+    assert "does not exist or is invalid" in out
+    assert "not-a-real-model" in out
+
+
+def test_respond_groq_access_error_points_at_groq(capsys):
+    """A Groq-specific access error mentions Groq rather than the generic text."""
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.llm.model = "groq/llama-3.3-70b"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model on Groq")
+
+    interpreter.llm.run = run
+    with mock.patch("builtins.input") as prompt:
+        with pytest.raises(Exception, match="have access"):
+            list(respond(interpreter))
+
+    prompt.assert_not_called()
+    out = capsys.readouterr().out
+    assert "check with Groq" in out
 
 
 def test_respond_rewrites_import_computer():

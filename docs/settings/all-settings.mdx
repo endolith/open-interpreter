@@ -506,7 +506,7 @@ interpreter --local
 ```python Python
 from interpreter import interpreter
 
-interpreter.offline = True # Disables online features (e.g. update checks, telemetry)
+interpreter.offline = True # Disables online features (e.g. update checks)
 interpreter.llm.model = "openai/x" # Tells OI to send messages in OpenAI's format
 interpreter.llm.api_key = "fake_key" # LiteLLM, which we use to talk to local models, requires this
 interpreter.llm.api_base = "http://localhost:1234/v1" # Point this at any OpenAI compatible server
@@ -576,29 +576,9 @@ system_message: "You are Open Interpreter..."
 
 </CodeGroup>
 
-### Disable Telemetry
-
-Opt out of [telemetry](telemetry/telemetry).
-
-<CodeGroup>
-
-```bash Terminal
-interpreter --disable_telemetry
-```
-
-```python Python
-interpreter.anonymized_telemetry = False
-```
-
-```yaml Profile
-disable_telemetry: true
-```
-
-</CodeGroup>
-
 ### Offline
 
-When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks, anonymous telemetry, conversation-contribution prompts, and offers to fall back to Open Interpreter's hosted `i` model. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
+When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
 
 <CodeGroup>
 

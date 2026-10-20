@@ -1,6 +1,8 @@
 import sys
 from unittest import mock
 
+import pytest
+
 from interpreter.terminal_interface.start_terminal_interface import (
     get_argument_dictionary,
     set_attributes,
@@ -124,7 +126,6 @@ def _patch_module(monkeypatch):
     interpreter.safe_mode = "off"
     interpreter.offline = True  # skips the update check
     interpreter.messages = []
-    interpreter.disable_telemetry = False
     interpreter.chat = mock.Mock()
     interpreter.server = mock.Mock()
     interpreter.computer = mock.Mock()
@@ -142,9 +143,6 @@ def _patch_module(monkeypatch):
     monkeypatch.setattr(sti, "check_for_update", mock.Mock(return_value=False))
     monkeypatch.setattr(sti, "validate_llm_settings", mock.Mock())
     monkeypatch.setattr(sti, "conversation_navigator", mock.Mock())
-    monkeypatch.setattr(
-        sti, "contribute_conversation_launch_logic", mock.Mock()
-    )
     monkeypatch.setattr(sti.time, "sleep", mock.Mock())
     monkeypatch.setattr(sti, "version", mock.Mock(return_value="0.2.5"))
     return sti, interpreter
@@ -406,12 +404,19 @@ def test_start_terminal_interface_vision_model_disables_functions(monkeypatch):
     assert interpreter.llm.supports_functions is False
 
 
-def test_start_terminal_interface_disable_telemetry_env(monkeypatch):
-    """DISABLE_TELEMETRY=true sets disable_telemetry even without the flag."""
+def test_start_terminal_interface_has_no_telemetry_flag(monkeypatch):
+    """The CLI rejects --disable_telemetry instead of half-applying it.
+
+    Telemetry was removed, so the flag, its `dt` nickname, and the
+    DISABLE_TELEMETRY environment override are gone. Had the argument spec been
+    left registered, argparse would still accept the flag and `set_attributes`
+    would set the attribute dynamically, leaving behind the appearance of an
+    opt-out for nothing that is collected.
+    """
     sti, interpreter = _patch_module(monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["oi"])
+    monkeypatch.setattr(sys, "argv", ["oi", "--disable_telemetry"])
     monkeypatch.setenv("DISABLE_TELEMETRY", "true")
 
-    start_terminal_interface(interpreter)
-
-    assert interpreter.disable_telemetry is True
+    # The flag is unregistered, so argparse exits before touching the interpreter.
+    with pytest.raises(SystemExit):
+        start_terminal_interface(interpreter)

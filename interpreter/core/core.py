@@ -17,7 +17,6 @@ from .computer.computer import Computer
 from .default_system_message import default_system_message
 from .llm.llm import Llm
 from .respond import respond
-from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
 
@@ -57,7 +56,6 @@ class OpenInterpreter:
             "Let me know what you'd like to do next.",
             "Please provide more information.",
         ],
-        disable_telemetry=False,
         in_terminal_interface=False,
         conversation_history=True,
         conversation_filename=None,
@@ -78,7 +76,6 @@ class OpenInterpreter:
         skills_path=None,
         import_skills=False,
         multi_line=True,
-        contribute_conversation=False,
         plain_text_display=False,
     ):
         # State
@@ -94,10 +91,8 @@ class OpenInterpreter:
         self.max_output = max_output
         self.safe_mode = safe_mode
         self.shrink_images = shrink_images
-        self.disable_telemetry = disable_telemetry
         self.in_terminal_interface = in_terminal_interface
         self.multi_line = multi_line
-        self.contribute_conversation = contribute_conversation
         self.plain_text_display = plain_text_display
         self.highlight_active_line = True  # additional setting to toggle active line highlighting. Defaults to True
 
@@ -162,33 +157,9 @@ class OpenInterpreter:
             )
         self._max_output = value
 
-    @property
-    def anonymous_telemetry(self) -> bool:
-        return not self.disable_telemetry and not self.offline
-
-    @property
-    def will_contribute(self):
-        overrides = (
-            self.offline or not self.conversation_history or self.disable_telemetry
-        )
-        return self.contribute_conversation and not overrides
-
     def chat(self, message=None, display=True, stream=False, blocking=True):
         try:
             self.responding = True
-            if self.anonymous_telemetry:
-                message_type = type(
-                    message
-                ).__name__  # Only send message type, no content
-                send_telemetry(
-                    "started_chat",
-                    properties={
-                        "in_terminal_interface": self.in_terminal_interface,
-                        "message_type": message_type,
-                        "os_mode": self.os,
-                    },
-                )
-
             if not blocking:
                 chat_thread = threading.Thread(
                     target=self.chat, args=(message, display, stream, True)
@@ -210,20 +181,8 @@ class OpenInterpreter:
         except GeneratorExit:
             self.responding = False
             # It's fine
-        except Exception as e:
+        except Exception:
             self.responding = False
-            if self.anonymous_telemetry:
-                message_type = type(message).__name__
-                send_telemetry(
-                    "errored",
-                    properties={
-                        "error": str(e),
-                        "in_terminal_interface": self.in_terminal_interface,
-                        "message_type": message_type,
-                        "os_mode": self.os,
-                    },
-                )
-
             raise
 
     def _streaming_chat(self, message=None, display=True):

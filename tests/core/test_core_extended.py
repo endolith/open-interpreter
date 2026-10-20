@@ -221,23 +221,16 @@ def test_respond_and_store_ephemeral_chunks_not_stored():
     assert "active_line" not in stored_formats
 
 
-def test_will_contribute_property():
-    """will_contribute is True only when all contributing conditions are met."""
-    interpreter = OpenInterpreter()
-    interpreter.contribute_conversation = True
-    interpreter.offline = False
-    interpreter.conversation_history = True
-    interpreter.disable_telemetry = False
-    assert interpreter.will_contribute is True
+def test_conversation_contribution_setting_is_gone():
+    """The interpreter has no conversation-contribution setting any more.
 
-    interpreter.offline = True
-    assert interpreter.will_contribute is False
-    interpreter.offline = False
-    interpreter.conversation_history = False
-    assert interpreter.will_contribute is False
-    interpreter.conversation_history = True
-    interpreter.disable_telemetry = True
-    assert interpreter.will_contribute is False
+    The hosted `i` model and the conversation-upload service were shut down, so
+    the setting and its `will_contribute` property are removed. Keeping them
+    would leave an API that silently uploads nothing.
+    """
+    interpreter = OpenInterpreter()
+    assert not hasattr(interpreter, "contribute_conversation")
+    assert not hasattr(interpreter, "will_contribute")
 
 
 def test_display_message_plain_text_mode(capsys):
@@ -338,24 +331,20 @@ def test_chat_handles_generator_exit():
     assert interpreter.responding is False
 
 
-def test_chat_sends_telemetry_on_error():
-    """When chat errors and telemetry is on, an error telemetry event is sent."""
+def test_chat_reraises_error_without_telemetry():
+    """When chat errors, the error propagates and nothing is reported anywhere.
+
+    Telemetry was removed, so an error must simply reach the caller. This also
+    pins that the error string is not swallowed on its way out.
+    """
     interpreter = OpenInterpreter()
-    interpreter.disable_telemetry = False
-    interpreter.offline = False
 
     def raise_error(*args, **kwargs):
         """Simulate an error during streaming."""
         raise ValueError("API failed")
 
     with mock.patch.object(interpreter, "_streaming_chat", side_effect=raise_error):
-        with mock.patch("interpreter.core.core.send_telemetry") as mock_telemetry:
-            try:
-                interpreter.chat(message="hello", stream=True)
-            except ValueError:
-                pass
-    error_calls = [
-        c for c in mock_telemetry.call_args_list if c[0][0] == "errored"
-    ]
-    assert len(error_calls) == 1
-    assert error_calls[0][1]["properties"]["error"] == "API failed"
+        with pytest.raises(ValueError, match="API failed"):
+            interpreter.chat(message="hello", stream=True)
+
+    assert interpreter.responding is False

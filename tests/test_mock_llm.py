@@ -23,7 +23,7 @@ def mock_llm_server():
 
 def _mock_interpreter(server: MockOpenAIServer, *, auto_run: bool = False) -> OpenInterpreter:
     """OpenInterpreter wired to the mock server instead of a real LLM provider."""
-    interpreter = OpenInterpreter(disable_telemetry=True)
+    interpreter = OpenInterpreter()
     interpreter.auto_run = auto_run
     interpreter.llm.model = "openai/gpt-4o-mini"
     interpreter.llm.api_base = server.api_base
@@ -40,7 +40,7 @@ def _mock_tool_interpreter(server: MockOpenAIServer) -> OpenInterpreter:
     full HTTP request → streaming tool_calls deltas → parse → execute path is
     exercised. Loading is skipped for determinism (no model-info lookup).
     """
-    interpreter = OpenInterpreter(disable_telemetry=True)
+    interpreter = OpenInterpreter()
     interpreter.auto_run = True
     interpreter.llm.model = "openai/gpt-4o-mini"
     interpreter.llm.api_base = server.api_base
