@@ -130,7 +130,9 @@ def _choose_allowlist_candidates(candidates):
         if candidate.get("warning"):
             line += f"  ({candidate['warning']})"
         print(line, flush=True)
-    answer = sanitize_terminal_input(input("  Numbers, or Enter to skip: ")).strip()
+    answer = sanitize_terminal_input(
+        input("  Numbers (space or comma separated), or Enter to skip: ")
+    ).strip()
     if not answer:
         return []
     chosen = []
