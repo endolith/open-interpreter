@@ -54,6 +54,11 @@ _PYTHON_ARG_KINDS = ("object", "string", "number", "literal")
 _PYTHON_KIND_LABELS = {"object": "<object>", "string": "<string>", "number": "<number>", "literal": "<value>"}
 
 
+def describe_python_args(kinds):
+    """Render argument kinds for a human-facing rule label."""
+    return ", ".join(_PYTHON_KIND_LABELS.get(kind, kind) for kind in kinds)
+
+
 def normalize_auto_run_mode(value):
     if value is True or value == "all" or value == "true":
         return "all"
@@ -403,9 +408,9 @@ def suggest_allowlist_rules(language, code):
                     continue
                 if call.args and not call.keywords:
                     kinds = [_python_arg_kind(arg) for arg in call.args]
-                    label = f"{name}({', '.join(_PYTHON_KIND_LABELS[kind] for kind in kinds)})"
+                    label = f"{name}({describe_python_args(kinds)})"
                     add({"language": "python", "call": name, "args": kinds}, label)
-                add({"language": "python", "call": name}, f"{name}(...)")
+                add({"language": "python", "call": name}, f"{name}(any arguments)", warning=_broad_warning(name))
             else:
                 for root in python_import_roots(stmt) or ():
                     add({"language": "python", "import": root}, f"import {root}")

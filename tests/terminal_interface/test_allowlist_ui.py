@@ -41,7 +41,11 @@ def test_describe_allowlist_rule_formats_every_rule_shape():
     assert _describe_allowlist_rule({"language": "bash", "command": "ls"}) == "bash: ls"
     assert (
         _describe_allowlist_rule({"language": "python", "call": "help", "args": ["object"]})
-        == "python: help(...)"
+        == "python: help(<object>)"
+    )
+    assert (
+        _describe_allowlist_rule({"language": "python", "call": "help"})
+        == "python: help(any arguments)"
     )
     assert (
         _describe_allowlist_rule({"language": "python", "import": "json"})

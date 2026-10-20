@@ -29,6 +29,7 @@ from ..core.llm.utils.convert_to_openai_messages import (
 from ..core.utils.execution_allowlist import (
     AllowlistConfigError,
     code_is_covered,
+    describe_python_args,
     load_allowlist_rules,
     persist_allowlist_rule,
     should_require_execution_confirmation,
@@ -112,7 +113,12 @@ def _describe_allowlist_rule(rule):
         args = " ".join(rule.get("args") or [])
         return f"{rule['language']}: {rule['command']} {args}".rstrip()
     if "call" in rule:
-        return f"{rule['language']}: {rule['call']}(...)"
+        if "args" in rule:
+            if not rule["args"]:
+                return f"{rule['language']}: {rule['call']}()"
+            shapes = describe_python_args(rule["args"])
+            return f"{rule['language']}: {rule['call']}({shapes})"
+        return f"{rule['language']}: {rule['call']}(any arguments)"
     return f"{rule['language']}: import {rule['import']}"
 
 

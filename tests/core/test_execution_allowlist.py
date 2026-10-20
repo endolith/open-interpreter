@@ -347,6 +347,15 @@ def test_suggest_allowlist_rules_skips_unmatchable_units():
     assert suggest_allowlist_rules("bash", "$cmd foo") == []
 
 
+def test_suggest_allowlist_rules_labels_broad_python_call():
+    """The broad python candidate says it takes any arguments and warns about it."""
+    candidates = suggest_allowlist_rules("python", "print(value)")
+
+    assert candidates[-1]["rule"] == {"language": "python", "call": "print"}
+    assert candidates[-1]["label"] == "print(any arguments)"
+    assert "every other `print` invocation" in candidates[-1]["warning"]
+
+
 def test_suggest_allowlist_rules_does_not_police_paths():
     """A sensitive-looking path is offered like any other argument."""
     assert suggest_allowlist_rules("bash", "cat /etc/shadow")[0]["rule"] == {
