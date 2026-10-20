@@ -15,14 +15,14 @@ def _make_llm():
     return llm
 
 
-def test_tool_calls_function_is_none_raises():
-    """A tool_call delta with function=None crashes merge_deltas.
+def test_tool_calls_function_is_none_is_skipped():
+    """A tool_call delta with function=None is ignored instead of crashing.
 
-    KNOWN BUG: run_tool_calling_llm intends to skip tool_call deltas whose
-    function attribute is None (the guard only converts deltas with a truthy
-    function), but the unconverted delta is still forwarded to merge_deltas,
-    which calls dict() on the tool_calls list and raises TypeError. Documenting
-    current behavior; the fix belongs in a bug-fix PR.
+    run_tool_calling_llm's guard only converts deltas with a truthy function, so
+    the unconverted delta still forwards its ``tool_calls`` list to
+    merge_deltas. That used to call dict() on the list and raise TypeError,
+    aborting the turn; merge_deltas now accumulates list values, so the
+    unusable call is skipped and the turn yields nothing.
     """
     llm = _make_llm()
 
@@ -35,8 +35,12 @@ def test_tool_calls_function_is_none_raises():
 
     llm.completions = chat
 
-    with pytest.raises(TypeError):
-        list(run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "hi"}]}))
+    assert (
+        list(
+            run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "hi"}]})
+        )
+        == []
+    )
 
 
 def test_tool_calls_empty_list():
