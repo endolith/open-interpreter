@@ -20,6 +20,11 @@ The build backend is hatchling with PEP 621 metadata (`[project]` in `pyproject.
 
 ## Code change guidelines
 
+### Before fixing: check the other branches and the API contract
+
+- **Check `classic/develop` and `velinxs/rework` first.** They carry newer, often better implementations of fixes that have not reached `main`. Before writing a fix, fetch and search them — `git fetch origin classic/develop`, `git fetch velinxs rework`, then `git show <branch>:<path>` or `git grep <symbol> <branch>` — and port the existing implementation instead of inventing a second, weaker one. `velinxs/rework` is generally a superset of `classic/develop`.
+- **Read the provider/API documentation before implementing.** Streaming and LLM-shape code must match the real contract: check litellm's types/source (e.g. `litellm/types/utils.py` `Delta`), OpenAI's `chat.completion.chunk` schema (`tool_calls[].index`/`id`/`function.arguments`), and the provider's own streaming docs (e.g. OpenRouter's `reasoning_details`). Do not infer the shape from the traceback alone.
+
 ### Testing
 
 - **Always write or update unit tests** when changing code. New functions/methods need tests; bug fixes need regression tests.
