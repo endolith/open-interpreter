@@ -181,25 +181,30 @@ def _is_plain_callable(obj):
     )
 
 
-def _static_members(obj):
+def _static_members(obj, private=False):
     """List (name, static_value, owner, inherited) without executing anything.
 
     Reads class __dict__s along the MRO and the instance __dict__ directly,
-    so properties, descriptors, and __getattr__ never run. Returns None for
-    a bare function/method, which is rendered as a single entry.
+    so properties, descriptors, and __getattr__ never run. Private/dunder
+    names are skipped unless private=True. Returns None for a bare
+    function/method, which is rendered as a single entry.
     """
+
+    def skip(name, seen):
+        return (name.startswith("_") and not private) or name in seen
+
     if inspect.ismodule(obj):
         return [
             (k, v, "module", False)
             for k, v in vars(obj).items()
-            if not k.startswith("_")
+            if not skip(k, ())
         ]
     if inspect.isclass(obj):
         out = []
         seen = set()
         for klass in obj.__mro__:
             for k, v in vars(klass).items():
-                if k.startswith("_") or k in seen:
+                if skip(k, seen):
                     continue
                 seen.add(k)
                 out.append((k, v, klass.__name__, klass is not obj))
@@ -213,13 +218,13 @@ def _static_members(obj):
     except TypeError:
         instance_dict = {}
     for k, v in instance_dict.items():
-        if k.startswith("_") or k in seen:
+        if skip(k, seen):
             continue
         seen.add(k)
         out.append((k, v, "Instance", False))
     for klass in type(obj).__mro__:
         for k, v in vars(klass).items():
-            if k.startswith("_") or k in seen:
+            if skip(k, seen):
                 continue
             seen.add(k)
             out.append((k, v, klass.__name__, klass is not type(obj)))
@@ -287,7 +292,9 @@ def _print_single(obj, doc, brief, src):
     print("-- 1 matched, 1 shown --")
 
 
-def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
+def introspect(
+    obj, pattern="", doc=False, brief=False, src=False, private=False, cap=4000
+):
     """Print the object's real members/signatures matching pattern.
 
     Prints and returns None (like `help()`), so call it as its own
@@ -298,9 +305,11 @@ def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
     doc     : True -> full docstring of each match.
     brief   : True -> first docstring line of each match.
     src     : True -> source of the single match instead of the list.
+    private : True -> include _private/__dunder__ members in the listing.
     Each line is `name(signature) [Owner]` or `[Inherited: Base]`;
     non-callables render as `name: type [Owner]`. Private/dunder names are
-    not listed, so "no matches" is never proof a member is missing.
+    hidden by default (but named when a pattern hits one), so "no matches"
+    is never proof a member is missing.
     """
     try:
         try:
@@ -310,7 +319,7 @@ def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
         if cap <= 0:
             cap = _DEFAULT_CAP
 
-        members = _static_members(obj)
+        members = _static_members(obj, private=private)
         if members is None:
             _print_single(obj, doc, brief, src)
             return None
@@ -319,7 +328,7 @@ def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
         compiled, invalid = _compile(regexes)
         if invalid and not compiled:
             # Every pattern failed to compile: never fall back to match-all.
-            _report_no_matches(obj, pattern, compiled, invalid)
+            _report_no_matches(obj, pattern, compiled, invalid, private)
             return None
         matched = [
             (k, v, o, inh)
@@ -328,10 +337,13 @@ def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
         ]
 
         if src:
-            if len(matched) != 1:
+            if not matched:
+                _report_no_matches(obj, pattern, compiled, invalid, private)
+                return None
+            if len(matched) > 1:
                 print(
                     "introspect: src=True needs exactly one match "
-                    "(got %d). Narrow the pattern first, e.g. "
+                    "(got %d). Anchor the name first, e.g. "
                     "introspect(obj, '^exact_name$', src=True)." % len(matched)
                 )
                 return None
@@ -344,7 +356,7 @@ def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
             return None
 
         if not matched:
-            _report_no_matches(obj, pattern, compiled, invalid)
+            _report_no_matches(obj, pattern, compiled, invalid, private)
             return None
 
         lines = [
@@ -400,11 +412,12 @@ def _member_line(k, v, o, inh, doc, brief):
     return _decorate(line, v, doc, brief)
 
 
-def _report_no_matches(obj, pattern, compiled, invalid):
+def _report_no_matches(obj, pattern, compiled, invalid, private=False):
     """Explain *why* there were no matches instead of a bare "no matches".
 
     Three cases the caller must tell apart: an invalid regex, a name that
-    exists only as a hidden private/dunder, and a genuinely absent name.
+    exists only as a hidden private/dunder (unless private=True), and a
+    genuinely absent name.
     """
     try:
         target = getattr(obj, "__name__", type(obj).__name__)
@@ -422,13 +435,24 @@ def _report_no_matches(obj, pattern, compiled, invalid):
         for n in _visible_names(obj)
         if n.startswith("_") and _matches(n, compiled)
     ]
-    if hidden:
-        shown = ", ".join(hidden[:6])
+    if hidden and not private:
+        if len(hidden) > 12:
+            names = "%s … (+%d more)" % (", ".join(hidden[:12]), len(hidden) - 12)
+        else:
+            names = ", ".join(hidden)
+        plural = len(hidden) > 1
         print(
-            "introspect: no matches for %r on %s — it exists but is "
-            "private/dunder, which introspect hides by default: %s. "
-            "Use dir(obj) or getattr(obj, name) to reach it."
-            % (pattern, target, shown)
+            "introspect: no matches for %r on %s — %s private/dunder, "
+            "which introspect hides by default: %s. Reach %s with "
+            "dir(obj)/getattr(obj, name), or list %s with private=True."
+            % (
+                pattern,
+                target,
+                "they exist but are" if plural else "it exists but is",
+                names,
+                "them" if plural else "it",
+                "them" if plural else "it",
+            )
         )
         return
     public_names = [n for n in _visible_names(obj) if not n.startswith("_")]
