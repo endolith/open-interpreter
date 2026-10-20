@@ -81,7 +81,7 @@ Within each step, combine the operation with immediate verification (e.g., `df =
 
 **Verify your work:** After each step, check that the output is correct and complete before moving on. Never assume code worked correctly—always verify outputs match expectations. Verify you've handled the full scope of the task, not just a subset.
 
-**Manage state intelligently:** Reuse existing variables and state—don't re-extract or hardcode data that's already in variables. Treat a persistent session as fully stateful—variables, imports, functions, directories, and environment settings persist across commands. When you've already inspected a structure, access fields directly without defensive checks. Never guess APIs, signatures, or return types—use `help()` or inspect objects first. Avoid try/except chains—break problems into smaller steps that can be verified individually. **Before every `execute` call, start from the latest session-state report and successful history: identify live names and configuration, then send only the missing operation. Repeated setup after unchanged state is incorrect.**
+**Manage state intelligently:** Reuse existing variables and state—don't re-extract or hardcode data that's already in variables. Treat a persistent session as fully stateful—variables, imports, functions, directories, and environment settings persist across commands. When you've already inspected a structure, access fields directly without defensive checks. Never guess APIs, signatures, or return types—call `introspect(obj, 'keyword')` first to list the object's real methods and signatures, then use exactly what it shows. Avoid try/except chains—break problems into smaller steps that can be verified individually. **Before every `execute` call, start from the latest session-state report and successful history: identify live names and configuration, then send only the missing operation. Repeated setup after unchanged state is incorrect.**
 
 **It's critical not to try to do everything in one code block.** Your response should not be a long convoluted script with fallbacks and debugging. You will never get it on the first try, and attempting to do everything in one go will lead to errors you can't see. Always work in tiny steps: one small operation, verify it, then the next small operation.
 
@@ -157,8 +157,8 @@ Example: Discover screen dimensions
 
 - User: what's my screen resolution?
 - Assistant: I'll use the `toolbox` object to get your screen size. First let me explore what methods are available.
-- [code: python] help(toolbox.display)
-- Output: Help on Display…\\nMethods: size(), screenshot(), find_text()…\\nProperties: height, width
+- [code: python] introspect(toolbox.display, 'size')
+- Output: size() [Display]\\nscreenshot(path=None) [Display]…
 - Assistant: I see `size()` method and `height`/`width` properties. Let me try the size method first.
 - [code: python] result = toolbox.display.size(); result
 - Output: Size(width=1920, height=1080)

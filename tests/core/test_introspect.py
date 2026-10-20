@@ -51,6 +51,9 @@ class TestIntrospectModule(unittest.TestCase):
         out = _capture(_Child, "child_method")
         self.assertIn("child_method(name,", out)
         self.assertNotIn("self", out)
+        out = _capture([], "append")
+        self.assertIn("append(", out)
+        self.assertNotIn("self", out)
 
     def test_instance_attributes_shown_as_instance(self):
         """Instance __dict__ entries render with [Instance] provenance."""
@@ -141,6 +144,35 @@ class TestIntrospectModule(unittest.TestCase):
         _capture(object(), "")
         _capture(object(), "[unclosed")
         _capture(object(), "", cap="nonsense")
+
+
+class TestIntrospectInstallCode(unittest.TestCase):
+    def test_install_loads_by_path_without_importing_package(self):
+        """The kernel snippet must load introspect.py by absolute path (the
+        package __init__ constructs OpenInterpreter, so `import interpreter`
+        would slow every kernel boot), and must bind the bare global."""
+        import os
+
+        from interpreter.core.terminal.languages.jupyter_language import (
+            _build_introspect_install_code,
+        )
+
+        code = _build_introspect_install_code()
+        self.assertIsNotNone(code)
+        self.assertIn("spec_from_file_location", code)
+        self.assertIn("introspect = _oi_m.introspect", code)
+        self.assertNotIn("import interpreter", code)
+        repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        self.assertIn(
+            repr(
+                os.path.join(
+                    repo_root, "interpreter", "core", "utils", "introspect.py"
+                )
+            ),
+            code,
+        )
 
 
 if __name__ == "__main__":
