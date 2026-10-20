@@ -192,6 +192,22 @@ class TestIntrospectModule(unittest.TestCase):
         out = _capture(Ctx(), "_hidden", private=True)
         self.assertIn("_hidden", out)
 
+    def test_private_elides_object_boilerplate(self):
+        """private=True with no pattern hides dunders inherited unchanged
+        from object (the measured ~8x inflation) but keeps the class's own
+        dunders; naming an elided one still lists it."""
+
+        class Ctx:
+            def __enter__(self):
+                return self
+
+        out = _capture(Ctx(), private=True)
+        self.assertIn("__enter__", out)
+        self.assertIn("object-boilerplate dunders hidden", out)
+        self.assertNotIn("__reduce_ex__", out)
+        out = _capture(Ctx(), "^__reduce_ex__$", private=True)
+        self.assertIn("__reduce_ex__", out)
+
     def test_private_hidden_message_is_plural_aware(self):
         """Multiple hidden matches use plural phrasing, not 'it exists'."""
 

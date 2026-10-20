@@ -34,6 +34,35 @@ _SECRET_HINTS = (
     "access_key",
 )
 _DROP_FIRST_NAMES = ("self", "cls", "mcs")
+# Dunders object itself defines: listing them adds only boilerplate, so
+# private=True elides the ones a class does not override from object.
+_OBJECT_DUNDERS = frozenset(vars(object))
+# Class-construction machinery, noise even when private=True.
+_MACHINERY = frozenset(
+    {
+        "__module__",
+        "__qualname__",
+        "__doc__",
+        "__dict__",
+        "__weakref__",
+        "__class__",
+        "__annotations__",
+        "__dictoffset__",
+        "__weakrefoffset__",
+    }
+)
+
+
+def _is_boilerplate(name, owner):
+    """True if a member is object boilerplate, not a class's own dunder.
+
+    `owner` is the owning class's name string (or an object for module/
+    instance pseudo-owners), so compare by name.
+    """
+    if name in _MACHINERY:
+        return True
+    owner_name = owner if isinstance(owner, str) else getattr(owner, "__name__", "")
+    return name in _OBJECT_DUNDERS and owner_name == "object"
 
 
 def _as_patterns(pattern):
@@ -359,6 +388,16 @@ def introspect(
             _report_no_matches(obj, pattern, compiled, invalid, private)
             return None
 
+        # private=True with no pattern elides members inherited unchanged
+        # from object (the ~8x inflation OI measured). Naming a member with a
+        # pattern is an explicit request, so elision is skipped then.
+        elided = 0
+        if private and not regexes:
+            keep = [m for m in matched if not _is_boilerplate(m[0], m[2])]
+            if keep:
+                elided = len(matched) - len(keep)
+                matched = keep
+
         lines = [
             _member_line(k, v, o, inh, doc, brief) for (k, v, o, inh) in matched
         ]
@@ -377,14 +416,16 @@ def introspect(
         text = header_block + "\n" + "\n".join(lines[:shown])
         if len(text) + 80 > cap and shown == 1:
             text = text[:cap] + "\n..."
+        notes = []
+        if dropped:
+            notes.append("%d more not shown — narrow the pattern" % dropped)
+        if elided:
+            notes.append("%d object-boilerplate dunders hidden — name one to list it"
+                         % elided)
         footer = "-- %d matched, %d shown%s --" % (
             nmatched,
             shown,
-            (
-                ", %d more not shown — narrow the pattern" % dropped
-                if dropped
-                else ""
-            ),
+            (", " + ", ".join(notes)) if notes else "",
         )
         print(text + "\n" + footer)
         return None
