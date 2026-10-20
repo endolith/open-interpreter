@@ -6,10 +6,13 @@ Why this exists: the model guesses method names on unfamiliar objects
 `sh.worksheets()`). `help()` dumps unfilterable prose, so the fix is a
 filtered signature lister the model reaches for *before* calling.
 
-Loaded into the kernel by absolute path at startup (see
-JupyterLanguage.__init__), never via `import interpreter` — importing the
-package constructs OpenInterpreter and would slow every kernel boot.
-Stdlib only (`difflib`, `inspect`, `re`); never executes descriptors.
+It prints (never returns a value, like `help()`), so the call stands alone
+as a statement. `pattern` is a case-insensitive regular expression over
+member names, or a list of them. Loaded into the kernel by absolute path at
+startup (see JupyterLanguage.__init__), never via `import interpreter` —
+importing the package constructs OpenInterpreter and would slow every
+kernel boot. Stdlib only (`difflib`, `inspect`, `re`); never executes
+descriptors, properties, or `__getattr__`.
 """
 
 import difflib
@@ -42,18 +45,31 @@ def _as_patterns(pattern):
     return [str(p) for p in pattern if str(p) != ""]
 
 
-def _matches(name, regexes):
-    """Check whether a member name matches any of the pattern regexes."""
-    if not regexes:
-        return True
+def _compile(regexes):
+    """Compile patterns case-insensitively; return (compiled, invalid)."""
+    compiled = []
+    invalid = []
     for rx in regexes:
         try:
-            if re.search(rx, name, re.IGNORECASE):
-                return True
+            compiled.append(re.compile(rx, re.IGNORECASE))
         except re.error:
-            if rx.lower() in name.lower():
-                return True
-    return False
+            invalid.append(rx)
+    return compiled, invalid
+
+
+def _matches(name, compiled):
+    """Check whether a member name matches any compiled pattern."""
+    if not compiled:
+        return True
+    return any(rx.search(name) for rx in compiled)
+
+
+def _visible_names(obj):
+    """All attribute names via dir(), including privates/dunders."""
+    try:
+        return list(dir(obj))
+    except Exception:
+        return []
 
 
 def _format_default(param_name, value):
@@ -155,6 +171,16 @@ def _signature_of(static, drop_first_allowed):
         return None
 
 
+def _is_plain_callable(obj):
+    """True for a function/builtin/method, which has no member table."""
+    return (
+        inspect.isfunction(obj)
+        or inspect.isbuiltin(obj)
+        or inspect.ismethod(obj)
+        or inspect.ismethoddescriptor(obj)
+    )
+
+
 def _static_members(obj):
     """List (name, static_value, owner, inherited) without executing anything.
 
@@ -178,7 +204,7 @@ def _static_members(obj):
                 seen.add(k)
                 out.append((k, v, klass.__name__, klass is not obj))
         return out
-    if inspect.isfunction(obj) or inspect.isbuiltin(obj) or inspect.ismethod(obj):
+    if _is_plain_callable(obj):
         return None
     out = []
     seen = set()
@@ -206,13 +232,13 @@ def _header(obj):
         return "module %s:" % getattr(obj, "__name__", "?")
     if inspect.isclass(obj):
         return "class %s:" % getattr(obj, "__qualname__", "?")
-    if inspect.isfunction(obj) or inspect.isbuiltin(obj) or inspect.ismethod(obj):
+    if _is_plain_callable(obj):
         return "function %s:" % getattr(obj, "__name__", "?")
     return "%s (instance):" % type(obj).__name__
 
 
-def _first_doc_line(static):
-    """Return the first docstring line of a static member, or ''."""
+def _doc_of(static, full):
+    """Return the (full or first-line) docstring of a static member."""
     target = static
     if isinstance(static, (staticmethod, classmethod)):
         target = static.__func__
@@ -222,19 +248,7 @@ def _first_doc_line(static):
         return ""
     if not doc:
         return ""
-    return doc.splitlines()[0].strip()
-
-
-def _full_doc(static):
-    """Return the full docstring of a static member, or ''."""
-    target = static
-    if isinstance(static, (staticmethod, classmethod)):
-        target = static.__func__
-    try:
-        doc = inspect.getdoc(target)
-    except Exception:
-        return ""
-    return doc or ""
+    return doc if full else doc.splitlines()[0].strip()
 
 
 def _source_of(static):
@@ -248,15 +262,45 @@ def _source_of(static):
         return ""
 
 
-def introspect(obj, pattern="", doc=False, src=False, cap=4000):
-    """Print the object's real methods/signatures matching pattern.
+def _decorate(line, static, doc, brief):
+    """Append docstring text to a member line per doc/brief flags."""
+    if doc:
+        full = _doc_of(static, full=True)
+        if full:
+            return line + "\n" + full
+    elif brief:
+        first = _doc_of(static, full=False)
+        if first:
+            return line + " — " + first
+    return line
 
-    Prints a filtered member list and returns None (like help()). The
-    object argument is required: always pass the object you are about to
-    call, plus a keyword, before writing the call — never guess names.
 
+def _print_single(obj, doc, brief, src):
+    """Render one function/method, honouring src/doc/brief like a member."""
+    name = getattr(obj, "__name__", "?")
+    if src:
+        source = _source_of(obj)
+        print(source.rstrip() if source else "%s: <no source available>" % name)
+        return
+    line = "%s%s [function]" % (name, _signature_of(obj, False) or "(...)")
+    print("%s\n%s" % (_header(obj), _decorate(line, obj, doc, brief)))
+    print("-- 1 matched, 1 shown --")
+
+
+def introspect(obj, pattern="", doc=False, brief=False, src=False, cap=4000):
+    """Print the object's real members/signatures matching pattern.
+
+    Prints and returns None (like `help()`), so call it as its own
+    statement. The object argument is required: pass the object you are
+    about to call before writing the call — never guess names.
+
+    pattern : case-insensitive regex on member names, or a list of them.
+    doc     : True -> full docstring of each match.
+    brief   : True -> first docstring line of each match.
+    src     : True -> source of the single match instead of the list.
     Each line is `name(signature) [Owner]` or `[Inherited: Base]`;
-    non-callables render as `name: type [Owner]`.
+    non-callables render as `name: type [Owner]`. Private/dunder names are
+    not listed, so "no matches" is never proof a member is missing.
     """
     try:
         try:
@@ -268,94 +312,134 @@ def introspect(obj, pattern="", doc=False, src=False, cap=4000):
 
         members = _static_members(obj)
         if members is None:
-            name = getattr(obj, "__name__", "?")
-            sig = _signature_of(obj, False) or "(...)"
-            print("%s\n%s%s [function]" % (_header(obj), name, sig))
-            print("-- 1 matched, 1 shown --")
+            _print_single(obj, doc, brief, src)
             return None
 
         regexes = _as_patterns(pattern)
+        compiled, invalid = _compile(regexes)
+        if invalid and not compiled:
+            # Every pattern failed to compile: never fall back to match-all.
+            _report_no_matches(obj, pattern, compiled, invalid)
+            return None
         matched = [
             (k, v, o, inh)
             for (k, v, o, inh) in members
-            if _matches(k, regexes)
+            if _matches(k, compiled)
         ]
 
         if src:
             if len(matched) != 1:
                 print(
                     "introspect: src=True needs exactly one match "
-                    "(got %d). Narrow pattern first, e.g. "
-                    "introspect(obj, 'exact_name', src=True)." % len(matched)
+                    "(got %d). Narrow the pattern first, e.g. "
+                    "introspect(obj, '^exact_name$', src=True)." % len(matched)
                 )
                 return None
             k, v, o, inh = matched[0]
             source = _source_of(v)
             if not source:
-                print("%s: <no source available>" % k)
+                print("%s: <no source available> (C or built-in code)" % k)
             else:
                 print(source.rstrip())
             return None
 
         if not matched:
-            all_names = [k for (k, _v, _o, _i) in members]
-            hint = ""
-            if regexes:
-                try:
-                    close = difflib.get_close_matches(
-                        regexes[0], all_names, n=3, cutoff=0.6
-                    )
-                except Exception:
-                    close = []
-                if close:
-                    hint = " Did you mean: %s?" % ", ".join(close)
-            print(
-                "introspect: no matches for %r on %s.%s"
-                % (pattern, getattr(obj, "__name__", type(obj).__name__), hint)
-            )
+            _report_no_matches(obj, pattern, compiled, invalid)
             return None
 
-        lines = []
-        for k, v, o, inh in matched:
-            tag = "[Inherited: %s]" % o if inh else "[%s]" % o
-            sig = _signature_of(v, o != "Instance")
-            if sig is None:
-                try:
-                    typename = type(v).__name__
-                except Exception:
-                    typename = "?"
-                line = "%s: %s %s" % (k, typename, tag)
-            else:
-                line = "%s%s %s" % (k, sig, tag)
-            if doc == "full":
-                full = _full_doc(v)
-                if full:
-                    line += "\n" + full
-            elif doc:
-                first = _first_doc_line(v)
-                if first:
-                    line += " — " + first
-            lines.append(line)
+        lines = [
+            _member_line(k, v, o, inh, doc, brief) for (k, v, o, inh) in matched
+        ]
 
         header = _header(obj)
+        module_doc = ""
+        if inspect.ismodule(obj) and (doc or brief):
+            module_doc = _doc_of(obj, full=bool(doc))
+        header_block = header + (("\n" + module_doc) if module_doc else "")
+
         nmatched = len(lines)
-        text = header + "\n" + "\n".join(lines)
         shown = nmatched
-        truncated = False
-        while shown > 1 and len(text) + 60 > cap:
+        while shown > 1 and len(header_block) + len("\n".join(lines[:shown])) + 80 > cap:
             shown -= 1
-            truncated = True
-            text = header + "\n" + "\n".join(lines[:shown])
-        if len(text) + 60 > cap and shown <= 1:
+        dropped = nmatched - shown
+        text = header_block + "\n" + "\n".join(lines[:shown])
+        if len(text) + 80 > cap and shown == 1:
             text = text[:cap] + "\n..."
-            truncated = True
         footer = "-- %d matched, %d shown%s --" % (
             nmatched,
             shown,
-            ", truncated" if truncated else "",
+            (
+                ", %d more not shown — narrow the pattern" % dropped
+                if dropped
+                else ""
+            ),
         )
         print(text + "\n" + footer)
         return None
     except Exception as e:
         print("introspect: <unreadable: %s>" % e)
         return None
+
+
+def _type_name(v):
+    """Best-effort type name for a non-callable member value."""
+    try:
+        return type(v).__name__
+    except Exception:
+        return "?"
+
+
+def _member_line(k, v, o, inh, doc, brief):
+    """Render one member line as `name(sig) [tag]` or `name: type [tag]`."""
+    tag = "[Inherited: %s]" % o if inh else "[%s]" % o
+    sig = _signature_of(v, o != "Instance")
+    if sig is None:
+        line = "%s: %s %s" % (k, _type_name(v), tag)
+    else:
+        line = "%s%s %s" % (k, sig, tag)
+    return _decorate(line, v, doc, brief)
+
+
+def _report_no_matches(obj, pattern, compiled, invalid):
+    """Explain *why* there were no matches instead of a bare "no matches".
+
+    Three cases the caller must tell apart: an invalid regex, a name that
+    exists only as a hidden private/dunder, and a genuinely absent name.
+    """
+    try:
+        target = getattr(obj, "__name__", type(obj).__name__)
+    except Exception:
+        target = "?"
+    if invalid and not compiled:
+        print(
+            "introspect: no matches for %r on %s — <invalid regex: %r>. "
+            "Patterns are regular expressions; escape metacharacters such "
+            "as '.' as '\\\\.'." % (pattern, target, invalid[0])
+        )
+        return
+    hidden = [
+        n
+        for n in _visible_names(obj)
+        if n.startswith("_") and _matches(n, compiled)
+    ]
+    if hidden:
+        shown = ", ".join(hidden[:6])
+        print(
+            "introspect: no matches for %r on %s — it exists but is "
+            "private/dunder, which introspect hides by default: %s. "
+            "Use dir(obj) or getattr(obj, name) to reach it."
+            % (pattern, target, shown)
+        )
+        return
+    public_names = [n for n in _visible_names(obj) if not n.startswith("_")]
+    hint = ""
+    if public_names:
+        needle = _as_patterns(pattern)
+        probe = needle[0] if needle else ""
+        try:
+            close = difflib.get_close_matches(probe, public_names, n=3, cutoff=0.6)
+        except Exception:
+            close = []
+        if close:
+            hint = " Did you mean: %s?" % ", ".join(close)
+    print("introspect: no matches for %r on %s.%s" % (pattern, target, hint))
