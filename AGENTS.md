@@ -75,8 +75,10 @@ drive-by fix; give the fix its own commit instead.
   top level is the deprecated Anthropic demo — excluded from coverage, do not
   touch. **There is no `core/computer/` on this branch**; that layout is `main`'s.
 - `interpreter/core/utils/` — small helpers (`truncate_output`, `prompt_choice`
-  for y/n prompts, telemetry). `prompt_choice` takes only exact single letters
-  and re-prompts on anything else.
+  for y/n prompts, telemetry, `introspect` — the bare-kernel `introspect(obj,
+  'keyword')` signature lister, loaded by path in `jupyter_language.py`).
+  `prompt_choice` takes only exact single letters and re-prompts on anything
+  else.
 - `interpreter/core/tools/file_edit.py` — file-editing tool.
 - `scripts/wtf.py` — standalone "fix my last terminal error" CLI.
 - **Dead or fragile live code**: `Skills.run()` (in `core/toolbox/skills`),
