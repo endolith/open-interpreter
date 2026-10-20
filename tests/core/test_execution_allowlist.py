@@ -2,6 +2,7 @@ import pytest
 
 from interpreter.core.core import OpenInterpreter
 from interpreter.core.utils.execution_allowlist import (
+    code_is_covered,
     is_execution_allowlisted,
     normalize_auto_run_mode,
     persist_allowlist_rule,
@@ -87,14 +88,30 @@ def test_python_call_arguments_must_be_safe():
     assert not is_execution_allowlisted(interpreter, "python", "print(open('f').read())")
 
 
-def test_guards_block_substitution_and_sensitive_paths():
-    """Even an allowed command name is refused for destructive argument forms."""
+def test_guards_block_substitution():
+    """A command whose real code is hidden inside `$(...)` is never matchable."""
     interpreter = _interpreter(auto_run_mode="allowlist")
 
     assert not is_execution_allowlisted(interpreter, "bash", "echo $(cat /etc/shadow)")
-    assert not is_execution_allowlisted(interpreter, "bash", "cat /etc/shadow")
-    assert not is_execution_allowlisted(interpreter, "bash", "cat ~/.ssh/id_rsa")
-    assert not is_execution_allowlisted(interpreter, "bash", "ls ..")
+    assert not is_execution_allowlisted(interpreter, "bash", "echo `cat /etc/shadow`")
+    assert not is_execution_allowlisted(interpreter, "bash", "cat <(cat /etc/shadow)")
+
+
+def test_paths_are_not_policed_by_the_allowlist():
+    """A path that looks sensitive is decided by the rule set, not a hidden denylist.
+
+    Secret and system-path policy belongs to a separate denylist; the allowlist
+    only answers whether a structural rule covers the invocation.
+    """
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file="/nonexistent/allowlist.yaml",
+        auto_run_allowlist_rules=[{"language": "bash", "command": "cat"}],
+    )
+
+    assert is_execution_allowlisted(interpreter, "bash", "cat /etc/shadow")
+    assert is_execution_allowlisted(interpreter, "bash", "cat $HOME/.ssh/id_rsa")
+    assert is_execution_allowlisted(interpreter, "bash", "ls ..")
 
 
 def test_guards_block_file_writes_but_allow_null_device():
@@ -103,21 +120,56 @@ def test_guards_block_file_writes_but_allow_null_device():
 
     assert not is_execution_allowlisted(interpreter, "bash", "echo hi > out.txt")
     assert is_execution_allowlisted(interpreter, "bash", "ls 2>/dev/null")
+    assert is_execution_allowlisted(interpreter, "bash", "ls 2>&1")
+    assert is_execution_allowlisted(interpreter, "bash", "ls >/dev/null 2>&1")
 
 
-def test_interpreter_commands_can_never_be_allowlisted():
-    """Wrappers like `python`/`xargs` stay un-runnable even with an explicit rule."""
+def test_multi_module_import_needs_one_rule_per_module():
+    """`import os, sys` is covered collectively, not by a rule naming one module.
+
+    Each module must have its own `import` rule; one rule never claims a module
+    it does not name, and the wildcard rule only covers side-effect-free ones.
+    """
     interpreter = _interpreter(
         auto_run_mode="allowlist",
-        auto_run_allowlist_rules=[
-            {"language": "bash", "command": "python"},
-            {"language": "bash", "command": "xargs"},
-        ],
+        auto_run_allowlist_replace_builtin=True,
+        auto_run_allowlist_file="/nonexistent/allowlist.yaml",
+        auto_run_allowlist_rules=[{"language": "python", "import": "os"}],
     )
 
-    assert not is_execution_allowlisted(interpreter, "bash", "python script.py")
-    assert not is_execution_allowlisted(interpreter, "bash", "xargs ls")
-    # The preset still works alongside the refused rules.
+    assert not is_execution_allowlisted(interpreter, "python", "import os, sys")
+
+    interpreter.auto_run_allowlist_rules = [
+        {"language": "python", "import": "os"},
+        {"language": "python", "import": "sys"},
+    ]
+    assert is_execution_allowlisted(interpreter, "python", "import os, sys")
+
+
+def test_code_is_covered_reports_uncovered_units():
+    """Coverage reports the units a rule set does not cover, in source form."""
+    covered, uncovered = code_is_covered(
+        [{"language": "bash", "command": "ls"}], "bash", "ls; pwd"
+    )
+
+    assert not covered
+    assert uncovered == ["pwd"]
+
+
+def test_explicit_rules_can_cover_wrappers():
+    """Nothing is permanently denied: a rule naming an interpreter is honored.
+
+    Denylisting is a separate feature; the allowlist itself only decides what
+    runs unattended, so `python script.py` auto-runs once the user adds a rule.
+    """
+    interpreter = _interpreter(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file="/nonexistent/allowlist.yaml",
+        auto_run_allowlist_rules=[{"language": "bash", "command": "python"}],
+    )
+
+    assert is_execution_allowlisted(interpreter, "bash", "python script.py")
+    # The preset still works alongside the explicit rule.
     assert is_execution_allowlisted(interpreter, "bash", "ls")
 
 
@@ -264,9 +316,24 @@ def test_suggest_allowlist_rules_bash_narrowest_first():
 
 
 def test_suggest_allowlist_rules_skips_unmatchable_units():
-    """Commands that the guards would always refuse are not offered."""
-    assert suggest_allowlist_rules("bash", "cat /etc/shadow") == []
+    """An unmatchable unit is not offered, though matchable siblings still are.
+
+    The outer `echo` hides its argument in a substitution, so it can never be
+    matched; the inner `cat` is a real command and is offered. The picker's
+    coverage line then tells the user the block itself is still uncovered.
+    """
+    labels = [candidate["label"] for candidate in suggest_allowlist_rules("bash", "echo $(cat /etc/shadow)")]
+    assert labels == ["cat /etc/shadow", "cat (any arguments)"]
     assert suggest_allowlist_rules("bash", "$cmd foo") == []
+
+
+def test_suggest_allowlist_rules_does_not_police_paths():
+    """A sensitive-looking path is offered like any other argument."""
+    assert suggest_allowlist_rules("bash", "cat /etc/shadow")[0]["rule"] == {
+        "language": "bash",
+        "command": "cat",
+        "args": ["/etc/shadow"],
+    }
 
 
 def test_suggest_allowlist_rules_python_call_kinds():

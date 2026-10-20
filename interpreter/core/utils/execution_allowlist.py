@@ -5,12 +5,12 @@ arguments), python rules name a call or an import. Code is parsed (see
 ``code_parser``) and matched against those shapes, so a rule can never be
 fooled by quoting, reflowing or an embedded ``$(...)`` the way a text pattern
 can. A block runs without asking only when *every* command/statement in it is
-covered and passes the built-in safety guards.
+covered and passes the structural guards.
 
 The threat model is accidental destruction, not a determined attacker: rules
 may be broad (``git``, ``ls``) because the guards still stop the destructive
-*forms* (command substitution, writes outside the null device, sensitive
-paths, interpreter one-liners).
+*forms* (command substitution, writes outside the null device). Path and
+command policy belongs in a separate denylist, not here.
 """
 
 import ast
@@ -34,55 +34,17 @@ SHELL_LANGUAGES = frozenset({"bash", "shell", "sh"})
 
 DEFAULT_ALLOWLIST_FILE = os.path.join(oi_dir, "allowlist.yaml")
 
-# Commands a structural rule can never cover: language runtimes and wrappers
-# that would let a rule smuggle in arbitrary code (`python -c`, `xargs`), shells
-# and evaluators that re-parse their input, network fetchers, privilege tools,
-# and primitives whose whole job is to overwrite or destroy. They always ask.
-NEVER_ALLOW_COMMANDS = frozenset(
-    {
-        ".", "source", "eval", "exec", "command", "builtin", "trap",
-        "sh", "bash", "zsh", "dash", "ash", "ksh", "fish", "csh", "tcsh", "busybox",
-        "python", "python2", "python3", "pypy", "perl", "ruby", "node", "nodejs",
-        "php", "lua", "r", "rscript", "julia", "deno", "bun",
-        "awk", "gawk", "mawk", "sed",
-        "env", "xargs", "sudo", "su", "doas", "pkexec",
-        "timeout", "nohup", "nice", "time", "stdbuf",
-        "export", "unset", "set", "shopt", "alias", "unalias", "declare", "typeset", "readonly", "ulimit",
-        "dd", "mkfs", "chmod", "chown", "chgrp", "mount", "umount", "fdisk", "parted",
-        "kill", "pkill", "killall", "reboot", "shutdown", "halt", "poweroff", "systemctl", "service",
-        "curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "rsync", "telnet", "ftp",
-        "osascript", "powershell", "pwsh", "cmd",
-    }
-)
-
-# Paths a command argument may never name: system/secret locations whose
-# reading or writing is the classic accidental-destruction case.
-_SENSITIVE_PATH_PREFIXES = (
-    "/etc", "/root", "/proc", "/sys", "/boot",
-    "~/.ssh", "~/.aws", "~/.gnupg", "~/.kube", "~/.docker", "~/.netrc", "~/.git-credentials",
-)
-
-# Argument tokens that are unsafe for any command (a filesystem root, a home
-# directory or a bare traversal), independent of which command they belong to.
-_DANGEROUS_ARG_LITERALS = frozenset({"/", "/*", "~", "~/", "~/*"})
-
-# Flags that turn a read command into a file writer (``sort -o``, ``git
-# --output=``). Narrow on purpose: per-binary flag vetting is out of scope.
-_DANGEROUS_FLAGS = ("--output", "--outfile", "--out=")
-
 _WRITE_OPERATORS = frozenset({">", ">>", "&>", ">&", ">|", "<>"})
 _NULL_TARGETS = frozenset({"/dev/null", "nul", "$null"})
 
-_READ_ONLY_SHELL_COMMANDS = (
-    "ls", "pwd", "cat", "head", "tail", "wc", "grep", "which", "whoami", "date",
-    "echo", "file", "stat", "du", "df", "uniq", "cut", "tr", "basename", "dirname",
-    "realpath", "true", "false",
+_SAFE_SHELL_COMMANDS = (
+    "cd", "pwd", "ls", "echo", "date", "whoami", "which", "true", "false",
 )
 _READ_ONLY_GIT_SUBCOMMANDS = ("status", "log", "diff", "show")
-_SAFE_PYTHON_CALLS = ("print", "help", "dir", "type", "len", "vars", "repr", "id")
+_SAFE_PYTHON_CALLS = ("print", "help", "dir", "type", "len", "vars", "repr", "id", "introspect")
 
 BUILTIN_ALLOWLIST_RULES = (
-    [{"language": "bash", "command": name} for name in _READ_ONLY_SHELL_COMMANDS]
+    [{"language": "bash", "command": name} for name in _SAFE_SHELL_COMMANDS]
     + [{"language": "bash", "command": "git", "args": [sub]} for sub in _READ_ONLY_GIT_SUBCOMMANDS]
     + [{"language": "python", "call": name} for name in _SAFE_PYTHON_CALLS]
     + [{"language": "python", "import": "*"}]
@@ -195,47 +157,31 @@ def load_allowlist_rules(interpreter):
     return rules
 
 
-def _is_sensitive_path(value):
-    candidate = value.strip().strip("'\"")
-    if ".." in candidate.split("/"):
-        return True
-    if candidate in _DANGEROUS_ARG_LITERALS:
-        return True
-    expanded = os.path.expanduser(candidate)
-    for prefix in _SENSITIVE_PATH_PREFIXES:
-        expanded_prefix = os.path.expanduser(prefix)
-        if candidate == prefix or candidate.startswith(prefix + "/"):
-            return True
-        if expanded == expanded_prefix or expanded.startswith(expanded_prefix + "/"):
-            return True
-    return False
+def _is_fd_duplication(redirect):
+    """`2>&1`, `>&2`, `>&-` only retarget a descriptor; no file is written."""
+    if redirect.operator != ">&":
+        return False
+    target = redirect.target.strip()
+    return target == "-" or target.isdigit()
 
 
 def _shell_redirect_ok(redirect):
+    if _is_fd_duplication(redirect):
+        return True
     target = redirect.target.strip().strip("'\"")
     if redirect.operator in _WRITE_OPERATORS:
         return target in _NULL_TARGETS
-    if redirect.operator == "<":
-        return not _is_sensitive_path(target)
     return True  # here-doc / here-string: inert input
-
-
-def _shell_arg_ok(arg):
-    if any(arg.startswith(flag) for flag in _DANGEROUS_FLAGS):
-        return False
-    return not _is_sensitive_path(arg)
 
 
 def _shell_command_is_matchable(command):
     if command.name is None:
         return False
-    if command.name.lower() in NEVER_ALLOW_COMMANDS:
-        return False
     if command.has_substitution:
         return False
     if any(not _shell_redirect_ok(redirect) for redirect in command.redirects):
         return False
-    return all(_shell_arg_ok(arg) for arg in command.args)
+    return True
 
 
 def _shell_command_matches(command, rule):
@@ -284,47 +230,80 @@ def _python_call_matches(call, rule):
     return True
 
 
-def _python_import_matches(stmt, rule):
-    roots = python_import_roots(stmt)
-    if roots is None:
-        return False
-    module = rule.get("import")
-    if module == "*":
-        return all(root in SIDE_EFFECT_FREE_IMPORTS for root in roots)
-    return all(root == module for root in roots)
-
-
 def _python_statement_matches(stmt, rule):
     if "call" in rule:
         return isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) and _python_call_matches(stmt.value, rule)
-    if "import" in rule:
-        return _python_import_matches(stmt, rule)
     return False
 
 
-def is_execution_allowlisted(interpreter, language, code):
-    if interpreter.auto_run_mode != "allowlist":
+def _python_import_covered(stmt, applicable):
+    """An import is covered when every module in it has its own rule.
+
+    ``import os, sys`` may be spread across ``{import: os}`` and
+    ``{import: sys}``; a single rule never claims a module it does not name.
+    ``import: "*"`` covers any set of side-effect-free modules at once.
+    """
+    roots = python_import_roots(stmt)
+    if roots is None:
         return False
-    rules = load_allowlist_rules(interpreter)
+    if any(
+        rule.get("import") == "*" and all(root in SIDE_EFFECT_FREE_IMPORTS for root in roots)
+        for rule in applicable
+    ):
+        return True
+    return all(any(rule.get("import") == root for rule in applicable) for root in roots)
+
+
+def _python_statement_covered(stmt, applicable):
+    if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+        return _python_import_covered(stmt, applicable)
+    return any(_python_statement_matches(stmt, rule) for rule in applicable)
+
+
+def _shell_unit_label(command):
+    return " ".join([command.name or "<dynamic>", *command.args])
+
+
+def code_is_covered(rules, language, code):
+    """``(covered, uncovered_labels)`` for a parsed block against ``rules``.
+
+    Bash needs every parsed command matched; python needs every top-level
+    statement covered, with imports matched per module.
+    """
     lang = (language or "").lower()
 
     if lang in SHELL_LANGUAGES:
         commands = parse_shell_commands(code)
         if not commands:
-            return False
+            return False, []
         applicable = [rule for rule in rules if _languages_compatible(rule["language"], lang) and "command" in rule]
-        return all(any(_shell_command_matches(command, rule) for rule in applicable) for command in commands)
+        uncovered = [
+            command
+            for command in commands
+            if not any(_shell_command_matches(command, rule) for rule in applicable)
+        ]
+        return not uncovered, [_shell_unit_label(command) for command in uncovered]
 
     if lang == "python":
         statements = parse_python_statements(code)
         if not statements:
-            return False
+            return False, []
         applicable = [
-            rule for rule in rules if _languages_compatible(rule["language"], lang) and ("call" in rule or "import" in rule)
+            rule
+            for rule in rules
+            if _languages_compatible(rule["language"], lang) and ("call" in rule or "import" in rule)
         ]
-        return all(any(_python_statement_matches(stmt, rule) for rule in applicable) for stmt in statements)
+        uncovered = [stmt for stmt in statements if not _python_statement_covered(stmt, applicable)]
+        return not uncovered, [ast.unparse(stmt) for stmt in uncovered]
 
-    return False
+    return False, []
+
+
+def is_execution_allowlisted(interpreter, language, code):
+    if interpreter.auto_run_mode != "allowlist":
+        return False
+    covered, _ = code_is_covered(load_allowlist_rules(interpreter), language, code)
+    return covered
 
 
 def should_require_execution_confirmation_for_code(interpreter, language, code):
@@ -360,7 +339,7 @@ def should_require_execution_confirmation(interpreter, chunk):
 
 
 def _broad_warning(command_name):
-    return f"also covers every other `{command_name}` invocation (destructive arguments still ask)"
+    return f"also covers every other `{command_name}` invocation; only the structural guards still apply"
 
 
 def suggest_allowlist_rules(language, code):
@@ -369,7 +348,7 @@ def suggest_allowlist_rules(language, code):
     Each candidate is ``{"rule", "label", "warning"}``: ``rule`` is the
     structural rule to persist, ``label`` is the human-readable shape shown to
     the user, and ``warning`` (or None) says what else a broad candidate would
-    allow.     Only units that could ever be matched are offered, so a suggestion
+    allow. Only units that could ever be matched are offered, so a suggestion
     is never a dead rule.
     """
     lang = (language or "").lower()

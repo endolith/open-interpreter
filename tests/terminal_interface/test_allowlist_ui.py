@@ -20,6 +20,16 @@ def _candidate(rule, label, warning=None):
     return {"rule": rule, "label": label, "warning": warning}
 
 
+def _stub_interpreter(allowlist_file, replace_builtin=False):
+    return SimpleNamespace(
+        auto_run_mode="allowlist",
+        auto_run_allowlist_file=str(allowlist_file),
+        auto_run_allowlist_rules=[],
+        auto_run_allowlist_replace_builtin=replace_builtin,
+        _session_allowlist_rules=[],
+    )
+
+
 def test_describe_allowlist_rule_formats_every_rule_shape():
     """Each structural rule shape renders as a readable one-line description."""
     assert (
@@ -84,15 +94,27 @@ def test_choose_allowlist_candidates_prints_warning(monkeypatch, capsys):
 def test_offer_allowlist_rules_persists_selected_rule(monkeypatch, tmp_path, capsys):
     """Selecting a candidate writes that structural rule to the allowlist file."""
     allowlist_file = tmp_path / "allowlist.yaml"
-    interpreter = SimpleNamespace(auto_run_allowlist_file=str(allowlist_file))
+    interpreter = _stub_interpreter(allowlist_file)
     monkeypatch.setattr("builtins.input", lambda prompt="": "1")
 
     _offer_allowlist_rules(interpreter, "bash", "git status --short")
 
-    assert "Added to allowlist: bash: git status --short" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "These rules cover the whole block." in output
+    assert "Added to allowlist: bash: git status --short" in output
     assert yaml.safe_load(allowlist_file.read_text())["rules"] == [
         {"language": "bash", "command": "git", "args": ["status", "--short"]}
     ]
+
+
+def test_offer_allowlist_rules_reports_still_uncovered(monkeypatch, tmp_path, capsys):
+    """Selecting rules that only cover part of the block names what is left."""
+    interpreter = _stub_interpreter(tmp_path / "allowlist.yaml", replace_builtin=True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+
+    _offer_allowlist_rules(interpreter, "bash", "ls; pwd")
+
+    assert "Still uncovered: pwd" in capsys.readouterr().out
 
 
 def test_offer_allowlist_rules_reports_when_nothing_is_coverable(capsys):

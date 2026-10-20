@@ -351,8 +351,8 @@ In `allowlist` mode, pressing `a` at the confirmation prompt offers rules that w
 block. Rules are **structural**, not text patterns: bash rules name a command (with optional
 leading arguments) and python rules name a call or an import, and the block is parsed before it
 is matched. A block runs unattended only when *every* command/statement in it is covered and
-passes the built-in safety guards (no command substitution, no writes outside the null device,
-no sensitive paths, no interpreter one-liners).
+passes the structural guards (no command substitution, no writes outside the null device). Only
+bash and python are covered; other languages always ask.
 
 Rules can be added from a profile and a YAML file:
 

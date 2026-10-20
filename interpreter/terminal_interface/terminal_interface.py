@@ -27,6 +27,8 @@ from ..core.llm.utils.convert_to_openai_messages import (
     image_path_exceeds_shrink_threshold,
 )
 from ..core.utils.execution_allowlist import (
+    code_is_covered,
+    load_allowlist_rules,
     persist_allowlist_rule,
     should_require_execution_confirmation,
     suggest_allowlist_rules,
@@ -147,8 +149,21 @@ def _offer_allowlist_rules(interpreter, language, code):
         print("  Nothing to add: this code can't be covered by an allowlist rule.", flush=True)
         print("", flush=True)
         return
+    chosen = _choose_allowlist_candidates(candidates)
+    if not chosen:
+        return
+
+    existing = load_allowlist_rules(interpreter)
+    covered, uncovered = code_is_covered(
+        existing + [candidate["rule"] for candidate in chosen], language, code
+    )
+    if covered:
+        print("  These rules cover the whole block.", flush=True)
+    else:
+        print(f"  Still uncovered: {', '.join(uncovered)}", flush=True)
+
     added_any = False
-    for candidate in _choose_allowlist_candidates(candidates):
+    for candidate in chosen:
         rule, added = persist_allowlist_rule(interpreter, candidate["rule"])
         if added:
             added_any = True

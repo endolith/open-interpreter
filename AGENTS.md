@@ -88,8 +88,10 @@ drive-by fix; give the fix its own commit instead.
   mode. Rules are **structural**: bash rules name a command (+ optional leading
   args), python rules name a call or an import. Code is parsed by
   `code_parser.py` before matching, and a block runs unattended only when every
-  command/statement is covered and passes the guards (no command substitution,
-  no non-null redirects, no sensitive paths, no interpreter/wrapper commands).
+  command/statement is covered and passes the structural guards (no command
+  substitution, no non-null redirects). Only bash and python are covered; other
+  languages always ask. Path and command policy is deliberately not enforced
+  here.
 - `interpreter/core/utils/code_parser.py` — the only place that knows
   tree-sitter (**bash**, a hard dependency) and the stdlib `ast` (**python**).
   Returns normalised shapes (`ShellCommand`, safe-expression / import helpers).
