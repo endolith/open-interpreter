@@ -208,6 +208,20 @@ class TestIntrospectModule(unittest.TestCase):
         out = _capture(Ctx(), "^__reduce_ex__$", private=True)
         self.assertIn("__reduce_ex__", out)
 
+    def test_private_with_loose_pattern_notes_included_boilerplate(self):
+        """A pattern disables elision, so a loose one must report how much
+        object boilerplate it pulled in — otherwise the output would look
+        like the object's own API and never say so."""
+
+        class Ctx:
+            def __enter__(self):
+                return self
+
+        out = _capture(Ctx(), "^__", private=True)
+        self.assertIn("included by pattern", out)
+        out = _capture(Ctx(), "^__enter__$", private=True)
+        self.assertNotIn("included by pattern", out)
+
     def test_private_hidden_message_is_plural_aware(self):
         """Multiple hidden matches use plural phrasing, not 'it exists'."""
 
