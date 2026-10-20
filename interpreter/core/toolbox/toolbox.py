@@ -104,7 +104,7 @@ A `toolbox` object is ALREADY AVAILABLE in your execution environment, and can b
 {mac_only_note}{vision_note}
 Do NOT `import toolbox`, or try to import any of its sub-modules. The `toolbox` object is already available as a variable in your namespace.
 
-To see what any object offers — including toolbox modules — run `introspect(obj, pattern='', brief=False, doc=False, src=False)` before calling it; it prints and returns None. `introspect` is a bare kernel global: NOT `toolbox.introspect`, and do not import it. `pattern` is a case-insensitive regex (anchor exact names as `^name$`). Never guess how to use functions or what their return format is. Always explore and check things first.
+To see what any object offers — including toolbox modules — run `introspect(obj, pattern='', brief=False, doc=False, src=False, private=False)` before calling it; it prints and returns None. `introspect` is a bare kernel global: NOT `toolbox.introspect`, and do not import it. `pattern` is a case-insensitive regex (anchor exact names as `^name$`). Never guess how to use functions or what their return format is. Always explore and check things first.
 
     """.strip()
 
