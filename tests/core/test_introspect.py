@@ -174,6 +174,42 @@ class TestIntrospectModule(unittest.TestCase):
         out = _capture(F(), "secret")
         self.assertIn("private/dunder", out)
         self.assertIn("_secret", out)
+        self.assertIn("private=True", out)
+
+    def test_private_flag_lists_dunders_and_privates(self):
+        """private=True exposes _private/__dunder__ members, which are
+        otherwise unreachable (e.g. __enter__/__iter__ on a context class)."""
+
+        class Ctx:
+            def __init__(self):
+                self._hidden = 1
+
+            def __enter__(self):
+                return self
+
+        out = _capture(Ctx(), "^__enter__$", private=True)
+        self.assertIn("__enter__(", out)
+        out = _capture(Ctx(), "_hidden", private=True)
+        self.assertIn("_hidden", out)
+
+    def test_private_hidden_message_is_plural_aware(self):
+        """Multiple hidden matches use plural phrasing, not 'it exists'."""
+
+        class C:
+            def __init__(self):
+                self._a = 1
+                self._b = 2
+
+        out = _capture(C(), "_a|_b")
+        self.assertIn("they exist but are", out)
+        self.assertIn("Reach them", out)
+
+    def test_src_with_zero_matches_says_no_matches_not_narrow(self):
+        """src=True with no match must not advise narrowing (nothing to
+        narrow) — it reports no matches like a plain listing would."""
+        out = _capture(_Child, "^nonexistent$", src=True)
+        self.assertIn("no matches", out)
+        self.assertNotIn("needs exactly one match", out)
 
     def test_descriptors_never_execute(self):
         """Reading members must not trigger properties or descriptors."""
