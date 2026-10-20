@@ -29,6 +29,11 @@ class _Child(_Base):
     size = 5
 
 
+def _module_level_function(x):
+    """Module-level function first line."""
+    return x
+
+
 class TestIntrospectModule(unittest.TestCase):
     def test_module_members_show_signatures_and_provenance(self):
         """Members of a module render as name(sig) with [module] provenance."""
@@ -63,44 +68,69 @@ class TestIntrospectModule(unittest.TestCase):
         self.assertIn("label:", out)
         self.assertIn("[Instance]", out)
 
-    def test_bare_function_renders_single_entry(self):
-        """Passing a function itself renders one signature line."""
-        out = _capture(len)
-        self.assertIn("len(", out)
-        self.assertIn("1 matched, 1 shown", out)
+    def test_noncallable_shows_type(self):
+        """A non-callable member renders as name: type [Owner]."""
+        out = _capture(_Child, "size")
+        self.assertIn("size: int", out)
 
     def test_pattern_list_matches_any(self):
-        """A list pattern matches members matching any entry."""
+        """A list of patterns matches members matching any entry."""
         out = _capture(_Child, ["child_method", "base_method"])
         self.assertIn("child_method(", out)
         self.assertIn("base_method(", out)
         self.assertNotIn("size", out)
 
-    def test_doc_true_appends_first_line(self):
-        """doc=True appends the first docstring line to each member line."""
-        out = _capture(_Child, "child_method", doc=True)
-        self.assertIn("Child method first line.", out)
+    def test_pattern_is_a_regex(self):
+        """Pattern is a regex: a dot is a wildcard, anchors are honoured."""
+        out = _capture(_Child, "^base_method$")
+        self.assertIn("base_method(", out)
+        self.assertNotIn("child_method", out)
 
-    def test_doc_full_includes_body(self):
-        """doc='full' includes the docstring body, not just the first line."""
-        out = _capture(_Child, "base_method", doc="full")
+    def test_anchored_pattern_does_not_overmatch(self):
+        """^name$ must not match a longer, unrelated member name."""
+        out = _capture(_Child, "^child$")
+        self.assertIn("no matches", out)
+
+    def test_brief_appends_first_line_only(self):
+        """brief=True appends the first docstring line, not the body."""
+        out = _capture(_Child, "base_method", brief=True)
+        self.assertIn("Base method first line.", out)
+        self.assertNotIn("Base method body paragraph.", out)
+
+    def test_doc_true_includes_full_docstring(self):
+        """doc=True renders the whole docstring, body included."""
+        out = _capture(_Child, "base_method", doc=True)
         self.assertIn("Base method body paragraph.", out)
 
-    def test_src_single_match_prints_source(self):
-        """src=True with exactly one match prints that member's source."""
-        out = _capture(_Child, "child_method", src=True)
-        self.assertIn("def child_method", out)
+    def test_function_src_prints_source(self):
+        """src=True works on a plain function, not just class members."""
+        out = _capture(_module_level_function, src=True)
+        self.assertIn("def _module_level_function", out)
+
+    def test_function_doc_true_includes_docstring(self):
+        """doc=True works on a plain function (early-return path)."""
+        out = _capture(_module_level_function, doc=True)
+        self.assertIn("Module-level function first line.", out)
+
+    def test_module_doc_shown_when_requested(self):
+        """brief=True on a module surfaces the module's own docstring."""
+        import math
+
+        out = _capture(math, "sin", brief=True)
+        self.assertIn("access to the mathematical functions", out)
 
     def test_src_multiple_matches_asks_to_narrow(self):
         """src=True with several matches refuses and asks for narrowing."""
         out = _capture(_Child, "", src=True)
         self.assertIn("needs exactly one match", out)
 
-    def test_cap_truncates_with_notice(self):
-        """Output over cap is cut and the footer says truncated with counts."""
-        out = _capture(_Child, "", cap=60)
-        self.assertIn("truncated", out)
-        self.assertIn("matched", out)
+    def test_cap_truncates_with_count_and_advice(self):
+        """Cap overflow drops tail lines and says how many, with a fix."""
+        import os
+
+        out = _capture(os, "", cap=300)
+        self.assertIn("more not shown", out)
+        self.assertIn("narrow the pattern", out)
 
     def test_secret_default_redacted(self):
         """Defaults of secret-named params render as *** instead of values."""
@@ -127,6 +157,23 @@ class TestIntrospectModule(unittest.TestCase):
         out = _capture(_Child, "chlid_method")
         self.assertIn("no matches", out)
         self.assertIn("child_method", out)
+
+    def test_no_matches_invalid_regex_says_so_and_does_not_dump_all(self):
+        """An invalid regex is reported as such, never as an empty match-all."""
+        out = _capture(_Child, "(")
+        self.assertIn("invalid regex", out)
+        self.assertNotIn("child_method(", out)
+
+    def test_no_matches_private_name_explains_hidden(self):
+        """A hidden private/dunder name says it exists but is hidden."""
+
+        class F:
+            def __init__(self):
+                self._secret = 1
+
+        out = _capture(F(), "secret")
+        self.assertIn("private/dunder", out)
+        self.assertIn("_secret", out)
 
     def test_descriptors_never_execute(self):
         """Reading members must not trigger properties or descriptors."""
