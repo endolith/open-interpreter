@@ -397,6 +397,14 @@ def introspect(
             if keep:
                 elided = len(matched) - len(keep)
                 matched = keep
+        # A pattern disables elision, so a loose one can quietly return a
+        # list that is mostly object boilerplate. Say so, since the output
+        # would otherwise not explain itself.
+        included_boilerplate = 0
+        if regexes:
+            included_boilerplate = sum(
+                1 for m in matched if _is_boilerplate(m[0], m[2])
+            )
 
         lines = [
             _member_line(k, v, o, inh, doc, brief) for (k, v, o, inh) in matched
@@ -422,6 +430,11 @@ def introspect(
         if elided:
             notes.append("%d object-boilerplate dunders hidden — name one to list it"
                          % elided)
+        if included_boilerplate:
+            notes.append(
+                "%d inherited object dunders included by pattern — "
+                "anchor ^name$ to drop them" % included_boilerplate
+            )
         footer = "-- %d matched, %d shown%s --" % (
             nmatched,
             shown,
