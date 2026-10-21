@@ -469,3 +469,40 @@ def test_deepseek_reasoning_placeholder_is_semantically_inert(
         ]
     )
     assert out[2]["reasoning_content"] == "."
+
+
+def test_opencode_go_run_parks_wire_name_for_transport(interpreter):
+    """run() must leave the truthful route name in params["model"].
+
+    The bare wire id is parked under a private key for
+    fixed_litellm_completions to apply at send time. Writing it into
+    params["model"] here made every downstream prefix gate read a model string
+    that no longer carried the route, which is how the bare
+    "deepseek-v4.1-flash" lost its reasoning_content fill and 400d.
+    """
+    llm = interpreter.llm
+    llm.model = "opencode_go/deepseek-v4.1-flash"
+    llm._is_opencode_go = True
+    llm._is_loaded = True
+    llm.api_key = "x"
+    llm.api_base = "https://example.invalid/v1"
+    llm.supports_functions = True
+    llm.supports_vision = False
+    captured = {}
+
+    def fake_completions(**params):
+        captured.update(params)
+        return iter(())
+
+    llm.completions = fake_completions
+    list(
+        llm.run(
+            [
+                {"role": "system", "content": "You are helpful.", "type": "message"},
+                {"role": "user", "content": "hello", "type": "message"},
+            ]
+        )
+    )
+    assert captured["model"] == "opencode_go/deepseek-v4.1-flash"
+    assert captured["_oi_wire_model"] == "deepseek-v4.1-flash"
+    assert captured["custom_llm_provider"] == "openai"
