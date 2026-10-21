@@ -6,7 +6,7 @@ This repository (`endolith/open-interpreter`) is the community-maintained home o
 
 Work is organized in phases so that each step makes the next one more trustworthy.
 
-### Phase 1: CI and test foundation (in progress)
+### Phase 1: CI and test foundation (done)
 
 Automation so that pull requests can be reviewed and merged with confidence. Much of this is already in place on `main`:
 
