@@ -503,21 +503,28 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             },
             {"role": "user", "type": "message", "content": text},
         ]
+        # Side channels bypass llm.run(), so they must ask the route for the wire
+        # facts rather than reuse self.model: prefixes like opencode_go/ and
+        # dashscope-intl/ are OI route names that LiteLLM cannot resolve alone
+        # (it has no provider for them, or knows the model under another
+        # spelling), and the endpoint/key below belong to that route.
         params = {
             "messages": messages,
-            "model": self.interpreter.llm.model,
+            "model": self.interpreter.llm.wire_model_name(),
             "stream": True,
             "temperature": 0,
         }
+        wire_provider = self.interpreter.llm.wire_provider()
+        if wire_provider:
+            params["custom_llm_provider"] = wire_provider
         if self.interpreter.llm.api_key:
             params["api_key"] = self.interpreter.llm.api_key
-        # Use the same provider endpoint config as the active interpreter model.
-        # Without this, routed models (e.g., dashscope-us/* rewritten as openai/*)
-        # can accidentally call OpenAI with a non-OpenAI key in this side-channel.
         if self.interpreter.llm.api_base:
             params["api_base"] = self.interpreter.llm.api_base
         if self.interpreter.llm.api_version:
             params["api_version"] = self.interpreter.llm.api_version
+        if self.interpreter.llm.extra_headers:
+            params["extra_headers"] = dict(self.interpreter.llm.extra_headers)
 
         response = ""
         for chunk in litellm.completion(**params):
