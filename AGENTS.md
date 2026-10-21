@@ -20,10 +20,13 @@ The build backend is hatchling with PEP 621 metadata (`[project]` in `pyproject.
 
 ## Code change guidelines
 
-### Before fixing: check the other branches and the API contract
+### Don't reinvent the wheel
 
-- **Check `classic/develop` and `velinxs/rework` first.** They carry newer, often better implementations of fixes that have not reached `main`. Before writing a fix, fetch and search them — `git fetch origin classic/develop`, `git fetch velinxs rework`, then `git show <branch>:<path>` or `git grep <symbol> <branch>` — and port the existing implementation instead of inventing a second, weaker one. `velinxs/rework` is generally a superset of `classic/develop`.
-- **Read the provider/API documentation before implementing.** Streaming and LLM-shape code must match the real contract: check litellm's types/source (e.g. `litellm/types/utils.py` `Delta`), OpenAI's `chat.completion.chunk` schema (`tool_calls[].index`/`id`/`function.arguments`), and the provider's own streaming docs (e.g. OpenRouter's `reasoning_details`). Do not infer the shape from the traceback alone.
+Before writing your own bug fixes and features:
+
+- **Check `classic/develop` and `velinxs/rework` first.** They carry newer, often better implementations that have not reached `main`. Before writing a fix, fetch and search them — `git fetch origin classic/develop`, `git fetch velinxs rework`, then `git show <branch>:<path>` or `git grep <symbol> <branch>` — and port the existing implementation if it's better, instead of inventing a second, weaker one. `velinxs/rework` is generally a superset of `classic/develop`.
+- **Read any provider/API documentation before implementing.** Streaming and LLM-shape code must match the real contract: check litellm's types/source (e.g. `litellm/types/utils.py` `Delta`), OpenAI's `chat.completion.chunk` schema (`tool_calls[].index`/`id`/`function.arguments`), and the provider's own streaming docs (e.g. OpenRouter's `reasoning_details`).
+- **Search the web for existing implementations.**  When you encounter a problem, check whether someone else has already encountered and resolved it.  Get inspiration and precedent from similar open source projects like [OpenCode](https://github.com/anomalyco/opencode), [gptme](https://github.com/gptme/gptme), [Aider](https://github.com/Aider-AI/aider), [Nanobot](https://github.com/HKUDS/nanobot), [CowAgent](https://github.com/zhayujie/CowAgent), [Cherry Studio](https://github.com/cherryhq/cherry-studio), etc.  Remember to give attribution and verify licensing compatibilty.
 
 ### Testing
 
