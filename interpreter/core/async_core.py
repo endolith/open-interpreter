@@ -1152,10 +1152,9 @@ def create_router(async_interpreter):
         if (
             async_interpreter.messages
             and async_interpreter.messages[-1]["type"] == "code"
-            # content is str | list of OpenAI content parts; only the plain string
-            # form can be the "yes" that approves the pending code block.
-            and isinstance(last_message.content, str)
-            and last_message.content.lower().strip(".!?").strip() == "yes"
+            # Content may be a string or OpenAI text parts; compare the
+            # normalized text so both forms can approve the pending code.
+            and token.lower().strip(".!?").strip() == "yes"
         ):
             run_code = True
         elif async_interpreter.context_mode:
@@ -1204,13 +1203,36 @@ def create_router(async_interpreter):
             # prompting (display=True with no message reads input()).
             async_interpreter.responding = True
             start_len = len(async_interpreter.messages)
+            awaiting_approval = False
+            turn = async_interpreter._respond_and_store()
             try:
-                for _ in async_interpreter._respond_and_store():
-                    pass
+                for chunk in turn:
+                    # With auto_run off, the confirmation chunk is the approval
+                    # gate. Nothing here can approve it, so stop before
+                    # respond() reaches computer.run; closing the generator
+                    # raises GeneratorExit at the yield and skips execution.
+                    if (
+                        chunk.get("type") == "confirmation"
+                        and async_interpreter.auto_run == False
+                        and not run_code
+                    ):
+                        awaiting_approval = True
+                        break
             finally:
+                # _respond_and_store may be a generator (closeable) or a plain
+                # iterator in tests; only the former needs closing.
+                close = getattr(turn, "close", None)
+                if close is not None:
+                    close()
                 async_interpreter.responding = False
             new_messages = async_interpreter.messages[start_len:]
             content = new_messages[-1]["content"] if new_messages else ""
+            if awaiting_approval:
+                # The streaming path sends this prompt when it stops at the
+                # confirmation. A non-streaming client gets only the code
+                # otherwise, with no signal that it must reply "yes".
+                prompt = "Do you want to run this code?"
+                content = f"{content}\n\n{prompt}" if content else prompt
             return {
                 "id": "200",
                 "object": "chat.completion",
