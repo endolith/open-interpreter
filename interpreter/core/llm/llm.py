@@ -1283,22 +1283,46 @@ def fixed_litellm_completions(**params):
         _extra_body.get("include_reasoning") is False
         or params.get("include_reasoning") is False
     )
-    # The opencode_go/ prefix is still present in the model string here, so a
-    # DeepSeek model on that route matches directly. It previously needed an
-    # "openai/" alternative because load() rewrote the prefix away and hid the
-    # route; the wire name is now applied only in the params sent to LiteLLM.
+    # params["model"] is the WIRE name here, not self.model: for the opencode_go
+    # route run() strips the prefix (model.split("/", 1)[1]), so
+    # opencode_go/deepseek-v4.1-flash arrives as the bare id
+    # "deepseek-v4.1-flash" with no prefix at all. Match the bare id too —
+    # matching only prefixed spellings 400s on the exact model above, whose
+    # thinking-mode history otherwise goes out with reasoning_content missing
+    # on reasoning-less tool-call turns.
     #
     # The gateway relays DeepSeek with the same thinking mode, so a request
     # carrying tools and an assistant tool_calls message without reasoning_content
     # comes back as a bare 400 {'model': 'deepseek-v4.1-flash'} with no
-    # explanation. Only DeepSeek model names are matched, so plain openai/ models
-    # (gpt-*, o3, ...) and the non-DeepSeek Go models are untouched.
-    _uses_deepseek_reasoning_history = _model.startswith("deepseek/") or (
-        _model.startswith("openrouter/") and "deepseek" in _model.lower()
-    ) or (
-        _model.startswith("opencode_go/") and "deepseek" in _model.lower()
+    # explanation. Only DeepSeek model names are matched by the name gate, so
+    # plain openai/ models (gpt-*, o3, ...) and the non-DeepSeek Go models are
+    # untouched by it.
+    _uses_deepseek_reasoning_history = "deepseek" in str(_model).lower()
+    # Thinking mode is a provider behavior, not a name spelling: any request
+    # already carrying REAL reasoning_content is in thinking mode with its
+    # provider, whatever the model string says. A non-thinking provider never
+    # emits the field, so this gate cannot misfire on GPT-style models — and
+    # it covers thinking models under names no list anticipates (the list has
+    # now missed twice: the openai/ rewrite before, the bare opencode_go wire
+    # name now). Placeholders are excluded as evidence: they are ours, not the
+    # provider's, so a ". "-only history (real reasoning trimmed away, or a
+    # mid-conversation switch to a non-thinking model) does not keep the fill
+    # running on speculation.
+    _has_thinking_history = any(
+        isinstance(m, dict)
+        and m.get("role") == "assistant"
+        and isinstance(m.get("reasoning_content"), str)
+        and (m["reasoning_content"] or "").strip()
+        and (m["reasoning_content"] or "").strip()
+        not in (
+            ".",
+            "Executing the requested command.",
+        )
+        for m in params.get("messages", []) or []
     )
-    if _uses_deepseek_reasoning_history and not _reasoning_explicitly_disabled:
+    if (
+        _uses_deepseek_reasoning_history or _has_thinking_history
+    ) and not _reasoning_explicitly_disabled:
         # DeepSeek's thinking mode docs require that, for requests carrying `tools`,
         # every assistant tool_calls message in the history carry `reasoning_content`
         # back to the API (api-docs.deepseek.com/guides/thinking_mode). The direct

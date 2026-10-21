@@ -131,3 +131,75 @@ def test_turn_reasoning_propagates_to_later_tool_calls_without_reasoning():
     out = _process(messages)
     assert out[1]["reasoning_content"] == "real chain of thought"
     assert out[3]["reasoning_content"] == "real chain of thought"
+
+
+def test_bare_wire_name_gets_fill():
+    """The opencode_go route strips the prefix before this point, so the model
+    arrives as the bare wire id with no prefix at all. That spelling must
+    still match: it 400d in production (opencode_go/deepseek-v4.1-flash)
+    because only prefixed spellings were matched.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    out = _process(messages, model="deepseek-v4.1-flash")
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_thinking_history_triggers_fill_for_unknown_model():
+    """A request already carrying real reasoning is in thinking mode with its
+    provider, whatever the model string says. A later reasoning-less
+    tool-call turn must still be filled, even when the name matches nothing.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "real chain of thought",
+            "tool_calls": [_tool_call("c1")],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c2")]},
+        {"role": "tool", "tool_call_id": "c2", "content": "ok"},
+    ]
+    out = _process(messages, model="opencode_go/some-thinking-model")
+    assert out[3]["reasoning_content"] == "real chain of thought"
+
+
+def test_no_thinking_history_leaves_unknown_model_untouched():
+    """Without any reasoning in the request there is no evidence of thinking
+    mode, so a non-matching model must go out byte-identical: adding the
+    field speculatively could break providers that reject unknown fields.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "assistant", "content": "done"},
+    ]
+    out = _process(messages, model="opencode_go/some-plain-model")
+    assert "reasoning_content" not in out[1]
+    assert "reasoning_content" not in out[3]
+
+
+def test_placeholder_only_history_does_not_trigger_fill():
+    """Placeholders are ours, not the provider's: a history holding only "."
+    (real reasoning trimmed away, or a mid-conversation switch to a
+    non-thinking model) must not keep the fill running on speculation.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": PLACEHOLDER,
+            "tool_calls": [_tool_call("c1")],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c2")]},
+    ]
+    out = _process(messages, model="opencode_go/some-plain-model")
+    assert "reasoning_content" not in out[3]
