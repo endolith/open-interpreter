@@ -798,8 +798,13 @@ def create_router(async_interpreter):
         try:
             async_interpreter.input(payload)
             return {"status": "success"}
-        except Exception as e:
-            return {"error": str(e)}, 500
+        except Exception:
+            # The exception text can contain filesystem paths and internals.
+            # Log it here and return a generic body to the caller.
+            traceback.print_exc()
+            return JSONResponse(
+                status_code=500, content={"error": "Internal server error"}
+            )
 
     @router.post("/settings")
     async def set_settings(payload: Dict[str, Any]):
