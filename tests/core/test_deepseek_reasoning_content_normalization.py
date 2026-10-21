@@ -6,12 +6,27 @@ PLACEHOLDER = "."
 LEGACY_PLACEHOLDER = "Executing the requested command."
 
 
-def _process(messages, model="deepseek/deepseek-v4-flash"):
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "execute",
+            "description": "run code",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+]
+
+
+def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS):
     """Run messages through the outgoing-request normalization and return them.
 
     fixed_litellm_completions mutates the message list (filling reasoning_content
     for DeepSeek thinking mode) and then hands it to litellm.completion. Capture
     the list it actually sends by stubbing litellm.completion with an empty stream.
+
+    `tools` defaults to a tool schema because the guide makes passback conditional
+    on the request carrying tools; pass tools=None to model a request without them.
     """
     captured = {}
 
@@ -19,16 +34,14 @@ def _process(messages, model="deepseek/deepseek-v4-flash"):
         captured["messages"] = params["messages"]
         return iter(())
 
+    kwargs = {"model": model, "messages": messages, "stream": True}
+    if tools is not None:
+        kwargs["tools"] = tools
+
     original = litellm.completion
     litellm.completion = fake_completion
     try:
-        list(
-            llm_mod.fixed_litellm_completions(
-                model=model,
-                messages=messages,
-                stream=True,
-            )
-        )
+        list(llm_mod.fixed_litellm_completions(**kwargs))
     finally:
         litellm.completion = original
     return captured["messages"]
@@ -207,6 +220,7 @@ def test_wire_model_is_applied_after_policy_decisions():
             llm_mod.fixed_litellm_completions(
                 model="opencode_go/deepseek-v4.1-flash",
                 _oi_wire_model="deepseek-v4.1-flash",
+                tools=_TOOLS,
                 messages=[
                     {"role": "user", "content": "go"},
                     {
@@ -244,3 +258,19 @@ def test_placeholder_only_history_does_not_trigger_fill():
     ]
     out = _process(messages, model="opencode_go/some-plain-model")
     assert "reasoning_content" not in out[3]
+
+
+def test_no_tools_does_not_fill_reasoning_content():
+    """Without `tools`, DeepSeek ignores the field, so history must be left alone.
+
+    The thinking-mode guide makes passback conditional on the request carrying
+    `tools`: without it the field is not concatenated even if sent. Filling it
+    there only mutates stored messages and bloats every later request -- and it
+    would inject a provider-specific field into non-DeepSeek routes.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, tools=None)
+    assert "reasoning_content" not in out[1]
