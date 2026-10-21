@@ -37,9 +37,7 @@ def test_computer_initializes_all_subsystems():
     assert computer.os is not None
     assert computer.vision is not None
     assert computer.skills is not None
-    assert computer.docs is not None
     assert computer.ai is not None
-    assert computer.files is not None
 
 
 def test_computer_mirrors_interpreter_max_output():
@@ -138,7 +136,7 @@ def test_get_all_computer_tools_list():
     expected = [
         "mouse", "keyboard", "display", "clipboard", "mail", "sms",
         "calendar", "contacts", "browser", "os", "vision", "skills",
-        "docs", "ai", "files",
+        "ai",
     ]
     assert tool_names == expected
 

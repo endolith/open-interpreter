@@ -7,8 +7,6 @@ from .calendar.calendar import Calendar
 from .clipboard.clipboard import Clipboard
 from .contacts.contacts import Contacts
 from .display.display import Display
-from .docs.docs import Docs
-from .files.files import Files
 from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse
@@ -41,9 +39,7 @@ class Computer:
         self.os = Os(self)
         self.vision = Vision(self)
         self.skills = Skills(self)
-        self.docs = Docs(self)
         self.ai = Ai(self)
-        self.files = Files(self)
 
         self.emit_images = True
         self.api_base = "https://api.openinterpreter.com/v0"
@@ -99,9 +95,7 @@ Do not import the computer module, or any of its sub-modules. They are already i
             self.os,
             self.vision,
             self.skills,
-            self.docs,
             self.ai,
-            self.files,
         ]
 
     def _get_all_computer_tools_signature_and_description(self):
