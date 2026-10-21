@@ -683,11 +683,17 @@ Continuing...
         # to build the request from the provider it infers, and it has no
         # opencode_go provider, so hand it the two facts separately: the bare
         # model name it should put on the wire, and the protocol to speak.
-        # Everything above this point branches on the truthful self.model, which
-        # is what makes those decisions correct; this is the only place the lie
-        # would have been told.
+        #
+        # The wire name is parked under a private key and applied only at the end
+        # of fixed_litellm_completions, after every policy decision has been made
+        # from the truthful model string. Writing it into params["model"] here
+        # instead made that dict carry a name no longer derived from self.model,
+        # so each gate downstream silently read a different model than the one the
+        # route was chosen for: the bare "deepseek-v4.1-flash" matched no prefix
+        # and lost its reasoning_content fill, producing the thinking-mode 400.
+        # Wire-format rules belong to transport, not routing.
         if self._is_opencode_go:
-            params["model"] = model.split("/", 1)[1]
+            params["_oi_wire_model"] = model.split("/", 1)[1]
             params["custom_llm_provider"] = "openai"
 
         # Forward the debug-logging preference to fixed_litellm_completions, which
@@ -1407,6 +1413,11 @@ def fixed_litellm_completions(**params):
             elif msg.get("role") == "user":
                 last_reasoning = None
 
+    # The wire spelling is a transport detail, not routing information: take it
+    # out of params here so every gate below reads the truthful route name, and
+    # put it back just before the call. See the parking comment in run().
+    _wire_model = params.pop("_oi_wire_model", None)
+
     # Debug: dump the exact outgoing request params (model, messages, tools,
     # extra_body, stream_options) to a JSONL file before litellm sends them.
     # Opt-in via OI_LOG_LITELLM_REQUESTS=1; the literal dict handed to
@@ -1433,6 +1444,7 @@ def fixed_litellm_completions(**params):
                             "request_id": debug_request_id,
                             "ts": _dt.datetime.now().isoformat(timespec="seconds"),
                             "model": params.get("model"),
+                            "wire_model": _wire_model,
                             "messages": params.get("messages"),
                             "tools": params.get("tools"),
                             "extra_body": params.get("extra_body"),
@@ -1449,6 +1461,11 @@ def fixed_litellm_completions(**params):
             print(f"\n[Dumped outgoing request to {dump_path}]", flush=True)
         except Exception:
             pass
+
+    if _wire_model is not None:
+        # Mirror the ":latest" normalisation applied to the route name above so
+        # the override cannot smuggle a suffix past it.
+        params["model"] = _wire_model.replace(":latest", "")
 
     while True:
         try:

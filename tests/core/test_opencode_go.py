@@ -7,6 +7,7 @@ tests pin each of those behaviours, especially the two ways it can go wrong
 quietly: sending the wrong credential, and silently getting a different model.
 """
 
+import litellm
 import pytest
 
 from interpreter.core.core import OpenInterpreter
@@ -22,22 +23,32 @@ def _configure(model, monkeypatch, **env):
 
 
 def _request_params(interpreter):
-    """Drive one Llm.run() and return the request params it produced."""
+    """Drive one Llm.run() through to LiteLLM and return the params it sends.
+
+    Captured at litellm.completion rather than llm.completions: transport-only
+    rewrites (the bare wire model for this route) are applied last, inside
+    fixed_litellm_completions, so this is the request the provider actually
+    receives.
+    """
     captured = {}
 
-    def fake_completions(**params):
+    def fake_completion(**params):
         captured.update(params)
         return iter(())
 
-    interpreter.llm.completions = fake_completions
-    list(
-        interpreter.llm.run(
-            [
-                {"role": "system", "type": "message", "content": "s"},
-                {"role": "user", "type": "message", "content": "h"},
-            ]
+    original = litellm.completion
+    litellm.completion = fake_completion
+    try:
+        list(
+            interpreter.llm.run(
+                [
+                    {"role": "system", "type": "message", "content": "s"},
+                    {"role": "user", "type": "message", "content": "h"},
+                ]
+            )
         )
-    )
+    finally:
+        litellm.completion = original
     return captured
 
 
