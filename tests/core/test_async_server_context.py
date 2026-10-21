@@ -276,3 +276,34 @@ def test_silent_turn_returns_empty_string_not_user_echo():
     assert [(m["role"], m["content"]) for m in interpreter.messages] == [
         ("user", "hello?")
     ]
+
+
+def test_non_streaming_confirmation_reports_the_approval_prompt():
+    """A non-streaming reply says the turn stopped for approval (#436).
+
+    The loop breaks at the confirmation and returns the assistant's code.
+    Without the prompt, a non-streaming client has no way to know it must
+    reply "yes"; the streaming path sends it in the same state.
+    """
+
+    def code_respond(interp):
+        yield {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "print(1)",
+        }
+        yield {
+            "role": "computer",
+            "type": "confirmation",
+            "content": {"format": "python", "content": "print(1)"},
+        }
+
+    with mock.patch("interpreter.core.core.respond", code_respond):
+        interpreter, client = _make(auto_run=False)
+        response = _post(client, "print 1")
+
+    assert response.status_code == 200
+    content = response.json()["choices"][0]["message"]["content"]
+    assert "print(1)" in content
+    assert "Do you want to run this code?" in content
