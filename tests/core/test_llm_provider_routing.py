@@ -172,19 +172,42 @@ def test_openrouter_vision_helper_skips_non_openrouter_models(interpreter, stub_
     assert interpreter.llm.supports_vision is False
 
 
+_DEEPSEEK_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "execute",
+            "description": "run code",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+]
+
+
 @pytest.fixture
 def capture_deepseek_params(monkeypatch):
-    """Capture the request params passed to litellm.completion for the deepseek pass."""
+    """Capture the request params passed to litellm.completion for the deepseek pass.
 
-    def _capture(messages, model="openrouter/deepseek/deepseek-v4-flash"):
+    Passback is conditional on the request carrying `tools` (DeepSeek's thinking
+    mode guide), so the default models the real failing shape; use tools=None for
+    a request without them.
+    """
+
+    def _capture(
+        messages, model="openrouter/deepseek/deepseek-v4-flash", tools=_DEEPSEEK_TOOLS
+    ):
         captured = {}
 
         def fake_completion(**params):
             captured["params"] = params
             return iter([])
 
+        kwargs = {"model": model, "messages": messages}
+        if tools is not None:
+            kwargs["tools"] = tools
+
         monkeypatch.setattr(litellm, "completion", fake_completion)
-        list(llm_mod.fixed_litellm_completions(model=model, messages=messages))
+        list(llm_mod.fixed_litellm_completions(**kwargs))
         return captured["params"]["messages"]
 
     return _capture

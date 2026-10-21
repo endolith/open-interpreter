@@ -1377,12 +1377,27 @@ def fixed_litellm_completions(**params):
         )
         for m in params.get("messages", []) or []
     )
+    # The guide keys this on the request, not the history: with `tools` present the
+    # reasoning_content of ALL previous turns must come back (even turns where the
+    # model called no tool), and without `tools` the field is ignored and never
+    # concatenated -- so filling it there only mutates stored messages and bloats
+    # the request. Gate on what the request actually carries.
+    _carries_tools = bool(params.get("tools") or params.get("functions"))
     if (
-        _uses_deepseek_reasoning_history or _has_thinking_history
-    ) and not _reasoning_explicitly_disabled:
-        # DeepSeek's thinking mode docs require that, for requests carrying `tools`,
-        # every assistant tool_calls message in the history carry `reasoning_content`
-        # back to the API (api-docs.deepseek.com/guides/thinking_mode). The direct
+        (_uses_deepseek_reasoning_history or _has_thinking_history)
+        and _carries_tools
+        and not _reasoning_explicitly_disabled
+    ):
+        # DeepSeek's thinking mode guide (api-docs.deepseek.com/guides/thinking_mode)
+        # requires that, for requests carrying `tools`, the reasoning_content of every
+        # previous turn be passed back -- including turns where the model called no
+        # tool. The reference implementation agrees: the V4.1 checkpoint encoder that
+        # DeepInfer loads (github.com/deepseek-ai/DeepInfer, eval/common/encoder.py ->
+        # encoding/encoding.py) resolves drop_thinking with
+        #   if any(m.get("tools") for m in full_messages):
+        #       effective_drop_thinking = False
+        # and only then renders every assistant turn's reasoning; without tools it
+        # drops reasoning from turns before the last user message. The direct
         # DeepSeek API tolerates an empty string, but the OpenRouter BYOK relay used
         # here validates strictly: BOTH "" and a missing field on a tool_calls message
         # trigger a 400 — only a non-empty value is accepted. The model genuinely
