@@ -1143,10 +1143,24 @@ def create_router(async_interpreter):
             # prompting (display=True with no message reads input()).
             async_interpreter.responding = True
             start_len = len(async_interpreter.messages)
+            turn = async_interpreter._respond_and_store()
             try:
-                for _ in async_interpreter._respond_and_store():
-                    pass
+                for chunk in turn:
+                    # With auto_run off, the confirmation chunk is the approval
+                    # gate. Nothing here can approve it, so stop before
+                    # respond() reaches computer.run; closing the generator
+                    # raises GeneratorExit at the yield and skips execution.
+                    if (
+                        chunk.get("type") == "confirmation"
+                        and async_interpreter.auto_run == False
+                    ):
+                        break
             finally:
+                # _respond_and_store may be a generator (closeable) or a plain
+                # iterator in tests; only the former needs closing.
+                close = getattr(turn, "close", None)
+                if close is not None:
+                    close()
                 async_interpreter.responding = False
             new_messages = async_interpreter.messages[start_len:]
             content = new_messages[-1]["content"] if new_messages else ""

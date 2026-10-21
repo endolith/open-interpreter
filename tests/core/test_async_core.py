@@ -2804,6 +2804,37 @@ class TestOpenAINonStreamingCompletion(TestCase):
 
         self.assertEqual(response.json()["model"], "gpt-4o-mini")
 
+    def test_confirmation_stops_the_turn_when_auto_run_is_off(self):
+        """A confirmation chunk ends the non-streaming turn instead of executing.
+
+        With auto_run off the confirmation is the approval gate, and nothing in
+        this HTTP path can approve it. The loop used to drain the generator, so
+        respond() went on to computer.run and executed the code unapproved; the
+        request now stops at the confirmation and closes the generator.
+        """
+        self.interpreter.auto_run = False
+
+        def _store():
+            """Yield the confirmation, then fail if the turn keeps going."""
+            yield {
+                "role": "computer",
+                "type": "confirmation",
+                "format": "execution",
+                "content": {
+                    "type": "code",
+                    "format": "python",
+                    "content": "print(1)",
+                },
+            }
+            raise AssertionError("the turn must stop at the confirmation")
+
+        self.interpreter._respond_and_store = mock.MagicMock(side_effect=_store)
+
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.interpreter.responding)
+
 
 class TestAsyncInputCommandGaps(TestCase):
     """Pins command-handling details the existing command tests leave open.
