@@ -2,6 +2,8 @@ name: Potential Duplicates
 on:
   issues:
     types: [opened, edited]
+permissions:
+  issues: write
 jobs:
   run:
     runs-on: ubuntu-latest
