@@ -370,6 +370,10 @@ class Llm:
         # Set when the opencode_go/ prefix is in use; adds the gateway's required
         # x-opencode-session header per request.
         self._is_opencode_go = False
+        # The bare model id DashScope expects on the wire, when a region alias is
+        # in use (dashscope-intl/, dashscope-us/). None for every other route,
+        # including plain dashscope/ where the prefix is the wire name.
+        self._dashscope_wire_model = None
         # Set when the hosted `i` model is selected; distinguishes it from an
         # arbitrary model string that happens to route to api.openinterpreter.com.
         self._is_hosted_i_model = False
@@ -474,6 +478,16 @@ class Llm:
             if self.api_base is None:
                 self.api_base = "https://api.openinterpreter.com/v0"
 
+        # LiteLLM's registry keys DashScope models as dashscope/<model>; the
+        # region prefixes are ours, not its. Query the spelling it knows so tool
+        # and vision support are not silently missed (the old openai/<model>
+        # rewrite was a miss on both).
+        _metadata_model = (
+            f"dashscope/{self._dashscope_wire_model}"
+            if self._dashscope_wire_model
+            else model
+        )
+
         # Detect function support
         if self.supports_functions == None:
             # Every Go model is a coding model served over /chat/completions, and
@@ -491,7 +505,7 @@ class Llm:
                 self.supports_functions = True
             else:
                 try:
-                    if litellm.supports_function_calling(model):
+                    if litellm.supports_function_calling(_metadata_model):
                         self.supports_functions = True
                     else:
                         self.supports_functions = False
@@ -501,7 +515,7 @@ class Llm:
         # Detect vision support
         if self.supports_vision == None:
             try:
-                if litellm.supports_vision(model):
+                if litellm.supports_vision(_metadata_model):
                     self.supports_vision = True
                 else:
                     # LiteLLM's registry can lag behind provider releases (e.g.
@@ -709,10 +723,11 @@ Continuing...
             "stream": True,
         }
 
-        # The Go route is OpenAI-compatible but is not OpenAI. LiteLLM chooses how
-        # to build the request from the provider it infers, and it has no
-        # opencode_go provider, so hand it the two facts separately: the bare
-        # model name it should put on the wire, and the protocol to speak.
+        # Routes that speak the OpenAI protocol could not hand LiteLLM their
+        # truthful self.model: it has no provider for an opencode_go/ prefix, and
+        # for a DashScope region alias it only knows the dashscope/ spelling.
+        # Hand it the two facts separately instead -- the bare wire name and an
+        # explicit provider -- and keep the route name intact for the gates.
         #
         # The wire name is parked under a private key and applied only at the end
         # of fixed_litellm_completions, after every policy decision has been made
@@ -722,9 +737,9 @@ Continuing...
         # route was chosen for: the bare "deepseek-v4.1-flash" matched no prefix
         # and lost its reasoning_content fill, producing the thinking-mode 400.
         # Wire-format rules belong to transport, not routing.
-        if self._is_opencode_go:
-            params["_oi_wire_model"] = model.split("/", 1)[1]
-            params["custom_llm_provider"] = "openai"
+        if self.wire_model_name() != self.model:
+            params["_oi_wire_model"] = self.wire_model_name()
+            params["custom_llm_provider"] = self.wire_provider()
 
         # Forward the debug-logging preference to fixed_litellm_completions, which
         # is a module-level function without access to this Llm instance. It pops
@@ -952,6 +967,31 @@ Continuing...
         if changed and not getattr(self, "_supports_vision_is_manual", False):
             self._supports_vision = None
 
+    def wire_model_name(self):
+        """The model id to put on the wire when it differs from self.model.
+
+        Some routes keep self.model truthful (the route identity every gate
+        reads) but cannot hand LiteLLM that string: it has no provider for the
+        prefix, or only knows the model under a different spelling. Those send a
+        bare id plus an explicit provider instead. Anything that bypasses run()
+        -- the Jupyter stdin side-channel, for one -- must ask here rather than
+        reuse self.model.
+        """
+        if self._dashscope_wire_model:
+            return self._dashscope_wire_model
+        if self._is_opencode_go:
+            return self.model.split("/", 1)[1]
+        return self.model
+
+    def wire_provider(self):
+        """LiteLLM's custom_llm_provider for this route, or None to infer it.
+
+        None means "the model string already routes correctly on its own".
+        """
+        if self._dashscope_wire_model or self._is_opencode_go:
+            return "openai"
+        return None
+
     def _openrouter_model_entry(self, model):
         """
         Fetch the OpenRouter /api/v1/models entry for an openrouter model.
@@ -1012,6 +1052,9 @@ Continuing...
         # - dashscope-us/<model> (Virginia, US us-east-1)
         model_lower = self.model.lower()
         dashscope_route = None
+        # Clear before detection so switching away from a region alias cannot
+        # leave a stale wire name behind (load() may run more than once).
+        self._dashscope_wire_model = None
         if model_lower.startswith("dashscope-intl/"):
             dashscope_route = (
                 self.model.split("/", 1)[1].lower(),
@@ -1030,17 +1073,25 @@ Continuing...
                 self.api_key = os.environ.get("DASHSCOPE_API_KEY")
             # Qwen3.5 is a unified vision-language architecture — there are no separate
             # VL variants because every model in the family natively supports image input.
-            # LiteLLM's registry does not know this yet, so we set it explicitly.
+            # Keep this explicit: it also covers variants the registry has not listed.
             if model_name.startswith("qwen3.5") and self.supports_vision is None:
                 self.supports_vision = True
-            # Route through OpenAI-compatible formatting for DashScope's compatible endpoint.
-            self.model = f"openai/{model_name}"
+            # Keep self.model truthful. Rewriting it to openai/<model> destroyed
+            # the route identity every gate reads, and it did not even buy
+            # metadata: LiteLLM's registry knows the model as dashscope/<model>
+            # (tools and context window), while openai/<model> is a total miss --
+            # so the rewrite silently disabled tool calling for these routes.
+            # The compatible endpoint is still reached over the OpenAI protocol;
+            # that fact is carried by the wire name plus wire_provider() at send
+            # time, not by lying about which model the user asked for.
+            self._dashscope_wire_model = model_name
 
         # OpenCode Go (OpenAI-compatible chat completions). Like DashScope, the
-        # prefix is rewritten to openai/<model> because the gateway speaks the
-        # OpenAI wire format, but the key is NOT optional: the rewritten
-        # openai/ route would otherwise fall back to an ambient OPENAI_API_KEY and
-        # send that credential to opencode.ai. Fail loudly instead of leaking it.
+        # gateway speaks the OpenAI protocol under a prefix LiteLLM cannot infer,
+        # so the bare id and provider travel separately (see wire_model_name).
+        # Unlike DashScope the key is NOT optional: without one the request would
+        # otherwise fall back to an ambient OPENAI_API_KEY and send that
+        # credential to opencode.ai. Fail loudly instead of leaking it.
         if model_lower.startswith("opencode_go/"):
             model_name = self.model.split("/", 1)[1].lower()
             if (

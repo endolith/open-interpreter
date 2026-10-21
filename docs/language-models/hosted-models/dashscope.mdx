@@ -24,7 +24,7 @@ interpreter.chat()
 
 </CodeGroup>
 
-Open Interpreter routes these slugs to DashScope's OpenAI-compatible endpoint and rewrites the model id for LiteLLM (for example, `dashscope-us/qwen3.5-plus` → `openai/qwen3.5-plus` with the US base URL).
+Open Interpreter routes these slugs to DashScope's OpenAI-compatible endpoint: it sends the bare model id over the OpenAI protocol with the region's base URL, because LiteLLM has no provider for the region prefix. The model name you set stays what the interpreter reports, and it is the name used for metadata lookups (tool and vision support, context window).
 
 # Supported Models
 
