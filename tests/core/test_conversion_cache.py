@@ -536,6 +536,7 @@ def _run_harness():
     llm._model = "opencode_go/test-model"
     llm._is_loaded = True
     llm._is_opencode_go = True
+    llm._dashscope_wire_model = None
     llm.supports_functions = True
     llm.supports_vision = False
     llm.vision_renderer = None

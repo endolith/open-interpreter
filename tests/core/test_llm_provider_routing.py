@@ -45,7 +45,16 @@ def test_deepseek_load_uses_default_base_without_env(interpreter, monkeypatch):
     assert interpreter.llm.api_key is None
 
 
-def test_dashscope_intl_load_rewrites_to_openai_compatible(interpreter, monkeypatch):
+def test_dashscope_intl_load_keeps_truthful_model_and_parks_wire_name(
+    interpreter, monkeypatch
+):
+    """The region alias stays the route name; only the wire name is bare.
+
+    Rewriting self.model to openai/<model> destroyed the route identity every
+    gate reads, and it bought no metadata: LiteLLM's registry knows the model as
+    dashscope/qwen3-max (tools + context window), while openai/qwen3-max is a
+    total miss -- so the rewrite silently disabled tool calling for this route.
+    """
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
@@ -56,12 +65,17 @@ def test_dashscope_intl_load_rewrites_to_openai_compatible(interpreter, monkeypa
 
     interpreter.llm.load()
 
-    assert interpreter.llm.model == "openai/qwen3-max"
+    assert interpreter.llm.model == "dashscope-intl/qwen3-max"
+    assert interpreter.llm.wire_model_name() == "qwen3-max"
+    assert interpreter.llm.wire_provider() == "openai"
     assert interpreter.llm.api_key == "sk-test-dashscope"
     assert interpreter.llm.api_base == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 
-def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatch):
+def test_dashscope_us_load_keeps_truthful_model_and_parks_wire_name(
+    interpreter, monkeypatch
+):
+    """The US alias behaves like the intl one, and keeps qwen3.5 vision enabled."""
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
@@ -73,10 +87,12 @@ def test_dashscope_us_load_rewrites_to_openai_compatible(interpreter, monkeypatc
 
     interpreter.llm.load()
 
-    assert interpreter.llm.model == "openai/qwen3.5-plus"
+    assert interpreter.llm.model == "dashscope-us/qwen3.5-plus"
+    assert interpreter.llm.wire_model_name() == "qwen3.5-plus"
     assert interpreter.llm.api_key == "sk-test-dashscope"
     assert interpreter.llm.api_base == "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
     assert interpreter.llm.supports_vision is True
+
 
 
 class _FakeOpenRouterResponse:
@@ -506,3 +522,68 @@ def test_opencode_go_run_parks_wire_name_for_transport(interpreter):
     assert captured["model"] == "opencode_go/deepseek-v4.1-flash"
     assert captured["_oi_wire_model"] == "deepseek-v4.1-flash"
     assert captured["custom_llm_provider"] == "openai"
+
+
+def test_dashscope_request_carries_bare_wire_name_and_enables_tools(
+    interpreter, monkeypatch
+):
+    """DashScope keeps tool calling now that metadata is looked up as dashscope/*.
+
+    Drives run() to the LiteLLM boundary. The request must carry the bare model
+    id plus custom_llm_provider=openai, and a tools schema must be present:
+    supports_functions was previously resolved against openai/<model>, a miss
+    that silently sent these models down the text path with no tool schema.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    interpreter.llm.model = "dashscope-intl/qwen3-max"
+    interpreter.llm.api_key = None
+    interpreter.llm.api_base = None
+    interpreter.llm.supports_functions = None
+    interpreter.llm._is_loaded = False
+    interpreter.llm.load()
+    interpreter.llm.api_base = "https://example.invalid/v1"
+    captured = {}
+
+    def fake_completion(**params):
+        captured.update(params)
+        return iter(())
+
+    original = litellm.completion
+    litellm.completion = fake_completion
+    try:
+        list(
+            interpreter.llm.run(
+                [
+                    {"role": "system", "type": "message", "content": "s"},
+                    {"role": "user", "type": "message", "content": "h"},
+                ]
+            )
+        )
+    finally:
+        litellm.completion = original
+
+    assert captured["model"] == "qwen3-max"
+    assert captured["custom_llm_provider"] == "openai"
+    assert interpreter.llm.supports_functions is True
+    assert "tools" in captured
+
+
+def test_wire_model_name_is_identity_for_unrouted_models(interpreter):
+    """A model LiteLLM can route by itself must be sent unchanged."""
+    interpreter.llm.model = "openai/gpt-4o"
+    interpreter.llm._dashscope_wire_model = None
+    interpreter.llm._is_opencode_go = False
+
+    assert interpreter.llm.wire_model_name() == "openai/gpt-4o"
+    assert interpreter.llm.wire_provider() is None
+
+
+def test_wire_model_name_strips_opencode_go_prefix(interpreter):
+    """The Go gateway takes the bare id plus an explicit provider."""
+    interpreter.llm.model = "opencode_go/deepseek-v4.1-flash"
+    interpreter.llm._is_opencode_go = True
+    interpreter.llm._dashscope_wire_model = None
+
+    assert interpreter.llm.wire_model_name() == "deepseek-v4.1-flash"
+    assert interpreter.llm.wire_provider() == "openai"
