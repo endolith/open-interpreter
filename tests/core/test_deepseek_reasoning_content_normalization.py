@@ -185,6 +185,47 @@ def test_no_thinking_history_leaves_unknown_model_untouched():
     assert "reasoning_content" not in out[3]
 
 
+def test_wire_model_is_applied_after_policy_decisions():
+    """The opencode_go wire name is parked and applied last.
+
+    run() used to overwrite params["model"] with the bare wire id, so every
+    prefix-keyed gate downstream read a name that no longer carried the route
+    (bare "deepseek-v4.1-flash" matched nothing and lost its reasoning_content
+    fill -> thinking-mode 400). The private key must be consumed before the call
+    and must not reach litellm, while the wire name must still be what is sent.
+    """
+    captured = {}
+
+    def fake_completion(**params):
+        captured.update(params)
+        return iter(())
+
+    original = litellm.completion
+    litellm.completion = fake_completion
+    try:
+        list(
+            llm_mod.fixed_litellm_completions(
+                model="opencode_go/deepseek-v4.1-flash",
+                _oi_wire_model="deepseek-v4.1-flash",
+                messages=[
+                    {"role": "user", "content": "go"},
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [_tool_call("c1")],
+                    },
+                    {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+                ],
+                stream=True,
+            )
+        )
+    finally:
+        litellm.completion = original
+    assert captured["model"] == "deepseek-v4.1-flash"
+    assert "_oi_wire_model" not in captured
+    assert captured["messages"][1]["reasoning_content"] == PLACEHOLDER
+
+
 def test_placeholder_only_history_does_not_trigger_fill():
     """Placeholders are ours, not the provider's: a history holding only "."
     (real reasoning trimmed away, or a mid-conversation switch to a
