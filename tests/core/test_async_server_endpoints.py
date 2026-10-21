@@ -8,6 +8,14 @@ from interpreter.core.async_core import AsyncInterpreter, Server
 
 
 @pytest.fixture(autouse=True)
+def _reset_last_start_time(monkeypatch):
+    """Keep context-mode timing from leaking across tests."""
+    import interpreter.core.async_core as async_core
+
+    monkeypatch.setattr(async_core, "last_start_time", 0)
+
+
+@pytest.fixture(autouse=True)
 def _no_api_key(monkeypatch):
     """Hide INTERPRETER_API_KEY from the auth middleware for every test here.
 
@@ -333,8 +341,8 @@ def test_chat_completion_list_content_while_code_is_pending(client_no_raise, int
             "content": "print(1)",
         }
     ]
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "content": "ok"}]
+    interpreter._respond_and_store = mock.MagicMock(
+        return_value=iter([{"role": "assistant", "content": "ok"}])
     )
 
     response = client_no_raise.post(
