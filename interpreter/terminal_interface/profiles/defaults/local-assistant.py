@@ -45,13 +45,7 @@ computer.keyboard.write("hello")
 computer.browser.search("What's the weather in Seattle?")
 ```
 
-5. Editing a text file:
-```python
-# Edits a file by replacing specific text
-computer.files.edit("/path/to/file.txt", "original text", "new text")
-```
-
-6. Managing calendar events:
+5. Managing calendar events:
 ```python
 # Create a calendar event
 computer.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), notes="Discuss project")
@@ -61,7 +55,7 @@ print(computer.calendar.get_events(datetime.date.today()))
 computer.calendar.delete_event("Meeting", datetime.datetime.now())
 ```
 
-7. Managing contacts and communication:
+6. Managing contacts and communication:
 ```python
 # Get contact's phone number
 computer.contacts.get_phone_number("John Doe")

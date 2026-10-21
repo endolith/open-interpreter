@@ -45,9 +45,7 @@ COMPUTER_TOOL_SUBSYSTEMS = (
     "os",
     "vision",
     "skills",
-    "docs",
     "ai",
-    "files",
 )
 
 
