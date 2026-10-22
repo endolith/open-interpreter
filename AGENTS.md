@@ -60,7 +60,10 @@ drive-by fix; give the fix its own commit instead.
 - `interpreter/core/llm/` — LiteLLM wrapper (`llm.py`; see Model providers above),
   streaming runners (`run_tool_calling_llm.py`, `run_function_calling_llm.py`,
   `run_text_llm.py`), message conversion in `utils/`
-  (`convert_to_openai_messages`, `merge_deltas`, `parse_partial_json`).
+  (`convert_to_openai_messages`, `merge_deltas`, `parse_partial_json`), and
+  `utils/provider_quirks.py` — the per-route `Quirks` table (stream options,
+  thinking parameters) resolved once from the truthful route name. Add a row
+  there for a new provider instead of another check on the model string.
 - `interpreter/core/async_core.py` — the async HTTP/WebSocket server
   (`AsyncInterpreter`, `Server`, `create_router`; FastAPI + janus queues + worker
   threads). Owns the approval handshake (`pending_confirmation`, `_approval_event`),

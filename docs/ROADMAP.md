@@ -32,6 +32,17 @@
 - [ ] Make it so core can be run elsewhere from terminal package — perhaps split over HTTP (this would make docker easier too)
 - [ ] For OS mode, experiment with screenshot just returning active window, experiment with it just showing the changes, or showing changes in addition to the whole thing, etc. GAIA should be your guide
 
+## Model provider compatibility
+
+Wire deviations live in one table, `interpreter/core/llm/utils/provider_quirks.py`, resolved once from the truthful route name (falling back to the wire id for gateways that hide the upstream). Add a row there instead of another substring check on the model name. Remaining gaps, roughly by risk:
+
+- [ ] DashScope: its docs say `tools` cannot be combined with `stream=True`. Verify with a live call before changing transport; the compatibility page may describe a legacy limitation.
+- [ ] opencode_go: it serves three wire formats (`/chat/completions`, `/messages`, `/responses`) and the catalog does not expose which model uses which. Models on the other two endpoints currently fail; a served-model check now turns a silent gateway fallback into an error instead of running code from a different model.
+- [ ] Gemini 3/4: function calls need a thought signature, but LiteLLM synthesizes Google's documented `skip_thought_signature_validator` dummy when the client supplies none (`_get_thought_signature_from_tool`), so tool use works without one. What is lost is the real signature (reasoning continuity) and the provider's tool-call id, which Open Interpreter replaces with `oi-call-N`. Retain them only if continuity across turns proves worth the schema change.
+- [ ] OpenRouter: non-streaming responses carry structured `reasoning_details` (encrypted or summarized) that a backend may require echoed back; streaming responses carry none (checked with `google/gemini-3-flash-preview`). Open Interpreter streams and keeps only the `reasoning_content` text, so it cannot round-trip them today.
+- [ ] Anthropic: extended thinking blocks must round-trip with their signature for tool use; Open Interpreter stores reasoning as text.
+- [ ] OpenAI reasoning models: confirm `max_completion_tokens` and the `developer` role. `temperature` is already omitted because the default `0` is falsy.
+
 ## Future-proofing
 
 - [ ] Really good tests / optimization framework, to be run less frequently than Github actions tests
