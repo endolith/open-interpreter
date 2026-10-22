@@ -24,6 +24,7 @@ from rich.panel import Panel
 
 from ...terminal_interface.utils.local_storage_path import get_storage_path
 from .run_text_llm import run_text_llm
+from .utils.provider_quirks import resolve_quirks
 
 # Appended to the system message in tool-calling mode. Tool names, parameters, languages,
 # and execution modes live only in request.tools JSON — not duplicated here.
@@ -741,6 +742,12 @@ Continuing...
             params["_oi_wire_model"] = self.wire_model_name()
             params["custom_llm_provider"] = self.wire_provider()
 
+        # Resolve the route's wire quirks once, from the truthful route name (and
+        # the wire id for gateways that hide the upstream in it). Everything below
+        # reads this table instead of re-deriving provider behavior from whichever
+        # model string happens to be in params.
+        quirks = resolve_quirks(self.model, self.wire_model_name())
+
         # Forward the debug-logging preference to fixed_litellm_completions, which
         # is a module-level function without access to this Llm instance. It pops
         # this key before handing params to litellm, so it never reaches the wire.
@@ -829,7 +836,45 @@ Continuing...
                     params["extra_body"]["reasoning"] = {}
                 params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
 
-        params["stream_options"] = stream_options
+        # DashScope spells the same concepts differently: `enable_thinking` and
+        # `thinking_budget` in `extra_body`. Sending OpenAI's `reasoning_effort`
+        # alongside them would be a second, unsupported parameter for the same
+        # knob, so the route that has a native spelling owns it.
+        if quirks.thinking_param is not None:
+            params.pop("reasoning_effort", None)
+
+        # DashScope's OpenAI-compatible endpoint takes thinking controls in
+        # `extra_body`: `enable_thinking` (bool) and `thinking_budget` (tokens).
+        # They are not OpenAI parameters, so LiteLLM will not add them, and
+        # because thinking is on by default for the Qwen 3.5+ families the user
+        # has no other way to turn it off or cap it. `preserve_thinking` is only
+        # meaningful when there is prior reasoning to preserve; sending it on a
+        # cold history would ask the model to preserve nothing.
+        if quirks.thinking_param is not None:
+            extra_body = params.get("extra_body") or {}
+            if self.include_reasoning is not None:
+                extra_body[quirks.thinking_param] = bool(self.include_reasoning)
+            elif self.reasoning_effort is not None:
+                extra_body[quirks.thinking_param] = True
+            if quirks.thinking_budget_param and isinstance(
+                self.reasoning_effort, int
+            ):
+                extra_body[quirks.thinking_budget_param] = self.reasoning_effort
+            if quirks.preserve_thinking_param and any(
+                isinstance(m, dict)
+                and m.get("role") == "assistant"
+                and isinstance(m.get("reasoning_content"), str)
+                and m["reasoning_content"].strip()
+                for m in messages
+            ):
+                extra_body[quirks.preserve_thinking_param] = True
+            if extra_body:
+                params["extra_body"] = extra_body
+
+        # Usage accounting is a convenience, not part of the answer, so a route
+        # that rejects `stream_options` simply does without it.
+        if quirks.stream_options:
+            params["stream_options"] = stream_options
 
         # Optional inputs
         if self.api_key:
