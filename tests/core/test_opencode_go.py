@@ -7,8 +7,12 @@ tests pin each of those behaviours, especially the two ways it can go wrong
 quietly: sending the wrong credential, and silently getting a different model.
 """
 
+from types import SimpleNamespace
+
 import litellm
 import pytest
+
+from interpreter.core.llm.llm import _assert_served_model
 
 from interpreter.core.core import OpenInterpreter
 
@@ -658,3 +662,62 @@ def test_explicit_supports_functions_false_is_respected(monkeypatch):
     params = _request_params(interpreter)
 
     assert "tools" not in params
+
+
+def test_served_model_alias_is_accepted():
+    """A qualified spelling of the same id is not a substitution.
+
+    Providers sometimes echo `provider/model` for the bare id that was sent;
+    that is still the model the user chose, so the guard must not trip on it.
+    """
+    chunk = SimpleNamespace(model="qwen/qwen3.6-plus")
+
+    assert list(_assert_served_model(iter([chunk]), "qwen3.6-plus")) == [chunk]
+
+
+def test_served_model_is_checked_before_any_chunk_is_yielded():
+    """The guard must fail before the consumer can act on the wrong model.
+
+    A substituted model still arrives as a normal 200 stream, so checking after
+    the turn would mean code written by the wrong model had already been shown.
+    """
+    def chunks():
+        yield SimpleNamespace(model="minimax-m2.7")
+        raise AssertionError("the guard should have raised on the first chunk")
+
+    with pytest.raises(RuntimeError, match="instead of the requested"):
+        list(_assert_served_model(chunks(), "qwen3.6-plus"))
+
+
+def test_gateway_substitution_fails_the_turn(monkeypatch):
+    """A fallback model must not be presented as the requested one.
+
+    The Go gateway serves some catalog entries only on /v1/messages or
+    /v1/responses and answers a request for them on /v1/chat/completions with a
+    different model and HTTP 200. Nothing downstream can see that, so the
+    transport compares the served model with the wire id and stops.
+    """
+    interpreter = _configure("opencode_go/qwen3.6-plus", monkeypatch, OPENCODE_GO_API_KEY="k")
+    llm = interpreter.llm
+    llm._is_loaded = True
+    llm._is_opencode_go = True
+    llm._dashscope_wire_model = None
+    llm.api_key = "k"
+    llm.api_base = "https://example.invalid/v1"
+    llm.supports_functions = True
+    llm.supports_vision = False
+
+    monkeypatch.setattr(
+        litellm,
+        "completion",
+        lambda **params: iter([SimpleNamespace(model="minimax-m2.7")]),
+    )
+    with pytest.raises(RuntimeError, match="instead of the requested"):
+        list(
+            llm.run(
+                [
+                    {"role": "system", "type": "message", "content": "s"},
+                    {"role": "user", "type": "message", "content": "h"},
+                ]
+            )
+        )
