@@ -16,6 +16,12 @@ class SubprocessLanguage(BaseLanguage):
         self.verbose = False
         self.output_queue = queue.Queue()
         self.done = threading.Event()
+        # Set by _abort_stream when the reader fails unexpectedly, so the
+        # failure can be inspected after the turn rather than only logged.
+        self._stream_error = None
+        # Kept so run() can wait for them to drain the pipes when the process
+        # dies without printing the end-of-execution marker.
+        self.stream_threads = []
 
     def detect_active_line(self, line):
         return None
@@ -59,16 +65,20 @@ class SubprocessLanguage(BaseLanguage):
             encoding="utf-8",
             errors="replace",
         )
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stdout, False),
-            daemon=True,
-        ).start()
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stderr, True),
-            daemon=True,
-        ).start()
+        self.stream_threads = [
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stdout, False),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stderr, True),
+                daemon=True,
+            ),
+        ]
+        for thread in self.stream_threads:
+            thread.start()
 
     def run(self, code):
         # WARNING: Do not add a wall-clock timeout to this method.
@@ -142,6 +152,31 @@ class SubprocessLanguage(BaseLanguage):
                         time.sleep(0.2)
                     break
 
+                # The process can die before printing the end marker (`exit`, a
+                # fatal syntax error, a crash), so `done` would never be set and
+                # this loop would spin forever. This is a liveness check, not a
+                # timeout: a live process that takes hours is still waited on.
+                returncode = self.process.poll()
+                if returncode is not None:
+                    for thread in self.stream_threads:
+                        thread.join(timeout=1)
+                    while not self.output_queue.empty():
+                        yield self.output_queue.get()
+                    if not self.done.is_set():
+                        yield {
+                            "type": "console",
+                            "format": "output",
+                            "content": f"\nThe {self.name} process exited with code {returncode} "
+                            "before the end of this block. Anything after the line that ended it "
+                            "did not run, and the next block starts a new process, so state from "
+                            "this one (working directory, variables) is gone.",
+                        }
+                    # Drop the dead process so the next run() starts a fresh one
+                    # instead of writing into a closed pipe.
+                    self.terminate()
+                    self.process = None
+                    break
+
     def handle_stream_output(self, stream, is_error_stream):
         try:
             for line in iter(stream.readline, ""):
@@ -153,8 +188,16 @@ class SubprocessLanguage(BaseLanguage):
                 if line is None:
                     continue  # `line = None` is the postprocessor's signal to discard completely
 
-                if self.detect_active_line(line):
+                # Program output is untrusted and can resemble a marker. Each
+                # language parses the marker itself, so a bad parse here must
+                # not be allowed to kill the reader thread: nothing would drain
+                # the pipe and run() would wait for a marker that never comes.
+                try:
                     active_line = self.detect_active_line(line)
+                except ValueError:
+                    active_line = None
+
+                if active_line:
                     self.output_queue.put(
                         {
                             "type": "console",
@@ -195,4 +238,35 @@ class SubprocessLanguage(BaseLanguage):
                 if self.verbose:
                     print("Stream closed while reading.")
             else:
-                raise e
+                self._abort_stream(e)
+        except Exception as e:
+            self._abort_stream(e)
+
+    def _abort_stream(self, error):
+        """End the turn after an unexpected reader failure, and report it.
+
+        Without this the reader thread just dies. ``done`` is then never set --
+        it is only set by the end-of-execution marker or the KeyboardInterrupt
+        branch, both of which live in this method -- so run()'s consumer loop
+        spins on ``while True`` forever, the turn never ends, and whatever the
+        command had already printed stays unread in the pipe.
+
+        The visible symptom is output that vanished, plus a terminal that stops
+        responding to Ctrl-C, because the Rich Live display stays up for the
+        whole hang. Surfacing the failure matters too: a reader that dies
+        quietly looks identical to a command that produced no output.
+        """
+        self._stream_error = error
+        self.output_queue.put(
+            {
+                "type": "console",
+                "format": "output",
+                "content": (
+                    f"\n[output stream stopped unexpectedly: "
+                    f"{type(error).__name__}: {error}]"
+                ),
+            }
+        )
+        # Set last, so the diagnostic above is already queued and gets drained
+        # rather than lost to the teardown.
+        self.done.set()
