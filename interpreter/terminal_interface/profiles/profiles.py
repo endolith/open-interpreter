@@ -240,9 +240,11 @@ def migrate_profile(old_path, new_path):
         else:
             mapped_profile[key] = value
 
-    # Reformat the YAML keys with indentation
+    # Reformat the YAML keys with indentation. Use mapped_profile, not the
+    # original: attribute_mapping renamed e.g. `model` to `llm.model`, and
+    # reformatting is what turns a dotted key into a nested dict.
     reformatted_profile = {}
-    for key, value in profile.items():
+    for key, value in mapped_profile.items():
         keys = key.split(".")
         current_level = reformatted_profile
         # Iterate through parts of the key except the last one
