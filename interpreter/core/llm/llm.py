@@ -748,6 +748,12 @@ Continuing...
         # model string happens to be in params.
         quirks = resolve_quirks(self.model, self.wire_model_name())
 
+        if self._is_opencode_go:
+            # The Go gateway may answer a misrouted request with a fallback model
+            # instead of an error. Remember what the user actually chose so the
+            # transport can reject the substitution.
+            params["_oi_expected_model"] = self.wire_model_name()
+
         # Forward the debug-logging preference to fixed_litellm_completions, which
         # is a module-level function without access to this Llm instance. It pops
         # this key before handing params to litellm, so it never reaches the wire.
@@ -1379,6 +1385,41 @@ def _dump_litellm_response(request_id, model, chunks):
         pass
 
 
+def _same_model(requested, actual):
+    """Whether a response's model name denotes the model that was requested.
+
+    Some providers answer with a qualified spelling (``qwen/qwen3.6-plus``) for
+    the id that was sent, so compare the bare id. A different id is not an
+    alias: it is a substitution.
+    """
+    def bare(name):
+        return str(name or "").strip().lower().rsplit("/", 1)[-1]
+
+    return bare(actual) == bare(requested)
+
+
+def _assert_served_model(chunks, requested):
+    """Fail the turn if the provider answers with a model that was not requested.
+
+    A gateway that substitutes a fallback still returns 200, so nothing
+    downstream can tell the user that the code it is about to approve was
+    written by a different model. Check the first chunk, before the stream is
+    consumed, and refuse rather than accept the substitution.
+    """
+    checked = False
+    for chunk in chunks:
+        if not checked:
+            checked = True
+            actual = getattr(chunk, "model", None)
+            if actual and not _same_model(requested, actual):
+                raise RuntimeError(
+                    f"The provider served `{actual}` instead of the requested "
+                    f"`{requested}`. Open Interpreter stops here instead of "
+                    "using a model you did not choose."
+                )
+        yield chunk
+
+
 def fixed_litellm_completions(**params):
     """
     Just uses a dummy API key, since we use litellm without an API key sometimes.
@@ -1576,6 +1617,7 @@ def fixed_litellm_completions(**params):
     # out of params here so every gate below reads the truthful route name, and
     # put it back just before the call. See the parking comment in run().
     _wire_model = params.pop("_oi_wire_model", None)
+    _expected_model = params.pop("_oi_expected_model", None)
 
     # Debug: dump the exact outgoing request params (model, messages, tools,
     # extra_body, stream_options) to a JSONL file before litellm sends them.
@@ -1643,6 +1685,8 @@ def fixed_litellm_completions(**params):
                     llm_provider=params.get("custom_llm_provider") or "litellm",
                     model=params.get("model") or "",
                 )
+            if _expected_model is not None:
+                completion = _assert_served_model(completion, _expected_model)
             if debug_dump:
                 _chunks = []
                 for _chunk in completion:
