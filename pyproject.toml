@@ -9,54 +9,50 @@ authors = [
     { name = "endolith", email = "endolith@gmail.com" },
 ]
 dependencies = [
-    "setuptools",
-    "astor>=0.8.1,<0.9.0",
-    "git-python>=1.0.3,<2.0.0",
     "inquirer>=3.1.3,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
-    "rich>=13.4.2,<14.0.0",
-    "six>=1.16.0,<2.0.0",
+    "rich>=15.0.0,<16.0.0",
     "tokentrim>=0.1.13,<0.2.0",
-    "wget>=3.2,<4.0",
-    "psutil>=5.9.6,<6.0.0",
+    "wget>=3.2,<4.0.0",
+    "psutil>=7.2.2,<8.0.0",
     "pyreadline3>=3.4.1,<4.0.0; sys_platform == 'win32'",
     "html2image>=2.0.4.3,<3.0.0",
-    "send2trash>=1.8.2,<2.0.0",
-    "ipykernel>=6.26.0,<7.0.0",
+    "send2trash>=2.0.0,<3.0.0",
+    "ipykernel>=7.4.0,<8.0.0",
     "jupyter-client>=8.6.0,<9.0.0",
     "matplotlib>=3.8.2,<4.0.0",
-    "tiktoken>=0.8.0,<1.0.0",
+    "tiktoken>=0.8.0",
     "platformdirs>=4.2.0,<5.0.0",
     "pydantic>=2.6.4,<3.0.0",
-    "google-generativeai>=0.7.1,<0.8.0",
     "pyperclip>=1.9.0,<2.0.0",
     "yaspin>=3.0.2,<4.0.0",
     "shortuuid>=1.0.13,<2.0.0",
-    "litellm>=1.41.26,<2.0.0",
-    "bc-detect-secrets>=1.5,<2.0",
-    "starlette>=0.42,<0.46",
-    "html2text>=2024.2.26,<2025.0.0",
-    "markdown-it-py>=3.0.0,<4.0.0",
+    "litellm>=1.105.1,<1.106.0", # 1.106.x import an undeclared `mcp` and fail every tool-calling completion (https://github.com/BerriAI/litellm/issues/46045); 1.107.0 was a malicious release. Stay on 1.105.1 until upstream fixes both.
+    "starlette>=1.8.0,<2.0.0",
+    "python-multipart>=0.0.32,<1.0.0",
+    "html2text>=2025.4.15,<2026.0.0",
     "selenium>=4.24.0,<5.0.0",
     "webdriver-manager>=4.0.2,<5.0.0",
     "anthropic>=0.37.1,<0.38.0",
     "pyautogui>=0.9.54,<0.10.0",
-    "typer>=0.12.5,<0.13.0",
-    "fastapi>=0.115.8,<0.116.0",
-    "uvicorn>=0.30.1,<0.31.0",
-    "janus>=1.0.0,<2.0.0",
+    "fastapi>=0.143.3,<0.144.0",
+    "uvicorn>=0.54.0,<0.55.0",
+    "janus>=2.0.0,<3.0.0",
     "chardet>=5.0,<6.0",
     "babel>=2.12,<3.0",
+    "markdown-it-py>=3.0.0,<4.0.0",
+    "requests>=2.31.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
 os = [
-    "opencv-python>=4.8.1.78,<5.0.0.0",
+    "opencv-python>=4.8.1.78,<5.0.0",
     "pyautogui>=0.9.54,<0.10.0",
     "plyer>=2.1.0,<3.0.0",
     "pywinctl>=0.3,<0.4",
     "pytesseract>=0.3.10,<0.4.0",
     "sentence-transformers>=2.5.1,<3.0.0",
+    "nltk>=3.8.1,<4.0.0",
     "ipywidgets>=8.1.2,<9.0.0",
     "timm>=0.9.16,<0.10.0",
     "screeninfo>=0.8.1,<0.9.0",
@@ -65,26 +61,29 @@ safe = [
     "semgrep>=1.52.0,<2.0.0",
 ]
 local = [
-    "opencv-python>=4.8.1.78,<5.0.0.0",
+    "opencv-python>=4.8.1.78,<5.0.0",
     "pytesseract>=0.3.10,<0.4.0",
     "torch>=2.2.1,<3.0.0",
-    "transformers==4.41.2",
+    "transformers>=4.41.2,<6.0.0",
     "einops>=0.8.0,<0.9.0",
     "torchvision>=0.18.0,<0.19.0",
     "easyocr>=1.7.1,<2.0.0",
 ]
 server = [
-    "fastapi>=0.115.8,<0.116.0",
-    "uvicorn>=0.30.1,<0.31.0",
-    "janus>=1.0.0,<2.0.0",
+    "fastapi>=0.143.3,<0.144.0",
+    "janus>=2.0.0,<3.0.0",
+    "uvicorn>=0.54.0,<0.55.0",
 ]
 dev = [
     "black>=23.10.1,<24.0.0",
     "isort>=5.12.0,<6.0.0",
-    "pre-commit>=3.5.0,<4.0.0",
-    "pytest>=7.4.0,<8.0.0",
+    "pre-commit>=4.6.2,<5.0.0",
+    "pytest>=9.1.1,<10.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-timeout>=2.3.1,<3.0.0",
+    "requests>=2.31.0,<3.0.0",
     "sniffio>=1.3.0,<2.0.0",
-    "websockets>=13.1,<14.0.0",
+    "websockets>=17.2,<18.0.0",
 ]
 
 [project.scripts]
@@ -108,9 +107,20 @@ profile = "black"
 multi_line_output = 3
 include_trailing_comma = true
 
+[tool.coverage.run]
+# The Anthropic computer-use demo is deprecated and slated for removal
+# (docs/ROADMAP.md); exclude it from coverage until it's deleted.
+# Test files are also excluded: test code is not shipped and inflates the
+# report (test modules often show ~100% and skew the source-only picture).
+omit = [
+    "interpreter/computer_use/*",
+    "tests/*",
+    "*/tests/*",
+]
+
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 exclude = ["examples"]
 
 [tool.ruff.lint]
@@ -128,6 +138,17 @@ ignore = [
     "F541",
     "F811",
     "F841",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "integration: calls an LLM, costs money, and executes generated code without approval; requires OI_RUN_INTEGRATION=1 and OPENAI_API_KEY",
+    "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
+    "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
+    "linux_ci: runs on Linux CI and locally on Linux hosts",
+    "windows_ci: runs on Windows CI and locally on Windows hosts",
+    "darwin_ci: runs on macOS CI and locally on Darwin hosts",
 ]
 
 [tool.ruff.lint.per-file-ignores]
