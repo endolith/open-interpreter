@@ -50,6 +50,23 @@ interpreter.llm.model = "dashscope-intl/qwen3-max"
 
 Pick `dashscope-us/` or `dashscope-intl/` based on where your API key is provisioned and which region you want to call.
 
+# Thinking
+
+Qwen 3.5 and later think by default. Open Interpreter's portable reasoning settings are translated to DashScope's own fields instead of being sent as OpenAI parameters:
+
+| Setting | DashScope field |
+| ------- | --------------- |
+| `include_reasoning = False` | `enable_thinking: false` |
+| `reasoning_effort = 4096` (integer) | `enable_thinking: true` + `thinking_budget: 4096` |
+| prior reasoning in the conversation | `preserve_thinking: true` |
+
+```python Python
+interpreter.llm.include_reasoning = False   # disable thinking
+interpreter.llm.reasoning_effort = 4096     # token budget
+```
+
+The integer is a token budget in DashScope's own unit. A level name such as `"high"` enables thinking but is not converted into a budget, because DashScope does not document that mapping.
+
 # Required Environment Variables
 
 Set the following environment variables [(click here to learn how)](https://chat.openai.com/share/1062cdd8-62a1-4aa8-8ec9-eca45645971a) to use these models.
