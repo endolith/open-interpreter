@@ -15,6 +15,17 @@ on:
         required: false
         type: string
 
+# Every push to an open PR started a full run, including the integration job,
+# so a PR revised several times burned a full run per revision. Cancel the
+# older run when a newer one starts. Only a PR's first attempt shares the
+# per-ref group: GitHub cancels a *pending* run when a newer run joins its
+# group (even with cancel-in-progress false), so a shared main group would
+# drop intermediate main commits, and a re-run keeps the old ref and could
+# cancel the latest revision.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.run_attempt == 1) && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
