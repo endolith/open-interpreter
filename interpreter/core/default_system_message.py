@@ -172,5 +172,5 @@ Example: Discover screen dimensions
 
 ## Available Python Packages
 
-Many Python packages are installed, such as matplotlib, pydantic, selenium, fastapi, litellm, anthropic, google-generativeai, jupyter, pyyaml, psutil, and pyautogui. To find useful libraries for a task, search with `help('modules keyword')`. You can also install additional packages if needed.
+Many Python packages are installed, such as matplotlib, pydantic, selenium, fastapi, litellm, anthropic, jupyter, pyyaml, psutil, and pyautogui. To find useful libraries for a task, search with `help('modules keyword')`. You can also install additional packages if needed.
 """.strip()
