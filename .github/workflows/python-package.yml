@@ -64,7 +64,7 @@ jobs:
         # The runtime install downloads ~181 MB per Linux job, four times over.
         # Keep the .debs between runs so a warm cache installs from disk instead
         # of re-downloading from the mirror that stalls.
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           # Only the .deb files: apt runs as root and leaves root-only lock and
           # partial entries, which make tar fail and abort the whole save.
