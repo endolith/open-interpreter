@@ -19,6 +19,8 @@ import time
 import requests
 import tokentrim as tt
 
+from .providers import OpenRouterCatalogError, openrouter_model_entry
+
 from .run_text_llm import run_text_llm
 from .run_tool_calling_llm import run_tool_calling_llm
 from .utils.convert_to_openai_messages import convert_to_openai_messages
@@ -33,6 +35,32 @@ class SuppressDebugFilter(logging.Filter):
         if "cost map" in record.getMessage():
             return False  # Suppress this log message
         return True  # Allow all other messages
+
+
+def _supports_vision(model: str) -> bool | None:
+    """Return whether litellm knows the model accepts image input.
+
+    litellm's registry lags provider releases and does not know some
+    ``openrouter/`` slugs, which would make OI treat a vision model as
+    text-only and silently drop images. Fall back to the OpenRouter catalog,
+    which is authoritative for the exact slug.
+
+    Returns None when the catalog cannot be fetched, so the caller can abort
+    before sending the request and retry on a later run instead of treating
+    the model as text-only.
+    """
+    try:
+        if litellm.supports_vision(model):
+            return True
+        entry = openrouter_model_entry(model)
+        if entry is not None:
+            modalities = (entry.get("architecture") or {}).get("input_modalities") or []
+            return "image" in modalities
+    except OpenRouterCatalogError:
+        return None
+    except Exception:
+        pass
+    return False
 
 
 class Llm:
@@ -132,19 +160,28 @@ class Llm:
             except:
                 self.supports_functions = False
 
-        # Detect vision support
-        if self.supports_vision == None:
-            try:
-                if litellm.supports_vision(model):
-                    self.supports_vision = True
-                else:
-                    self.supports_vision = False
-            except:
-                self.supports_vision = False
+        # Resolve before touching messages so an unresolved model fails before
+        # the first model call, not only when an image arrives.
+        if self.supports_vision is None:
+            detected = _supports_vision(model)
+            if detected is None:
+                raise OpenRouterCatalogError(
+                    f"Could not determine whether {model} accepts images: the "
+                    "OpenRouter model catalog could not be fetched. Retry, or "
+                    "set `supports_vision` explicitly (e.g. "
+                    "`interpreter.llm.supports_vision = True`) to proceed."
+                )
+            # Auto-detected values are dropped when the model changes; an
+            # explicit assignment goes through the property setter instead.
+            self._supports_vision = detected
+            self._supports_vision_is_manual = False
+
+        # Never hand None to conversion: it only treats False as "no images".
+        vision_for_run = self.supports_vision is True
+        image_messages = [msg for msg in messages if msg["type"] == "image"]
 
         # Trim image messages if they're there
-        image_messages = [msg for msg in messages if msg["type"] == "image"]
-        if self.supports_vision:
+        if vision_for_run:
             if self.interpreter.os:
                 # Keep only the last two images if the interpreter is running in OS mode
                 if len(image_messages) > 1:
@@ -160,7 +197,7 @@ class Llm:
                         if self.interpreter.verbose:
                             print("Removing image message!")
                 # Idea: we could set detail: low for the middle messages, instead of deleting them
-        elif self.supports_vision == False and self.vision_renderer:
+        elif self.supports_vision is False and self.vision_renderer:
             for img_msg in image_messages:
                 if img_msg["format"] != "description":
                     self.interpreter.display_message("\n  *Viewing image...*\n")
@@ -202,7 +239,7 @@ class Llm:
         messages = convert_to_openai_messages(
             messages,
             function_calling=self.supports_functions,
-            vision=self.supports_vision,
+            vision=vision_for_run,
             shrink_images=self.interpreter.shrink_images,
             interpreter=self.interpreter,
         )
@@ -309,13 +346,29 @@ Continuing...
 
     # If you change model, set _is_loaded to false
     @property
+    def supports_vision(self):
+        return self._supports_vision
+
+    @supports_vision.setter
+    def supports_vision(self, value):
+        self._supports_vision = value
+        # None means "auto-detect"; a concrete value is an explicit override
+        # that a model change must not clear.
+        self._supports_vision_is_manual = value is not None
+
+    @property
     def model(self):
         return self._model
 
     @model.setter
     def model(self, value):
+        changed = value != getattr(self, "_model", None)
         self._model = value
         self._is_loaded = False
+        # A cached auto-detection belongs to the old model; drop it so the next
+        # run detects the new one. An explicit override is preserved.
+        if changed and not getattr(self, "_supports_vision_is_manual", False):
+            self._supports_vision = None
 
     def load(self):
         if self._is_loaded:
