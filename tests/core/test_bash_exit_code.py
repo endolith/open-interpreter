@@ -1,4 +1,7 @@
+import io
 import subprocess
+import threading
+import time
 
 import pytest
 
@@ -180,6 +183,94 @@ def test_session_restarts_after_shell_death():
     finally:
         language.terminate()
     assert any("revived" in text for text in texts)
+
+
+def test_block_after_redirecting_shell_stdout_does_not_hang():
+    """`exec >/dev/null` closes the stdout pipe while the shell stays alive.
+
+    Every later end marker goes to /dev/null and the stdout reader has already
+    exited at EOF, so a next block written to that same live shell would never
+    report done and run() would spin forever. The live shell must be replaced
+    instead, and its turn must not claim the shell exited.
+
+    Driven from a watchdog thread so a regression fails instead of hanging the
+    suite.
+    """
+    language = Bash()
+    turns = []
+    finished = threading.Event()
+
+    def _drive():
+        try:
+            turns.append(_text_contents(list(language.run("exec >/dev/null\n"))))
+            turns.append(_text_contents(list(language.run("echo revived\n"))))
+        finally:
+            finished.set()
+
+    threading.Thread(target=_drive, daemon=True).start()
+    try:
+        assert finished.wait(timeout=20), f"run() hung; turns so far: {turns!r}"
+    finally:
+        language.terminate()
+    first, second = turns
+    assert not any("the shell exited" in text for text in first)
+    assert any("closed its output" in text for text in first)
+    assert any("revived" in text for text in second)
+
+
+class _ShellCaughtMidExit:
+    """A shell that has closed its pipes but cannot be reaped yet.
+
+    A real exit closes the process's files before it becomes reapable, so
+    `poll()` at stdout EOF usually still says "running" (measured: 259 of 300
+    `exit 7` runs). This fake reproduces that order deterministically: running
+    for `delay` seconds, then exited with `returncode`.
+    """
+
+    def __init__(self, stdout, returncode, delay=0.2):
+        self.stdout = stdout
+        self.stdin = io.StringIO()
+        self.returncode = returncode
+        self._reapable_at = time.monotonic() + delay
+        self.terminated = False
+
+    def poll(self):
+        if time.monotonic() >= self._reapable_at:
+            return self.returncode
+        return None
+
+    def wait(self, timeout=None):
+        remaining = self._reapable_at - time.monotonic()
+        if timeout is not None and remaining > timeout:
+            time.sleep(timeout)
+            raise subprocess.TimeoutExpired("bash", timeout)
+        time.sleep(max(0.0, remaining))
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+
+def test_exiting_shell_seen_running_at_eof_reports_its_code():
+    """A shell still being torn down at EOF is reported as exited, not killed.
+
+    Reading poll() once at EOF mistook these for live shells, losing the exit
+    code (the `exit 7` tests above were flaky because of it) and, worse, would
+    route a dying shell into the live-shell-with-closed-stdout branch.
+    """
+    language = Bash()
+    stream = io.StringIO("##active_line1##\n")
+    language.process = _ShellCaughtMidExit(stream, returncode=7)
+    process = language.process
+
+    language.handle_stream_output(stream, False)
+
+    texts = []
+    while not language.output_queue.empty():
+        texts.append(str(language.output_queue.get_nowait().get("content")))
+    assert language.done.is_set()
+    assert any("the shell exited with code 7" in text for text in texts), texts
+    assert not process.terminated
 
 
 def test_cmd_comment_styles_get_no_marker_but_hash_lines_do():
