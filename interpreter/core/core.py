@@ -5,6 +5,7 @@ It's the main file. `from interpreter import interpreter` will import an instanc
 import json
 import os
 import re
+import shlex
 import tempfile
 import threading
 import time
@@ -1027,11 +1028,15 @@ class OpenInterpreter:
             # the archive.
             return None
         self._spill_pending = ""
+        # The model runs this through the bash tool (GNU bash on every platform,
+        # Git Bash on Windows), so the path takes POSIX quoting: unquoted, a
+        # space splits it and bash strips the backslashes from a Windows path.
+        quoted_path = shlex.quote(path)
         return (
             f"If you need the part that was cut, the full output is archived at "
             f"{path} as block {index} (earlier blocks from this session are still "
             f"in that file). Grep it for what you need, or read just this block "
-            f"with `awk '/^===== OI OUTPUT BLOCK {index} =/,/^===== END BLOCK {index} /' {path}`."
+            f"with `awk '/^===== OI OUTPUT BLOCK {index} =/,/^===== END BLOCK {index} /' {quoted_path}`."
         )
 
     def reset(self):

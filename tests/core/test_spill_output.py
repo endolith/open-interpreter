@@ -1,4 +1,6 @@
 import os
+import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -87,6 +89,33 @@ def test_the_awk_range_in_the_note_extracts_exactly_that_block(spill_dir):
     ).stdout
     assert "BBBB" in extracted
     assert "AAAA" not in extracted
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("awk") is None,
+    reason="needs bash and awk",
+)
+@pytest.mark.parametrize("dirname", ["Jane Doe", "Local\\Temp"])
+def test_the_awk_command_in_the_note_runs_as_given(spill_dir, monkeypatch, dirname):
+    """The awk command in the note must work when pasted into bash verbatim.
+
+    The model runs it through the bash tool (GNU bash everywhere, Git Bash on
+    Windows), so the archive path needs POSIX quoting. Unquoted, a temp dir
+    with a space (`C:\\Users\\Jane Doe\\...`) splits into two arguments, and
+    bash strips the backslashes out of any Windows path, so awk is handed a
+    file that does not exist and the cut output is unreachable.
+    """
+    temp_dir = spill_dir / dirname
+    temp_dir.mkdir(parents=True)
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_dir))
+    oi = FakeInterpreter(max_output=100)
+    note = feed(oi, {}, "CCCC\n" * 100)
+
+    command = re.search(r"`(awk .*)`", note).group(1)
+    result = subprocess.run(
+        ["bash", "-c", command], capture_output=True, text=True, timeout=30
+    )
+    assert "CCCC" in result.stdout, result.stderr
 
 
 def test_archive_is_not_world_readable(spill_dir):
