@@ -8,22 +8,26 @@ from interpreter.core.utils.prompt_choice import (
 
 
 def test_returns_the_chosen_option_on_a_tty(tty, monkeypatch):
+    """At a terminal, a valid answer is returned as typed."""
     monkeypatch.setattr("builtins.input", lambda _: "y")
     assert prompt_choice("run? ", ("y", "n")) == "y"
 
 
 def test_reprompts_until_the_answer_is_one_of_the_choices(tty, monkeypatch):
+    """Blank, wrong-letter and whole-word answers re-prompt rather than count."""
     answers = iter(["", "q", "maybe", "n"])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     assert prompt_choice("run? ", ("y", "n")) == "n"
 
 
 def test_raises_when_there_is_no_tty(no_tty):
+    """With no terminal there is no one to ask, so it raises instead of guessing."""
     with pytest.raises(NoInteractiveInput):
         prompt_choice("run? ", ("y", "n"))
 
 
 def test_raises_when_stdin_closes_mid_session(tty, monkeypatch):
+    """stdin closing after the TTY check is the same as no terminal, not an EOFError."""
     def closed(_):
         raise EOFError
 
@@ -57,6 +61,7 @@ def test_never_answers_for_the_user(no_tty, choices):
 
 
 def test_error_names_the_question_that_could_not_be_answered(no_tty):
+    """The error carries the question and its choices, so a log says what was skipped."""
     with pytest.raises(NoInteractiveInput) as excinfo:
         prompt_choice("  Would you like to run this code?\n\n  ", ("y", "n", "e"))
     message = str(excinfo.value)
@@ -65,10 +70,12 @@ def test_error_names_the_question_that_could_not_be_answered(no_tty):
 
 
 def test_stdin_is_interactive_is_false_without_a_tty(no_tty):
+    """A non-TTY stdin (pipe, pytest, server worker) is not interactive."""
     assert stdin_is_interactive() is False
 
 
 def test_stdin_is_interactive_survives_a_detached_stdin(monkeypatch):
+    """A closed or missing stdin reads as not interactive instead of raising."""
     class Detached:
         def isatty(self):
             raise ValueError("I/O operation on closed file")
