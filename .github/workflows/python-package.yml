@@ -55,8 +55,10 @@ jobs:
         # of re-downloading from the mirror that stalls.
         uses: actions/cache@v4
         with:
-          path: /home/runner/apt-cache
-          key: apt-${{ runner.os }}-ruby-irb-r-base-default-jdk-v1
+          # Only the .deb files: apt runs as root and leaves root-only lock and
+          # partial entries, which make tar fail and abort the whole save.
+          path: /home/runner/apt-cache/*.deb
+          key: apt-${{ runner.os }}-ruby-irb-r-base-default-jdk-v2
           restore-keys: |
             apt-${{ runner.os }}-
       - name: Install language runtimes for e2e smokes
