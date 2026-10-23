@@ -1,0 +1,73 @@
+name: Provider matrix
+
+# Two triggers, because a timer is the wrong tool for both jobs:
+# - a PR that touches the LLM/vision path runs the matrix inside the PR, before
+#   merge (a nightly run cannot catch a quirk introduced and merged that day);
+# - a weekly sweep catches providers changing their behaviour with no repo
+#   change, which no event can trigger.
+on:
+  pull_request:
+    paths:
+      - "interpreter/core/llm/**"
+      - "interpreter/core/computer/vision/**"
+      - "tests/test_provider_quirks.py"
+      - "tests/conftest.py"
+      - "pyproject.toml"
+      - ".github/workflows/provider-matrix.yml"
+  push:
+    branches: [main]
+    paths:
+      - "interpreter/core/llm/**"
+      - "interpreter/core/computer/vision/**"
+      - "tests/test_provider_quirks.py"
+      - "tests/conftest.py"
+      - "pyproject.toml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.run_attempt == 1) && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  quirks:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: openrouter/openai/gpt-4o-mini
+          - model: openrouter/~deepseek/deepseek-flash-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Check credentials
+        id: gate
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_API_KEY not set; skipping ${{ matrix.model }}"
+          fi
+      - name: Install
+        if: steps.gate.outputs.skip != 'true'
+        run: uv pip install --system -e ".[server,dev]"
+      - name: Run provider quirks
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          OI_RUN_INTEGRATION: "1"
+          OI_INTEGRATION_MODEL: ${{ matrix.model }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: pytest -m "integration and quirk" -q
