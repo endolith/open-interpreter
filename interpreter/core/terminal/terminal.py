@@ -186,31 +186,6 @@ print("__TOOLBOX_API_IMPORTED__")
                 self.interpreter.toolbox._has_imported_skills = True
                 self.interpreter.toolbox.skills.import_skills()
 
-            # This won't work because truncated code is stored in interpreter.messages :/
-            # If the full code was stored, we could do this:
-            if False and "get_last_output()" in code:
-                if "# We wouldn't want to have maximum recursion depth!" in code:
-                    # We just tried to run this, in a moment.
-                    pass
-                else:
-                    code_outputs = [
-                        m
-                        for m in self.interpreter.messages
-                        if m["role"] == "computer"
-                        and "content" in m
-                        and m["content"] != ""
-                    ]
-                    if len(code_outputs) > 0:
-                        last_output = code_outputs[-1]["content"]
-                    else:
-                        last_output = ""
-                    last_output = json.dumps(last_output)
-
-                    self.run(
-                        "python",
-                        f"# We wouldn't want to have maximum recursion depth!\nimport json\ndef get_last_output():\n    return '''{last_output}'''",
-                    )
-
         if stream == False:
             # If stream == False, *pull* from _streaming_run.
             output_messages = []

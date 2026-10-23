@@ -5,6 +5,7 @@ It's the main file. `from interpreter import interpreter` will import an instanc
 import json
 import os
 import re
+import shlex
 import tempfile
 import threading
 import time
@@ -183,6 +184,18 @@ class OpenInterpreter:
         self.max_output = max_output
         self.web_timeout = web_timeout
         self.web_answer_timeout = web_answer_timeout
+        # Untruncated console output is appended here, one block per command,
+        # created lazily only when output actually overflows max_output.
+        self._spill_path = None
+        self._spill_message = None
+        self._spill_index = 0
+        # Text accumulated but not yet on disk, and the size of the current
+        # block. Only what has not been written yet is held in memory.
+        self._spill_pending = ""
+        self._spill_size = 0
+        # Byte offset where the current block's body ends and its footer starts.
+        # None until the block first overflows and gets a header.
+        self._spill_body_end = None
         self.safe_mode = safe_mode
         # One switch gates ALL boilerplate stripping (redundant cd, redundant
         # imports, `import toolbox`, and the redundant-function/scalar stripping).
@@ -909,10 +922,13 @@ class OpenInterpreter:
 
                 # Truncate output if it's console output
                 if chunk["type"] == "console" and chunk["format"] == "output":
+                    spill_note = self._record_full_output(
+                        self.messages[-1], chunk["content"]
+                    )
                     self.messages[-1]["content"] = truncate_output(
                         self.messages[-1]["content"],
                         self.max_output,
-                        add_scrollbars=self.toolbox.import_toolbox_api,  # I consider scrollbars to be a toolbox API thing
+                        spill_note=spill_note,
                     )
 
             # Yield a final end flag
@@ -924,6 +940,104 @@ class OpenInterpreter:
             # Don't yield final end flag when exiting due to sys.exit()
             # This prevents duplicate output when error panel is displayed
             raise
+
+    def _spill_file_path(self):
+        """Return this interpreter's archive path, creating the file on first use.
+
+        Console output can contain credentials and the file lives in a shared
+        temp directory, so the default 0644 would expose it to every other user
+        on the machine. mkstemp creates it with O_CREAT|O_EXCL and mode 0600
+        under a name nobody can guess, so it is never a file another user
+        pre-created or symlinked, never one left by an earlier process that had
+        this pid, and never shared with another interpreter in this process
+        (each resumes at its own offsets and would clobber the other's blocks).
+        The path is kept for the instance's lifetime so every block of the
+        session lands in the same file.
+        """
+        if self._spill_path is None:
+            fd, path = tempfile.mkstemp(prefix="oi_outputs_", suffix=".log")
+            os.close(fd)
+            self._spill_path = path
+        return self._spill_path
+
+    def _open_spill(self, path):
+        """Open the archive for update; only ever a file _spill_file_path created."""
+        return open(path, "r+b")
+
+    def _record_full_output(self, message, chunk_content):
+        """Archive the untruncated console output; return a note naming it.
+
+        truncate_output() rewrites the message content in place, and the next
+        chunk is appended to that already-truncated string. So the accumulated
+        content is NOT the real output once it overflows even once - the middle
+        is already gone by the time anything could read it. The true stream is
+        recorded here instead, chunk by chunk, before truncation touches it.
+
+        Blocks are appended, so earlier commands stay readable for the whole
+        session rather than being overwritten by the next big output.
+
+        Each chunk appends only the bytes that are new, rewriting nothing but
+        the block's own footer, which is fixed-size. Chunks arrive per line, so
+        re-writing the whole block every time would make a large output cost
+        O(n^2) in disk writes.
+
+        Returns None while the output still fits, so nothing is created in the
+        common case.
+        """
+        if message is not self._spill_message:
+            # New console message: start a new block at the current end of file.
+            self._spill_message = message
+            self._spill_pending = ""
+            self._spill_size = 0
+            self._spill_body_end = None
+            self._spill_index += 1
+
+        chunk_content = chunk_content or ""
+        self._spill_pending += chunk_content
+        self._spill_size += len(chunk_content)
+        if self._spill_size <= self.max_output:
+            # Still small enough to read in full; keep holding it in memory.
+            return None
+
+        index = self._spill_index
+        footer = f"\n===== END BLOCK {index} ({self._spill_size:,} chars) =====\n"
+        try:
+            path = self._spill_file_path()
+            # Binary so the recorded offset stays valid regardless of encoding.
+            with self._open_spill(path) as f:
+                if self._spill_body_end is None:
+                    # First overflow for this block: append a header after
+                    # whatever earlier blocks are already in the file.
+                    f.seek(0, os.SEEK_END)
+                    f.write(
+                        f"\n===== OI OUTPUT BLOCK {index} =====\n".encode(
+                            "utf-8", errors="replace"
+                        )
+                    )
+                else:
+                    # Resume where the body ended, overwriting the old footer.
+                    f.seek(self._spill_body_end)
+                f.write(self._spill_pending.encode("utf-8", errors="replace"))
+                self._spill_body_end = f.tell()
+                f.write(footer.encode("utf-8", errors="replace"))
+                # The footer grows as the character count does; truncate so a
+                # shorter one can never leave a stale tail behind.
+                f.truncate()
+        except OSError:
+            # Read-only or full disk: truncation must still work, just without
+            # the archive.
+            return None
+        self._spill_pending = ""
+        # The model runs this through the bash tool (GNU bash on every platform,
+        # Git Bash on Windows), so the path takes POSIX quoting: unquoted, a
+        # space splits it and bash strips the backslashes from a Windows path.
+        quoted_path = shlex.quote(path)
+        return (
+            f"If you need the part that was cut, the full output is archived at "
+            f"{path} as block {index} (earlier blocks from this session are still "
+            f"in that file). Grep it for what you need, or read just this block "
+            f"with `awk '/^===== OI OUTPUT BLOCK {index} =/,/^===== END BLOCK {index} /' {quoted_path}`."
+        )
 
     def reset(self):
         self.terminal.terminate()  # Terminates all languages
