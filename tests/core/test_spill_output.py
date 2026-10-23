@@ -1,6 +1,8 @@
 import os
 import stat
 import subprocess
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -15,9 +17,9 @@ class FakeInterpreter:
     _open_spill = OpenInterpreter._open_spill
     _record_full_output = OpenInterpreter._record_full_output
 
-    def __init__(self, path, max_output=100):
+    def __init__(self, max_output=100):
         self.max_output = max_output
-        self._spill_path = str(path)
+        self._spill_path = None
         self._spill_message = None
         self._spill_index = 0
         self._spill_pending = ""
@@ -33,33 +35,38 @@ def feed(oi, message, text, chunk_size=10):
     return note
 
 
-def test_nothing_is_written_while_the_output_fits(tmp_path):
-    path = tmp_path / "outputs.log"
-    oi = FakeInterpreter(path, max_output=100)
+@pytest.fixture
+def spill_dir(tmp_path, monkeypatch):
+    """Point the shared temp directory at tmp_path, where the archive is created."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    return tmp_path
+
+
+def test_nothing_is_written_while_the_output_fits(spill_dir):
+    oi = FakeInterpreter(max_output=100)
     note = feed(oi, {}, "x" * 50)
     assert note is None
-    assert not path.exists()
+    assert oi._spill_path is None
+    assert not any(spill_dir.iterdir())
 
 
-def test_full_output_is_recoverable_after_truncation(tmp_path):
-    path = tmp_path / "outputs.log"
-    oi = FakeInterpreter(path, max_output=100)
+def test_full_output_is_recoverable_after_truncation(spill_dir):
+    oi = FakeInterpreter(max_output=100)
     payload = "".join(f"line {i}\n" for i in range(500))
     note = feed(oi, {}, payload)
 
     assert note is not None
-    assert payload in path.read_text()
+    assert payload in Path(oi._spill_path).read_text()
 
 
-def test_each_block_is_appended_not_overwritten(tmp_path):
-    path = tmp_path / "outputs.log"
-    oi = FakeInterpreter(path, max_output=100)
+def test_each_block_is_appended_not_overwritten(spill_dir):
+    oi = FakeInterpreter(max_output=100)
     first = "A" * 400
     second = "B" * 400
     feed(oi, {"m": 1}, first)
     feed(oi, {"m": 2}, second)
 
-    contents = path.read_text()
+    contents = Path(oi._spill_path).read_text()
     assert first in contents
     assert second in contents
     assert contents.index(first) < contents.index(second)
@@ -67,14 +74,13 @@ def test_each_block_is_appended_not_overwritten(tmp_path):
     assert "OI OUTPUT BLOCK 2" in contents
 
 
-def test_the_awk_range_in_the_note_extracts_exactly_that_block(tmp_path):
-    path = tmp_path / "outputs.log"
-    oi = FakeInterpreter(path, max_output=100)
+def test_the_awk_range_in_the_note_extracts_exactly_that_block(spill_dir):
+    oi = FakeInterpreter(max_output=100)
     feed(oi, {"m": 1}, "AAAA\n" * 100)
     feed(oi, {"m": 2}, "BBBB\n" * 100)
 
     extracted = subprocess.run(
-        ["awk", "/^===== OI OUTPUT BLOCK 2 =/,/^===== END BLOCK 2 /", str(path)],
+        ["awk", "/^===== OI OUTPUT BLOCK 2 =/,/^===== END BLOCK 2 /", oi._spill_path],
         capture_output=True,
         text=True,
         timeout=30,
@@ -83,24 +89,79 @@ def test_the_awk_range_in_the_note_extracts_exactly_that_block(tmp_path):
     assert "AAAA" not in extracted
 
 
-def test_archive_is_not_world_readable(tmp_path):
-    path = tmp_path / "outputs.log"
-    oi = FakeInterpreter(path, max_output=100)
+def test_archive_is_not_world_readable(spill_dir):
+    oi = FakeInterpreter(max_output=100)
     feed(oi, {}, "x" * 400)
 
-    mode = stat.S_IMODE(os.stat(path).st_mode)
+    mode = stat.S_IMODE(os.stat(oi._spill_path).st_mode)
     assert not mode & stat.S_IRGRP
     assert not mode & stat.S_IROTH
 
 
-def test_writes_stay_linear_in_the_size_of_the_output(tmp_path):
+def test_archive_never_writes_into_a_file_planted_at_its_path(spill_dir):
+    """The archive must be a file this interpreter created, never one it found.
+
+    The temp directory is shared, so another local user can pre-create a file
+    at any predictable name - here the old `oi_outputs_<pid>.log`, made
+    world-writable. Opening whatever already exists at that path would append
+    the full untruncated output (credentials included) to the attacker's file.
+    The archive has to be created exclusively at a name nobody can guess.
+    """
+    planted = spill_dir / f"oi_outputs_{os.getpid()}.log"
+    planted.write_text("PLANTED\n")
+    planted.chmod(0o666)
+
+    oi = FakeInterpreter(max_output=100)
+    payload = "secret-output " * 50
+    note = feed(oi, {}, payload)
+
+    assert planted.read_text() == "PLANTED\n"
+    assert note is not None
+    assert payload in Path(oi._spill_path).read_text()
+
+
+def test_each_interpreter_gets_its_own_archive(spill_dir):
+    """Two interpreters in one process must not share an archive file.
+
+    Each keeps its own block numbering and its own resume offset. Sharing one
+    file (as a pid-based name does, and as a later process reusing the pid
+    would) means one interpreter resumes at its saved offset, overwrites the
+    other's block and truncates the rest away, and both write a "BLOCK 1" that
+    the awk range in the note would then print together.
+    """
+    a = FakeInterpreter(max_output=100)
+    b = FakeInterpreter(max_output=100)
+    message_a = {}
+    feed(a, message_a, "A" * 400)
+    feed(b, {}, "B" * 400)
+    feed(a, message_a, "a" * 400)  # a resumes its block 1
+
+    b_contents = Path(b._spill_path).read_text()
+    assert "B" * 400 in b_contents
+    assert b_contents.count("OI OUTPUT BLOCK 1 ") == 1
+    assert "A" * 400 + "a" * 400 in Path(a._spill_path).read_text()
+    assert a._spill_path != b._spill_path
+
+
+def test_unusable_temp_dir_still_truncates_without_an_archive(spill_dir, monkeypatch):
+    """If the archive cannot be created, recording must not raise.
+
+    Truncation has to keep working on a read-only or missing temp directory;
+    the only loss is the archive, signalled by returning no note.
+    """
+    monkeypatch.setattr(tempfile, "tempdir", str(spill_dir / "does-not-exist"))
+    oi = FakeInterpreter(max_output=100)
+
+    assert feed(oi, {}, "x" * 400) is None
+
+
+def test_writes_stay_linear_in_the_size_of_the_output(spill_dir):
     """Each chunk must append only what is new.
 
     Rewriting the whole block per chunk is O(n^2): output arrives per line, so a
     few hundred KB over a few thousand lines turns into hundreds of MB written.
     """
-    path = tmp_path / "outputs.log"
-    oi = FakeInterpreter(path, max_output=100)
+    oi = FakeInterpreter(max_output=100)
 
     written = 0
     real_open_spill = oi._open_spill

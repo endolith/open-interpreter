@@ -941,21 +941,26 @@ class OpenInterpreter:
             raise
 
     def _spill_file_path(self):
-        if self._spill_path is None:
-            self._spill_path = os.path.join(
-                tempfile.gettempdir(), f"oi_outputs_{os.getpid()}.log"
-            )
-        return self._spill_path
-
-    def _open_spill(self, path):
-        """Open the archive for update, creating it private to this user.
+        """Return this interpreter's archive path, creating the file on first use.
 
         Console output can contain credentials and the file lives in a shared
         temp directory, so the default 0644 would expose it to every other user
-        on the machine.
+        on the machine. mkstemp creates it with O_CREAT|O_EXCL and mode 0600
+        under a name nobody can guess, so it is never a file another user
+        pre-created or symlinked, never one left by an earlier process that had
+        this pid, and never shared with another interpreter in this process
+        (each resumes at its own offsets and would clobber the other's blocks).
+        The path is kept for the instance's lifetime so every block of the
+        session lands in the same file.
         """
-        if not os.path.exists(path):
-            os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+        if self._spill_path is None:
+            fd, path = tempfile.mkstemp(prefix="oi_outputs_", suffix=".log")
+            os.close(fd)
+            self._spill_path = path
+        return self._spill_path
+
+    def _open_spill(self, path):
+        """Open the archive for update; only ever a file _spill_file_path created."""
         return open(path, "r+b")
 
     def _record_full_output(self, message, chunk_content):
@@ -993,10 +998,10 @@ class OpenInterpreter:
             # Still small enough to read in full; keep holding it in memory.
             return None
 
-        path = self._spill_file_path()
         index = self._spill_index
         footer = f"\n===== END BLOCK {index} ({self._spill_size:,} chars) =====\n"
         try:
+            path = self._spill_file_path()
             # Binary so the recorded offset stays valid regardless of encoding.
             with self._open_spill(path) as f:
                 if self._spill_body_end is None:
