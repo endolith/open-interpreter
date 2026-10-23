@@ -1051,6 +1051,33 @@ class TestRunPatchCrlf(unittest.TestCase):
             self.assertIn(b"echo hello\r\n", data)
             self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
 
+    def test_patch_keeps_lone_cr_on_crlf_file(self):
+        """A lone CR away from the hunk survives a patch on a CRLF file.
+
+        A lone CR is data, not a line break (a progress line overwritten in
+        place, a legacy CR-only record), and _normalize_to_style leaves it
+        alone. Staging the CRLF file for patch used to turn it into LF, and
+        the conversion back to CRLF then made it a real line break, so a
+        patch to line 1 split line 8 in two.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "log.bat")
+            body = b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nspin 1\r2\r\n"
+            Path(target).write_bytes(body)
+            diff = (
+                "--- log.bat\n+++ log.bat\n"
+                "@@ -1,4 +1,4 @@\n"
+                "-a\n"
+                "+A\n"
+                " b\n"
+                " c\n"
+                " d\n"
+            )
+            run_patch(target, diff)
+            self.assertEqual(
+                Path(target).read_bytes(), b"A" + body[1:]
+            )
+
 
 class TestPokeScript(unittest.TestCase):
     def test_prepare_script_file_and_quit(self):

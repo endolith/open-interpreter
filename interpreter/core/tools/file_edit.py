@@ -740,7 +740,10 @@ def run_patch(target, code):
     original_style = _detect_newline_style(original_bytes)
     normalized_for_patch = False
     if original_style == b"\r\n":
-        lf_bytes = original_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        # Only CRLF pairs become LF. A lone CR is data (see
+        # _normalize_to_style); turning it into LF here would make the
+        # conversion back to CRLF split its line in two.
+        lf_bytes = original_bytes.replace(b"\r\n", b"\n")
         if lf_bytes != original_bytes:
             path.write_bytes(lf_bytes)
             normalized_for_patch = True
