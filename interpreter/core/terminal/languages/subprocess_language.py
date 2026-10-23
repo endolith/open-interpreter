@@ -25,6 +25,13 @@ def _env_seconds(name, default):
     return value if value > 0 else 0.0
 
 
+def _tree_kill_description():
+    """How _kill_process_group reaches the command's descendants, for the timeout message."""
+    if os.name == "posix":
+        return "SIGKILL to the process group"
+    return "taskkill /T /F on the process tree"
+
+
 # A command that produces no output for this long is treated as hung and killed.
 # This is what stops `sshfs`, `ssh`, `apt` waiting on a prompt, etc. from blocking
 # the agent forever. Commands that keep streaming output are never killed by this.
@@ -124,6 +131,12 @@ class SubprocessLanguage(BaseLanguage):
         own. If ``start_new_session`` ever failed, the child would share our group
         and ``killpg`` would kill Open Interpreter itself (and its parent shell).
         In that case fall back to killing just the child.
+
+        Windows has no process groups to signal: ``proc.kill()`` is
+        ``TerminateProcess`` on the shell alone, and ``CREATE_NEW_PROCESS_GROUP``
+        only scopes Ctrl-Break delivery. ``taskkill /T`` walks the parent-PID
+        tree instead, so a hung ssh or installer dies with the shell. If
+        taskkill is missing, hangs or fails, fall back to killing just the shell.
         """
         proc = self.process
         if not proc or proc.poll() is not None:
@@ -136,8 +149,14 @@ class SubprocessLanguage(BaseLanguage):
                 else:
                     proc.kill()
             else:
-                proc.kill()
-        except (ProcessLookupError, PermissionError, OSError):
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                    check=True,
+                )
+        except (ProcessLookupError, PermissionError, OSError, subprocess.SubprocessError):
             try:
                 proc.kill()
             except Exception:
@@ -317,7 +336,7 @@ class SubprocessLanguage(BaseLanguage):
                         "content": (
                             f"\n[Open Interpreter] Command killed: it {reason}.\n"
                             f"The command and every process it started were terminated "
-                            f"(SIGKILL to the process group).\n"
+                            f"({_tree_kill_description()}).\n"
                             f"If this command legitimately needs longer, raise {env_var} "
                             f"(seconds, 0 disables), or run it in the background "
                             f"(e.g. append ' &' or use nohup) so it does not block.\n"
