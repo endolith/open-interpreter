@@ -28,3 +28,47 @@ def test_integration_allowed_with_opt_in_and_api_key():
         clear=True,
     ):
         assert integration_skip_reason() is None
+
+
+def test_groq_model_requires_groq_key():
+    """A groq model checks GROQ_API_KEY, not the OpenAI fallback."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OI_RUN_INTEGRATION": "1",
+            "OI_INTEGRATION_MODEL": "groq/llama-3.1-8b-instant",
+            "OPENAI_API_KEY": "sk-test",
+        },
+        clear=True,
+    ):
+        reason = integration_skip_reason()
+
+    assert reason is not None
+    assert "GROQ_API_KEY" in reason
+
+
+def test_groq_model_allowed_with_groq_key():
+    """The provider key for the selected model is enough to run."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OI_RUN_INTEGRATION": "1",
+            "OI_INTEGRATION_MODEL": "groq/llama-3.1-8b-instant",
+            "GROQ_API_KEY": "gsk-test",
+        },
+        clear=True,
+    ):
+        assert integration_skip_reason() is None
+
+
+def test_local_model_needs_no_key():
+    """Ollama models need no provider key, so the gate allows them."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OI_RUN_INTEGRATION": "1",
+            "OI_INTEGRATION_MODEL": "ollama/llama3",
+        },
+        clear=True,
+    ):
+        assert integration_skip_reason() is None
