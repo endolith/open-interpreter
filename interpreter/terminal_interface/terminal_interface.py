@@ -57,6 +57,15 @@ NO_APPROVER_NOTICE = (
     " what needs approving. To approve automatically, start Open Interpreter"
     " with -y (or set auto_run).]"
 )
+
+# The same rejection, for whoever reads the console. prompt_choice raises before
+# printing its question, and NO_APPROVER_NOTICE only goes into the history, so
+# without this a headless run shows the proposed step and then just ends.
+NO_APPROVER_CONSOLE = (
+    "  [Not {action}: it needs approval and there is no interactive terminal"
+    " to give it. Start Open Interpreter with -y (or set auto_run) to approve"
+    " automatically.]"
+)
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
@@ -426,6 +435,10 @@ def terminal_interface(interpreter, message):
                             except NoInteractiveInput:
                                 response = "n"
                                 declined_notice = NO_APPROVER_NOTICE
+                                print(
+                                    NO_APPROVER_CONSOLE.format(action="applied"),
+                                    flush=True,
+                                )
 
                             if response == "y":
                                 active_block = CodeBlock(interpreter)
@@ -498,6 +511,7 @@ def terminal_interface(interpreter, message):
                             # the command. Reject the step instead.
                             response = "n"
                             declined_notice = NO_APPROVER_NOTICE
+                            print(NO_APPROVER_CONSOLE.format(action="run"), flush=True)
 
                         if response == "a":
                             rule, added = persist_allowlist_rule(
