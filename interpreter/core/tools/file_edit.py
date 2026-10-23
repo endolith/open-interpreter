@@ -204,20 +204,23 @@ def _subprocess_text(result):
 
 
 def _detect_newline_style(data):
-    """Return b'\\r\\n' if the file uses CRLF, b'\\n' if LF-only, else None.
+    """Return the file's majority line-break style: b'\\r\\n', b'\\n', or None.
 
-    A file counts as CRLF when it contains at least one CRLF pair. Mixed files
-    (some CRLF, some lone LF) are treated as CRLF so normalization converges to
-    the dominant Windows style instead of flipping back and forth. Returns None
-    for empty files or files with no newlines, where there is no style to keep.
+    CRLF pairs are counted against bare LFs and the more common one wins, so a
+    mixed file converges to the style most of its lines already use and
+    normalization rewrites the fewest line endings. Counting matters: when any
+    one CRLF pair made a file CRLF, an LF file with a single pasted CRLF line
+    had every other line converted by its next edit. A tie counts as CRLF, so
+    a Windows file that picked up LF lines from an LF-emitting edit heals
+    back. Lone CRs are data, not line breaks, and are not counted. Returns
+    None for empty files or files with no line breaks, where there is no
+    style to keep.
     """
-    if not data:
+    crlf = data.count(b"\r\n")
+    bare_lf = data.count(b"\n") - crlf
+    if not crlf and not bare_lf:
         return None
-    if b"\r\n" in data:
-        return b"\r\n"
-    if b"\n" in data:
-        return b"\n"
-    return None
+    return b"\r\n" if crlf >= bare_lf else b"\n"
 
 
 def _normalize_to_style(data, style):

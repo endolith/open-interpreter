@@ -106,9 +106,27 @@ class TestNewlineStyle(unittest.TestCase):
         self.assertIsNone(_detect_newline_style(b""))
         self.assertIsNone(_detect_newline_style(b"no-newline"))
 
-    def test_mixed_file_treated_as_crlf(self):
-        """Mixed endings converge to CRLF rather than flipping each edit."""
+    def test_tied_mixed_file_treated_as_crlf(self):
+        """A mixed file with as many CRLF as bare-LF breaks counts as CRLF.
+
+        A tie has no majority to follow. CRLF is the side kept, so a Windows
+        file that picked up LF lines from an earlier LF-emitting edit heals
+        back to CRLF instead of being converted to LF.
+        """
         self.assertEqual(_detect_newline_style(b"a\r\nb\n"), b"\r\n")
+
+    def test_mixed_file_takes_the_majority_style(self):
+        """A mixed file is classified by the line break most of its lines use.
+
+        Detection used to return CRLF for any file containing one CRLF pair,
+        so an LF file with a single pasted CRLF line was "CRLF", and the next
+        edit converted every other line: the whole-file conversion this policy
+        exists to prevent. Following the majority converts the fewest lines.
+        Lone CRs are data, not breaks, and are not counted.
+        """
+        self.assertEqual(_detect_newline_style(b"a\nb\nc\r\n"), b"\n")
+        self.assertEqual(_detect_newline_style(b"a\r\nb\r\nc\n"), b"\r\n")
+        self.assertEqual(_detect_newline_style(b"a\rb\rc\r\nd\ne\n"), b"\n")
 
     def test_normalize_to_style_does_not_double_crlf(self):
         """Normalizing via LF first avoids turning CRLF into CRCRLF."""
@@ -177,6 +195,23 @@ class TestCrlfPreservation(unittest.TestCase):
             Path(lf_target).write_bytes(b"charlie\n")
             run_sed(lf_target, r"s/charlie/x\ry/")
             self.assertEqual(Path(lf_target).read_bytes(), b"x\ry\n")
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_on_lf_file_with_one_crlf_line_does_not_convert_the_file(self):
+        """One pasted CRLF line does not turn the next edit into a CRLF rewrite.
+
+        Regression: any CRLF pair made the whole file count as CRLF, so a
+        one-line sed edit to a 50-line LF file rewrote all 50 line endings.
+        The file now converges to its majority style (LF), which touches only
+        the one stray line.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.txt")
+            body = b"".join(b"line %d\n" % i for i in range(1, 50)) + b"pasted\r\n"
+            Path(target).write_bytes(body)
+            run_sed(target, "s/^line 1$/LINE 1/")
+            expected = b"LINE 1\n" + body[len(b"line 1\n"):-len(b"pasted\r\n")] + b"pasted\n"
+            self.assertEqual(Path(target).read_bytes(), expected)
 
 
 class TestRunWrite(unittest.TestCase):
