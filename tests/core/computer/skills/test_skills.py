@@ -337,18 +337,18 @@ def _new_skill():
     return new_skill
 
 
-@pytest.mark.xfail(raises=AttributeError, reason="#390: __init__ does not set steps or _name")
-def test_new_skill_is_unusable_before_create():
-    """Reading `name` or `steps` before create() raises AttributeError.
+def test_new_skill_is_named_before_create():
+    """A new skill is named Untitled and has no steps before create().
 
-    Both attributes are only assigned inside create(), so a caller that reaches
-    for the placeholder name without going through create() gets an
-    AttributeError instead of "Untitled". See #390.
+    `NewSkill.__init__` sets both, so code that reads them before create()
+    (for example to display a placeholder) gets a usable value instead of
+    AttributeError. See #390.
     """
     computer = SimpleNamespace(import_skills=True, _has_imported_skills=True)
     new_skill = Skills(computer).new_skill
 
     assert new_skill.name == "Untitled"
+    assert new_skill.steps == []
 
 
 def test_create_resets_name_and_steps(capsys):
