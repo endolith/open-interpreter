@@ -718,6 +718,21 @@ def _cleanup_patch_artifacts(target):
             pass
 
 
+def _stage_patch_copy(workdir, target):
+    """Copy target into workdir under its own name, with CRLF pairs as LF.
+
+    The diff patch receives is always LF (callers normalize it), and GNU patch
+    rejects LF context against CRLF lines ("different line endings"), so patch
+    must see the file's lines in LF. A lone CR is data and is kept (see
+    _normalize_to_style). Keeping the basename makes patch's messages
+    ("checking file x.bat") name the user's file rather than a temp name.
+    """
+    path = Path(target)
+    work = Path(workdir) / path.name
+    work.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+    return work
+
+
 def run_patch(target, code):
     """Apply a unified diff (patch format) to an existing file.
 
@@ -995,12 +1010,17 @@ def dry_run_edit(language, code, target):
         diff = code.replace("\r\n", "\n").replace("\r", "\n")
         if not diff.endswith("\n"):
             diff += "\n"
-        result = subprocess.run(
-            [patch_bin, "-p0", "--forward", "--dry-run", path.name],
-            input=diff.encode("utf-8"),
-            capture_output=True,
-            cwd=_target_parent_dir(target),
-        )
+        # Check the diff against the same LF view of the file that run_patch
+        # applies it to. Against the original CRLF bytes, patch fails every
+        # hunk with "different line endings" although the real run succeeds.
+        with tempfile.TemporaryDirectory() as workdir:
+            _stage_patch_copy(workdir, target)
+            result = subprocess.run(
+                [patch_bin, "-p0", "--forward", "--dry-run", path.name],
+                input=diff.encode("utf-8"),
+                capture_output=True,
+                cwd=workdir,
+            )
         return _preview(result, append_diff=diff)
 
     if language == "sed":

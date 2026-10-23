@@ -1078,6 +1078,36 @@ class TestRunPatchCrlf(unittest.TestCase):
                 Path(target).read_bytes(), b"A" + body[1:]
             )
 
+    def test_patch_preview_on_crlf_file_accepts_the_diff_the_run_applies(self):
+        """The patch dry run on a CRLF file passes when run_patch would apply.
+
+        run_patch stages a CRLF target as LF before patching, because the diff
+        is LF. The dry run used to check the original CRLF bytes, so GNU patch
+        reported "Hunk #1 FAILED (different line endings)" for a diff the real
+        run applies cleanly, and the user was shown a failure for a valid
+        edit at the approval prompt. The preview must not touch the target.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            original = b"@echo off\r\necho hi\r\necho bye\r\necho end\r\n"
+            Path(target).write_bytes(original)
+            diff = (
+                "--- script.bat\n+++ script.bat\n"
+                "@@ -1,4 +1,4 @@\n"
+                " @echo off\n"
+                "-echo hi\n"
+                "+echo hello\n"
+                " echo bye\n"
+                " echo end\n"
+            )
+            preview = dry_run_edit("patch", diff, target)
+            self.assertTrue(preview["ok"], preview["output"])
+            self.assertNotIn("FAILED", preview["output"])
+            self.assertEqual(Path(target).read_bytes(), original)
+            self.assertEqual(sorted(os.listdir(tmp)), ["script.bat"])
+            run_patch(target, diff)
+            self.assertIn(b"echo hello\r\n", Path(target).read_bytes())
+
 
 class TestPokeScript(unittest.TestCase):
     def test_prepare_script_file_and_quit(self):
