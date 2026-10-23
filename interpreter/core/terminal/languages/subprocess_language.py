@@ -42,6 +42,14 @@ class SubprocessLanguage(BaseLanguage):
             return None
         return int(match.group(1))
 
+    def detect_exit_code(self, line):
+        """Exit status encoded in the end-of-execution marker, or None.
+
+        Only subclasses whose marker carries the status (currently Bash)
+        override this; the default keeps every other language unchanged.
+        """
+        return None
+
     def detect_end_of_execution(self, line):
         return None
 
@@ -251,14 +259,27 @@ class SubprocessLanguage(BaseLanguage):
                             {"type": "console", "format": "output", "content": line}
                         )
                 elif self.detect_end_of_execution(line):
+                    exit_code = self.detect_exit_code(line)
                     # Both markers end the block, so both must be stripped. An
                     # error marker that reaches the user verbatim reads as
                     # protocol noise rather than the error itself.
-                    line = _END_OF_EXECUTION_RE.sub("", line)
+                    # \d* also consumes the exit status when the marker carries
+                    # one (see Bash.detect_exit_code).
+                    line = re.sub(r"##end_of_execution##\d*", "", line)
                     line = _EXECUTION_ERROR_RE.sub("", line).strip()
                     if line:
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
+                        )
+                    # Only report failures: a successful command stays silent and
+                    # costs the model nothing.
+                    if exit_code:
+                        self.output_queue.put(
+                            {
+                                "type": "console",
+                                "format": "output",
+                                "content": f"[exited with code {exit_code}]",
+                            }
                         )
                     self.done.set()
                 elif is_error_stream and "KeyboardInterrupt" in line:
@@ -275,6 +296,55 @@ class SubprocessLanguage(BaseLanguage):
                     self.output_queue.put(
                         {"type": "console", "format": "output", "content": line}
                     )
+            # The stream hit EOF without the end marker: the shell itself exited
+            # (user code ran `exit`, or `set -e`/errexit killed it before the
+            # appended capture commands ran), or it closed its stdout and lives
+            # on (handled below). A per-block EXIT trap cannot cover
+            # this -- the shell is persistent across blocks, so a trap would only
+            # fire when the whole session ends, not per block. Without this epilogue
+            # `done` is never set and run() spins forever. Report the shell's
+            # status and end the turn; the next block restarts the dead process via
+            # the write retry in run(). Only the stdout reader reports: both
+            # streams hit EOF on process death, and one report is enough.
+            process = self.process
+            if (
+                not is_error_stream
+                and not self.done.is_set()
+                # Only the persistent shell's own stdout speaks for the shell.
+                # A reader that outlived its process would end its successor's
+                # block, and a language that runs a fresh process per block
+                # (Java) reaches EOF without the marker every time and ends the
+                # block itself.
+                and process is not None
+                and process.stdout is stream
+            ):
+                returncode = None
+                # A shell closes its pipes while exiting, before it can be
+                # reaped, so a single poll() here usually still sees it
+                # running. Give a dying shell a moment to finish.
+                try:
+                    returncode = process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+                if returncode is not None:
+                    detail = f"the shell exited with code {returncode}"
+                else:
+                    # Alive with stdout at EOF: user code moved the shell's own
+                    # stdout (`exec >file`). Every later end marker goes there
+                    # too and no reader is left on the pipe, so the next block
+                    # would hang. The pipe cannot be reattached from outside;
+                    # replace the shell instead, via run()'s start-if-missing.
+                    self.terminate()
+                    self.process = None
+                    detail = "the shell closed its output (e.g. `exec >file`) and was stopped"
+                self.output_queue.put(
+                    {
+                        "type": "console",
+                        "format": "output",
+                        "content": f"\n[{detail}; it will restart on the next command.]",
+                    }
+                )
+                self.done.set()
         except ValueError as e:
             if "operation on closed file" in str(e):
                 if self.verbose:

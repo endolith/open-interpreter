@@ -27,7 +27,8 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
     def preprocess_code(self, code):
         code, _ = self._normalize_null_redirects(code)
         code = self._strip_redundant_cd(code)
-        code = preprocess_shell(code)
+        # `#` is not a comment in cmd, so only cmd's own markers are skipped.
+        code = preprocess_shell(code, comment_prefixes=("rem", "::"))
         end_marker = '\necho "##end_of_execution##"'
         return self._insert_cwd_marker(code, end_marker)
 

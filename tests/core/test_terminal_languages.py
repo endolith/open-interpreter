@@ -990,7 +990,10 @@ class TestTerminalLanguages(unittest.TestCase):
         bash = Bash()
         bash_result = bash.preprocess_code("make 2>nul")
         self.assertIn("make 2>/dev/null", bash_result)
-        self.assertIn('echo "##end_of_execution##"', bash_result)
+        # Bash's end marker carries the captured exit status (see
+        # test_bash_exit_code.py); the plain marker text only survives in
+        # shells without exit-code reporting, like PowerShell below.
+        self.assertIn('echo "##end_of_execution##$__oi_exit_code"', bash_result)
         with patch(
             "interpreter.core.terminal.languages.powershell.resolve_powershell_executable",
             return_value="pwsh",
@@ -1068,7 +1071,13 @@ class TestTerminalLanguages(unittest.TestCase):
         out = bash.preprocess_code("echo hi")
         self.assertLess(
             out.index('echo "##oi_cwd##$PWD"'),
-            out.index('echo "##end_of_execution##"'),
+            out.index('echo "##end_of_execution##'),
+        )
+        # $? has to be captured before the cwd echo, which would otherwise be
+        # the command whose status the end marker reports.
+        self.assertLess(
+            out.index("__oi_exit_code=$?"),
+            out.index('echo "##oi_cwd##$PWD"'),
         )
 
 
