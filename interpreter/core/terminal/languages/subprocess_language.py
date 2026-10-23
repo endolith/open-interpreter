@@ -1,6 +1,7 @@
 import os
 import queue
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -13,6 +14,31 @@ _ACTIVE_LINE_MARKER_RE = re.compile(r"##active_line(\d+)##")
 # neither reaches the user as literal text.
 _END_OF_EXECUTION_RE = re.compile(r"##end_of_execution##")
 _EXECUTION_ERROR_RE = re.compile(r"##execution_error##")
+
+
+def _env_seconds(name, default):
+    """Read a timeout (in seconds) from the environment. 0 / negative disables it."""
+    try:
+        value = float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+    return value if value > 0 else 0.0
+
+
+def _tree_kill_description():
+    """How _kill_process_group reaches the command's descendants, for the timeout message."""
+    if os.name == "posix":
+        return "SIGKILL to the process group"
+    return "taskkill /T /F on the process tree"
+
+
+# A command that produces no output for this long is treated as hung and killed.
+# This is what stops `sshfs`, `ssh`, `apt` waiting on a prompt, etc. from blocking
+# the agent forever. Commands that keep streaming output are never killed by this.
+DEFAULT_IDLE_TIMEOUT = 120.0
+# Absolute wall-clock cap. Disabled (0) by default so long *productive* builds run
+# to completion; the idle timeout is what catches genuine hangs.
+DEFAULT_TOTAL_TIMEOUT = 0.0
 
 
 class SubprocessLanguage(BaseLanguage):
@@ -29,6 +55,9 @@ class SubprocessLanguage(BaseLanguage):
         # Set by _abort_stream when the reader fails unexpectedly, so the
         # failure can be inspected after the turn rather than only being logged.
         self._stream_error = None
+        # The stdout/stderr reader threads of the current process. A timeout
+        # kill joins them so output read after the kill is not left queued.
+        self._reader_threads = []
 
     def detect_active_line(self, line):
         """
@@ -93,11 +122,72 @@ class SubprocessLanguage(BaseLanguage):
             self.process.stdin.write(payload)
         self.process.stdin.flush()
 
+    def _kill_process_group(self):
+        """SIGKILL the shell *and every process it spawned*.
+
+        ``Popen.terminate()`` only signals the shell itself, so a child that is
+        blocking (sshfs, ssh, a package manager waiting on a prompt) survives and
+        keeps the pipes open — which is precisely how a hung command wedged the
+        whole interpreter.
+
+        Safety: the process group is only signalled when it is genuinely NOT our
+        own. If ``start_new_session`` ever failed, the child would share our group
+        and ``killpg`` would kill Open Interpreter itself (and its parent shell).
+        In that case fall back to killing just the child.
+
+        Windows has no process groups to signal: ``proc.kill()`` is
+        ``TerminateProcess`` on the shell alone, and ``CREATE_NEW_PROCESS_GROUP``
+        only scopes Ctrl-Break delivery. ``taskkill /T`` walks the parent-PID
+        tree instead, so a hung ssh or installer dies with the shell. If
+        taskkill is missing, hangs or fails, fall back to killing just the shell.
+        """
+        proc = self.process
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            if os.name == "posix":
+                pgid = os.getpgid(proc.pid)
+                if pgid != os.getpgid(0):  # never signal our own group
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            else:
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                    check=True,
+                )
+        except (ProcessLookupError, PermissionError, OSError, subprocess.SubprocessError):
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    def stop(self):
+        """Halt a running command.
+
+        ``BaseLanguage.stop()`` is a no-op, so before this override Ctrl-C (and
+        ``Terminal.stop()``) could not interrupt a running shell command at all.
+        """
+        self._kill_process_group()
+        self.done.set()
+
     def terminate(self):
         if self.process:
-            self.process.terminate()
-            self.process.stdin.close()
-            self.process.stdout.close()
+            self._kill_process_group()
+            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                try:
+                    if stream:
+                        stream.close()
+                except Exception:
+                    pass
+            try:
+                self.process.wait(timeout=5)
+            except Exception:
+                pass
+            self.process = None
 
     def start_process(self):
         if self.process:
@@ -112,6 +202,13 @@ class SubprocessLanguage(BaseLanguage):
             "bufsize": 0,
             "env": my_env,
         }
+        # Give the shell its own session/process group so the whole tree can be
+        # killed together on timeout. Without this the child shares our group and
+        # killpg() would take down Open Interpreter itself.
+        if os.name == "posix":
+            popen_kwargs["start_new_session"] = True
+        else:
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         if self.binary_stdio:
             self.process = subprocess.Popen(self.start_cmd, **popen_kwargs)
         else:
@@ -123,16 +220,20 @@ class SubprocessLanguage(BaseLanguage):
                 errors="replace",
                 **popen_kwargs,
             )
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stdout, False),
-            daemon=True,
-        ).start()
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stderr, True),
-            daemon=True,
-        ).start()
+        self._reader_threads = [
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stdout, False),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stderr, True),
+                daemon=True,
+            ),
+        ]
+        for reader in self._reader_threads:
+            reader.start()
 
     def run(self, code):
         retry_count = 0
@@ -182,14 +283,38 @@ class SubprocessLanguage(BaseLanguage):
                     }
                     return
 
+        idle_timeout = _env_seconds("INTERPRETER_COMMAND_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT)
+        total_timeout = _env_seconds("INTERPRETER_COMMAND_TIMEOUT", DEFAULT_TOTAL_TIMEOUT)
+        started_at = time.time()
+        last_output_at = started_at
+
+        def _timed_out():
+            """Return a reason string if this command should be killed, else None."""
+            now = time.time()
+            if idle_timeout and (now - last_output_at) > idle_timeout:
+                return (
+                    f"produced no output for {idle_timeout:.0f}s",
+                    idle_timeout,
+                    "INTERPRETER_COMMAND_IDLE_TIMEOUT",
+                )
+            if total_timeout and (now - started_at) > total_timeout:
+                return (
+                    f"exceeded the {total_timeout:.0f}s total time limit",
+                    total_timeout,
+                    "INTERPRETER_COMMAND_TIMEOUT",
+                )
+            return None
+
         while True:
             if not self.output_queue.empty():
                 yield self.output_queue.get()
+                last_output_at = time.time()
             else:
                 time.sleep(0.1)
             try:
                 output = self.output_queue.get(timeout=0.3)  # Waits for 0.3 seconds
                 yield output
+                last_output_at = time.time()
             except queue.Empty:
                 if self.done.is_set():
                     # Try to yank 3 more times from it... maybe there's something in there...
@@ -200,11 +325,56 @@ class SubprocessLanguage(BaseLanguage):
                         time.sleep(0.2)
                     break
 
+            # Check whether this command has hung or run too long. Without this
+            # the loop waits forever for an end-of-execution marker that a
+            # blocked command (sshfs, ssh, a prompt-waiting installer) will
+            # never print. Checked on every pass, not only when the queue came
+            # up empty: a command that prints at least every 0.3s (`yes`, a
+            # runaway loop, `tail -f`) never comes up empty, so the total cap
+            # would never fire for exactly the runaway it exists to stop. A
+            # finished command is only being drained here, so it is never
+            # killed.
+            timed_out = None if self.done.is_set() else _timed_out()
+            if timed_out:
+                reason, limit, env_var = timed_out
+                self._kill_process_group()
+                self.done.set()
+                # The readers see EOF only once the killed tree has closed the
+                # pipes, and what they read then -- often the prompt the
+                # command was stuck on, which never got its newline -- would
+                # otherwise be queued after this drain and reported as the
+                # *next* command's output. Bounded, because a descendant that
+                # escaped the kill can hold a pipe open indefinitely.
+                join_deadline = time.time() + 2
+                for reader in self._reader_threads:
+                    reader.join(timeout=max(0.0, join_deadline - time.time()))
+                # Drain anything the command managed to emit before the kill.
+                while not self.output_queue.empty():
+                    yield self.output_queue.get()
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": (
+                        f"\n[Open Interpreter] Command killed: it {reason}.\n"
+                        f"The command and every process it started were terminated "
+                        f"({_tree_kill_description()}).\n"
+                        f"If this command legitimately needs longer, raise {env_var} "
+                        f"(seconds, 0 disables), or run it in the background "
+                        f"(e.g. append ' &' or use nohup) so it does not block.\n"
+                    ),
+                }
+                # The shell is dead; reap it and close its pipes, and the next
+                # run() will start a fresh one. Skip the state line below: it
+                # queries the shell, which no longer exists.
+                self.terminate()
+                break
+
         # Persistent shells report where they are after every command, the way
         # JupyterLanguage reports CWD/variables for Python. Opt-in via the
         # method existing, so languages without tracked state are unaffected.
+        # Skipped after a timeout kill, when the shell is gone.
         state_line = getattr(self, "_state_line", None)
-        if callable(state_line):
+        if self.process is not None and callable(state_line):
             line = state_line()
             if line:
                 yield {"type": "console", "format": "output", "content": line}
