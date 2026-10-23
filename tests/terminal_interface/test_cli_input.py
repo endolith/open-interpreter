@@ -18,7 +18,7 @@ def test_cli_input_mouse_only_becomes_empty(monkeypatch):
     assert cli_input("> ") == ""
 
 
-def test_prompt_choice_ignores_leaked_report_bytes(monkeypatch):
+def test_prompt_choice_ignores_leaked_report_bytes(tty, monkeypatch):
     """Leaked tracking bytes around a y/n answer don't fail validation."""
     monkeypatch.setattr(
         "builtins.input", lambda _prompt="": "\x1b[<0;80;53mY\x1b[61;4R"
@@ -26,7 +26,7 @@ def test_prompt_choice_ignores_leaked_report_bytes(monkeypatch):
     assert prompt_choice("  ", ("y", "n")) == "y"
 
 
-def test_prompt_choice_rejects_spelled_out_answer(monkeypatch):
+def test_prompt_choice_rejects_spelled_out_answer(tty, monkeypatch):
     """"yes" is not an answer: it re-prompts instead of counting as "y".
 
     Truncating to the first letter would let a multi-key or pasted answer act
@@ -45,7 +45,7 @@ def test_prompt_choice_rejects_spelled_out_answer(monkeypatch):
     assert prompts == ["  Retry? (y/n) ", "  "]
 
 
-def test_prompt_choice_rejects_multi_letter_run(monkeypatch):
+def test_prompt_choice_rejects_multi_letter_run(tty, monkeypatch):
     """A run of valid letters ("yqn") is not a choice either.
 
     Every letter is one the user could have meant, so reading the first one
@@ -56,14 +56,14 @@ def test_prompt_choice_rejects_multi_letter_run(monkeypatch):
     assert prompt_choice("  ", ("y", "a", "n")) == "n"
 
 
-def test_prompt_choice_rejects_blank_line(monkeypatch):
+def test_prompt_choice_rejects_blank_line(tty, monkeypatch):
     """An empty line re-prompts rather than resolving to a choice."""
     answers = iter(["", "  ", "a"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     assert prompt_choice("  ", ("y", "a", "n")) == "a"
 
 
-def test_prompt_choice_tolerates_case_and_padding(monkeypatch):
+def test_prompt_choice_tolerates_case_and_padding(tty, monkeypatch):
     """A single letter still answers regardless of case or stray spaces."""
     monkeypatch.setattr("builtins.input", lambda _prompt="": "  Y  ")
     assert prompt_choice("  ", ("y", "n")) == "y"

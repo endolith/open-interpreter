@@ -1,5 +1,3 @@
-import io
-
 import pytest
 
 from interpreter.core.utils.prompt_choice import (
@@ -7,25 +5,6 @@ from interpreter.core.utils.prompt_choice import (
     prompt_choice,
     stdin_is_interactive,
 )
-
-
-class FakeStdin(io.StringIO):
-    def __init__(self, tty):
-        super().__init__()
-        self._tty = tty
-
-    def isatty(self):
-        return self._tty
-
-
-@pytest.fixture
-def tty(monkeypatch):
-    monkeypatch.setattr("sys.stdin", FakeStdin(tty=True))
-
-
-@pytest.fixture
-def no_tty(monkeypatch):
-    monkeypatch.setattr("sys.stdin", FakeStdin(tty=False))
 
 
 def test_returns_the_chosen_option_on_a_tty(tty, monkeypatch):
