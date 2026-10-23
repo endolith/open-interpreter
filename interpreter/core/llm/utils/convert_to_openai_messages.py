@@ -78,11 +78,13 @@ def convert_to_openai_messages(
                 ] = f"""```{message["format"]}\n{message["content"]}\n```"""
 
         elif message["type"] == "console" and message["format"] == "output":
+            if "content" not in message:
+                # A missing key means empty output, not a crash: normalize once
+                # so both branches below never KeyError (#221).
+                message["content"] = ""
             if function_calling:
                 new_message["role"] = "function"
                 new_message["name"] = "execute"
-                if "content" not in message:
-                    print("What is this??", content)
                 if type(message["content"]) != str:
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
@@ -124,6 +126,9 @@ def convert_to_openai_messages(
                     # If no vision, we only support the format of "description"
                     continue
 
+                if "format" not in message:
+                    raise Exception("Format of the image is not specified.")
+
                 if "base64" in message["format"]:
                     # Extract the extension from the format, default to 'png' if not specified
                     if "." in message["format"]:
@@ -144,14 +149,9 @@ def convert_to_openai_messages(
                         )
 
                 else:
-                    # Probably would be better to move this to a validation pass
-                    # Near core, through the whole messages object
-                    if "format" not in message:
-                        raise Exception("Format of the image is not specified.")
-                    else:
-                        raise Exception(
-                            f"Unrecognized image format: {message['format']}"
-                        )
+                    raise Exception(
+                        f"Unrecognized image format: {message['format']}"
+                    )
 
                 content = f"data:image/{extension};base64,{encoded_string}"
 
