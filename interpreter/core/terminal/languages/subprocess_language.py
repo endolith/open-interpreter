@@ -318,35 +318,40 @@ class SubprocessLanguage(BaseLanguage):
                         time.sleep(0.2)
                     break
 
-                # Nothing arrived — check whether this command has hung. Without
-                # this the loop waits forever for an end-of-execution marker that
-                # a blocked command (sshfs, ssh, a prompt-waiting installer) will
-                # never print.
-                timed_out = _timed_out()
-                if timed_out:
-                    reason, limit, env_var = timed_out
-                    self._kill_process_group()
-                    self.done.set()
-                    # Drain anything the command managed to emit before the kill.
-                    while not self.output_queue.empty():
-                        yield self.output_queue.get()
-                    yield {
-                        "type": "console",
-                        "format": "output",
-                        "content": (
-                            f"\n[Open Interpreter] Command killed: it {reason}.\n"
-                            f"The command and every process it started were terminated "
-                            f"({_tree_kill_description()}).\n"
-                            f"If this command legitimately needs longer, raise {env_var} "
-                            f"(seconds, 0 disables), or run it in the background "
-                            f"(e.g. append ' &' or use nohup) so it does not block.\n"
-                        ),
-                    }
-                    # The shell is dead; the next run() will start a fresh one.
-                    # Skip the state line below: it queries the shell, which no
-                    # longer exists.
-                    self.process = None
-                    break
+            # Check whether this command has hung or run too long. Without this
+            # the loop waits forever for an end-of-execution marker that a
+            # blocked command (sshfs, ssh, a prompt-waiting installer) will
+            # never print. Checked on every pass, not only when the queue came
+            # up empty: a command that prints at least every 0.3s (`yes`, a
+            # runaway loop, `tail -f`) never comes up empty, so the total cap
+            # would never fire for exactly the runaway it exists to stop. A
+            # finished command is only being drained here, so it is never
+            # killed.
+            timed_out = None if self.done.is_set() else _timed_out()
+            if timed_out:
+                reason, limit, env_var = timed_out
+                self._kill_process_group()
+                self.done.set()
+                # Drain anything the command managed to emit before the kill.
+                while not self.output_queue.empty():
+                    yield self.output_queue.get()
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": (
+                        f"\n[Open Interpreter] Command killed: it {reason}.\n"
+                        f"The command and every process it started were terminated "
+                        f"({_tree_kill_description()}).\n"
+                        f"If this command legitimately needs longer, raise {env_var} "
+                        f"(seconds, 0 disables), or run it in the background "
+                        f"(e.g. append ' &' or use nohup) so it does not block.\n"
+                    ),
+                }
+                # The shell is dead; the next run() will start a fresh one.
+                # Skip the state line below: it queries the shell, which no
+                # longer exists.
+                self.process = None
+                break
 
         # Persistent shells report where they are after every command, the way
         # JupyterLanguage reports CWD/variables for Python. Opt-in via the

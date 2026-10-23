@@ -6,13 +6,47 @@ the optional total cap (INTERPRETER_COMMAND_TIMEOUT) end that wait by killing
 the shell and everything it started.
 """
 
+import shutil
 import subprocess
+import threading
 from unittest import mock
 
 import pytest
 
 from interpreter.core.terminal.languages import subprocess_language
+from interpreter.core.terminal.languages.bash import Bash
 from interpreter.core.terminal.languages.subprocess_language import SubprocessLanguage
+
+needs_bash = pytest.mark.skipif(not shutil.which("bash"), reason="bash not installed")
+
+
+def _run(language, code, deadline=15):
+    """Run `code` to completion and return its output text, failing on a hang.
+
+    The bugs pinned here show up as run() never returning, so the run happens
+    on a worker thread with a deadline: a regression is a failed assertion,
+    not a stuck suite. The shell is left running so a test can run a second
+    command in it; callers terminate it.
+    """
+    chunks = []
+    finished = threading.Event()
+
+    def _go():
+        try:
+            chunks.extend(language.run(code))
+        finally:
+            finished.set()
+
+    threading.Thread(target=_go, daemon=True).start()
+    completed = finished.wait(timeout=deadline)
+    if not completed:
+        language.terminate()
+    assert completed, f"run() did not return within {deadline}s: {code!r}"
+    return "".join(
+        str(c.get("content"))
+        for c in chunks
+        if c.get("format") != "active_line" and c.get("content")
+    )
 
 
 # --------------------------------------------------------------------------
@@ -86,3 +120,28 @@ def test_timeout_message_names_the_kill_this_platform_uses(os_name, says, never_
 
     assert says in description
     assert never_says not in description
+
+
+# --------------------------------------------------------------------------
+# The total cap must fire even while the command keeps printing
+# --------------------------------------------------------------------------
+
+
+@needs_bash
+def test_total_timeout_kills_a_command_that_never_stops_printing(monkeypatch):
+    """INTERPRETER_COMMAND_TIMEOUT stops a runaway that prints continuously.
+
+    The idle timeout cannot catch `yes`, a runaway loop or `tail -f` on a busy
+    log, because they never go quiet; the total cap exists for exactly those.
+    It used to be checked only when the output queue came up empty, which a
+    command printing at least every 0.3s never allows, so run() never returned.
+    """
+    monkeypatch.setenv("INTERPRETER_COMMAND_TIMEOUT", "2")
+    language = Bash()
+    try:
+        output = _run(language, "while true; do echo tick; sleep 0.05; done")
+    finally:
+        language.terminate()
+
+    assert "tick" in output
+    assert "Command killed: it exceeded the 2s total time limit" in output
