@@ -17,7 +17,7 @@ def _answers(monkeypatch, *typed):
     return shown
 
 
-def test_contribute_past_reprompts_instead_of_reading_a_word(monkeypatch):
+def test_contribute_past_reprompts_instead_of_reading_a_word(tty, monkeypatch):
     """A near-miss like "Yay" must not silently answer "n" and skip the upload.
 
     The prompt guards uploading every past conversation for training, so a
@@ -30,13 +30,13 @@ def test_contribute_past_reprompts_instead_of_reading_a_word(monkeypatch):
     assert shown == ["(y/n) ", "  "]
 
 
-def test_contribute_future_accepts_a_bare_y(monkeypatch):
+def test_contribute_future_accepts_a_bare_y(tty, monkeypatch):
     """A single "y" opts in, which is the answer the prompt asks for."""
     _answers(monkeypatch, "y")
     assert user_wants_to_contribute_future() is True
 
 
-def test_contribute_future_accepts_a_bare_n(monkeypatch):
+def test_contribute_future_accepts_a_bare_n(tty, monkeypatch):
     """A single "n" opts out, as does a deliberate "no" only if retyped as n.
 
     Only exact choices resolve, so "no" is rejected like any other word.
