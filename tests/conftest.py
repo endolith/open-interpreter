@@ -79,19 +79,6 @@ def integration_skip_reason() -> str | None:
     return None
 
 
-def pytest_configure(config):
-    """Register the custom markers used by the suite."""
-    config.addinivalue_line(
-        "markers",
-        "integration: calls an LLM and may execute generated code; "
-        "requires OI_RUN_INTEGRATION=1 and the provider key for OI_INTEGRATION_MODEL",
-    )
-    config.addinivalue_line(
-        "markers",
-        "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
-    )
-
-
 def pytest_collection_modifyitems(config, items):
     """Skip integration tests without opt-in/credentials, and wrong-OS markers."""
     reason = integration_skip_reason()
