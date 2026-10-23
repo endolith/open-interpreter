@@ -10,10 +10,10 @@ Binary resolution mirrors resolve_bash.py: env-var override → PATH → Git usr
 The model never constructs shell command strings; flags and temp-file hygiene live here.
 
 In-place edit strategies (Windows cross-drive safety):
-  - stdout + atomic replace: sed, jq, yq — tool emits the new file; we write a
-    temp sibling in the target's parent directory and os.replace().
-  - cwd in target's parent: gawk, patch — tool must edit in place (e.g. gawk without
-    print); run with cwd set to the target directory so tool temps stay on that drive.
+  - stdout + atomic replace: sed, gawk, jq, yq — tool emits the new file; we
+    write a temp sibling in the target's parent directory and os.replace().
+  - cwd in target's parent: patch — tool must edit in place; run with cwd set to
+    the target directory so tool temps stay on that drive.
   - direct open: poke (binary), write (create or replace), append (append to existing).
 Line-ending policy (CRLF vs LF):
   - Text tools (sed, gawk, jq, yq) emit LF even when the target uses CRLF
