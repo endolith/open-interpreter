@@ -12,17 +12,19 @@ The model never constructs shell command strings; flags and temp-file hygiene li
 In-place edit strategies (Windows cross-drive safety):
   - stdout + atomic replace: sed, gawk, jq, yq — tool emits the new file; we
     write a temp sibling in the target's parent directory and os.replace().
-  - cwd in target's parent: patch — tool must edit in place; run with cwd set to
-    the target directory so tool temps stay on that drive.
+  - staged copy + atomic replace: patch — tool edits a copy in its own temp
+    directory (its temps, .orig and .rej stay beside the copy); on success the
+    result replaces the target like stdout output does. The target is never
+    touched before patch has succeeded.
   - direct open: poke (binary), write (create or replace), append (append to existing).
 Line-ending policy (CRLF vs LF):
   - Text tools (sed, gawk, jq, yq) emit LF even when the target uses CRLF
     (e.g. .bat files), which used to silently convert the whole file. To avoid
     that, stdout-based rewrites and write-replacements are normalized back to
     the target's original newline style before writing, and append converts its
-    block to match. Poke is binary and never normalized. Patch is applied
-    against an LF-normalized copy when the target is CRLF, then converted back,
-    so LF context lines still match.
+    block to match. Poke is binary and never normalized. Patch runs against a
+    copy with CRLF pairs as LF, so LF context lines still match, and its result
+    is converted back on the way to the target.
 """
 
 import difflib
@@ -199,11 +201,6 @@ def _subprocess_text(result):
         out = (result.stdout or b"") + (result.stderr or b"")
         return out.decode("utf-8", errors="replace").strip()
     return ((result.stdout or "") + (result.stderr or "")).strip()
-
-
-def _target_parent_dir(target):
-    """Parent directory of target; use as subprocess cwd for in-place tools on Windows."""
-    return str(Path(target).parent)
 
 
 def _detect_newline_style(data):
@@ -695,29 +692,6 @@ def _context_lines_present(target, diff):
     return True
 
 
-def _cleanup_patch_artifacts(target):
-    """Remove the .orig/.rej files patch leaves beside the target.
-
-    patch writes .orig whenever it modifies a file -- success as well as
-    failure -- and .rej when a hunk fails. Both land in the user's directory
-    next to the file they were editing, which is litter here, and a stale .rej
-    reads as an unresolved edit on the next visit.
-
-    Removing the backup unconditionally is a deliberate choice, not an
-    oversight: every other language in this module (sed, gawk, jq, yq)
-    rewrites the target atomically and leaves no backup, so keeping patch's
-    would make it the only language that silently deposits .orig files. Callers
-    that want the original should copy it themselves before editing.
-    """
-    path = Path(target)
-    for suffix in (".orig", ".rej"):
-        artifact = path.with_name(path.name + suffix)
-        try:
-            artifact.unlink()
-        except OSError:
-            pass
-
-
 def _stage_patch_copy(workdir, target):
     """Copy target into workdir under its own name, with CRLF pairs as LF.
 
@@ -736,10 +710,22 @@ def _stage_patch_copy(workdir, target):
 def run_patch(target, code):
     """Apply a unified diff (patch format) to an existing file.
 
-    When the target uses CRLF, the file is normalized to LF before patch runs
-    (diff context lines are LF) and converted back afterwards, so LF hunks
-    still match CRLF files without converting the file. On failure the original
-    bytes are restored so the LF normalization never leaks.
+    patch never runs against the target. It edits a staged copy (CRLF pairs
+    as LF, so LF hunks match CRLF files; see _stage_patch_copy) in a temporary
+    directory, and only once it has succeeded does the result replace the
+    target, through the same temp-sibling os.replace that sed, jq and yq use,
+    which also converts it back to the target's newline style. A failed,
+    partly applied or interrupted patch, or a write error along the way,
+    therefore leaves the target exactly as it was. GNU patch replaces the file
+    with a new inode itself, so the swap changes nothing about hard links.
+    A diff that deletes the file (+++ /dev/null) deletes the target.
+
+    patch writes a .orig backup on every change and a .rej when a hunk fails.
+    Both land beside the copy and vanish with its directory, so none reach the
+    user's directory, where a stale .rej reads as an unresolved edit. Keeping
+    no backup is deliberate: every other language here rewrites atomically and
+    leaves none, so callers that want the original copy it themselves. The
+    reject is read first; it is the best account of why a hunk failed.
     """
     _validate_target(target, must_exist=True)
     if not code.strip():
@@ -751,57 +737,26 @@ def run_patch(target, code):
     if not diff.endswith("\n"):
         diff += "\n"
 
-    original_bytes = path.read_bytes()
-    original_style = _detect_newline_style(original_bytes)
-    normalized_for_patch = False
-    if original_style == b"\r\n":
-        # Only CRLF pairs become LF. A lone CR is data (see
-        # _normalize_to_style); turning it into LF here would make the
-        # conversion back to CRLF split its line in two.
-        lf_bytes = original_bytes.replace(b"\r\n", b"\n")
-        if lf_bytes != original_bytes:
-            path.write_bytes(lf_bytes)
-            normalized_for_patch = True
-
-    try:
+    with tempfile.TemporaryDirectory() as workdir:
+        work = _stage_patch_copy(workdir, target)
         result = subprocess.run(
             [patch_bin, "-p0", "--forward", path.name],
             input=diff.encode("utf-8"),
             capture_output=True,
-            cwd=_target_parent_dir(target),
+            cwd=workdir,
         )
-    except Exception:
-        if normalized_for_patch:
-            path.write_bytes(original_bytes)
-        raise
-    # Read the reject before cleaning up: it is the only side-by-side of the
-    # hunk against the file's real lines, and it is removed on both paths.
-    reject = _read_patch_reject(target)
-    _cleanup_patch_artifacts(target)
-    if result.returncode != 0:
-        if normalized_for_patch:
-            path.write_bytes(original_bytes)
-        _raise_patch_failure(result, diff, target, reject)
-    if normalized_for_patch:
+        if result.returncode != 0:
+            _raise_patch_failure(result, diff, target, _read_patch_reject(work))
         try:
-            patched = path.read_bytes()
-        except OSError:
-            patched = original_bytes
-        path.write_bytes(_normalize_to_style(patched, b"\r\n"))
-        converted = True
-    else:
-        # Non-CRLF targets: still normalize tool-introduced CRLF back to the
-        # original style when one exists, mirroring the atomic-replace path.
+            patched = work.read_bytes()
+        except FileNotFoundError:
+            patched = None  # the diff deleted the file
+
+    if patched is None:
+        path.unlink()
         converted = False
-        try:
-            patched = path.read_bytes()
-        except OSError:
-            patched = None
-        if patched is not None and original_style is not None:
-            normalized = _normalize_to_style(patched, original_style)
-            if normalized != patched:
-                path.write_bytes(normalized)
-                converted = True
+    else:
+        converted = _atomic_replace_from_stdout(target, patched)
     out = _subprocess_text(result)
     base = out if out else "patch: OK"
     return base + (_eol_converted_note(target) if converted else "")

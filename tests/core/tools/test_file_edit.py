@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import shutil
@@ -498,23 +499,42 @@ class TestRunPatch(unittest.TestCase):
             run_patch(target, diff)
             self.assertEqual(open(target, encoding="utf-8").read(), "baz\nbar\n")
 
-    def test_run_patch_uses_target_parent_cwd(self):
+    def test_run_patch_edits_a_copy_and_replaces_the_target_atomically(self):
+        """patch edits a same-named copy elsewhere; the result lands atomically.
+
+        patch used to run with cwd in the target's directory, editing the
+        target itself, so the file changed before anyone knew whether the
+        patch would succeed. It now runs in its own temp directory on a copy
+        with the target's basename (so its messages name the user's file), and
+        the result reaches the target only through _atomic_replace_from_stdout,
+        whose temp sibling in the target's directory keeps the final rename on
+        the target's drive, the Windows cross-drive constraint.
+        """
+        from interpreter.core.tools import file_edit
+
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
-            run_write(target, "foo\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b"", stderr=b""
-                )
-                run_patch(
-                    target,
-                    f"--- {Path(target).name}\n+++ {Path(target).name}\n",
-                )
-            self.assertEqual(
-                run_mock.call_args.kwargs["cwd"], str(Path(target).parent)
+            run_write(target, "foo\nbar\n")
+            diff = (
+                "--- demo.txt\n+++ demo.txt\n"
+                "@@ -1,2 +1,2 @@\n"
+                "-foo\n"
+                "+baz\n"
+                " bar\n"
             )
+            with mock.patch.object(
+                file_edit.subprocess, "run", wraps=file_edit.subprocess.run
+            ) as run_mock, mock.patch.object(
+                file_edit,
+                "_atomic_replace_from_stdout",
+                wraps=file_edit._atomic_replace_from_stdout,
+            ) as replace_mock:
+                run_patch(target, diff)
+            cwd = run_mock.call_args.kwargs["cwd"]
+            self.assertNotEqual(os.path.realpath(cwd), os.path.realpath(tmp))
+            self.assertEqual(run_mock.call_args.args[0][-1], "demo.txt")
+            replace_mock.assert_called_once_with(target, b"baz\nbar\n")
+            self.assertEqual(Path(target).read_bytes(), b"baz\nbar\n")
 
 
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
@@ -1107,6 +1127,133 @@ class TestRunPatchCrlf(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(tmp)), ["script.bat"])
             run_patch(target, diff)
             self.assertIn(b"echo hello\r\n", Path(target).read_bytes())
+
+
+@unittest.skipUnless(shutil.which("patch"), "patch not installed")
+class TestRunPatchLeavesTargetIntactUntilSuccess(unittest.TestCase):
+    """Until patch has succeeded, the target holds exactly its original bytes.
+
+    run_patch used to stage a CRLF target as LF in place, run patch on the
+    target itself, and restore the original bytes on some failure paths. Each
+    path the restore missed left the file changed by an edit that was reported
+    as failed, or not reported at all. These tests pin the invariant per path.
+    """
+
+    CRLF_BODY = b"@echo off\r\necho hi\r\necho bye\r\necho end\r\n"
+    CRLF_DIFF = (
+        "--- script.bat\n+++ script.bat\n"
+        "@@ -1,4 +1,4 @@\n"
+        " @echo off\n"
+        "-echo hi\n"
+        "+echo hello\n"
+        " echo bye\n"
+        " echo end\n"
+    )
+
+    def test_interrupted_patch_leaves_crlf_target_unchanged(self):
+        """Ctrl-C while patch runs leaves a CRLF target byte-for-byte intact.
+
+        respond.py catches KeyboardInterrupt around run_edit and keeps the
+        session going, so an interrupted edit must not leave the file in a
+        state nobody asked for. The restore only caught Exception, so Ctrl-C
+        left the target LF-converted: the silent whole-file conversion the
+        CRLF handling exists to prevent. The target must also be untouched
+        while patch is still running, so a kill at any moment is safe.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(self.CRLF_BODY)
+            seen_during_patch = []
+
+            def interrupted(*args, **kwargs):
+                seen_during_patch.append(Path(target).read_bytes())
+                raise KeyboardInterrupt
+
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run",
+                side_effect=interrupted,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    run_patch(target, self.CRLF_DIFF)
+            self.assertEqual(seen_during_patch, [self.CRLF_BODY])
+            self.assertEqual(Path(target).read_bytes(), self.CRLF_BODY)
+
+    def test_partially_applied_patch_leaves_lf_target_unchanged(self):
+        """When one hunk fails, the hunks that applied do not stay in the file.
+
+        GNU patch applies what it can and exits 1. CRLF targets were restored
+        on failure but LF targets were not, so the same error reached the
+        model while an LF file kept half the edit, and resending the corrected
+        diff then hit already-applied hunks. A failed patch changes nothing.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "nums.txt")
+            original = "".join(f"{i}\n" for i in range(1, 31)).encode()
+            Path(target).write_bytes(original)
+            diff = (
+                "--- nums.txt\n+++ nums.txt\n"
+                "@@ -1,4 +1,4 @@\n"
+                "-1\n"
+                "+ONE\n"
+                " 2\n"
+                " 3\n"
+                " 4\n"
+                "@@ -20,4 +20,4 @@\n"
+                "-not in the file\n"
+                "+X\n"
+                " 21\n"
+                " 22\n"
+                " 23\n"
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                run_patch(target, diff)
+            self.assertIn("FAILED", str(ctx.exception))
+            self.assertEqual(Path(target).read_bytes(), original)
+            self.assertEqual(sorted(os.listdir(tmp)), ["nums.txt"])
+
+    def test_patch_that_deletes_a_crlf_file_leaves_it_deleted(self):
+        """A diff to /dev/null deletes the target, CRLF or not.
+
+        GNU patch removes the file for a `+++ /dev/null` diff. The CRLF
+        round trip then failed to read the patched file and wrote the
+        original bytes back, so run_patch reported success while the file it
+        had just deleted was still there.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "old.bat")
+            Path(target).write_bytes(b"a\r\nb\r\n")
+            diff = (
+                "--- old.bat\n+++ /dev/null\n"
+                "@@ -1,2 +0,0 @@\n"
+                "-a\n"
+                "-b\n"
+            )
+            run_patch(target, diff)
+            self.assertFalse(os.path.exists(target))
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_failed_write_while_patching_leaves_target_intact(self):
+        """A write error during a patch (e.g. disk full) cannot truncate the target.
+
+        Staging the CRLF target as LF rewrote it in place before patch ran.
+        A write that failed partway left a truncated file, and the failure
+        was raised before any restore could run. Every write here fails
+        after writing half its bytes, the way ENOSPC does.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(self.CRLF_BODY)
+
+            def disk_full(self, data):
+                with open(self, "wb") as handle:
+                    handle.write(data[: len(data) // 2])
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+            with mock.patch.object(Path, "write_bytes", disk_full):
+                with self.assertRaises(OSError):
+                    run_patch(target, self.CRLF_DIFF)
+            self.assertEqual(Path(target).read_bytes(), self.CRLF_BODY)
+            self.assertEqual(os.listdir(tmp), ["script.bat"])
 
 
 class TestPokeScript(unittest.TestCase):
