@@ -306,24 +306,29 @@ class SubprocessLanguage(BaseLanguage):
             # status and end the turn; the next block restarts the dead process via
             # the write retry in run(). Only the stdout reader reports: both
             # streams hit EOF on process death, and one report is enough.
-            if not is_error_stream and not self.done.is_set():
-                process = self.process
-                if process is not None and process.stdout is not stream:
-                    # This reader outlived its process; self.process is a
-                    # successor that this EOF says nothing about.
-                    process = None
+            process = self.process
+            if (
+                not is_error_stream
+                and not self.done.is_set()
+                # Only the persistent shell's own stdout speaks for the shell.
+                # A reader that outlived its process would end its successor's
+                # block, and a language that runs a fresh process per block
+                # (Java) reaches EOF without the marker every time and ends the
+                # block itself.
+                and process is not None
+                and process.stdout is stream
+            ):
                 returncode = None
-                if process is not None:
-                    # A shell closes its pipes while exiting, before it can be
-                    # reaped, so a single poll() here usually still sees it
-                    # running. Give a dying shell a moment to finish.
-                    try:
-                        returncode = process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        pass
+                # A shell closes its pipes while exiting, before it can be
+                # reaped, so a single poll() here usually still sees it
+                # running. Give a dying shell a moment to finish.
+                try:
+                    returncode = process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
                 if returncode is not None:
                     detail = f"the shell exited with code {returncode}"
-                elif process is not None:
+                else:
                     # Alive with stdout at EOF: user code moved the shell's own
                     # stdout (`exec >file`). Every later end marker goes there
                     # too and no reader is left on the pipe, so the next block
@@ -332,8 +337,6 @@ class SubprocessLanguage(BaseLanguage):
                     self.terminate()
                     self.process = None
                     detail = "the shell closed its output (e.g. `exec >file`) and was stopped"
-                else:
-                    detail = "the shell exited"
                 self.output_queue.put(
                     {
                         "type": "console",

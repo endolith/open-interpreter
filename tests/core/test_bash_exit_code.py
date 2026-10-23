@@ -273,6 +273,47 @@ def test_exiting_shell_seen_running_at_eof_reports_its_code():
     assert not process.terminated
 
 
+def _drain(language):
+    texts = []
+    while not language.output_queue.empty():
+        texts.append(str(language.output_queue.get_nowait().get("content")))
+    return texts
+
+
+def test_eof_on_a_per_block_process_is_not_reported_as_a_shell_exit():
+    """EOF from a process that is not the persistent shell says nothing about it.
+
+    Java runs each block as a fresh `java` process and never prints the end
+    marker, so its stdout always reaches EOF without one. Reporting that as
+    "the shell exited" put a false restart notice on every Java block; Java's
+    run() ends the block itself once its readers finish.
+    """
+    language = Bash()
+    language.process = None
+
+    language.handle_stream_output(io.StringIO("hello from java\n"), False)
+
+    texts = _drain(language)
+    assert texts == ["hello from java\n"], texts
+    assert not language.done.is_set()
+
+
+def test_eof_from_a_previous_process_does_not_end_the_current_block():
+    """A reader that outlived its shell must not end its successor's block.
+
+    Setting `done` from a stale reader would cut off whichever block the
+    replacement shell is running at that moment.
+    """
+    language = Bash()
+    stale = io.StringIO("")
+    language.process = _ShellCaughtMidExit(io.StringIO(), returncode=0)
+
+    language.handle_stream_output(stale, False)
+
+    assert _drain(language) == []
+    assert not language.done.is_set()
+
+
 def test_cmd_comment_styles_get_no_marker_but_hash_lines_do():
     """Comment detection follows the shell: `#` is bash-only.
 
