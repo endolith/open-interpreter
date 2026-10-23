@@ -145,3 +145,51 @@ def test_total_timeout_kills_a_command_that_never_stops_printing(monkeypatch):
 
     assert "tick" in output
     assert "Command killed: it exceeded the 2s total time limit" in output
+
+
+# --------------------------------------------------------------------------
+# A killed command's output stays with that command, and its shell is reaped
+# --------------------------------------------------------------------------
+
+
+@needs_bash
+def test_output_read_after_the_kill_is_not_reported_as_the_next_commands(monkeypatch):
+    """What a killed command printed belongs to its own result, not the next.
+
+    A command hung on a prompt has usually printed the prompt without a
+    newline, so the reader cannot hand it over until the kill closes the pipe.
+    The queue used to be drained immediately after the kill, before the reader
+    got that EOF; the prompt -- the one clue to why it hung -- then sat in the
+    queue and came out as the start of the next command's output.
+    """
+    monkeypatch.setenv("INTERPRETER_COMMAND_IDLE_TIMEOUT", "1")
+    language = Bash()
+    try:
+        first = _run(language, "printf 'Continue? [y/N] '; sleep 30")
+        second = _run(language, "echo second")
+    finally:
+        language.terminate()
+
+    assert "Continue? [y/N]" in first
+    assert "Continue?" not in second, f"killed command's output leaked: {second!r}"
+    assert "second" in second
+
+
+@needs_bash
+def test_killed_shell_is_reaped_and_its_pipes_closed(monkeypatch):
+    """A timeout kill waits for the shell and closes its pipes.
+
+    Dropping the Popen reference instead left a zombie until some later Popen
+    happened to reap it, and left the stdin pipe open until garbage collection.
+    """
+    monkeypatch.setenv("INTERPRETER_COMMAND_IDLE_TIMEOUT", "1")
+    language = Bash()
+    language.start_process()
+    process = language.process
+    try:
+        _run(language, "sleep 30")
+    finally:
+        language.terminate()
+
+    assert process.returncode is not None, "killed shell was never reaped"
+    assert process.stdin.closed

@@ -55,6 +55,9 @@ class SubprocessLanguage(BaseLanguage):
         # Set by _abort_stream when the reader fails unexpectedly, so the
         # failure can be inspected after the turn rather than only being logged.
         self._stream_error = None
+        # The stdout/stderr reader threads of the current process. A timeout
+        # kill joins them so output read after the kill is not left queued.
+        self._reader_threads = []
 
     def detect_active_line(self, line):
         """
@@ -217,16 +220,20 @@ class SubprocessLanguage(BaseLanguage):
                 errors="replace",
                 **popen_kwargs,
             )
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stdout, False),
-            daemon=True,
-        ).start()
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stderr, True),
-            daemon=True,
-        ).start()
+        self._reader_threads = [
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stdout, False),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stderr, True),
+                daemon=True,
+            ),
+        ]
+        for reader in self._reader_threads:
+            reader.start()
 
     def run(self, code):
         retry_count = 0
@@ -332,6 +339,15 @@ class SubprocessLanguage(BaseLanguage):
                 reason, limit, env_var = timed_out
                 self._kill_process_group()
                 self.done.set()
+                # The readers see EOF only once the killed tree has closed the
+                # pipes, and what they read then -- often the prompt the
+                # command was stuck on, which never got its newline -- would
+                # otherwise be queued after this drain and reported as the
+                # *next* command's output. Bounded, because a descendant that
+                # escaped the kill can hold a pipe open indefinitely.
+                join_deadline = time.time() + 2
+                for reader in self._reader_threads:
+                    reader.join(timeout=max(0.0, join_deadline - time.time()))
                 # Drain anything the command managed to emit before the kill.
                 while not self.output_queue.empty():
                     yield self.output_queue.get()
@@ -347,10 +363,10 @@ class SubprocessLanguage(BaseLanguage):
                         f"(e.g. append ' &' or use nohup) so it does not block.\n"
                     ),
                 }
-                # The shell is dead; the next run() will start a fresh one.
-                # Skip the state line below: it queries the shell, which no
-                # longer exists.
-                self.process = None
+                # The shell is dead; reap it and close its pipes, and the next
+                # run() will start a fresh one. Skip the state line below: it
+                # queries the shell, which no longer exists.
+                self.terminate()
                 break
 
         # Persistent shells report where they are after every command, the way
