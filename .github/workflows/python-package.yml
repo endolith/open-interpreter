@@ -219,12 +219,12 @@ jobs:
           path: coverage-macos
 
       - name: Require Codecov token
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |
           if [ -z "${CODECOV_TOKEN}" ]; then
-            echo "::error::CODECOV_TOKEN repository secret is required for Codecov uploads from main and same-repository pull requests."
+            echo "::error::CODECOV_TOKEN is required for Codecov uploads from main and same-repository pull requests. Store it as a Dependabot secret as well as an Actions secret: runs triggered by Dependabot only see Dependabot secrets."
             exit 1
           fi
 
