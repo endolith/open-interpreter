@@ -45,6 +45,7 @@ def spill_dir(tmp_path, monkeypatch):
 
 
 def test_nothing_is_written_while_the_output_fits(spill_dir):
+    """Output under max_output stays in memory; no archive file is created."""
     oi = FakeInterpreter(max_output=100)
     note = feed(oi, {}, "x" * 50)
     assert note is None
@@ -53,6 +54,7 @@ def test_nothing_is_written_while_the_output_fits(spill_dir):
 
 
 def test_full_output_is_recoverable_after_truncation(spill_dir):
+    """Once output is truncated, the archive holds every byte of the original."""
     oi = FakeInterpreter(max_output=100)
     payload = "".join(f"line {i}\n" for i in range(500))
     note = feed(oi, {}, payload)
@@ -62,6 +64,8 @@ def test_full_output_is_recoverable_after_truncation(spill_dir):
 
 
 def test_each_block_is_appended_not_overwritten(spill_dir):
+    """A later block lands after an earlier one, so the note's "earlier blocks are
+    still in that file" stays true."""
     oi = FakeInterpreter(max_output=100)
     first = "A" * 400
     second = "B" * 400
@@ -76,7 +80,9 @@ def test_each_block_is_appended_not_overwritten(spill_dir):
     assert "OI OUTPUT BLOCK 2" in contents
 
 
+@pytest.mark.skipif(shutil.which("awk") is None, reason="needs awk")
 def test_the_awk_range_in_the_note_extracts_exactly_that_block(spill_dir):
+    """The awk range the note gives selects one block and nothing from its neighbours."""
     oi = FakeInterpreter(max_output=100)
     feed(oi, {"m": 1}, "AAAA\n" * 100)
     feed(oi, {"m": 2}, "BBBB\n" * 100)
@@ -112,13 +118,13 @@ def test_the_awk_command_in_the_note_runs_as_given(spill_dir, monkeypatch, dirna
     note = feed(oi, {}, "CCCC\n" * 100)
 
     command = re.search(r"`(awk .*)`", note).group(1)
-    result = subprocess.run(
-        ["bash", "-c", command], capture_output=True, text=True, timeout=30
-    )
+    result = subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=30)
     assert "CCCC" in result.stdout, result.stderr
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows reports every file as 0o666")
 def test_archive_is_not_world_readable(spill_dir):
+    """Console output can hold credentials, so other users must not read the archive."""
     oi = FakeInterpreter(max_output=100)
     feed(oi, {}, "x" * 400)
 
@@ -224,6 +230,7 @@ def test_writes_stay_linear_in_the_size_of_the_output(spill_dir):
 
 
 def test_truncate_output_leads_with_shaping_advice_and_ends_with_the_note():
+    """Truncated output advises shaping the command first and points at the archive last."""
     out = truncate_output("z" * 5000, max_output_chars=100, spill_note="ARCHIVE_NOTE.")
     assert "echo OK" in out
     assert "FAILED" in out
@@ -232,6 +239,7 @@ def test_truncate_output_leads_with_shaping_advice_and_ends_with_the_note():
 
 
 def test_truncate_output_without_an_archive_still_advises():
+    """With no archive, the advice is still given and no archive path is claimed."""
     out = truncate_output("z" * 5000, max_output_chars=100)
     assert "grep" in out
     assert "archived at" not in out
@@ -239,5 +247,6 @@ def test_truncate_output_without_an_archive_still_advises():
 
 @pytest.mark.parametrize("max_output", [50, 100, 1000])
 def test_short_output_is_left_alone(max_output):
+    """Output under the limit is returned unchanged."""
     data = "small"
     assert truncate_output(data, max_output_chars=max_output) == data
