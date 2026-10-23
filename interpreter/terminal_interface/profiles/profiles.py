@@ -206,7 +206,7 @@ def apply_profile(interpreter, profile, profile_path):
             for i in interpreter.computer.languages
             if i.name.lower() in [l.lower() for l in profile["computer"]["languages"]]
         ]
-        del profile["computer.languages"]
+        del profile["computer"]["languages"]
 
     apply_profile_to_object(interpreter, profile)
 
