@@ -31,6 +31,15 @@ from interpreter.core.tools.file_edit import (
 
 class TestEditLanguagesRegistry(unittest.TestCase):
     def test_expected_languages_registered(self):
+        """The edit tool offers append and patch; comby, perl and ed stay out.
+
+        EDIT_LANGUAGES is both run_edit's dispatch set and the enum in the
+        edit tool's schema, so it is exactly what the model is offered. comby
+        was removed along with its runner (not cross-platform, poorly
+        maintained), so listing it again would offer a language whose every
+        call fails. append is the only language that adds to a file without
+        rewriting it; dropping it from the set would hide its runner.
+        """
         self.assertNotIn("comby", EDIT_LANGUAGES)
         self.assertIn("append", EDIT_LANGUAGES)
         self.assertIn("patch", EDIT_LANGUAGES)
