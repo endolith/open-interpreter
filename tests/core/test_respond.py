@@ -152,6 +152,15 @@ def _panel_text(mock_rich_print):
     return str(getattr(renderable, "markup", renderable))
 
 
+def _hint_text(interpreter):
+    """Return the hint messages respond() passed to display_message."""
+    return " ".join(
+        str(call.args[0])
+        for call in interpreter.display_message.call_args_list
+        if call.args
+    )
+
+
 def test_respond_handles_budget_exceeded():
     """respond() reports the session/max budget and stops on BudgetExceededError."""
     import litellm
@@ -188,6 +197,7 @@ def test_respond_shows_the_providers_own_auth_error():
             list(respond(interpreter))
 
     assert "anthropic api key" in _panel_text(rich)
+    assert "Check the API key" in _hint_text(interpreter)
 
 
 def test_respond_does_not_swallow_a_rate_limit_error():
@@ -213,6 +223,7 @@ def test_respond_does_not_swallow_a_rate_limit_error():
             list(respond(interpreter))
 
     assert "exceeded your current quota" in _panel_text(rich)
+    assert "rate-limited" in _hint_text(interpreter)
 
 
 def test_respond_reports_a_mistyped_model_as_a_mistyped_model():
@@ -242,6 +253,7 @@ def test_respond_reports_a_mistyped_model_as_a_mistyped_model():
     assert "does not exist" in rendered
     assert "payment method" not in rendered
     assert "billing" not in rendered.lower()
+    assert "Check the model name" in _hint_text(interpreter)
 
 
 def test_respond_error_does_not_prompt_or_change_the_model():
@@ -266,6 +278,63 @@ def test_respond_error_does_not_prompt_or_change_the_model():
 
     prompt.assert_not_called()
     assert interpreter.llm.model == "gpt-4o"
+    assert "account has access" in _hint_text(interpreter)
+
+
+def test_respond_generic_error_adds_no_hint():
+    """An unrecognized failure shows only the provider's panel, with no guessed advice."""
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+
+    def run(msgs):
+        raise Exception("something odd happened")
+
+    interpreter.llm.run = run
+    with mock.patch("interpreter.core.respond.rich_print"):
+        with pytest.raises(Exception, match="something odd"):
+            list(respond(interpreter))
+
+    assert "Hint:" not in _hint_text(interpreter)
+
+
+def test_respond_auth_hint_mentions_a_profile_api_key():
+    """When llm.api_key is configured, the auth hint explains the provider mismatch."""
+    import litellm
+
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.llm.api_key = "configured"
+
+    def run(msgs):
+        raise litellm.exceptions.AuthenticationError(
+            "invalid key", "anthropic", "claude"
+        )
+
+    interpreter.llm.run = run
+    with mock.patch("interpreter.core.respond.rich_print"):
+        with pytest.raises(litellm.exceptions.AuthenticationError):
+            list(respond(interpreter))
+
+    assert "llm.api_key" in _hint_text(interpreter)
+
+
+def test_respond_not_found_error_hints_at_the_model_name():
+    """A 404 from the provider adds a model-name hint without billing advice."""
+    import litellm
+
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+
+    def run(msgs):
+        raise litellm.exceptions.NotFoundError("model not found", "openai", "gpt-x")
+
+    interpreter.llm.run = run
+    with mock.patch("interpreter.core.respond.rich_print"):
+        with pytest.raises(litellm.exceptions.NotFoundError):
+            list(respond(interpreter))
+
+    assert "Check the model name" in _hint_text(interpreter)
+    assert "billing" not in _hint_text(interpreter).lower()
 
 
 def test_display_provider_error_names_the_exception_type_when_there_is_no_message():

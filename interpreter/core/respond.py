@@ -65,6 +65,51 @@ def display_provider_error(error):
     )
 
 
+def _provider_hint(error, interpreter):
+    """Return a provider-agnostic hint for a recognized failure, or None.
+
+    The panel carries the provider's own message; this only adds advice that is
+    true across providers. It deliberately does not guess at a billing page or
+    offer the removed hosted model.
+    """
+    message = str(error).lower()
+    if (
+        isinstance(error, litellm.exceptions.AuthenticationError)
+        or "authenticationerror" in message
+    ):
+        hint = "Check the API key for this provider."
+        if getattr(interpreter.llm, "api_key", None):
+            hint += (
+                " `llm.api_key` is set in your profile/config; if you pass a "
+                "different `--model` or `--api_key` on the command line, they "
+                "must match the same provider."
+            )
+        return hint
+    if isinstance(error, litellm.exceptions.RateLimitError) or any(
+        marker in message
+        for marker in ("rate limit", "rate-limit", "rate limited", "quota", "429")
+    ):
+        return (
+            "The provider rate-limited this request or your quota is exhausted; "
+            "retry later or check the provider's billing."
+        )
+    if isinstance(error, litellm.exceptions.NotFoundError) or re.search(
+        r"\bmodel\b.{0,80}\b(does not exist|not found|unknown model|no such model)\b",
+        message,
+    ):
+        return "Check the model name."
+    if "do not have access" in message or "does not have access" in message:
+        return "Check the model name and that your account has access to it."
+    return None
+
+
+def display_provider_hint(error, interpreter):
+    """Print a provider-agnostic hint after the provider's own error panel."""
+    hint = _provider_hint(error, interpreter)
+    if hint:
+        interpreter.display_message(f"> **Hint:** {hint}")
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -155,6 +200,7 @@ def respond(interpreter):
 
             except Exception as e:
                 display_provider_error(e)
+                display_provider_hint(e, interpreter)
                 raise
 
         ### RUN CODE (if it's there) ###
