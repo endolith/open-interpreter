@@ -827,3 +827,19 @@ def test_image_message_without_format_key_raises_descriptive_error(interpreter):
 
     with pytest.raises(Exception, match="Format of the image is not specified"):
         convert_to_openai_messages([message], vision=True, interpreter=interpreter)
+
+
+def test_console_output_does_not_mutate_the_caller(interpreter):
+    """Conversion must not add or coerce content on the caller's message."""
+    message = {"role": "computer", "type": "console", "format": "output"}
+    messages = [message]
+
+    convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+
+    assert message == {
+        "role": "computer",
+        "type": "console",
+        "format": "output",
+    }
