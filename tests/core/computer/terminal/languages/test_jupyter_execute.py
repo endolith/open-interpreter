@@ -176,3 +176,186 @@ def test_generator_exit_is_passed_on_rather_than_swallowed(monkeypatch):
     generator = lang.run("x = 1")
     with pytest.raises(GeneratorExit):
         next(generator)
+
+
+def test_an_abandoned_listener_is_joined_and_cannot_steal_the_next_run(monkeypatch):
+    """A still-alive listener from an abandoned run is stopped before the next request.
+
+    If a caller closes a run() generator early, its listener thread may still be
+    blocked on the shared iopub channel. Starting a new request without stopping
+    it lets the old listener consume the new run's messages (get_msg removes
+    them from the channel) and set finish_flag on the new run's idle status.
+    Each listener is therefore bound to its own request id, and _execute_code
+    stops and joins a lingering listener before sending the next request.
+    """
+    lang = _language()
+    lang.kc.execute = mock.Mock(side_effect=["id-1", "id-2"])
+
+    parked = {}
+
+    class ParkedThread:
+        """A first-run listener that never exits, like an abandoned generator's."""
+
+        def __init__(self, target):
+            parked["target"] = target
+            parked["joined"] = False
+
+        def start(self):
+            pass  # stays blocked on the channel, as an abandoned listener would
+
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            parked["joined"] = True
+
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        ParkedThread,
+    )
+    lang._execute_code("print(1)", queue.Queue())
+
+    def message(parent_id, kind, **content):
+        return {
+            "parent_header": {"msg_id": parent_id},
+            "header": {"msg_type": kind},
+            "msg_type": kind,
+            "content": content,
+        }
+
+    script = [
+        message("id-1", "stream", text="stale output\n"),
+        message("id-2", "stream", text="new output\n"),
+        message("id-2", "status", execution_state="idle"),
+    ]
+    lang.kc.iopub_channel.get_msg = lambda timeout=None: script.pop(0)
+
+    raised = {}
+
+    class InlineThread:
+        def __init__(self, target):
+            self._target = target
+
+        def start(self):
+            try:
+                self._target()
+            except BaseException as error:  # noqa: BLE001 - recorded, then re-asserted
+                raised["error"] = error
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        InlineThread,
+    )
+    second_queue = queue.Queue()
+    lang._execute_code("print(2)", second_queue)
+
+    assert parked["joined"], "the abandoned listener must be joined first"
+    assert "error" not in raised
+    assert lang._execution_id == "id-2"
+    chunks = []
+    while not second_queue.empty():
+        chunks.append(second_queue.get())
+    assert chunks == [
+        {"type": "console", "format": "output", "content": "new output\n"}
+    ], f"the stale run's message must be skipped, got {chunks}"
+
+
+def test_the_extra_joins_stop_as_soon_as_the_stuck_listener_exits(monkeypatch):
+    """Once the stuck listener finally exits, the bounded join loop stops early.
+
+    The extra joins exist to give a listener stuck inside a slow model call time
+    to notice the stop flag. As soon as it is gone the loop must break rather
+    than burn the remaining waits.
+    """
+    lang = _language()
+    lang.kc.execute = mock.Mock(return_value="id-1")
+
+    class EventuallyDead:
+        """Alive for the pre-check and the first post-join check, then dead."""
+
+        def __init__(self):
+            self.alive_calls = 0
+            self.joins = 0
+
+        def is_alive(self):
+            self.alive_calls += 1
+            return self.alive_calls <= 2
+
+        def join(self, timeout=None):
+            self.joins += 1
+
+    stuck = EventuallyDead()
+    lang.listener_thread = stuck
+
+    class NoopThread:
+        def __init__(self, target):
+            pass
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        NoopThread,
+    )
+
+    lang._execute_code("print(1)", queue.Queue())
+
+    # One join before the loop, one inside it that observed the exit and broke.
+    assert stuck.joins == 2
+
+
+def test_a_listener_from_a_superseded_generation_stops_consuming(monkeypatch):
+    """A listener whose generation is stale returns without reading the channel.
+
+    The join cannot always stop a stuck listener, so each listener also checks
+    its generation: once a newer request starts, the old one exits instead of
+    stealing the new run's messages.
+    """
+    lang = _language()
+    lang.kc.execute = mock.Mock(side_effect=["id-1", "id-2"])
+
+    targets = []
+
+    class DeferredThread:
+        """Captures the listener target without running it."""
+
+        def __init__(self, target):
+            targets.append(target)
+
+        def start(self):
+            pass
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        DeferredThread,
+    )
+
+    lang._execute_code("print(1)", queue.Queue())  # generation 1
+    lang._execute_code("print(2)", queue.Queue())  # generation 2 supersedes it
+
+    lang.kc.iopub_channel.get_msg = mock.Mock(
+        side_effect=AssertionError("a stale listener must not read the channel")
+    )
+
+    # Running the superseded listener returns at the generation check.
+    targets[0]()
+    lang.kc.iopub_channel.get_msg.assert_not_called()

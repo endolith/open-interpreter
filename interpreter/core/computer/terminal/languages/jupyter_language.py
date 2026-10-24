@@ -38,6 +38,14 @@ class JupyterLanguage(BaseLanguage):
     name = "Python"
     aliases = ["py"]
 
+    # msg_id of the execute_request currently being listened for, and a counter
+    # that fences a lingering listener off once a newer request starts: a
+    # listener only consumes the channel while its generation is current, so one
+    # left over from an abandoned run exits instead of stealing a newer run's
+    # messages. Class-level so a freshly built language is in a known state.
+    _execution_id = None
+    _listener_generation = 0
+
     def __init__(self, computer):
         self.computer = computer
 
@@ -131,9 +139,56 @@ import matplotlib.pyplot as plt
             yield {"type": "console", "format": "output", "content": content}
 
     def _execute_code(self, code, message_queue):
-        def iopub_message_listener():
+        # An earlier run's listener may still be alive if its generator was
+        # abandoned before it exited. It reads the same iopub channel, so
+        # stop and join it first — otherwise it would steal this run's
+        # messages and could set finish_flag on this run's idle status.
+        previous_listener = getattr(self, "listener_thread", None)
+        if previous_listener is not None and previous_listener.is_alive():
+            # Only clear the flag if this stop signal is ours: a caller may
+            # have set finish_flag to request an interrupt, and that request
+            # must still be honored by the new listener.
+            already_stopping = getattr(self, "finish_flag", False)
+            self.finish_flag = True
+            previous_listener.join(timeout=5)
+            if previous_listener.is_alive():
+                # Still stuck (e.g. inside the input-patience model call,
+                # which only notices the flag once it returns). Keep the stop
+                # signal set and give it more time — sending the next request
+                # now would let it consume this run's messages from the
+                # shared channel. Bounded so one stuck thread cannot hang
+                # new runs forever; the generation check below keeps any
+                # overlap from corrupting the new run.
+                for _ in range(5):
+                    previous_listener.join(timeout=5)
+                    if not previous_listener.is_alive():
+                        break
+            if not already_stopping:
+                self.finish_flag = False
+
+        # Every request gets a generation number. A listener only consumes
+        # the channel while its generation is current; once a newer request
+        # starts, a lingering listener exits instead of stealing messages.
+        generation = getattr(self, "_listener_generation", 0) + 1
+        self._listener_generation = generation
+
+        # Send the request first so its message id is known before anything
+        # listens. Every iopub message carries the id of the request that
+        # caused it in parent_header, which is the only way to tell this
+        # execution's output from an earlier one's.
+        execution_id = self.kc.execute(code)
+        self._execution_id = execution_id
+
+        def iopub_message_listener(execution_id=execution_id, generation=generation):
+            # Bound as defaults so this listener always filters against the
+            # request id from its own execute call, even if a later run
+            # overwrites self._execution_id.
             max_retries = 100
             while True:
+                if generation != self._listener_generation:
+                    # A newer request started: stop consuming the channel so
+                    # the current listener gets this run's messages.
+                    return
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
                 if self.finish_flag == True:
                     if DEBUG_MODE:
@@ -197,7 +252,6 @@ import matplotlib.pyplot as plt
                                 self.kc.input(user_input)
 
                     msg = self.kc.iopub_channel.get_msg(timeout=0.05)
-                    self.last_output_time = time.time()
                 except queue.Empty:
                     continue
                 except Exception as e:
@@ -206,6 +260,18 @@ import matplotlib.pyplot as plt
                         raise
                     print("Jupyter error, retrying:", str(e))
                     continue
+
+                # An earlier execution's messages can still be in the channel:
+                # interrupt_kernel() returns before the kernel has finished
+                # emitting, and stop() abandons the listener without draining.
+                # parent_header names the request that produced this message,
+                # so anything that is not this execution's is skipped — before
+                # last_output_time, so stale traffic cannot pass for activity.
+                parent_id = (msg.get("parent_header") or {}).get("msg_id")
+                if parent_id and parent_id != execution_id:
+                    continue
+
+                self.last_output_time = time.time()
 
                 if DEBUG_MODE:
                     print("-----------" * 10)
@@ -300,8 +366,6 @@ import matplotlib.pyplot as plt
             print(
                 "thread is on:", self.listener_thread.is_alive(), self.listener_thread
             )
-
-        self.kc.execute(code)
 
     def detect_active_line(self, line):
         if "##active_line" in line:
