@@ -52,8 +52,13 @@ def _supports_vision(model: str) -> bool | None:
     try:
         if litellm.supports_vision(model):
             return True
-        entry = openrouter_model_entry(model)
-        if entry is not None:
+        if model.lower().startswith("openrouter/"):
+            entry = openrouter_model_entry(model)
+            if entry is None:
+                # The catalog is reachable but does not list this slug, so its
+                # capability is unknown, not text-only. Fail the request
+                # instead of silently dropping images.
+                return None
             modalities = (entry.get("architecture") or {}).get("input_modalities") or []
             return "image" in modalities
     except OpenRouterCatalogError:
@@ -170,9 +175,10 @@ class Llm:
             if detected is None:
                 raise OpenRouterCatalogError(
                     f"Could not determine whether {model} accepts images: the "
-                    "OpenRouter model catalog could not be fetched. Retry, or "
-                    "set `supports_vision` explicitly (e.g. "
-                    "`interpreter.llm.supports_vision = True`) to proceed."
+                    "OpenRouter model catalog could not be fetched, or the model "
+                    "is not listed in it. Retry, or set `supports_vision` "
+                    "explicitly (e.g. `interpreter.llm.supports_vision = True`) "
+                    "to proceed."
                 )
             # Auto-detected values are dropped when the model changes; an
             # explicit assignment goes through the property setter instead.

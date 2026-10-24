@@ -28,7 +28,8 @@ def openrouter_model_entry(model: str):
     text-only.
     """
     global _openrouter_models
-    if not model.lower().startswith("openrouter/"):
+    prefix = "openrouter/"
+    if not model.lower().startswith(prefix):
         return None
     if _openrouter_models is None:
         try:
@@ -58,4 +59,4 @@ def openrouter_model_entry(model: str):
             for entry in data
             if isinstance(entry, dict) and isinstance(entry.get("id"), str)
         }
-    return _openrouter_models.get(model.split("openrouter/", 1)[-1])
+    return _openrouter_models.get(model[len(prefix):])
