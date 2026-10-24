@@ -18,7 +18,7 @@ from interpreter.core.llm.utils.convert_to_openai_messages import (
 
 pytestmark = [pytest.mark.integration, pytest.mark.provider_matrix]
 
-MODEL = os.environ.get("OI_INTEGRATION_MODEL", "gpt-4o-mini")
+MODEL = os.environ.get("OI_INTEGRATION_MODEL", "openrouter/openai/gpt-4o-mini")
 
 # 8x8 solid red PNG.
 RED_PNG = (
@@ -34,9 +34,9 @@ class _Interpreter:
     debug = False
 
 
-def _bare_model() -> str:
-    """Return the model id litellm looks up, without the router prefix."""
-    return MODEL.split("/", 1)[1] if "/" in MODEL else MODEL
+def _enabled(name: str) -> bool:
+    """Read a capability the matrix entry declares for this model."""
+    return os.environ.get(name, "1") == "1"
 
 
 def _convert(messages, **kwargs):
@@ -65,8 +65,8 @@ def test_image_input_is_accepted():
     ``tests/core/llm/test_vision_detection.py``; this drives the same image
     message through ``convert_to_openai_messages`` and the real provider.
     """
-    if not litellm.supports_vision(_bare_model()):
-        pytest.skip(f"{MODEL} is not vision-capable")
+    if not _enabled("OI_PROVIDER_VISION"):
+        pytest.skip("provider matrix entry declares no vision")
     messages = _convert(
         [
             {
@@ -85,14 +85,14 @@ def test_image_input_is_accepted():
         shrink_images=False,
     )
     assert _has_image_part(messages)
-    reply = litellm.completion(model=MODEL, messages=messages, max_tokens=20)
+    reply = litellm.completion(model=MODEL, messages=messages, max_tokens=512)
     assert "red" in (reply.choices[0].message.content or "").lower()
 
 
 def test_tool_call_round_trip():
     """OI's converted prompt must still get a tool call back."""
-    if not litellm.supports_function_calling(_bare_model()):
-        pytest.skip(f"{MODEL} does not advertise tool calling")
+    if not _enabled("OI_PROVIDER_TOOLS"):
+        pytest.skip("provider matrix entry declares no tool calling")
     tools = [
         {
             "type": "function",
@@ -159,7 +159,7 @@ def test_legacy_function_role_is_accepted():
     assert (reply.choices[0].message.content or "").strip()
 
 
-def test_final_content_survives_reasoning_models():
+def test_final_content_survives():
     """A reasoning model must still return final content, not reasoning only."""
     messages = _convert(
         [
@@ -170,5 +170,5 @@ def test_final_content_survives_reasoning_models():
             }
         ]
     )
-    reply = litellm.completion(model=MODEL, messages=messages, max_tokens=512)
+    reply = litellm.completion(model=MODEL, messages=messages, max_tokens=2048)
     assert "4" in (reply.choices[0].message.content or "")
