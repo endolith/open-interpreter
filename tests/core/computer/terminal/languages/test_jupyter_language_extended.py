@@ -112,10 +112,22 @@ def test_string_to_python_skips_private_functions():
 
 
 def test_string_to_python_handles_docstring_less_function():
-    """string_to_python() extracts functions without a docstring, using None as the placeholder."""
+    """string_to_python() keeps the parameter list of a docstring-less function."""
     code = "def add(a, b):\n    return a + b"
     functions = string_to_python(code)
-    assert "def add():" in functions["add"]
+    assert "def add(a, b):" in functions["add"]
+
+
+def test_string_to_python_preserves_defaults_and_annotations():
+    """string_to_python() keeps defaults, annotations, and the return type."""
+    code = "def add(a: int, b: int = 2) -> int:\n    return a + b"
+    functions = string_to_python(code)
+
+    (func,) = ast.parse(functions["add"]).body
+    assert isinstance(func, ast.FunctionDef)
+    assert [arg.arg for arg in func.args.args] == ["a", "b"]
+    assert func.args.defaults[0].value == 2
+    assert ast.unparse(func.returns) == "int"
 
 
 def test_string_to_python_keeps_whole_function_body():
