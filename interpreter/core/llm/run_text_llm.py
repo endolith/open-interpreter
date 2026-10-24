@@ -1,3 +1,8 @@
+def _reasoning_chunk(reasoning):
+    """A reasoning-only message chunk so the thought reaches stored history."""
+    return {"type": "message", "content": "", "reasoning_content": reasoning}
+
+
 def run_text_llm(llm, params):
     ## Setup
 
@@ -43,11 +48,7 @@ def run_text_llm(llm, params):
             if reasoning:
                 # The fence parser suppresses this chunk; emit thinking-model
                 # reasoning on its own so providers get it back verbatim.
-                yield {
-                    "type": "message",
-                    "content": "",
-                    "reasoning_content": reasoning,
-                }
+                yield _reasoning_chunk(reasoning)
             continue
 
         # Did we just enter a code block?
@@ -60,11 +61,7 @@ def run_text_llm(llm, params):
             if reasoning:
                 # The closing fence ends the turn; emit reasoning first so it
                 # still reaches stored history.
-                yield {
-                    "type": "message",
-                    "content": "",
-                    "reasoning_content": reasoning,
-                }
+                yield _reasoning_chunk(reasoning)
             return
 
         # If we're in a code block,
@@ -72,11 +69,7 @@ def run_text_llm(llm, params):
             if reasoning:
                 # Code chunks carry no reasoning; emit it on its own message
                 # so it still reaches stored history.
-                yield {
-                    "type": "message",
-                    "content": "",
-                    "reasoning_content": reasoning,
-                }
+                yield _reasoning_chunk(reasoning)
             # If we don't have a `language`, find it
             if language is None and "\n" in accumulated_block:
                 language = accumulated_block.split("\n")[0]
