@@ -1,5 +1,7 @@
+import json
 import os
 import re
+from types import SimpleNamespace
 
 from .utils.merge_deltas import merge_deltas
 from .utils.parse_partial_json import parse_partial_json
@@ -28,6 +30,70 @@ tool_schema = {
         },
     },
 }
+
+
+def _tool_call_entry_function(entry):
+    """Return the function payload of a tool call entry, object or dict."""
+    if isinstance(entry, dict):
+        return entry.get("function")
+    return getattr(entry, "function", None)
+
+
+def _function_name_and_arguments(function):
+    """Return (name, arguments) of a function payload, object or dict."""
+    if isinstance(function, dict):
+        return function.get("name"), function.get("arguments")
+    return getattr(function, "name", None), getattr(function, "arguments", None)
+
+
+def _tool_call_entry_key(entry, position):
+    """Return a stable identity for a tool call entry across chunks.
+
+    Streaming providers attach an index to every chunk of a call but the
+    id only to its first chunk, so the index leads when present. Entries
+    with neither (non-streamed shapes) fall back to their position in the
+    chunk — which preserves today's behavior exactly for single-call flows.
+    """
+    if isinstance(entry, dict):
+        if entry.get("index") is not None:
+            return ("index", entry["index"])
+        return entry.get("id") or ("pos", position)
+    index = getattr(entry, "index", None)
+    if index is not None:
+        return ("index", index)
+    return getattr(entry, "id", None) or ("pos", position)
+
+
+def _queue_extra_tool_call(llm, entry, key):
+    """Stash one extra parallel tool call for a later turn.
+
+    The pipeline below executes a single call per turn, so entries beyond
+    the first of a parallel response wait on the interpreter instead of
+    being silently dropped. Fragments sharing a key are concatenated, so
+    calls split across streamed chunks still arrive whole.
+    """
+    queue = getattr(llm.interpreter, "_pending_tool_calls", None)
+    if queue is None:
+        queue = llm.interpreter._pending_tool_calls = []
+    function = _tool_call_entry_function(entry)
+    if not function:
+        return
+    name, arguments = _function_name_and_arguments(function)
+    call_id = str(key)
+    for queued in queue:
+        if queued["id"] == call_id:
+            queued["arguments"] += arguments or ""
+            return
+    queue.append({"id": call_id, "name": name, "arguments": arguments or ""})
+
+
+def _queued_tool_call_chunk(queued):
+    """Wrap a queued call as a stream chunk the loop below already handles."""
+    entry = SimpleNamespace(
+        id=queued["id"],
+        function=SimpleNamespace(name=queued["name"], arguments=queued["arguments"]),
+    )
+    return {"choices": [{"delta": {"tool_calls": [entry]}}]}
 
 
 def process_messages(messages):
@@ -171,11 +237,42 @@ def run_tool_calling_llm(llm, request_params):
     language = None
     code = ""
     function_call_detected = False
+    # Identity of the call executed this turn; entries for any other call
+    # in the same response are queued for later turns (see below).
+    primary_call_key = None
     accumulated_review = ""
     review_category = None
     buffer = ""
 
-    for chunk in llm.completions(**request_params):
+    pending_calls = getattr(llm.interpreter, "_pending_tool_calls", None)
+    if pending_calls:
+        queued_token = pending_calls[0].get("messages")
+        current = list(request_params["messages"] or [{}])
+        raw_messages = getattr(llm.interpreter, "messages", None) or []
+        raw_last_role = raw_messages[-1].get("role") if raw_messages else None
+        if raw_last_role == "user" and (
+            queued_token is None or current != queued_token
+        ):
+            # A new user turn arrived after these calls were queued (or the
+            # entry predates queue provenance): drop them instead of
+            # replaying stale calls without an LLM request. An unchanged
+            # retry still serves the queue, and continuations whose last
+            # message is assistant/computer output are unaffected.
+            pending_calls.clear()
+    if pending_calls:
+        # A previous turn received more tool calls than the pipeline can
+        # execute at once: serve the next queued call now, without spending
+        # an LLM call, so every call runs in turn order.
+        queued = pending_calls.pop(0)
+        if queued.get("review"):
+            # The original response passed the judge layer; carry its
+            # verdict so the replayed call passes the check below too.
+            accumulated_review = queued["review"]
+        stream = [_queued_tool_call_chunk(queued)]
+    else:
+        stream = llm.completions(**request_params)
+
+    for chunk in stream:
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
@@ -187,14 +284,42 @@ def run_tool_calling_llm(llm, request_params):
             function_call_detected = True
 
             # import pdb; pdb.set_trace()
-            if len(delta["tool_calls"]) > 0 and delta["tool_calls"][0].function:
+            entries = delta["tool_calls"]
+            if primary_call_key is None:
+                primary_call_key = _tool_call_entry_key(entries[0], 0)
+            keyed = [
+                (_tool_call_entry_key(entry, i), entry)
+                for i, entry in enumerate(entries)
+            ]
+            primary_entries = [
+                entry for key, entry in keyed if key == primary_call_key
+            ]
+            first_function = _tool_call_entry_function(
+                primary_entries[0] if primary_entries else entries[0]
+            )
+            if len(entries) > 0 and first_function and primary_entries:
+                function_name, function_arguments = _function_name_and_arguments(
+                    first_function
+                )
                 delta = {
-                    # "id": delta["tool_calls"][0],
+                    # "id": primary_entries[0],
                     "function_call": {
-                        "name": delta["tool_calls"][0].function.name,
-                        "arguments": delta["tool_calls"][0].function.arguments,
+                        "name": function_name,
+                        "arguments": function_arguments,
                     }
                 }
+            # The pipeline executes one call per turn: queue any entries for
+            # other calls so they run on later turns instead of being
+            # silently dropped.
+            for key, extra_entry in keyed:
+                if key != primary_call_key:
+                    _queue_extra_tool_call(llm, extra_entry, key)
+            if not (primary_entries and first_function):
+                # This chunk carries only queued calls: keep it out of the
+                # accumulator (raw entries are not mergeable) while
+                # preserving any message content it may hold.
+                content = delta["content"] if "content" in delta else None
+                delta = {"content": content} if content else {}
 
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
@@ -304,6 +429,15 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
+
+    for queued in getattr(llm.interpreter, "_pending_tool_calls", []) or []:
+        # Stamp this response's judge-layer verdict on the calls it queued,
+        # so replaying them on a later turn carries the original verdict.
+        # Entries left over from an earlier response keep their own. Also
+        # snapshot the messages they were queued for, so a later user turn
+        # is recognized as new input (stale) rather than a retry (serve).
+        queued.setdefault("review", accumulated_review)
+        queued.setdefault("messages", list(request_params["messages"]))
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
