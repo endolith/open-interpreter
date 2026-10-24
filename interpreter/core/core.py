@@ -324,7 +324,7 @@ class OpenInterpreter:
                     print("Open Interpreter stopping.")
                     break
 
-                if chunk["content"] == "":
+                if chunk["content"] == "" and not chunk.get("reasoning_content"):
                     continue
 
                 # If active_line is None, we finished running code.
