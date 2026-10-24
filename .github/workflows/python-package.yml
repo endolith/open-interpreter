@@ -41,7 +41,7 @@ jobs:
       - name: Ruff
         run: |
           pip install ruff
-          ruff check interpreter tests
+          ruff check interpreter tests .github/scripts
 
   test-linux:
     name: Unit tests (Linux)
@@ -128,7 +128,7 @@ jobs:
 
       - name: Check test selection
         run: |
-          python .github/scripts/check_pytest_counts.py test-results.xml 900 \
+          python .github/scripts/check_pytest_counts.py test-results.xml 1600 \
             "irb not installed" \
             "R not installed" \
             "jdk not installed" \
@@ -174,7 +174,7 @@ jobs:
             --cov-report=xml
 
       - name: Check test selection
-        run: python .github/scripts/check_pytest_counts.py test-results.xml 900
+        run: python .github/scripts/check_pytest_counts.py test-results.xml 1600
 
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -209,7 +209,7 @@ jobs:
             --cov-report=xml
 
       - name: Check test selection
-        run: python .github/scripts/check_pytest_counts.py test-results.xml 900
+        run: python .github/scripts/check_pytest_counts.py test-results.xml 1600
 
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

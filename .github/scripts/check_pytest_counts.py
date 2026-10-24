@@ -21,14 +21,31 @@ def main() -> int:
     min_passed = int(sys.argv[2])
     disallowed = sys.argv[3:]
 
-    cases = ET.parse(path).findall(".//testcase")
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError) as error:
+        print(f"::error::could not read {path}: {error}")
+        return 1
+
+    cases = root.findall(".//testcase")
     failures = [
         case
         for case in cases
         if case.find("failure") is not None or case.find("error") is not None
     ]
-    skipped = [case for case in cases if case.find("skipped") is not None]
-    passed = len(cases) - len(failures) - len(skipped)
+    xfailed = [
+        case
+        for case in cases
+        if case.find("skipped") is not None
+        and case.find("skipped").get("type") == "pytest.xfail"
+    ]
+    skipped = [
+        case
+        for case in cases
+        if case.find("skipped") is not None
+        and case.find("skipped").get("type") != "pytest.xfail"
+    ]
+    passed = len(cases) - len(failures) - len(skipped) - len(xfailed)
 
     problems = []
     if passed < min_passed:
@@ -51,7 +68,7 @@ def main() -> int:
 
     print(
         f"pytest guard: {passed} passed, {len(skipped)} skipped, "
-        f"{len(failures)} failed"
+        f"{len(xfailed)} xfailed, {len(failures)} failed"
     )
     return 0
 
