@@ -4,7 +4,7 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.respond import respond
+from interpreter.core.respond import _pending_code_message, respond
 
 
 class FakeLanguage:
@@ -374,3 +374,32 @@ def test_respond_requires_messages():
     interpreter.messages = []
     with pytest.raises(AssertionError, match="User message was not passed"):
         next(respond(interpreter))
+
+
+
+def test_pending_code_message_ignores_trailing_reasoning():
+    """A trailing reasoning-only chunk must not hide the code awaiting execution."""
+    code = {"role": "assistant", "type": "code", "format": "python", "content": "1+1"}
+    reasoning = {
+        "role": "assistant",
+        "type": "message",
+        "content": "",
+        "reasoning_content": "done thinking",
+    }
+
+    assert _pending_code_message([code, reasoning]) is code
+    assert (
+        _pending_code_message(
+            [
+                code,
+                reasoning,
+                {
+                    "role": "computer",
+                    "type": "console",
+                    "format": "output",
+                    "content": "42",
+                },
+            ]
+        )
+        is None
+    )
