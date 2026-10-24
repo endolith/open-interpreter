@@ -370,3 +370,21 @@ def test_chat_accumulates_reasoning_content_across_chunks():
         "content": "ab",
         "reasoning_content": "r1r2",
     }
+
+
+def test_chat_accumulates_a_reasoning_only_chunk():
+    """A reasoning-only chunk is stored, not skipped before accumulation (issue #215)."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = False
+    chunks = [
+        {"type": "message", "content": "", "reasoning_content": "r1"},
+        {"type": "message", "content": "answer", "reasoning_content": "r2"},
+    ]
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+    assert interpreter.messages[-1] == {
+        "role": "assistant",
+        "type": "message",
+        "content": "answer",
+        "reasoning_content": "r1r2",
+    }
