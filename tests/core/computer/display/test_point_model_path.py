@@ -114,9 +114,9 @@ class TestPointModelPathIsDefined(unittest.TestCase):
     def test_cache_directory_is_created_in_the_save_branch(self):
         """The save branch creates oi_dir before writing the model.
 
-        The line is excluded from coverage because the grounding model needs
-        torch/timm, which CI does not install; this AST check keeps the
-        behaviour verified without importing those dependencies.
+        Match the specific ``if not os.path.isfile(model_path)`` branch, not
+        any negated condition with a makedirs (the debug_path branches would
+        otherwise satisfy it), and require the makedirs before torch.save.
         """
         for node in ast.walk(_parse_point_module()):
             if not isinstance(node, ast.If):
@@ -124,11 +124,34 @@ class TestPointModelPathIsDefined(unittest.TestCase):
             test = node.test
             if not (isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not)):
                 continue
-            if any(
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr == "makedirs"
-                for call in ast.walk(node)
+            operand = test.operand
+            if not (
+                isinstance(operand, ast.Call)
+                and isinstance(operand.func, ast.Attribute)
+                and operand.func.attr == "isfile"
+                and operand.args
+                and isinstance(operand.args[0], ast.Name)
+                and operand.args[0].id == "model_path"
             ):
-                return
-        self.fail("the model-save branch does not create oi_dir")
+                continue
+            calls = [
+                child
+                for child in ast.walk(node)
+                if isinstance(child, ast.Call)
+            ]
+            makedirs = [
+                call
+                for call in calls
+                if isinstance(call.func, ast.Attribute)
+                and call.func.attr == "makedirs"
+            ]
+            saves = [
+                call
+                for call in calls
+                if isinstance(call.func, ast.Attribute) and call.func.attr == "save"
+            ]
+            self.assertTrue(makedirs, "the model-save branch must create oi_dir")
+            self.assertTrue(saves, "the model-save branch must save the model")
+            self.assertLess(makedirs[0].lineno, saves[0].lineno)
+            return
+        self.fail("no if not os.path.isfile(model_path) branch")
