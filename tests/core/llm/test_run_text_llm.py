@@ -288,3 +288,28 @@ def test_reasoning_inside_code_block_is_emitted():
         {"type": "message", "content": "", "reasoning_content": "r-code"},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
+
+
+def test_reasoning_on_closing_fence_is_emitted_before_return():
+    """Reasoning riding on the closing fence is emitted before the turn ends.
+
+    The closing fence returns immediately; without this branch the reasoning
+    that arrived with it would never reach stored history.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print(1)\n"}}]},
+            {
+                "choices": [
+                    {"delta": {"content": "```\n", "reasoning_content": "done"}}
+                ]
+            },
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result[-1] == {
+        "type": "message",
+        "content": "",
+        "reasoning_content": "done",
+    }
