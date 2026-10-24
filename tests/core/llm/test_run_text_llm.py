@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from interpreter.core.llm.run_text_llm import run_text_llm
+from interpreter.core.llm.run_text_llm import _withheld_fence_chars, run_text_llm
 
 
 def _make_llm(chunks, execution_instructions=None, verbose=False, os_mode=False):
@@ -43,7 +43,6 @@ def test_code_block_yields_code_chunks():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -86,7 +85,6 @@ def test_code_block_exit_returns():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -101,7 +99,6 @@ def test_empty_language_defaults_to_python():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [
-        {"type": "code", "format": "python", "content": "```\n"},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -170,13 +167,11 @@ def test_empty_language_defaults_to_text_in_os_mode():
 
 
 def test_a_delta_with_no_content_key_yields_an_empty_message():
-    """A delta missing the content key is not None, so it is not skipped.
+    """A delta missing the content key is skipped like an explicit null.
 
-    There is a `if content == None: continue` guard, which catches an explicit
-    null but not an absent key: `.get("content", "")` yields "" and the delta is
-    emitted as an empty message. The distinction is real — the existing
-    none-content test covers the null case, and the default this pins is what
-    stops a role-only delta from becoming the string "None".
+    The buffer/cursor rewrite treats a missing key the same as None: with
+    nothing to append to the buffer there is nothing to emit, so role-only
+    deltas no longer produce empty message chunks (fixed in #299).
     """
     llm = _make_llm(
         [
@@ -186,8 +181,6 @@ def test_a_delta_with_no_content_key_yields_an_empty_message():
         ]
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
-        {"type": "message", "content": ""},
-        {"type": "message", "content": ""},
         {"type": "message", "content": "hi"},
     ]
 
@@ -209,3 +202,207 @@ def test_os_flag_true_does_not_change_labelled_languages():
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
 
     assert {chunk.get("format") for chunk in result} == {"bash"}
+def _text_of(chunks):
+    """Concatenate the assistant message text from a run_text_llm result."""
+    return "".join(c["content"] for c in chunks if c["type"] == "message")
+
+
+def _code_of(chunks):
+    """Concatenate the code body from a run_text_llm result."""
+    return "".join(c["content"] for c in chunks if c["type"] == "code")
+
+
+@pytest.mark.parametrize(
+    "chunks,expected",
+    [
+        (["Run", " `", "ls", "`", " to list files"], "Run `ls` to list files"),
+        (["Run ", "`ls`", " now"], "Run `ls` now"),
+        (["Use ", "`pip`"], "Use `pip`"),
+    ],
+)
+def test_inline_backticks_in_prose_are_preserved(chunks, expected):
+    """Prose containing inline code survives the fence-disambiguation hold-back.
+
+    A trailing backtick may be the start of a ``` fence, so it is held back
+    until the next delta settles it. Previously the held-back delta was
+    dropped outright, so every backtick-terminated delta vanished from both
+    the display and the stored assistant message. Real tokenizers split
+    inline code exactly this way ('Run', ' `', 'ls', '`', ...).
+    """
+    llm = _make_llm([{"choices": [{"delta": {"content": c}}]} for c in chunks])
+    assert _text_of(list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))) == expected
+
+
+def test_whole_code_block_in_one_delta_is_emitted():
+    """A fenced block arriving as a single delta still yields its code.
+
+    Non-streaming backends and custom llm.completions implementations deliver
+    the whole reply at once. Because such a delta ends with a backtick it was
+    held back for fence disambiguation and never flushed, so the generator
+    finished having yielded nothing at all: no code, and no execution.
+    """
+    llm = _make_llm([{"choices": [{"delta": {"content": "```python\nprint(1)\n```"}}]}])
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+@pytest.mark.parametrize(
+    "language,body",
+    [
+        ("python", "print('python rocks')\n"),
+        ("r", "print('rrr')\n"),
+        ("shell", "echo shell\n"),
+    ],
+)
+def test_code_containing_the_language_name_is_not_mangled(language, body):
+    """Code keeps every character even when it contains its own language name.
+
+    The language label was previously removed with content.replace(language, "")
+    on each code delta, which deletes the label text wherever it occurs in the
+    body — 'r' code lost every letter r. The label is structural, so it is now
+    consumed positionally by advancing past the line that holds it.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": f"```{language}\n"}}]},
+            {"choices": [{"delta": {"content": body}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == body
+    assert {c["format"] for c in result} == {language}
+
+
+def test_prose_before_a_fence_is_emitted_then_code():
+    """Text preceding a code fence is emitted as a message before the code starts."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "Sure. "}}]},
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print(1)\n"}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _text_of(result) == "Sure. "
+    assert _code_of(result) == "print(1)\n"
+
+
+def test_fence_split_across_deltas_yields_the_same_code():
+    """The opening fence split from its language label parses identically.
+
+    Providers split '```python' across deltas; the result must not depend on
+    where the boundary falls.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```"}}]},
+            {"choices": [{"delta": {"content": "python\nprint(1)\n"}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+@pytest.mark.parametrize(
+    "chunks,expected",
+    [
+        (["```py"], "```py"),
+        (["```"], "```"),
+        (["```", "pyth"], "```pyth"),
+    ],
+)
+def test_a_fence_cut_off_before_its_language_line_is_not_dropped(chunks, expected):
+    """A stream that opens a fence but ends before the language line completes.
+
+    The fence and any partial label were consumed into the code-block state but
+    the language line never finished, so nothing was emitted and the text was
+    lost. This function exists to never silently drop what the model sent, so
+    an unconfirmed fence is flushed as literal message content at end of stream.
+    """
+    llm = _make_llm([{"choices": [{"delta": {"content": c}}]} for c in chunks])
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert "".join(c["content"] for c in result) == expected
+
+
+def test_prose_and_fence_in_a_single_delta_emit_both():
+    """Prose sharing a chunk with its fence is emitted before entering the block."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "Sure. ```python\nprint(1)\n```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _text_of(result) == "Sure. "
+    assert _code_of(result) == "print(1)\n"
+
+
+def test_stream_cut_off_inside_a_code_block_flushes_pending_code():
+    """A stream ending mid-block (no closing fence) still yields buffered code."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print(1)\n``"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "print(1)\n``"
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # No trailing backticks: nothing ambiguous.
+        ("", 0),
+        ("hello", 0),
+        ("a`b", 0),
+        # One or two trailing backticks: ambiguous, withheld whole.
+        ("`", 1),
+        ("ls`", 1),
+        ("a`b`", 1),
+        ("``", 2),
+        ("ls``", 2),
+        # Three or more is already a fence, so nothing is withheld — even
+        # though a four-backtick run also "ends with three", and "``" is
+        # itself a suffix of the fence.
+        ("```", 0),
+        ("ls```", 0),
+        ("````", 0),
+        ("`````", 0),
+        # A complete fence wins even when backticks follow ordinary text.
+        ("```py\nprint(1)\n```", 0),
+    ],
+)
+def test_withheld_fence_chars(text, expected):
+    """_withheld_fence_chars withholds exactly an incomplete trailing fence.
+
+    Pins the boundary the caller depends on: a trailing run of one or two
+    backticks is held back because the next chunk may complete a fence, while
+    three or more already form a fence and must be emitted immediately. The
+    four-backtick case is the one that a "does it end with two backticks"
+    implementation gets wrong, since it also ends with two.
+    """
+    assert _withheld_fence_chars(text) == expected
+
+
+def test_mid_line_fence_does_not_close_code_block():
+    """A ``` in the middle of a line is code content, not the closing fence.
+
+    Models emit code that itself contains fences (a quoted ``` in a string
+    literal, a heredoc writing Markdown). CommonMark only accepts a closing
+    fence at the start of a line; anything else is body text that must reach
+    the runner intact rather than truncating the block early.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": 'x = "```"\nprint(1)\n'}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
+    assert result == [
+        {"type": "code", "format": "python", "content": 'x = "```"\nprint(1)\n'},
+    ]
