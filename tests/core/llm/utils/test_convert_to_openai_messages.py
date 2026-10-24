@@ -850,3 +850,33 @@ def test_message_without_reasoning_omits_the_key(interpreter):
     messages = [{"role": "assistant", "type": "message", "content": "Hello"}]
     result = convert_to_openai_messages(messages, interpreter=interpreter)
     assert result == [{"role": "assistant", "content": "Hello"}]
+
+
+def test_function_calling_false_preserves_reasoning(interpreter):
+    """The combine path must keep reasoning_content, not just content."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "a",
+            "reasoning_content": "r1",
+        },
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "b",
+            "reasoning_content": "r2",
+        },
+    ]
+
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+
+    assert result == [
+        {
+            "role": "assistant",
+            "content": "a b",
+            "reasoning_content": "r1\nr2",
+        }
+    ]
