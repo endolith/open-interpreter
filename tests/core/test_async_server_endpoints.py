@@ -92,6 +92,22 @@ def test_post_input_propagates_error(client, server_pair):
     assert response.json() == {"status": "success"}
 
 
+def test_post_input_error_hides_the_exception_text(client, server_pair, capsys):
+    """A failing input returns a generic message and logs the exception server-side.
+
+    The exception text can reveal filesystem paths and internals, so it must
+    not reach the caller. The traceback goes to the server log instead.
+    """
+    _, interpreter = server_pair
+    interpreter.input = mock.Mock(side_effect=ValueError("secret /etc/passwd"))
+    response = client.post("/", json={"role": "user", "type": "message", "start": True})
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "Internal server error"}
+    assert "secret /etc/passwd" not in response.text
+    assert "secret /etc/passwd" in capsys.readouterr().err
+
+
 def test_get_setting_returns_serialized_value(client):
     """GET /settings/{name} returns the serialized interpreter attribute."""
     response = client.get("/settings/auto_run")
