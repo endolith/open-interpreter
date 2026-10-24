@@ -376,7 +376,6 @@ def test_respond_requires_messages():
         next(respond(interpreter))
 
 
-
 def test_pending_code_message_ignores_trailing_reasoning():
     """A trailing reasoning-only chunk must not hide the code awaiting execution."""
     code = {"role": "assistant", "type": "code", "format": "python", "content": "1+1"}

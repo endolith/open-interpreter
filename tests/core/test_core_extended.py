@@ -388,3 +388,24 @@ def test_chat_accumulates_a_reasoning_only_chunk():
         "content": "answer",
         "reasoning_content": "r1r2",
     }
+
+
+def test_chat_runs_code_before_a_trailing_reasoning_message():
+    """A reasoning-only chunk after code must not stop the code from running."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = True
+    chunks = [
+        {"type": "code", "format": "python", "content": "1+1"},
+        {"type": "message", "content": "", "reasoning_content": "done thinking"},
+    ]
+    executed = []
+
+    def fake_run(language, code, **kwargs):
+        executed.append(code)
+        yield {"type": "console", "format": "output", "content": "42"}
+
+    interpreter.computer.run = fake_run
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+
+    assert executed == ["1+1"]

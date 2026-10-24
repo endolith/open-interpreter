@@ -33,7 +33,6 @@ def _pending_code_message(messages):
 
 
 def respond(interpreter):
-
     """
     Yields chunks.
     Responds until it decides not to run any more code or say anything else.
@@ -102,9 +101,8 @@ def respond(interpreter):
             len(interpreter.messages) > 0
         ), "User message was not passed in. You need to pass in at least one message."
 
-        if (
-            interpreter.messages[-1]["type"] != "code"
-        ):  # If it is, we should run the code (we do below)
+        if _pending_code_message(interpreter.messages) is None:
+            # No code is pending: call the LLM. A code block runs below.
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     yield {"role": "assistant", **chunk}
