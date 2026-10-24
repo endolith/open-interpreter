@@ -81,6 +81,8 @@ def convert_to_openai_messages(
             # Some console outputs arrive without a content key; default it to an
             # empty string so both the function-calling and plain paths treat it
             # as "No output" instead of raising KeyError on .strip() below.
+            # Work on a copy: the caller's stored message must stay unchanged.
+            message = message.copy()
             message["content"] = message.get("content", "")
             if function_calling:
                 new_message["role"] = "function"
