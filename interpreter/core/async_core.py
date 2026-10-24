@@ -104,6 +104,10 @@ class AsyncInterpreter(OpenInterpreter):
         self._approval_granted = False
         self.pending_confirmation = None
         self.pending_confirmation_digest = None
+        # Whether a "start" chunk opened a message that "end" has not closed.
+        # A completed message stays in `messages`, so this cannot be inferred
+        # from the list being non-empty.
+        self._message_open = False
         self.id = os.getenv("INTERPRETER_ID", datetime.now().timestamp())
         self.print = False  # Will print output
 
@@ -150,6 +154,10 @@ class AsyncInterpreter(OpenInterpreter):
             # Binary frames (e.g. file bytes) append to the open message's
             # content. They must be routed before any `in` checks: `"start" in
             # chunk` raises TypeError on bytes instead of returning False.
+            if not self._message_open:
+                raise ValueError(
+                    "Binary input requires an open message; send a 'start: True' chunk first."
+                )
             self.accumulate(chunk)
         elif "start" in chunk:
             # If the user is starting something, the interpreter should stop.
@@ -163,10 +171,12 @@ class AsyncInterpreter(OpenInterpreter):
                 self._cancel_pending_approval()
                 self.respond_thread.join()
             self.accumulate(chunk)
+            self._message_open = True
         elif "content" in chunk:
             self.accumulate(chunk)
         elif "end" in chunk:
             # If the user is done talking, the interpreter should respond.
+            self._message_open = False
 
             run_code = None  # Will later default to auto_run unless the user makes a command here
 
@@ -625,7 +635,7 @@ def create_router(async_interpreter):
                         def frame_size(frame):
                             """Billable size of a queued pre-auth frame."""
                             if "text" in frame:
-                                return len(frame["text"])
+                                return len(frame["text"].encode("utf-8"))
                             return len(frame.get("bytes", b""))
 
                         async def hold_for_auth(frame):
@@ -684,10 +694,34 @@ def create_router(async_interpreter):
                                         await websocket.send_text(
                                             json.dumps({"auth": True})
                                         )
-                                        for pending in pending_inputs:
-                                            await deliver_frame(pending)
-                                        pending_inputs = []
+                                        queued, pending_inputs = pending_inputs, []
                                         pending_bytes = 0
+                                        for pending in queued:
+                                            try:
+                                                await deliver_frame(pending)
+                                            except Exception as e:
+                                                error = (
+                                                    traceback.format_exc()
+                                                    + "\n"
+                                                    + str(e)
+                                                )
+                                                if (
+                                                    websocket.client_state
+                                                    == WebSocketState.CONNECTED
+                                                ):
+                                                    await websocket.send_text(
+                                                        json.dumps(
+                                                            {
+                                                                "role": "server",
+                                                                "type": "error",
+                                                                "content": error,
+                                                            }
+                                                        )
+                                                    )
+                                                    await websocket.send_text(
+                                                        json.dumps(complete_message)
+                                                    )
+                                                print(error)
                                         continue
                                 else:
                                     # Not an auth attempt: hold the raw frame

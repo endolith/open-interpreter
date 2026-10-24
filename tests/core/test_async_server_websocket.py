@@ -472,8 +472,9 @@ def test_binary_chunk_reaches_accumulate(interpreter):
     """
     acc = mock.Mock()
     interpreter.accumulate = acc
+    asyncio.run(interpreter.input({"role": "user", "start": True}))
     asyncio.run(interpreter.input(b"\x00\x01binary"))
-    acc.assert_called_once_with(b"\x00\x01binary")
+    acc.assert_any_call(b"\x00\x01binary")
 
 
 def test_binary_appends_to_open_message_content(interpreter):
@@ -496,3 +497,37 @@ def test_binary_chunk_without_open_message_raises_clear_error(interpreter):
     interpreter.messages = []
     with pytest.raises(Exception, match="start"):
         asyncio.run(interpreter.input(b"\x00\x01binary"))
+
+
+def test_one_failed_replay_does_not_drop_later_frames(ws_pair):
+    """A failing queued frame is logged; later queued frames still reach input()."""
+    client, _, inp = ws_pair
+    inp.side_effect = [RuntimeError("boom"), None]
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"role": "user", "type": "message", "content": "hi"}))
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    assert inp.await_count == 2
+
+
+def test_failed_replay_reports_error_and_complete(ws_pair):
+    """A queued pre-auth frame that fails on delivery is reported to the client.
+
+    The replay loop keeps processing later frames, but the client still gets
+    the same error + complete pair the authenticated path sends (#460).
+    """
+    client, _, inp = ws_pair
+    inp.side_effect = ValueError("boom")
+
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+        error = ws.receive_json()
+        complete = ws.receive_json()
+
+    assert error["type"] == "error"
+    assert "boom" in error["content"]
+    assert complete == {"role": "server", "type": "status", "content": "complete"}
