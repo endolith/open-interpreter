@@ -1,0 +1,116 @@
+name: Provider matrix
+
+# Two triggers, because a timer is the wrong tool for both jobs:
+# - a PR that touches the LLM/vision path runs the matrix inside the PR, before
+#   merge (a nightly run cannot catch a provider change introduced and merged that day);
+# - a weekly sweep catches providers changing their behaviour with no repo
+#   change, which no event can trigger.
+on:
+  pull_request:
+    paths:
+      - "interpreter/core/llm/**"
+      - "interpreter/core/computer/vision/**"
+      - "tests/test_provider_matrix.py"
+      - "tests/conftest.py"
+      - "pyproject.toml"
+      - ".github/workflows/provider-matrix.yml"
+  push:
+    branches: [main]
+    paths:
+      - "interpreter/core/llm/**"
+      - "interpreter/core/computer/vision/**"
+      - "tests/test_provider_matrix.py"
+      - "tests/conftest.py"
+      - "pyproject.toml"
+      - ".github/workflows/provider-matrix.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.run_attempt == 1) && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: openrouter/openai/gpt-4o-mini
+            vision: "1"
+            tools: "1"
+            expected_passed: 4
+          - model: openrouter/~deepseek/deepseek-flash-latest
+            vision: "1"
+            tools: "1"
+            expected_passed: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+      - name: Check credentials
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "::error::OPENROUTER_API_KEY is required for the provider matrix (fork PRs are skipped at the job level)."
+            exit 1
+          fi
+      - name: Install
+        run: uv pip install --system -e ".[server,dev]"
+      - name: Run provider matrix
+        env:
+          OI_RUN_INTEGRATION: "1"
+          OI_INTEGRATION_MODEL: ${{ matrix.model }}
+          OI_PROVIDER_VISION: ${{ matrix.vision }}
+          OI_PROVIDER_TOOLS: ${{ matrix.tools }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          pytest -m "integration and provider_matrix" -q -rs --timeout=300 --junitxml=test-results.xml
+      - name: Check test selection
+        env:
+          EXPECTED_PASSED: ${{ matrix.expected_passed }}
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          cases = ET.parse("test-results.xml").findall(".//testcase")
+          passed = sum(
+              1
+              for case in cases
+              if case.find("failure") is None
+              and case.find("error") is None
+              and case.find("skipped") is None
+          )
+          expected = int(os.environ["EXPECTED_PASSED"])
+          if passed < expected:
+              print(
+                  f"::error::provider matrix passed {passed} tests; "
+                  f"expected {expected} (the key or selection is wrong)"
+              )
+              raise SystemExit(1)
+          PY
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provider-matrix-${{ strategy.job-index }}
+          path: test-results.xml
+          if-no-files-found: ignore

@@ -370,7 +370,7 @@ jobs:
           OI_INTEGRATION_MODEL: ${{ vars.OI_INTEGRATION_MODEL || 'openrouter/openai/gpt-4o-mini' }}
           OI_RUN_INTEGRATION: "1"
         run: |
-          pytest -m integration -rs -sv --timeout=300 --junitxml=test-results.xml
+          pytest -m "integration and not provider_matrix" -rs -sv --timeout=300 --junitxml=test-results.xml
 
       - name: Check test selection
         run: python .github/scripts/check_pytest_counts.py test-results.xml 1

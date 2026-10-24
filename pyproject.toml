@@ -140,6 +140,7 @@ pythonpath = ["."]
 xfail_strict = true
 markers = [
     "integration: calls an LLM, costs money, and executes generated code without approval; requires OI_RUN_INTEGRATION=1 and the provider key for OI_INTEGRATION_MODEL",
+    "provider_matrix: live provider behaviour checked by the scheduled provider matrix",
     "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
     "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
     "linux_ci: runs on Linux CI and locally on Linux hosts",
