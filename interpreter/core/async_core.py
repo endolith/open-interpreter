@@ -874,8 +874,11 @@ def create_router(async_interpreter):
                 output = async_interpreter.computer.run(language, code)
                 print("Output:", output)
                 return {"output": output}
-            except Exception as e:
-                return JSONResponse({"error": str(e)}, status_code=500)
+            except Exception:
+                traceback.print_exc()
+                return JSONResponse(
+                    {"error": "Internal server error"}, status_code=500
+                )
 
         @router.post("/upload")
         async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
@@ -883,8 +886,11 @@ def create_router(async_interpreter):
                 with open(path, "wb") as output_file:
                     shutil.copyfileobj(file.file, output_file)
                 return {"status": "success"}
-            except Exception as e:
-                return JSONResponse({"error": str(e)}, status_code=500)
+            except Exception:
+                traceback.print_exc()
+                return JSONResponse(
+                    {"error": "Internal server error"}, status_code=500
+                )
 
         @router.get("/download/{filename:path}")
         async def download_file(filename: str):
@@ -892,8 +898,11 @@ def create_router(async_interpreter):
                 return StreamingResponse(
                     open(filename, "rb"), media_type="application/octet-stream"
                 )
-            except Exception as e:
-                return JSONResponse({"error": str(e)}, status_code=500)
+            except Exception:
+                traceback.print_exc()
+                return JSONResponse(
+                    {"error": "Internal server error"}, status_code=500
+                )
 
     ### OPENAI COMPATIBLE ENDPOINT
 
