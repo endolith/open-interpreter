@@ -65,16 +65,24 @@ Prefer conda? Create an env with `conda create -n open-interpreter python=3.12` 
 
 **Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped unless **both** conditions are met:
 
-1. `OI_RUN_INTEGRATION=1` — explicit opt-in (skipped by default even when `OPENAI_API_KEY` is set)
-2. `OPENAI_API_KEY` is set — skipped when unset, even with `OI_RUN_INTEGRATION=1`
+1. `OI_RUN_INTEGRATION=1` — explicit opt-in (skipped by default even when a provider key is set)
+2. The provider key for the model under test is set. With `OI_INTEGRATION_MODEL` unset the tests use their historical OpenAI default, so that is `OPENAI_API_KEY`. Set `OI_INTEGRATION_MODEL` to use another provider: `openrouter/...` needs `OPENROUTER_API_KEY`, `anthropic/...` needs `ANTHROPIC_API_KEY`. Skipped when the matching key is unset, even with `OI_RUN_INTEGRATION=1`.
 
-CI sets both in the integration workflow job.
+CI sets `OI_INTEGRATION_MODEL` to `openrouter/openai/gpt-4o-mini` by default (override with the `OI_INTEGRATION_MODEL` repository variable) and provides `OPENROUTER_API_KEY`.
 
 ```bash
-# Linux/macOS
+# Linux/macOS — default (OpenAI)
+export OPENAI_API_KEY=...
+OI_RUN_INTEGRATION=1 pytest -m integration
+
+# OpenRouter (what CI runs)
+export OPENROUTER_API_KEY=...
+export OI_INTEGRATION_MODEL=openrouter/openai/gpt-4o-mini
 OI_RUN_INTEGRATION=1 pytest -m integration
 
 # Windows
+set OI_INTEGRATION_MODEL=openrouter/openai/gpt-4o-mini
+set OPENROUTER_API_KEY=...
 set OI_RUN_INTEGRATION=1
 pytest -m integration
 ```

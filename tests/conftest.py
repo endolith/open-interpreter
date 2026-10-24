@@ -2,6 +2,7 @@ import functools
 import os
 import platform
 
+import litellm
 import pytest
 
 _INTEGRATION_OPT_IN_SKIP = (
@@ -61,35 +62,35 @@ def _clean_test_conversations():
     end_test_conversations(state)
 
 
+_LOCAL_MODEL_PREFIXES = ("ollama/", "lm_studio/", "lm-studio/")
+
+
 def integration_skip_reason() -> str | None:
-    """Return a pytest skip reason when integration tests should not run, else None."""
+    """Return a pytest skip reason when integration tests should not run, else None.
+
+    The required key comes from the model under test, not a fixed provider:
+    litellm knows which env var each provider needs, so `groq/...` checks
+    GROQ_API_KEY and `claude...` checks ANTHROPIC_API_KEY. Local providers
+    need no key, and an unset OI_INTEGRATION_MODEL keeps the OpenAI default.
+    """
     if os.environ.get("OI_RUN_INTEGRATION") != "1":
         return _INTEGRATION_OPT_IN_SKIP
     model = os.environ.get("OI_INTEGRATION_MODEL", "")
-    if model.startswith("openrouter/"):
-        if not os.environ.get("OPENROUTER_API_KEY"):
-            return "OPENROUTER_API_KEY not set; skipping integration tests"
+    if model.startswith(_LOCAL_MODEL_PREFIXES):
         return None
-    if model.startswith(("claude", "anthropic/")):
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            return "ANTHROPIC_API_KEY not set; skipping integration tests"
+    if not model:
+        if not os.environ.get("OPENAI_API_KEY"):
+            return _INTEGRATION_API_KEY_SKIP
         return None
-    if not os.environ.get("OPENAI_API_KEY"):
-        return _INTEGRATION_API_KEY_SKIP
+    try:
+        environment = litellm.validate_environment(model)
+    except Exception:
+        # Let the real call surface an unfamiliar provider's error.
+        return None
+    if not environment.get("keys_in_environment", True):
+        missing = ", ".join(environment.get("missing_keys") or ["provider credentials"])
+        return f"{missing} not set; skipping integration tests"
     return None
-
-
-def pytest_configure(config):
-    """Register the custom markers used by the suite."""
-    config.addinivalue_line(
-        "markers",
-        "integration: calls an LLM and may execute generated code; "
-        "requires OI_RUN_INTEGRATION=1 and the provider key for OI_INTEGRATION_MODEL",
-    )
-    config.addinivalue_line(
-        "markers",
-        "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
-    )
 
 
 def pytest_collection_modifyitems(config, items):

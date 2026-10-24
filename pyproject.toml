@@ -138,7 +138,7 @@ ignore = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 markers = [
-    "integration: calls an LLM, costs money, and executes generated code without approval; requires OI_RUN_INTEGRATION=1 and OPENAI_API_KEY",
+    "integration: calls an LLM, costs money, and executes generated code without approval; requires OI_RUN_INTEGRATION=1 and the provider key for OI_INTEGRATION_MODEL",
     "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
     "timeout(duration): fail if the test runs longer than duration seconds (pytest-timeout)",
     "linux_ci: runs on Linux CI and locally on Linux hosts",
