@@ -181,9 +181,11 @@ def test_apply_profile_runs_start_script():
     assert interpreter.auto_run is True
 
 
-@pytest.mark.xfail(reason="KNOWN BUG: apply_profile has `del profile[\"computer.languages\"]` instead of `del profile[\"computer\"][\"languages\"]`")
 def test_apply_profile_filters_languages(monkeypatch):
-    """apply_profile filters computer.languages to those listed in the profile."""
+    """apply_profile filters computer.languages to those listed in the profile.
+
+    Regression test for #225.
+    """
     interpreter = mock.MagicMock()
 
     class FakeLang:
@@ -259,11 +261,11 @@ def test_profile_renames_reserved_name(tmp_path, monkeypatch):
 
 
 def test_migrate_profile_maps_old_keys():
-    """migrate_profile reformats flat keys into nested dicts.
+    """migrate_profile maps flat legacy keys to nested dotted paths.
 
-    KNOWN BUG: the source code builds reformatted_profile from the original
-    profile instead of mapped_profile, so the attribute_mapping is computed
-    but never used. This test documents the actual (buggy) behavior.
+    The attribute_mapping renames e.g. `model` to `llm.model`, and the
+    reformatting nests dotted keys, so the written profile has the new
+    structure. Regression test for #226.
     """
     old_profile = {"model": "gpt-4o", "temperature": 0.5}
     mock_dump = mock.MagicMock()
@@ -277,7 +279,7 @@ def test_migrate_profile_maps_old_keys():
         migrate_profile("/old/path", "/new/path")
     assert mock_dump.called
     dumped_profile = mock_dump.call_args[0][0]
-    assert dumped_profile == old_profile
+    assert dumped_profile == {"llm": {"model": "gpt-4o", "temperature": 0.5}}
 
 
 def test_reset_profile_raises_for_unknown_profile():
@@ -316,3 +318,50 @@ def test_get_default_profile_python():
         result = get_default_profile("custom.py")
     assert "start_script" in result
     assert "interpreter.auto_run = True" in result["start_script"]
+
+
+def test_apply_profile_preserves_caller_languages_filter():
+    """apply_profile leaves the caller's languages filter intact.
+
+    The filter must survive so the same profile dictionary can be applied
+    repeatedly (e.g. to a second interpreter) with the same effect.
+    """
+    interpreter = mock.MagicMock()
+
+    class FakeLang:
+        def __init__(self, name):
+            self.name = name
+
+    interpreter.computer.languages = [FakeLang("python"), FakeLang("shell")]
+    profile_data = {
+        "computer": {"languages": ["python"]},
+        "version": "0.2.5",
+    }
+    apply_profile(interpreter, profile_data, "/tmp/profile.yaml")
+    apply_profile(interpreter, profile_data, "/tmp/profile.yaml")
+    assert profile_data == {
+        "computer": {"languages": ["python"]},
+        "version": "0.2.5",
+    }
+    assert [lang.name for lang in interpreter.computer.languages] == ["python"]
+
+
+def test_migrate_profile_merges_nested_llm():
+    """migrate_profile merges a legacy nested llm dict with mapped flat keys.
+
+    A profile with both `model` and a nested `llm` dict must keep both after
+    migration instead of the nested dict replacing `llm.model`.
+    """
+    old_profile = {"model": "gpt-4o", "llm": {"api_key": "sk-test"}}
+    mock_dump = mock.MagicMock()
+    with mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.yaml.safe_load",
+        return_value=old_profile,
+    ), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.yaml.dump",
+        mock_dump,
+    ), mock.patch("builtins.open", mock.mock_open()):
+        migrate_profile("/old/path", "/new/path")
+    assert mock_dump.called
+    dumped_profile = mock_dump.call_args[0][0]
+    assert dumped_profile == {"llm": {"model": "gpt-4o", "api_key": "sk-test"}}
