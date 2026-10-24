@@ -106,9 +106,13 @@ def _provider_hint(error, interpreter):
                 "must match the same provider."
             )
         return hint
-    if isinstance(error, litellm.exceptions.RateLimitError) or any(
-        marker in message
-        for marker in ("rate limit", "rate-limit", "rate limited", "quota", "429")
+    if (
+        isinstance(error, litellm.exceptions.RateLimitError)
+        or any(
+            marker in message
+            for marker in ("rate limit", "rate-limit", "rate limited", "quota")
+        )
+        or re.search(r"\b429\b", message)
     ):
         return (
             "The provider rate-limited this request or your quota is exhausted; "
@@ -221,6 +225,10 @@ def respond(interpreter):
             except Exception as e:
                 display_provider_error(e)
                 display_provider_hint(e, interpreter)
+                try:
+                    e._oi_provider_error_displayed = True
+                except Exception:
+                    pass
                 raise
 
         ### RUN CODE (if it's there) ###
