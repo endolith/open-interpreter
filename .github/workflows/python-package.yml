@@ -101,6 +101,12 @@ jobs:
                 timeout --kill-after=10s 300 sudo apt-get -o Dir::Cache::archives=/home/runner/apt-cache/ install -y --no-install-recommends $missing
               fi
             }
+      - name: Verify language runtimes
+        run: |
+          command -v irb
+          command -v Rscript
+          command -v javac
+
       # Google Chrome is pre-installed on ubuntu-latest (actions/runner-images).
       # HTML/React smokes find it via require_chrome_for_html() — no .deb download.
       - name: Verify Chrome for HTML/React smokes
@@ -110,13 +116,24 @@ jobs:
           uv pip install --system -e ".[server,dev]"
           if [ "${{ matrix.python-version }}" = "3.14" ]; then
             pytest -m "not integration and not windows_ci and not darwin_ci" \
+              -q -rs --junitxml=test-results.xml \
               --cov=interpreter \
               --cov-branch \
               --cov-report=xml \
               --cov-report=term-missing
           else
-            pytest -m "not integration and not windows_ci and not darwin_ci"
+            pytest -m "not integration and not windows_ci and not darwin_ci" \
+              -q -rs --junitxml=test-results.xml
           fi
+
+      - name: Check test selection
+        run: |
+          python .github/scripts/check_pytest_counts.py test-results.xml 900 \
+            "irb not installed" \
+            "R not installed" \
+            "jdk not installed" \
+            "R is not on PATH" \
+            "google-chrome or chromium not installed"
 
       - name: Upload coverage report
         if: matrix.python-version == '3.14'
@@ -124,6 +141,7 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+          if-no-files-found: error
 
   test-windows:
     name: Windows
@@ -149,16 +167,21 @@ jobs:
         shell: bash
         run: |
           uv pip install --system -e ".[server,dev]"
-          pytest -m "not integration and not darwin_ci" -q \
+          pytest -m "not integration and not darwin_ci" -q -rs \
+            --junitxml=test-results.xml \
             --cov=interpreter \
             --cov-branch \
             --cov-report=xml
+
+      - name: Check test selection
+        run: python .github/scripts/check_pytest_counts.py test-results.xml 900
 
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report-windows
           path: coverage.xml
+          if-no-files-found: error
 
   test-macos:
     name: macOS
@@ -179,16 +202,21 @@ jobs:
       - name: Install and test
         run: |
           uv pip install --system -e ".[server,dev]"
-          pytest -m "not integration and not windows_ci" -q \
+          pytest -m "not integration and not windows_ci" -q -rs \
+            --junitxml=test-results.xml \
             --cov=interpreter \
             --cov-branch \
             --cov-report=xml
+
+      - name: Check test selection
+        run: python .github/scripts/check_pytest_counts.py test-results.xml 900
 
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report-macos
           path: coverage.xml
+          if-no-files-found: error
 
   codecov:
     name: Upload to Codecov
@@ -300,6 +328,36 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
+      - name: Install
+        run: uv pip install --system -e ".[server,dev]"
+
+      - name: Require the provider key for the selected model
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OI_INTEGRATION_MODEL: ${{ vars.OI_INTEGRATION_MODEL || 'openrouter/openai/gpt-4o-mini' }}
+        run: |
+          python - <<'PY'
+          import os
+          import litellm
+
+          model = os.environ["OI_INTEGRATION_MODEL"]
+          if model.startswith(("ollama/", "lm_studio/", "lm-studio/")):
+              raise SystemExit(0)
+          try:
+              environment = litellm.validate_environment(model)
+          except Exception as error:
+              print(f"::error::could not resolve the provider key for {model}: {error}")
+              raise SystemExit(1)
+          if not environment.get("keys_in_environment", True):
+              missing = ", ".join(
+                  environment.get("missing_keys") or ["provider credentials"]
+              )
+              print(f"::error::{missing} is required for {model}")
+              raise SystemExit(1)
+          PY
+
       - name: Run integration tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -310,5 +368,7 @@ jobs:
           OI_INTEGRATION_MODEL: ${{ vars.OI_INTEGRATION_MODEL || 'openrouter/openai/gpt-4o-mini' }}
           OI_RUN_INTEGRATION: "1"
         run: |
-          uv pip install --system -e ".[server,dev]"
-          pytest -m integration -rs -sv --timeout=300
+          pytest -m integration -rs -sv --timeout=300 --junitxml=test-results.xml
+
+      - name: Check test selection
+        run: python .github/scripts/check_pytest_counts.py test-results.xml 1
