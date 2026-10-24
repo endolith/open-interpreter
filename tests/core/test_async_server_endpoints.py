@@ -377,7 +377,8 @@ def test_insecure_run_route_propagates_error(insecure_pair):
 
     response = client.post("/run", json={"language": "python", "code": "1+1"})
     assert response.status_code == 500
-    assert response.json() == {"error": "oops"}
+    assert response.json() == {"error": "Internal server error"}
+    assert "oops" not in response.text
 
 
 def test_insecure_upload_route(insecure_pair, tmp_path):
@@ -404,7 +405,8 @@ def test_insecure_upload_route_propagates_error(insecure_pair):
         data={"path": "/no/such/dir/out.txt"},
     )
     assert response.status_code == 500
-    assert "No such file or directory" in response.json()["error"]
+    assert response.json() == {"error": "Internal server error"}
+    assert "No such file or directory" not in response.text
 
 
 def test_insecure_download_route(insecure_pair, tmp_path):
@@ -424,7 +426,8 @@ def test_insecure_download_route_missing_file(insecure_pair):
 
     response = client.get("/download/nope.bin")
     assert response.status_code == 500
-    assert "No such file or directory" in response.json()["error"]
+    assert response.json() == {"error": "Internal server error"}
+    assert "No such file or directory" not in response.text
 
 
 def _deltas(body):
