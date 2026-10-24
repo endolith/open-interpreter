@@ -496,3 +496,16 @@ def test_binary_chunk_without_open_message_raises_clear_error(interpreter):
     interpreter.messages = []
     with pytest.raises(Exception, match="start"):
         asyncio.run(interpreter.input(b"\x00\x01binary"))
+
+
+def test_one_failed_replay_does_not_drop_later_frames(ws_pair):
+    """A failing queued frame is logged; later queued frames still reach input()."""
+    client, _, inp = ws_pair
+    inp.side_effect = [RuntimeError("boom"), None]
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"role": "user", "type": "message", "content": "hi"}))
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    assert inp.await_count == 2

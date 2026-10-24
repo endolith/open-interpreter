@@ -625,7 +625,7 @@ def create_router(async_interpreter):
                         def frame_size(frame):
                             """Billable size of a queued pre-auth frame."""
                             if "text" in frame:
-                                return len(frame["text"])
+                                return len(frame["text"].encode("utf-8"))
                             return len(frame.get("bytes", b""))
 
                         async def hold_for_auth(frame):
@@ -684,10 +684,13 @@ def create_router(async_interpreter):
                                         await websocket.send_text(
                                             json.dumps({"auth": True})
                                         )
-                                        for pending in pending_inputs:
-                                            await deliver_frame(pending)
-                                        pending_inputs = []
+                                        queued, pending_inputs = pending_inputs, []
                                         pending_bytes = 0
+                                        for pending in queued:
+                                            try:
+                                                await deliver_frame(pending)
+                                            except Exception:
+                                                traceback.print_exc()
                                         continue
                                 else:
                                     # Not an auth attempt: hold the raw frame
