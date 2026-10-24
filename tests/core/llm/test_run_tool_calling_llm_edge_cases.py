@@ -149,6 +149,7 @@ def test_new_user_turn_clears_stale_queued_calls():
         yield {"choices": [{"delta": {"content": "fresh answer"}}]}
 
     llm.completions = chat
+    llm.interpreter.messages = [{"role": "user", "content": "hi"}]
 
     chunks = list(
         run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "hi"}]})
@@ -254,6 +255,7 @@ def test_changed_user_messages_clear_stale_queued_calls():
         yield {"choices": [{"delta": {"content": "fresh"}}]}
 
     llm.completions = fresh_chat
+    llm.interpreter.messages = [{"role": "user", "content": "never mind"}]
     chunks = list(
         run_tool_calling_llm(
             llm, {"messages": messages + [{"role": "user", "content": "never mind"}]}
@@ -261,3 +263,34 @@ def test_changed_user_messages_clear_stale_queued_calls():
     )
     assert llm.interpreter._pending_tool_calls == []
     assert chunks == [{"type": "message", "content": "fresh"}]
+
+
+def test_computer_image_does_not_clear_queued_calls():
+    """A normalized computer image must not look like a new user turn.
+
+    convert_to_openai_messages turns the image message into role user, but the
+    raw interpreter message is role computer, so the queued call still belongs
+    to the current turn and must be served.
+    """
+    llm = _make_llm()
+    snapshot = [{"role": "user", "content": "go"}]
+    llm.interpreter._pending_tool_calls = [
+        {
+            "id": "q",
+            "name": "execute",
+            "arguments": '{"language": "python", "code": "print(1)"}',
+            "messages": snapshot,
+        }
+    ]
+    llm.interpreter.messages = [
+        {"role": "computer", "type": "image", "format": "path", "content": "x.png"}
+    ]
+
+    chunks = list(
+        run_tool_calling_llm(
+            llm, {"messages": [{"role": "user", "content": "image"}]}
+        )
+    )
+
+    assert any(c.get("type") == "code" for c in chunks)
+    assert llm.interpreter._pending_tool_calls == []
