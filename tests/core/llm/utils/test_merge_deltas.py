@@ -373,3 +373,28 @@ def test_a_mapping_like_value_is_converted_and_merged():
 
     merge_deltas(message, {"nested": MappingProxyType({"b": 2})})
     assert message["nested"] == {"a": 1, "b": 2}
+
+
+def test_index_less_fragments_merge_into_one_call():
+    """A call stored without an index keeps absorbing index-less fragments."""
+    message = {}
+    merge_deltas(
+        message,
+        {"tool_calls": [{"id": "c1", "function": {"name": "run", "arguments": "{"}}]},
+    )
+    merge_deltas(message, {"tool_calls": [{"function": {"arguments": "}"}}]})
+
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["arguments"] == "{}"
+
+
+def test_tool_call_null_arguments_are_treated_as_empty():
+    """An explicit null argument must not raise when the next fragment appends."""
+    message = {}
+    merge_deltas(
+        message,
+        {"tool_calls": [{"index": 0, "function": {"name": "run", "arguments": None}}]},
+    )
+    merge_deltas(message, {"tool_calls": [{"index": 0, "function": {"arguments": "{}"}}]})
+
+    assert message["tool_calls"][0]["function"]["arguments"] == "{}"
