@@ -11,7 +11,29 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from .render_message import render_message
 
 
+def _pending_code_message(messages):
+    """The code message awaiting execution, ignoring trailing reasoning-only chunks.
+
+    Thinking models can emit a final message chunk carrying only reasoning, which
+    lands after the code block. Execution keys off the last meaningful message,
+    not strictly messages[-1], or that reasoning chunk silently stops the code
+    from running.
+    """
+    for message in reversed(messages):
+        if message.get("type") == "code":
+            return message
+        if (
+            message.get("type") == "message"
+            and not (message.get("content") or "").strip()
+            and message.get("reasoning_content")
+        ):
+            continue
+        return None
+    return None
+
+
 def respond(interpreter):
+
     """
     Yields chunks.
     Responds until it decides not to run any more code or say anything else.
@@ -162,20 +184,21 @@ def respond(interpreter):
 
         ### RUN CODE (if it's there) ###
 
-        if interpreter.messages[-1]["type"] == "code":
+        code_message = _pending_code_message(interpreter.messages)
+        if code_message is not None:
             if interpreter.verbose:
-                print("Running code:", interpreter.messages[-1])
+                print("Running code:", code_message)
 
             try:
                 # What language/code do you want to run?
-                language = interpreter.messages[-1]["format"].lower().strip()
-                code = interpreter.messages[-1]["content"]
+                language = code_message["format"].lower().strip()
+                code = code_message["content"]
 
                 if code.startswith("`\n"):
                     code = code[2:].strip()
                     if interpreter.verbose:
                         print("Removing `\n")
-                    interpreter.messages[-1]["content"] = code  # So the LLM can see it.
+                    code_message["content"] = code  # So the LLM can see it.
 
                 # A common hallucination
                 if code.startswith("functions.execute("):
@@ -184,10 +207,10 @@ def respond(interpreter):
                         code_dict = json.loads(edited_code)
                         language = code_dict.get("language", language)
                         code = code_dict.get("code", code)
-                        interpreter.messages[-1][
+                        code_message[
                             "content"
                         ] = code  # So the LLM can see it.
-                        interpreter.messages[-1][
+                        code_message[
                             "format"
                         ] = language  # So the LLM can see it.
                     except:
@@ -200,7 +223,7 @@ def respond(interpreter):
                 if code.strip().endswith("executeexecute"):
                     code = code.replace("executeexecute", "")
                     try:
-                        interpreter.messages[-1][
+                        code_message[
                             "content"
                         ] = code  # So the LLM can see it.
                     except:
@@ -212,10 +235,10 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1][
+                            code_message[
                                 "content"
                             ] = code  # So the LLM can see it.
-                            interpreter.messages[-1][
+                            code_message[
                                 "format"
                             ] = language  # So the LLM can see it.
                     except:
@@ -230,10 +253,10 @@ def respond(interpreter):
                         if set(code_dict.keys()) == {"language", "code"}:
                             language = code_dict["language"]
                             code = code_dict["code"]
-                            interpreter.messages[-1][
+                            code_message[
                                 "content"
                             ] = code  # So the LLM can see it.
-                            interpreter.messages[-1][
+                            code_message[
                                 "format"
                             ] = language  # So the LLM can see it.
                     except:
@@ -246,12 +269,15 @@ def respond(interpreter):
                 ):
                     # It does this sometimes just to take notes. Let it, it's useful.
                     # In the future we should probably not detect this behavior as code at all.
-                    real_content = interpreter.messages[-1]["content"]
-                    interpreter.messages[-1] = {
-                        "role": "assistant",
-                        "type": "message",
-                        "content": f"```\n{real_content}\n```",
-                    }
+                    real_content = code_message["content"]
+                    code_message.clear()
+                    code_message.update(
+                        {
+                            "role": "assistant",
+                            "type": "message",
+                            "content": f"```\n{real_content}\n```",
+                        }
+                    )
                     continue
 
                 # Is this language enabled/supported?
@@ -281,7 +307,7 @@ def respond(interpreter):
                         "content": "Code block was empty. Please try again, be sure to write code before executing.",
                     }
                     # Without breaking, the loop re-enters this branch forever because
-                    # messages[-1] is still type "code" with empty content.
+                    # the code message is still empty.
                     break
 
                 # Yield a message, such that the user can stop code execution if they want to
