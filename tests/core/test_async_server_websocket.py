@@ -458,3 +458,51 @@ def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
         isinstance(m, dict) and m.get("content") == "unacked"
         for m in interp.unsent_messages
     ), f"expected the unacked output to be retained, got {interp.unsent_messages}"
+
+
+def test_unacked_fresh_output_survives_disconnect(ws_pair, monkeypatch):
+    """A disconnect during acknowledgement parks the in-flight output (#349).
+
+    send_message() waits for an ack after putting bytes on the wire. If the
+    client goes away mid-wait, the endpoint cancels send_task; CancelledError
+    bypasses the `except Exception` handler, and a fresh output (never
+    queued) would be lost to the reconnect. It must land in unsent_messages.
+    The ack-wait tick is gated so the disconnect deterministically lands
+    inside the acknowledgement window instead of racing its ~10ms budget.
+    """
+    import asyncio as asyncio_mod
+
+    client, interp, _ = ws_pair
+    interp.require_acknowledge = True
+    calls = 0
+
+    async def _output():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"role": "assistant", "content": "hello"}
+        await asyncio_mod.sleep(3600)
+
+    interp.output = _output
+    gate = asyncio_mod.Event()
+    real_sleep = asyncio_mod.sleep
+
+    async def _gated_sleep(delay):
+        if delay == 0.0001:
+            await gate.wait()
+        else:
+            await real_sleep(delay)
+
+    monkeypatch.setattr(asyncio_mod, "sleep", _gated_sleep)
+    with client.websocket_connect("/") as ws:
+        # The auth reply and the immediate output race (separate tasks), so
+        # accept either arrival order instead of the strict _handshake().
+        ws.send_text(json.dumps({"auth": "not-checked-without-api-key"}))
+        first = ws.receive_json()
+        second = ws.receive_json()
+        assert {"auth": True} in (first, second)
+        other = second if first == {"auth": True} else first
+        assert other["content"] == "hello"
+    assert any(
+        m.get("content") == "hello" for m in interp.unsent_messages
+    ), "unacknowledged fresh output must be parked for the next connection"
