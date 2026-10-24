@@ -18,7 +18,7 @@ _TOOLS = [
 ]
 
 
-def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS):
+def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS, **extra):
     """Run messages through the outgoing-request normalization and return them.
 
     fixed_litellm_completions mutates the message list (filling reasoning_content
@@ -34,7 +34,7 @@ def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS):
         captured["messages"] = params["messages"]
         return iter(())
 
-    kwargs = {"model": model, "messages": messages, "stream": True}
+    kwargs = {"model": model, "messages": messages, "stream": True, **extra}
     if tools is not None:
         kwargs["tools"] = tools
 
@@ -231,3 +231,72 @@ def test_placeholder_only_history_does_not_trigger_fill():
     ]
     out = _process(messages, model="opencode_go/some-plain-model")
     assert "reasoning_content" not in out[3]
+
+
+def test_legacy_placeholder_on_plain_assistant_becomes_empty():
+    """A legacy placeholder on a non-tool turn is normalized to "".
+
+    Only tool_calls messages need a non-empty value; a plain assistant turn
+    accepts "", and forwarding the fabricated phrase would teach the model
+    that narrating an action is acceptable.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "done",
+            "reasoning_content": LEGACY_PLACEHOLDER,
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == ""
+
+
+def test_empty_reasoning_on_tool_call_gets_placeholder():
+    """A tool_calls message carrying "" is as fatal as a missing field."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "",
+            "tool_calls": [_tool_call("c1")],
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_extra_body_disable_leaves_messages_untouched():
+    """An explicit include_reasoning=False in extra_body disables the fill."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, extra_body={"include_reasoning": False})
+    assert "reasoning_content" not in out[1]
+
+
+def test_top_level_disable_leaves_messages_untouched():
+    """An explicit include_reasoning=False in params disables the fill."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, include_reasoning=False)
+    assert "reasoning_content" not in out[1]
+
+
+def test_non_string_reasoning_is_not_thinking_history():
+    """A non-string reasoning_content is not evidence of a thinking provider."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": None,
+            "tool_calls": [_tool_call("c1")],
+        },
+    ]
+    out = _process(messages, model="opencode_go/some-plain-model")
+    assert out[1]["reasoning_content"] is None
