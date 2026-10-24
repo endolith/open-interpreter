@@ -53,8 +53,10 @@ class CodeBlock(BaseBlock):
         ):
             code += "●"
 
-        # Add each line of code to the table
-        code_lines = code.strip().split("\n")
+        # Add each line of code to the table. Split without stripping: leading
+        # and trailing blank lines are part of the code (an append/edit block
+        # can start with them), and the panel must show what will run.
+        code_lines = code.split("\n")
         for i, line in enumerate(code_lines, start=1):
             if i == self.active_line and (
                 self.highlight_active_line
