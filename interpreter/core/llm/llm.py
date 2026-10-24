@@ -463,10 +463,17 @@ def _fill_reasoning_content(params):
     Adapted from develop commits 654c27d405 and d3c2245642.
     """
     model = params.get("model", "")
-    extra_body = params.get("extra_body", {})
+    extra_body = params.get("extra_body") or {}
+    if not isinstance(extra_body, dict):
+        extra_body = {}
+    thinking = extra_body.get("thinking")
+    thinking_disabled = (
+        isinstance(thinking, dict) and thinking.get("type") == "disabled"
+    )
     reasoning_disabled = (
         extra_body.get("include_reasoning") is False
         or params.get("include_reasoning") is False
+        or thinking_disabled
     )
     uses_deepseek = "deepseek" in str(model).lower()
     placeholder = "."
@@ -475,7 +482,6 @@ def _fill_reasoning_content(params):
         isinstance(m, dict)
         and m.get("role") == "assistant"
         and isinstance(m.get("reasoning_content"), str)
-        and (m["reasoning_content"] or "").strip()
         and (m["reasoning_content"] or "").strip()
         not in (placeholder, legacy_placeholder)
         for m in params.get("messages", []) or []
@@ -493,6 +499,11 @@ def _fill_reasoning_content(params):
         if msg.get("role") == "assistant":
             if "reasoning_content" in msg:
                 rc = msg.get("reasoning_content")
+                if not isinstance(rc, str):
+                    # A relay can send a list/dict here; normalize it rather
+                    # than calling .strip() on a non-string.
+                    rc = ""
+                    msg["reasoning_content"] = ""
                 if (rc or "").strip() in (placeholder, legacy_placeholder):
                     last_reasoning = None
                     if msg.get("tool_calls"):
