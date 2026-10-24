@@ -300,3 +300,42 @@ def test_non_string_reasoning_is_not_thinking_history():
     ]
     out = _process(messages, model="opencode_go/some-plain-model")
     assert out[1]["reasoning_content"] is None
+
+
+def test_non_string_reasoning_on_tool_call_gets_placeholder():
+    """A relay can send a list; it must be treated as no reasoning, not crash."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": ["not", "a", "string"],
+            "tool_calls": [_tool_call("c1")],
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_non_string_reasoning_on_plain_assistant_becomes_empty():
+    """A non-string reasoning value on a plain turn is normalized to ""."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "done",
+            "reasoning_content": {"unexpected": "shape"},
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == ""
+
+
+def test_thinking_disabled_leaves_messages_untouched():
+    """DeepSeek's own thinking-off switch disables the fill."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, extra_body={"thinking": {"type": "disabled"}})
+    assert "reasoning_content" not in out[1]
