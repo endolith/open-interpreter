@@ -271,26 +271,14 @@ def test_scan_code_still_cleans_up_when_the_temp_file_cannot_be_created(tmp_path
     assert run.call_count == 0, "semgrep must not run without a file to scan"
 
 
-@pytest.mark.xfail(
-    reason="#399: create_temporary_file returns None on failure, so scan_code "
-    "raises an unrelated TypeError from os.path.dirname",
-    strict=True,
-)
-def test_scan_code_reports_a_temp_file_failure_clearly(tmp_path, capsys):
-    """A temp-file failure should name the cause, not raise TypeError from os.
-
-    `create_temporary_file` swallows its exception and returns `None`, and
-    `scan_code` passes that straight to `os.path.dirname`, so the user sees
-    "expected str, bytes or os.PathLike object, not NoneType" from a stdlib call
-    that has nothing to do with the disk.
-
-    Strict xfail: it passes the day #399 is fixed. Pinned as-is because the
-    current message actively misdirects.
-    """
+def test_scan_code_propagates_temp_file_creation_error():
+    """A temp-file creation error reaches the scan_code caller unchanged."""
     interpreter = _scan_interpreter()
 
     with mock.patch(
-        "interpreter.core.utils.scan_code.create_temporary_file", return_value=None
+        "interpreter.core.utils.scan_code.create_temporary_file",
+        side_effect=OSError("disk full"),
     ):
         with mock.patch("interpreter.core.utils.scan_code.cleanup_temporary_file"):
-            scan_code.scan_code("x = 1", "python", interpreter)
+            with pytest.raises(OSError, match="disk full"):
+                scan_code.scan_code("x = 1", "python", interpreter)
