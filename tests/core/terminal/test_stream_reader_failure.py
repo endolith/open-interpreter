@@ -108,3 +108,14 @@ class TestStreamReaderSurvivesUnexpectedErrors(unittest.TestCase):
 
         joined = "\n".join(str(chunk.get("content")) for chunk in collected)
         self.assertIn("output stream stopped unexpectedly", joined)
+
+    def test_reader_failure_discards_the_process(self):
+        """The dead process must not be reusable by the next run()."""
+        reader = self._reader()
+        process = mock.Mock()
+        reader.process = process
+
+        reader.handle_stream_output(_ExplodingStream([], RuntimeError("boom")), False)
+
+        process.terminate.assert_called_once()
+        self.assertIsNone(reader.process)

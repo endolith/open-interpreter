@@ -267,6 +267,17 @@ class SubprocessLanguage(BaseLanguage):
                 ),
             }
         )
+        # Discard the process: its stdout reader is gone, so a later run()
+        # would write to it and wait forever for a completion marker that can
+        # no longer arrive. Clear the handle before terminating so nothing can
+        # reuse it if termination is slow or raises.
+        process, self.process = self.process, None
+        if process is not None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+
         # Set last, so the diagnostic above is already queued and gets drained
         # rather than lost to the teardown.
         self.done.set()
