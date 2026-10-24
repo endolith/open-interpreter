@@ -49,6 +49,27 @@ def point(description, screenshot=None, debug=False, hashes=None):
         return find_icon(description, screenshot, debug, hashes)
 
 
+def _expand_boxes(icons_bounding_boxes, image_width, image_height, pixel_expand):
+    """Expand each box by pixel_expand, clipped to the image edges."""
+    for box in icons_bounding_boxes:
+        # Expand x, y by pixel_expand if they are greater than 0
+        box["x"] = box["x"] - pixel_expand if box["x"] - pixel_expand >= 0 else box["x"]
+        box["y"] = box["y"] - pixel_expand if box["y"] - pixel_expand >= 0 else box["y"]
+
+        # Expand w, h by pixel_expand, but not beyond image_width and image_height
+        box["width"] = (
+            box["width"] + pixel_expand * 2
+            if box["x"] + box["width"] + pixel_expand * 2 <= image_width
+            else image_width - box["x"]
+        )
+        box["height"] = (
+            box["height"] + pixel_expand * 2
+            if box["y"] + box["height"] + pixel_expand * 2 <= image_height
+            else image_height - box["y"]
+        )
+    return icons_bounding_boxes
+
+
 def find_icon(description, screenshot=None, debug=False, hashes=None):
     if debug:
         print("STARTING")
@@ -307,23 +328,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
     # Define the pixel expansion amount
     pixel_expand = int(os.getenv("OI_POINT_PIXEL_EXPAND", 7))
 
-    # Expand each box by pixel_expand
-    for box in icons_bounding_boxes:
-        # Expand x, y by pixel_expand if they are greater than 0
-        box["x"] = box["x"] - pixel_expand if box["x"] - pixel_expand >= 0 else box["x"]
-        box["y"] = box["y"] - pixel_expand if box["y"] - pixel_expand >= 0 else box["y"]
-
-        # Expand w, h by pixel_expand, but not beyond image_width and image_height
-        box["width"] = (
-            box["width"] + pixel_expand * 2
-            if box["x"] + box["width"] + pixel_expand * 2 <= image_width
-            else image_width - box["x"] - box["width"]
-        )
-        box["height"] = (
-            box["height"] + pixel_expand * 2
-            if box["y"] + box["height"] + pixel_expand * 2 <= image_height
-            else image_height - box["y"] - box["height"]
-        )
+    _expand_boxes(icons_bounding_boxes, image_width, image_height, pixel_expand)
 
     # Save a debug image with a descriptive name for the step we just went through
     if debug:
