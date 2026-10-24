@@ -316,14 +316,29 @@ def test_install_and_import_installs_via_pip_then_imports():
     assert result is fake
 
 
-def test_install_and_import_pip_failure_unbound_module_known_bug():
-    """KNOWN BUG: when pip fails and pip3 also fails, install_and_import
-    raises UnboundLocalError instead of returning None. The function's
-    finally block references `module`, which is never bound on the failure
-    paths. Documenting current behavior."""
-    with mock.patch(
-        "builtins.__import__", side_effect=ImportError("missing")
-    ):
+_real_import = __import__
+
+
+def _missing_somedummy(name, *args, **kwargs):
+    """Pretend only `somedummy` is missing; delegate anything else for real.
+
+    Blanket-mocking `builtins.__import__` also breaks imports made by test
+    and measurement machinery running inside the mocked window (notably
+    coverage's tracer on 3.14, which under-reported the new `if` in #261),
+    so the fake fails just the package under test.
+    """
+    if name == "somedummy":
+        raise ImportError("missing")
+    return _real_import(name, *args, **kwargs)
+
+
+def test_install_and_import_pip_failure_returns_none():
+    """When pip fails and pip3 also fails, install_and_import returns None.
+
+    Regression test for #250: the failure paths previously left `module`
+    unbound, so the finally block raised UnboundLocalError.
+    """
+    with mock.patch("builtins.__import__", side_effect=_missing_somedummy):
         with mock.patch.object(
             magic_commands.subprocess,
             "check_call",
@@ -332,8 +347,48 @@ def test_install_and_import_pip_failure_unbound_module_known_bug():
                 magic_commands.subprocess.CalledProcessError(1, "pip3"),
             ],
         ):
-            with pytest.raises(UnboundLocalError):
-                magic_commands.install_and_import("somedummy")
+            result = magic_commands.install_and_import("somedummy")
+
+    assert result is None
+
+
+def test_install_and_import_pip3_success_imports():
+    """When pip fails but pip3 succeeds, the package is imported and returned.
+
+    Regression test for #250: the pip3-success path previously never called
+    __import__ again, leaving `module` unbound and raising UnboundLocalError
+    from the finally block.
+    """
+    fake = object()
+    calls = {"count": 0}
+
+    def _import_once_missing(name, *args, **kwargs):
+        """Fail the first `somedummy` import, return the fake after install."""
+        if name == "somedummy":
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise ImportError("missing")
+            return fake
+        return _real_import(name, *args, **kwargs)
+
+    with mock.patch("builtins.__import__", side_effect=_import_once_missing):
+        with mock.patch.object(
+            magic_commands.subprocess,
+            "check_call",
+            side_effect=[
+                magic_commands.subprocess.CalledProcessError(1, "pip"),
+                None,
+            ],
+        ) as check_call:
+            result = magic_commands.install_and_import("somedummy")
+
+    assert check_call.call_count == 2
+    check_call.assert_called_with(
+        [sys.executable, "-m", "pip3", "install", "somedummy"],
+        stdout=magic_commands.subprocess.DEVNULL,
+        stderr=magic_commands.subprocess.DEVNULL,
+    )
+    assert result is fake
 
 
 def test_handle_undo_previews_removed_message_content():
