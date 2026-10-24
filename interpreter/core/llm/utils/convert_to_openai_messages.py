@@ -15,6 +15,10 @@ def convert_to_openai_messages(
 ):
     """
     Converts LMC messages into OpenAI messages
+
+    Stored `reasoning_content` is passed through when present. Only thinking
+    providers emit it; others are expected to ignore unknown message fields.
+    The DeepSeek backfill is gated separately in llm.py.
     """
     new_messages = []
 
@@ -53,6 +57,11 @@ def convert_to_openai_messages(
                 )
             else:
                 new_message["content"] = message["content"]
+
+            if message.get("reasoning_content"):
+                # Thinking-model chains of thought must be passed back
+                # verbatim or providers reject follow-up requests (#215).
+                new_message["reasoning_content"] = message["reasoning_content"]
 
         elif message["type"] == "code":
             new_message["role"] = "assistant"
@@ -286,33 +295,42 @@ def convert_to_openai_messages(
         combined_messages = []
         current_role = None
         current_content = []
+        current_reasoning = []
+
+        def flush(separator):
+            if not current_content:
+                return
+            combined = {
+                "role": current_role,
+                "content": separator.join(current_content),
+            }
+            reasoning = "\n".join(value for value in current_reasoning if value)
+            if reasoning:
+                combined["reasoning_content"] = reasoning
+            combined_messages.append(combined)
 
         for message in new_messages:
             if isinstance(message["content"], str):
                 if current_role is None:
                     current_role = message["role"]
                     current_content.append(message["content"])
+                    current_reasoning.append(message.get("reasoning_content", ""))
                 elif current_role == message["role"]:
                     current_content.append(message["content"])
+                    current_reasoning.append(message.get("reasoning_content", ""))
                 else:
-                    combined_messages.append(
-                        {"role": current_role, "content": "\n".join(current_content)}
-                    )
+                    flush("\n")
                     current_role = message["role"]
                     current_content = [message["content"]]
+                    current_reasoning = [message.get("reasoning_content", "")]
             else:
-                if current_content:
-                    combined_messages.append(
-                        {"role": current_role, "content": "\n".join(current_content)}
-                    )
-                    current_content = []
+                flush("\n")
+                current_content = []
+                current_reasoning = []
                 combined_messages.append(message)
 
-        # Add the last message
-        if current_content:
-            combined_messages.append(
-                {"role": current_role, "content": " ".join(current_content)}
-            )
+        # The last group keeps the historical space separator.
+        flush(" ")
 
         new_messages = combined_messages
 

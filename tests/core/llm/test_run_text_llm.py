@@ -192,6 +192,20 @@ def test_a_delta_with_no_content_key_yields_an_empty_message():
     ]
 
 
+def test_reasoning_only_delta_yields_message_with_reasoning():
+    """A delta with None content but reasoning_content is kept, not skipped (issue #215)."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": None, "reasoning_content": "Let me think"}}]},
+            {"choices": [{"delta": {"content": "hi"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "", "reasoning_content": "Let me think"},
+        {"type": "message", "content": "hi"},
+    ]
+
+
 def test_os_flag_true_does_not_change_labelled_languages():
     """A labelled fence keeps its language in OS mode.
 
@@ -209,3 +223,93 @@ def test_os_flag_true_does_not_change_labelled_languages():
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
 
     assert {chunk.get("format") for chunk in result} == {"bash"}
+
+
+def test_reasoning_content_attached_per_chunk():
+    """Each message chunk carries its own reasoning delta for history accumulation (issue #215)."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "a", "reasoning_content": "r1"}}]},
+            {"choices": [{"delta": {"content": "b", "reasoning_content": "r2"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "a", "reasoning_content": "r1"},
+        {"type": "message", "content": "b", "reasoning_content": "r2"},
+    ]
+
+
+def test_reasoning_survives_split_fence_guard():
+    """Reasoning arriving while the fence parser holds a chunk is still emitted (issue #215).
+
+    When accumulated output ends in a backtick the parser `continue`s past the
+    chunk, which used to drop any reasoning delta riding along with it.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "code `"}}]},
+            {
+                "choices": [
+                    {"delta": {"content": None, "reasoning_content": "thinking"}}
+                ]
+            },
+            {"choices": [{"delta": {"content": "more"}}]},
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "", "reasoning_content": "thinking"},
+        {"type": "message", "content": "more"},
+    ]
+
+
+def test_reasoning_inside_code_block_is_emitted():
+    """Reasoning arriving mid-code-block is emitted on its own message (issue #215).
+
+    Code chunks carry no reasoning, and the message branch is skipped inside a
+    fence, so the reasoning used to never reach stored history.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "print(1)\n",
+                            "reasoning_content": "r-code",
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "code", "format": "python", "content": "```\n"},
+        {"type": "message", "content": "", "reasoning_content": "r-code"},
+        {"type": "code", "format": "python", "content": "print(1)\n"},
+    ]
+
+
+def test_reasoning_on_closing_fence_is_emitted_before_return():
+    """Reasoning riding on the closing fence is emitted before the turn ends.
+
+    The closing fence returns immediately; without this branch the reasoning
+    that arrived with it would never reach stored history.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print(1)\n"}}]},
+            {
+                "choices": [
+                    {"delta": {"content": "```\n", "reasoning_content": "done"}}
+                ]
+            },
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result[-1] == {
+        "type": "message",
+        "content": "",
+        "reasoning_content": "done",
+    }
