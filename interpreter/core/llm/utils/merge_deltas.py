@@ -56,30 +56,30 @@ def _tool_call_slot(accumulated_calls, new_tool_call):
                 return i
 
     index = new_tool_call.get("index", 0)
+    slot = None
     for i, call in enumerate(accumulated_calls):
-        if not isinstance(call, dict) or call.get("index") != index:
+        if not isinstance(call, dict) or call.get("index", 0) != index:
             continue
         if new_id and call.get("id") and call["id"] != new_id:
             # Same stamped index, different call: keep looking rather than
             # appending this call's arguments onto that one.
             continue
-        return i
-    return None
+        # The last match is the call that opened most recently at this slot.
+        # Providers that re-stamp every chunk's index from zero reuse the slot
+        # for consecutive calls, so an ID-less tail after a collision belongs
+        # to the newer call, not the first one.
+        slot = i
+    return slot
 
 
 def _append_tool_call(accumulated_calls, new_tool_call):
-    """Start a new accumulated call, keeping ``index`` unique across the list.
+    """Start a new accumulated call, preserving the provider's slot.
 
     Two calls can arrive carrying the same stamped index (see _tool_call_slot).
-    Storing both under it would leave every later index-only delta ambiguous, so
-    a colliding newcomer is renumbered past the highest index in use. Nothing
-    downstream reads this field — it is a streaming artefact, not part of the
-    request shape — so renumbering costs nothing and keeps the lookup sound.
+    Keep it rather than renumbering: a later ID-less fragment defaults to that
+    index, and the last-match rule routes it to the call that opened most
+    recently, which is the one whose stream is active.
     """
-    taken = {call.get("index") for call in accumulated_calls if isinstance(call, dict)}
-    if new_tool_call.get("index", 0) in taken:
-        new_tool_call = dict(new_tool_call)
-        new_tool_call["index"] = max((i for i in taken if isinstance(i, int)), default=-1) + 1
     accumulated_calls.append(new_tool_call)
 
 
@@ -97,12 +97,11 @@ def _merge_tool_call(existing, new_tool_call):
         # Merge name (use non-null value)
         if new_func.get("name") and not func.get("name"):
             func["name"] = new_func["name"]
-        # Accumulate arguments (string concatenation)
-        if "arguments" in new_func:
-            if "arguments" in func:
-                func["arguments"] += new_func.get("arguments", "")
-            else:
-                func["arguments"] = new_func.get("arguments", "")
+        # Accumulate arguments (string concatenation). Providers can send an
+        # explicit null, and a first chunk stored unchanged may hold None;
+        # both are treated as empty so the next fragment still appends.
+        if new_func.get("arguments") is not None:
+            func["arguments"] = (func.get("arguments") or "") + new_func["arguments"]
     # Merge type
     if new_tool_call.get("type") and not existing.get("type"):
         existing["type"] = new_tool_call["type"]

@@ -212,8 +212,46 @@ def test_two_calls_stamped_with_the_same_index_do_not_concatenate():
     assert len(message["tool_calls"]) == 2, message["tool_calls"]
     assert message["tool_calls"][0]["function"]["arguments"] == '{"language": "python"}'
     assert message["tool_calls"][1]["function"]["arguments"] == '{"language": "bash"}'
-    # The renumber keeps index usable as a lookup key for any later index-only delta.
-    assert message["tool_calls"][0]["index"] != message["tool_calls"][1]["index"]
+
+
+def test_id_less_tail_after_a_colliding_open_joins_the_new_call():
+    """A slot collision must not send the newer call's ID-less tail to the older call.
+
+    litellm numbers index-less calls from zero per chunk. When a second call
+    opens at the same slot and sends its ID only on the opening delta, its later
+    argument fragment has no ID and defaults to index 0. It belongs to the call
+    that just opened, not the first call at that slot.
+    """
+    message = {}
+    merge_deltas(
+        message,
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": "a",
+                    "function": {"name": "execute", "arguments": '{"a": 1'},
+                }
+            ]
+        },
+    )
+    merge_deltas(message, {"tool_calls": [{"index": 0, "function": {"arguments": "}"}}]})
+    merge_deltas(
+        message,
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": "b",
+                    "function": {"name": "execute", "arguments": '{"b": 2'},
+                }
+            ]
+        },
+    )
+    merge_deltas(message, {"tool_calls": [{"function": {"arguments": "}"}}]})
+
+    by_id = {call["id"]: call["function"]["arguments"] for call in message["tool_calls"]}
+    assert by_id == {"a": '{"a": 1}', "b": '{"b": 2}'}
 
 
 def test_a_late_arriving_id_still_joins_the_call_it_belongs_to():
@@ -373,3 +411,28 @@ def test_a_mapping_like_value_is_converted_and_merged():
 
     merge_deltas(message, {"nested": MappingProxyType({"b": 2})})
     assert message["nested"] == {"a": 1, "b": 2}
+
+
+def test_index_less_fragments_merge_into_one_call():
+    """A call stored without an index keeps absorbing index-less fragments."""
+    message = {}
+    merge_deltas(
+        message,
+        {"tool_calls": [{"id": "c1", "function": {"name": "run", "arguments": "{"}}]},
+    )
+    merge_deltas(message, {"tool_calls": [{"function": {"arguments": "}"}}]})
+
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["function"]["arguments"] == "{}"
+
+
+def test_tool_call_null_arguments_are_treated_as_empty():
+    """An explicit null argument must not raise when the next fragment appends."""
+    message = {}
+    merge_deltas(
+        message,
+        {"tool_calls": [{"index": 0, "function": {"name": "run", "arguments": None}}]},
+    )
+    merge_deltas(message, {"tool_calls": [{"index": 0, "function": {"arguments": "{}"}}]})
+
+    assert message["tool_calls"][0]["function"]["arguments"] == "{}"
