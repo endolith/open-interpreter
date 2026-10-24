@@ -304,3 +304,59 @@ def test_fixed_litellm_completions_raises_after_max_retries():
         with pytest.raises(Exception, match="persistent failure"):
             list(fixed_litellm_completions(**params))
     assert mock_completion.call_count == 4
+
+
+def test_fixed_litellm_completions_does_not_replay_after_streaming_started():
+    """A mid-stream failure is surfaced, not retried, once chunks have shipped.
+
+    litellm's stream iterator can raise from inside iteration (a dropped
+    connection, a mid-stream error event) after chunks have already reached the
+    consumer. Restarting the stream replays those chunks: the text consumer
+    duplicates the opening, and the tool-calling consumer concatenates the
+    partial arguments with the restart into a string that never parses, so it
+    executes only the truncated prefix. A failure after the first chunk must
+    therefore propagate rather than retry.
+    """
+
+    def chunk(text):
+        return {"choices": [{"delta": {"content": text}}]}
+
+    calls = {"n": 0}
+
+    def flaky(**params):
+        calls["n"] += 1
+        yield chunk("Hello")
+        yield chunk(" world")
+        if calls["n"] == 1:
+            raise Exception("connection reset mid-stream")
+        yield chunk("!")  # the tail a replay would deliver
+
+    got = []
+    with mock.patch("litellm.completion", flaky):
+        with pytest.raises(Exception, match="mid-stream"):
+            for c in fixed_litellm_completions(model="gpt-4o", api_key="x"):
+                got.append(c["choices"][0]["delta"]["content"])
+
+    assert got == ["Hello", " world"], "chunks were replayed"
+    assert calls["n"] == 1, "the stream was retried after it had started"
+
+
+def test_fixed_litellm_completions_still_retries_before_the_first_chunk():
+    """A failure before any chunk (connect/auth) is still retried, as before."""
+
+    calls = {"n": 0}
+
+    def connect_then_ok(**params):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise Exception("connection refused")
+        yield {"choices": [{"delta": {"content": "ok"}}]}
+
+    with mock.patch("litellm.completion", connect_then_ok):
+        got = [
+            c["choices"][0]["delta"]["content"]
+            for c in fixed_litellm_completions(model="gpt-4o", api_key="x")
+        ]
+
+    assert got == ["ok"]
+    assert calls["n"] == 2
