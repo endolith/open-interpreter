@@ -336,6 +336,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OI_INTEGRATION_MODEL: ${{ vars.OI_INTEGRATION_MODEL || 'openrouter/openai/gpt-4o-mini' }}
         run: |
           python - <<'PY'
@@ -363,6 +364,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           # Baseline model for the integration job. Override with a repository
           # variable to try another provider without editing the workflow.
           OI_INTEGRATION_MODEL: ${{ vars.OI_INTEGRATION_MODEL || 'openrouter/openai/gpt-4o-mini' }}
