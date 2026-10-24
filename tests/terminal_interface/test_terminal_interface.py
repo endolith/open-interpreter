@@ -635,3 +635,37 @@ def test_terminal_interface_provider_error_closes_active_block():
             list(terminal_interface(interpreter, ""))
 
     interpreter.chat.assert_called_once_with("hi", display=False, stream=True)
+
+
+def test_terminal_interface_reports_undisplayed_errors():
+    """A non-provider failure in interactive mode is shown, not swallowed."""
+    interpreter = _make_interpreter()
+    interpreter.chat = mock.Mock(side_effect=RuntimeError("render exploded"))
+
+    with mock.patch("builtins.input", side_effect=["hi", KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert any(
+        "render exploded" in str(call.args[0])
+        for call in interpreter.display_message.call_args_list
+        if call.args
+    )
+
+
+def test_terminal_interface_does_not_repeat_a_displayed_provider_error():
+    """A provider error already shown by respond() is not printed again."""
+    interpreter = _make_interpreter()
+    error = RuntimeError("provider said no")
+    error._oi_provider_error_displayed = True
+    interpreter.chat = mock.Mock(side_effect=error)
+
+    with mock.patch("builtins.input", side_effect=["hi", KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert not any(
+        "provider said no" in str(call.args[0])
+        for call in interpreter.display_message.call_args_list
+        if call.args
+    )
