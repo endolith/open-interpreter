@@ -409,3 +409,24 @@ def test_chat_runs_code_before_a_trailing_reasoning_message():
         list(interpreter.chat(message="hi", display=False))
 
     assert executed == ["1+1"]
+
+
+def test_chat_merges_reasoning_into_the_current_code_message():
+    """Reasoning streamed during code stays on the code message, not a split one."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = True
+    chunks = [
+        {"type": "code", "format": "python", "content": "print(1)"},
+        {"type": "message", "content": "", "reasoning_content": "thinking"},
+    ]
+
+    def fake_run(language, code, **kwargs):
+        yield {"type": "console", "format": "output", "content": "1"}
+
+    interpreter.computer.run = fake_run
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+
+    code_messages = [m for m in interpreter.messages if m["type"] == "code"]
+    assert len(code_messages) == 1
+    assert code_messages[0]["reasoning_content"] == "thinking"

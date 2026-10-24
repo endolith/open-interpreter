@@ -365,6 +365,24 @@ class OpenInterpreter:
                     # )
                     continue
 
+                # Reasoning that arrives while a code block is streaming belongs
+                # to that assistant code message. Storing it as its own message
+                # splits the code block and can leave only the tail selected
+                # for execution.
+                if (
+                    chunk.get("content") == ""
+                    and chunk.get("reasoning_content")
+                    and self.messages
+                    and self.messages[-1].get("role") == "assistant"
+                    and self.messages[-1].get("type") == "code"
+                ):
+                    self.messages[-1]["reasoning_content"] = (
+                        self.messages[-1].get("reasoning_content", "")
+                        + chunk["reasoning_content"]
+                    )
+                    yield chunk.copy()
+                    continue
+
                 # Check if the chunk's role, type, and format (if present) match the last_flag_base
                 if (
                     last_flag_base

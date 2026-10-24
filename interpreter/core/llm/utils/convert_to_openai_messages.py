@@ -65,6 +65,8 @@ def convert_to_openai_messages(
 
         elif message["type"] == "code":
             new_message["role"] = "assistant"
+            if message.get("reasoning_content"):
+                new_message["reasoning_content"] = message["reasoning_content"]
             if function_calling:
                 new_message["function_call"] = {
                     "name": "execute",

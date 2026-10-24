@@ -880,3 +880,20 @@ def test_function_calling_false_preserves_reasoning(interpreter):
             "reasoning_content": "r1\nr2",
         }
     ]
+
+
+def test_code_message_carries_reasoning(interpreter):
+    """Reasoning attached to a code message survives conversion."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "1+1",
+            "reasoning_content": "thinking",
+        }
+    ]
+
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+
+    assert result[0]["reasoning_content"] == "thinking"
