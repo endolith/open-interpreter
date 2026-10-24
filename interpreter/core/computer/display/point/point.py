@@ -655,9 +655,8 @@ def get_element_boxes(image_data, debug):
                 1, 40
             )  # Random contrast in range 0.5 to 1.5
             random_block_size = random.choice(
-                range(1, 11, 2)
-            )  # Random block size in range 1 to 10, but only odd numbers
-            random_block_size = 11
+                range(3, 11, 2)
+            )  # Random block size from 3 to 9 (adaptiveThreshold needs odd > 1)
             random_adaptive_method = random.choice(
                 [cv2.ADAPTIVE_THRESH_MEAN_C, cv2.ADAPTIVE_THRESH_GAUSSIAN_C]
             )  # Random adaptive method
