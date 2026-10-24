@@ -53,21 +53,39 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - name: Check credentials
-        id: gate
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           if [ -z "${OPENROUTER_API_KEY}" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_API_KEY not set; skipping ${{ matrix.model }}"
+            echo "::error::OPENROUTER_API_KEY is required for the provider matrix (fork PRs are skipped at the job level)."
+            exit 1
           fi
       - name: Install
-        if: steps.gate.outputs.skip != 'true'
         run: uv pip install --system -e ".[server,dev]"
       - name: Run provider matrix
-        if: steps.gate.outputs.skip != 'true'
         env:
           OI_RUN_INTEGRATION: "1"
           OI_INTEGRATION_MODEL: ${{ matrix.model }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: pytest -m "integration and provider_matrix" -q
+        run: |
+          pytest -m "integration and provider_matrix" -q -rs --junitxml=test-results.xml
+      - name: Check test selection
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          cases = ET.parse("test-results.xml").findall(".//testcase")
+          passed = sum(
+              1
+              for case in cases
+              if case.find("failure") is None
+              and case.find("error") is None
+              and case.find("skipped") is None
+          )
+          if passed < 1:
+              print(
+                  f"::error::provider matrix passed {passed} tests; "
+                  "the key or selection is wrong"
+              )
+              raise SystemExit(1)
+          PY
