@@ -18,6 +18,48 @@ def test_get_language_by_alias():
     assert terminal.get_language("sh").name == "Shell"
 
 
+class _FakeShell:
+    """Minimal language stub with an alias, for process-sharing tests."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+
+    def __init__(self, computer):
+        self.computer = computer
+
+    def run(self, code):
+        yield {"type": "console", "format": "output", "content": code}
+
+
+def _bare_computer():
+    return SimpleNamespace(
+        import_computer_api=False,
+        import_skills=False,
+        _has_imported_computer_api=False,
+        _has_imported_skills=False,
+        verbose=False,
+        skills=SimpleNamespace(import_skills=mock.Mock()),
+    )
+
+
+def test_canonical_language_resolves_aliases_and_passes_unknown_through():
+    """canonical_language() maps aliases to the primary name, lowercased (issue #323)."""
+    terminal = Terminal(computer=SimpleNamespace())
+    terminal.languages = [_FakeShell]
+    assert terminal.canonical_language("bash") == "shell"
+    assert terminal.canonical_language("Shell") == "shell"
+    assert terminal.canonical_language("unknown_xyz") == "unknown_xyz"
+
+
+def test_run_alias_shares_process_with_canonical_name():
+    """'bash' and 'shell' blocks share one persistent process (issue #323)."""
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_FakeShell]
+    list(terminal.run("bash", "cd /tmp", stream=True))
+    list(terminal.run("shell", "pwd", stream=True))
+    assert list(terminal._active_languages) == ["shell"]
+
+
 def test_run_non_streaming_merges_output_chunks():
     """Terminal.run(stream=False) concatenates consecutive console output chunks."""
     computer = SimpleNamespace(
