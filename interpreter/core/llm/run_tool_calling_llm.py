@@ -248,7 +248,9 @@ def run_tool_calling_llm(llm, request_params):
     if pending_calls:
         queued_token = pending_calls[0].get("messages")
         current = list(request_params["messages"] or [{}])
-        if current[-1].get("role") == "user" and (
+        raw_messages = getattr(llm.interpreter, "messages", None) or []
+        raw_last_role = raw_messages[-1].get("role") if raw_messages else None
+        if raw_last_role == "user" and (
             queued_token is None or current != queued_token
         ):
             # A new user turn arrived after these calls were queued (or the
