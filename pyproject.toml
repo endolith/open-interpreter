@@ -137,6 +137,7 @@ ignore = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+xfail_strict = true
 markers = [
     "integration: calls an LLM, costs money, and executes generated code without approval; requires OI_RUN_INTEGRATION=1 and OPENAI_API_KEY",
     "mock_llm: uses a local OpenAI-compatible HTTP server (no API key)",
