@@ -39,11 +39,29 @@ def test_catalog_text_only_model_is_not_vision_capable(monkeypatch):
     assert llm_module._supports_vision("openrouter/vendor/text-only") is False
 
 
-def test_absent_catalog_entry_is_conservative(monkeypatch):
-    """An unknown OpenRouter slug must not be assumed to accept images."""
+def test_unknown_catalog_entry_is_unresolved(monkeypatch):
+    """An OpenRouter slug the catalog does not list is unknown, not text-only."""
     monkeypatch.setattr(llm_module.litellm, "supports_vision", lambda model: False)
     monkeypatch.setattr(llm_module, "openrouter_model_entry", lambda model: None)
-    assert llm_module._supports_vision("openrouter/vendor/unknown") is False
+    assert llm_module._supports_vision("openrouter/vendor/unknown") is None
+
+
+def test_openrouter_prefix_is_case_insensitive(monkeypatch):
+    """An uppercase provider prefix still resolves the exact catalog slug."""
+    entry = {
+        "id": "openai/gpt-4o-mini",
+        "architecture": {"input_modalities": ["text", "image"]},
+    }
+    monkeypatch.setattr(providers, "_openrouter_models", {"openai/gpt-4o-mini": entry})
+    assert (
+        providers.openrouter_model_entry("OpenRouter/openai/gpt-4o-mini") is entry
+    )
+
+    monkeypatch.setattr(llm_module.litellm, "supports_vision", lambda model: False)
+    monkeypatch.setattr(llm_module, "openrouter_model_entry", lambda model: entry)
+    assert (
+        llm_module._supports_vision("OpenRouter/openai/gpt-4o-mini") is True
+    )
 
 
 def test_non_openrouter_model_never_queries_catalog(monkeypatch):
@@ -260,6 +278,29 @@ def test_run_aborts_without_sending_when_catalog_is_unavailable(monkeypatch):
     assert "openrouter/vendor/unknown" in str(excinfo.value)
     assert "supports_vision" in str(excinfo.value)
     assert sent == []
+    assert llm.supports_vision is None
+
+
+def test_run_aborts_when_the_openrouter_slug_is_unknown(monkeypatch):
+    """A reachable catalog that omits the slug must not silently drop images."""
+    llm = _llm_for_run()
+    calls = []
+    monkeypatch.setattr(
+        llm_module,
+        "run_tool_calling_llm",
+        lambda llm_, params: calls.append(params) or iter(()),
+    )
+    monkeypatch.setattr(llm_module.litellm, "supports_vision", lambda model: False)
+    monkeypatch.setattr(llm_module, "openrouter_model_entry", lambda model: None)
+    messages = [
+        {"role": "system", "type": "message", "content": "system"},
+        {"role": "user", "type": "message", "content": "hello"},
+    ]
+
+    with pytest.raises(providers.OpenRouterCatalogError, match="not listed"):
+        list(llm.run(messages))
+
+    assert calls == []
     assert llm.supports_vision is None
 
 
