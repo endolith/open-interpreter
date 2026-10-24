@@ -278,7 +278,7 @@ class Calendar:
         else:
             return "Unknown error deleting event. Please check event title and date."
 
-    def get_first_calendar(self) -> str:
+    def get_first_calendar(self) -> str | None:
         # Literally just gets the first calendar name of all the calendars on the system. AppleScript does not provide a way to get the "default" calendar
         script = f"""
             -- Open calendar first
@@ -295,8 +295,6 @@ class Calendar:
             end tell
             return firstCalendarName
             """
-        stdout = run_applescript_capture(script)
-        if stdout:
-            return stdout[0].strip()
-        else:
-            return None
+        stdout, _ = run_applescript_capture(script)
+        calendar_name = stdout.strip()
+        return calendar_name or None

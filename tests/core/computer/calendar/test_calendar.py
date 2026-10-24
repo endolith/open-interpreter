@@ -128,11 +128,8 @@ def test_create_event_success_names_the_calendar():
 def test_create_event_without_calendar_aborts_when_no_default():
     """With no calendar and no discoverable default, nothing is created.
 
-    Mocks get_first_calendar() returning None, which is the empty-capture
-    result once get_first_calendar() unpacks the (stdout, stderr) tuple
-    correctly (issue #426). Today an empty capture instead yields "" (the
-    tuple's stdout element, stripped), so None is not yet the value a real
-    empty lookup produces — the empty-string case below pins that.
+    get_first_calendar() returns None on an empty capture (fixed in #427);
+    this pins create_event's None check directly.
     """
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
@@ -147,19 +144,11 @@ def test_create_event_without_calendar_aborts_when_no_default():
     run.assert_not_called()
 
 
-@pytest.mark.xfail(reason="create_event() checks `calendar is None`, so the empty string a real empty lookup returns today (issue #426) is used as a calendar name instead of aborting")
 def test_create_event_without_calendar_aborts_when_default_is_empty():
-    """An empty discovered calendar name aborts instead of creating in "".
-
-    A real empty lookup returns "" today (get_first_calendar()'s tuple
-    indexing strips an empty stdout to "" rather than returning None), and
-    create_event() only rejects None, so this currently proceeds to create
-    an event in a calendar named "". Until the production check rejects the
-    empty result, this documents the reachable abort that should happen.
-    """
+    """An empty capture aborts instead of creating an event in ""."""
     cal = Calendar(computer=SimpleNamespace())
     with _darwin():
-        with mock.patch.object(cal, "get_first_calendar", return_value=""):
+        with mock.patch(CAPTURE, return_value=("", "")):
             with mock.patch(RUN) as run:
                 result = cal.create_event(
                     "Standup",
@@ -168,6 +157,40 @@ def test_create_event_without_calendar_aborts_when_default_is_empty():
                 )
     assert result == ("Can't find a default calendar. Please try again and specify a calendar name.")
     run.assert_not_called()
+
+
+def test_get_first_calendar_returns_stripped_name():
+    """get_first_calendar() unpacks the capture tuple and strips it (issue #426).
+
+    run_applescript_capture returns (stdout, stderr); the old code bound the
+    whole tuple to stdout, so `if stdout` tested a non-empty 2-tuple and was
+    always true. The None branch was unreachable, and empty output returned
+    "" instead of None (fixed in #427).
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("Work\n", "")):
+            assert cal.get_first_calendar() == "Work"
+
+
+def test_get_first_calendar_returns_none_when_empty():
+    """No captured stdout means no default calendar, and None is returned."""
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("", "")):
+            assert cal.get_first_calendar() is None
+
+
+def test_get_first_calendar_treats_whitespace_as_no_calendar():
+    """Whitespace-only stdout means no calendar, not an empty calendar name.
+
+    Stripping before the emptiness check keeps a whitespace-only result from
+    becoming "", which create_event would treat as a calendar name.
+    """
+    cal = Calendar(computer=SimpleNamespace())
+    with _darwin():
+        with mock.patch(CAPTURE, return_value=("  \n", "")):
+            assert cal.get_first_calendar() is None
 
 
 def test_create_event_uses_discovered_default_calendar():
@@ -300,8 +323,3 @@ def test_delete_event_silent_run_returns_unknown_error():
             )
 
 
-def test_get_first_calendar_strips_the_first_tuple_item():
-    """The (stdout, stderr) tuple is truthy, so [0] is stdout, stripped."""
-    cal = Calendar(computer=SimpleNamespace())
-    with mock.patch(CAPTURE, return_value=("  Work\n", "")):
-        assert cal.get_first_calendar() == "Work"
