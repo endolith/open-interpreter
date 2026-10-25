@@ -26,6 +26,18 @@ interpreter.conversation_history = False
 INTEGRATION_MODEL = os.environ.get("OI_INTEGRATION_MODEL")
 if INTEGRATION_MODEL:
     interpreter.llm.model = INTEGRATION_MODEL
+
+# A reasoning model can spend thousands of tokens thinking before it emits the
+# answer. Leave room for both; the server tests otherwise execute a code line
+# truncated at the token boundary. Keep the smaller cap for text-only models.
+SERVER_MAX_TOKENS = (
+    16384
+    if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower()
+    else 4096
+)
+SERVER_REASONING_EFFORT = (
+    "low" if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower() else None
+)
 #####
 
 import multiprocessing
@@ -535,7 +547,8 @@ def test_authenticated_acknowledging_breaking_server():
                     "model": INTEGRATION_MODEL or "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
-                    "max_tokens": 8192,
+                    "max_tokens": SERVER_MAX_TOKENS,
+                    "reasoning_effort": SERVER_REASONING_EFFORT,
                 },
             }
             response = requests.post(
@@ -686,7 +699,8 @@ def test_server():
             settings = {
                 "llm": {
                     "model": INTEGRATION_MODEL or "gpt-4o-mini",
-                    "max_tokens": 8192,
+                    "max_tokens": SERVER_MAX_TOKENS,
+                    "reasoning_effort": SERVER_REASONING_EFFORT,
                 },
                 "custom_instructions": "",
             }
@@ -727,7 +741,8 @@ def test_server():
             settings = {
                 "llm": {
                     "model": INTEGRATION_MODEL or "gpt-4o-mini",
-                    "max_tokens": 8192,
+                    "max_tokens": SERVER_MAX_TOKENS,
+                    "reasoning_effort": SERVER_REASONING_EFFORT,
                 },
                 "custom_instructions": "",
             }
