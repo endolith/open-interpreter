@@ -36,7 +36,7 @@ SERVER_MAX_TOKENS = (
     else 4096
 )
 SERVER_REASONING_EFFORT = (
-    "low" if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower() else None
+    "none" if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower() else None
 )
 #####
 
