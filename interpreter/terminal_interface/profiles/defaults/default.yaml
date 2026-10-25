@@ -6,6 +6,7 @@
 llm:
   model: "gpt-4o"
   temperature: 0
+  # reasoning_effort: "low"  # Model-specific; DeepSeek V4 accepts low/high/max
   # api_key: ...  # Your API key, if the API requires it
   # api_base: ...  # The URL where an OpenAI-compatible server is running to handle LLM API requests
   # api_version: ...  # The version of the API (this is primarily for Azure)

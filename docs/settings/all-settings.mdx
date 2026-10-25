@@ -113,6 +113,23 @@ llm:
 
 </CodeGroup>
 
+### Reasoning Effort
+
+Controls how much a reasoning model thinks before answering. Values are model-specific; for example DeepSeek V4 accepts `low`, `high`, and `max`, while OpenRouter also accepts `none` to disable thinking. The value is sent as-is, so an unsupported value surfaces the provider's error.
+
+<CodeGroup>
+
+```python Python
+interpreter.llm.reasoning_effort = "low"
+```
+
+```yaml Profile
+llm:
+  reasoning_effort: "low"
+```
+
+</CodeGroup>
+
 ### Max Output
 
 Set the maximum number of characters for code outputs.
