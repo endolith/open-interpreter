@@ -246,6 +246,29 @@ def test_run_sends_reasoning_effort_to_openrouter():
     assert params["extra_body"]["reasoning"]["effort"] == "low"
 
 
+def test_run_sends_reasoning_effort_without_openrouter_extra_body():
+    """Non-OpenRouter providers get the top-level parameter only."""
+    llm = Llm(_interp())
+    llm._is_loaded = True
+    llm.model = "deepseek/deepseek-v4.1-flash"
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.context_window = 128000
+    llm.max_tokens = 100
+    llm.reasoning_effort = "low"
+
+    params = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )["params"]
+
+    assert params["reasoning_effort"] == "low"
+    assert "extra_body" not in params
+
+
 def test_run_never_sends_a_conversation_id():
     """llm.run must not attach a conversation_id to the request.
 
