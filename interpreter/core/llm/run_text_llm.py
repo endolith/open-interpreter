@@ -176,7 +176,7 @@ def run_text_llm(llm, params):
                 # Assigned before being refined so that an unlabelled fence in
                 # OS mode settles on "" rather than staying None, which would
                 # make the next line be parsed as a label.
-                language = label
+                language = label.strip()
 
                 # Default to python if not specified
                 if language == "":

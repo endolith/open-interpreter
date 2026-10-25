@@ -318,6 +318,25 @@ def _code_of(chunks):
     return "".join(c["content"] for c in chunks if c["type"] == "code")
 
 
+@pytest.mark.parametrize("opener", ["``` \n", "```\r\n"])
+def test_whitespace_only_language_defaults_to_python(opener):
+    """A fence label of spaces or CRLF still means no language and defaults to python.
+
+    Whitespace made the label non-empty, so the default was skipped and the
+    alphabetic sanitizer then produced ""; the code body was dropped entirely.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": opener}}]},
+            {"choices": [{"delta": {"content": "print(1)\n"}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [
+        {"type": "code", "format": "python", "content": "print(1)\n"},
+    ]
+
 
 @pytest.mark.parametrize(
     "chunks,expected",
