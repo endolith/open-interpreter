@@ -535,6 +535,7 @@ def test_authenticated_acknowledging_breaking_server():
                     "model": INTEGRATION_MODEL or "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
+                    "max_tokens": 8192,
                 },
             }
             response = requests.post(
@@ -683,7 +684,10 @@ def test_server():
             # Sending POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": INTEGRATION_MODEL or "gpt-4o-mini"},
+                "llm": {
+                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "max_tokens": 8192,
+                },
                 "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
@@ -721,7 +725,10 @@ def test_server():
             # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": INTEGRATION_MODEL or "gpt-4o-mini"},
+                "llm": {
+                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "max_tokens": 8192,
+                },
                 "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
