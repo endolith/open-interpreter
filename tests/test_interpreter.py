@@ -1050,35 +1050,40 @@ def test_generator():
                 ):
                     active_line_found = True
 
-        # Ensure all flags are proper
-        assert (
-            flag_checker.count(
-                {"role": "assistant", "type": "code", "format": "python", "start": True}
-            )
-            == 1
-        ), "Incorrect number of 'assistant code start' flags"
-        assert (
-            flag_checker.count(
-                {"role": "assistant", "type": "code", "format": "python", "end": True}
-            )
-            == 1
-        ), "Incorrect number of 'assistant code end' flags"
-        assert (
-            flag_checker.count({"role": "assistant", "type": "message", "start": True})
-            == 1
-        ), "Incorrect number of 'assistant message start' flags"
-        assert (
-            flag_checker.count({"role": "assistant", "type": "message", "end": True})
-            == 1
-        ), "Incorrect number of 'assistant message end' flags"
-        assert (
-            flag_checker.count({"role": "computer", "type": "console", "start": True})
-            == 1
-        ), "Incorrect number of 'computer console output start' flags"
-        assert (
-            flag_checker.count({"role": "computer", "type": "console", "end": True})
-            == 1
-        ), "Incorrect number of 'computer console output end' flags"
+        # Thinking models can take more than one code step and can emit a
+        # reasoning-only message segment, so require balanced start/end flags
+        # rather than exactly one of each.
+        code_starts = flag_checker.count(
+            {"role": "assistant", "type": "code", "format": "python", "start": True}
+        )
+        code_ends = flag_checker.count(
+            {"role": "assistant", "type": "code", "format": "python", "end": True}
+        )
+        message_starts = flag_checker.count(
+            {"role": "assistant", "type": "message", "start": True}
+        )
+        message_ends = flag_checker.count(
+            {"role": "assistant", "type": "message", "end": True}
+        )
+        console_starts = flag_checker.count(
+            {"role": "computer", "type": "console", "start": True}
+        )
+        console_ends = flag_checker.count(
+            {"role": "computer", "type": "console", "end": True}
+        )
+
+        assert code_starts >= 1 and code_starts == code_ends, (
+            "Unbalanced assistant code start/end flags: "
+            f"{code_starts}/{code_ends}"
+        )
+        assert message_starts >= 1 and message_starts == message_ends, (
+            "Unbalanced assistant message start/end flags: "
+            f"{message_starts}/{message_ends}"
+        )
+        assert console_starts >= 1 and console_starts == console_ends, (
+            "Unbalanced computer console start/end flags: "
+            f"{console_starts}/{console_ends}"
+        )
 
         # Assert that assistant message, console output, and active line were found
         assert assistant_message_found, "No assistant message was found"
@@ -1542,7 +1547,11 @@ def test_multiple_instances():
 
 @pytest.mark.integration
 def test_hello_world():
-    """Integration: LLM replies with exactly 'Hello, World!' and no code execution."""
+    """Integration: LLM replies with exactly 'Hello, World!' and no code execution.
+
+    Thinking models also attach reasoning_content, so compare the fields that
+    define the reply rather than requiring an exact dict.
+    """
 
     hello_world_response = "Hello, World!"
 
@@ -1550,9 +1559,10 @@ def test_hello_world():
 
     messages = interpreter.chat(hello_world_message)
 
-    assert messages == [
-        {"role": "assistant", "type": "message", "content": hello_world_response}
-    ]
+    assert len(messages) == 1
+    assert messages[0]["role"] == "assistant"
+    assert messages[0]["type"] == "message"
+    assert messages[0]["content"] == hello_world_response
 
 
 @pytest.mark.integration
