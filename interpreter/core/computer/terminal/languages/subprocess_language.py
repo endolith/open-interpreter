@@ -156,7 +156,12 @@ class SubprocessLanguage(BaseLanguage):
                 # fatal syntax error, a crash), so `done` would never be set and
                 # this loop would spin forever. This is a liveness check, not a
                 # timeout: a live process that takes hours is still waited on.
-                returncode = self.process.poll()
+                #
+                # A reader failure can clear the process between the done check
+                # above and this poll. The reader has already queued its
+                # diagnostic and will set done; loop until it does rather than
+                # crashing on a cleared handle.
+                returncode = self._poll_process()
                 if returncode is not None:
                     for thread in self.stream_threads:
                         thread.join(timeout=1)
@@ -176,6 +181,18 @@ class SubprocessLanguage(BaseLanguage):
                     self.terminate()
                     self.process = None
                     break
+
+    def _poll_process(self):
+        """Return the process exit code, or None while the handle is gone.
+
+        _abort_stream clears self.process when the stdout reader dies, and the
+        consumer can reach its liveness check before done is set. Treat a
+        cleared handle as "not exited yet"; the queued diagnostic and done
+        event finish the turn.
+        """
+        if self.process is None:
+            return None
+        return self.process.poll()
 
     def handle_stream_output(self, stream, is_error_stream):
         try:
