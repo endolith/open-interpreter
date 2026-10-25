@@ -827,3 +827,73 @@ def test_image_message_without_format_key_raises_descriptive_error(interpreter):
 
     with pytest.raises(Exception, match="Format of the image is not specified"):
         convert_to_openai_messages([message], vision=True, interpreter=interpreter)
+
+
+def test_reasoning_content_passed_back_verbatim(interpreter):
+    """Stored reasoning_content is echoed on the assistant message so thinking-model follow-ups are accepted (issue #215)."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "hi",
+            "reasoning_content": "thought one",
+        }
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [
+        {"role": "assistant", "content": "hi", "reasoning_content": "thought one"}
+    ]
+
+
+def test_message_without_reasoning_omits_the_key(interpreter):
+    """Messages without reasoning stay exactly role/content (issue #215)."""
+    messages = [{"role": "assistant", "type": "message", "content": "Hello"}]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert result == [{"role": "assistant", "content": "Hello"}]
+
+
+def test_function_calling_false_preserves_reasoning(interpreter):
+    """The combine path must keep reasoning_content, not just content."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "a",
+            "reasoning_content": "r1",
+        },
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "b",
+            "reasoning_content": "r2",
+        },
+    ]
+
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+
+    assert result == [
+        {
+            "role": "assistant",
+            "content": "a b",
+            "reasoning_content": "r1\nr2",
+        }
+    ]
+
+
+def test_code_message_carries_reasoning(interpreter):
+    """Reasoning attached to a code message survives conversion."""
+    messages = [
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "1+1",
+            "reasoning_content": "thinking",
+        }
+    ]
+
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+
+    assert result[0]["reasoning_content"] == "thinking"

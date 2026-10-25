@@ -235,3 +235,36 @@ def test_auth_no_tool_call_does_not_raise(monkeypatch):
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "message", "content": "hello"}
     ]
+
+
+def test_message_chunk_carries_reasoning_delta():
+    """Reasoning deltas ride along on tool-path message chunks for history accumulation (issue #215)."""
+    llm = _make_llm([_chunk({"content": "hi", "reasoning_content": "because"})])
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "hi", "reasoning_content": "because"}
+    ]
+
+
+def test_reasoning_only_delta_yields_standalone_message():
+    """A reasoning-only tool-path delta is emitted, not gated on content (issue #215)."""
+    llm = _make_llm([_chunk({"content": None, "reasoning_content": "thinking"})])
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "", "reasoning_content": "thinking"}
+    ]
+
+
+def test_reasoning_preserved_when_delta_has_tool_call():
+    """Reasoning survives the tool-call transform, which replaces the delta (issue #215)."""
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "reasoning_content": "r",
+                    "tool_calls": [_tool_call("other", '{"x": 1}')],
+                }
+            )
+        ]
+    )
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "", "reasoning_content": "r"}
+    ]
