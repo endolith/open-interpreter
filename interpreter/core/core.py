@@ -324,7 +324,7 @@ class OpenInterpreter:
                     print("Open Interpreter stopping.")
                     break
 
-                if chunk["content"] == "":
+                if chunk["content"] == "" and not chunk.get("reasoning_content"):
                     continue
 
                 # If active_line is None, we finished running code.
@@ -365,6 +365,24 @@ class OpenInterpreter:
                     # )
                     continue
 
+                # Reasoning that arrives while a code block is streaming belongs
+                # to that assistant code message. Storing it as its own message
+                # splits the code block and can leave only the tail selected
+                # for execution.
+                if (
+                    chunk.get("content") == ""
+                    and chunk.get("reasoning_content")
+                    and self.messages
+                    and self.messages[-1].get("role") == "assistant"
+                    and self.messages[-1].get("type") == "code"
+                ):
+                    self.messages[-1]["reasoning_content"] = (
+                        self.messages[-1].get("reasoning_content", "")
+                        + chunk["reasoning_content"]
+                    )
+                    yield chunk.copy()
+                    continue
+
                 # Check if the chunk's role, type, and format (if present) match the last_flag_base
                 if (
                     last_flag_base
@@ -396,6 +414,11 @@ class OpenInterpreter:
                             self.messages.append(chunk.copy())
                         else:
                             self.messages[-1]["content"] += chunk["content"]
+                            if chunk.get("reasoning_content"):
+                                self.messages[-1]["reasoning_content"] = (
+                                    self.messages[-1].get("reasoning_content", "")
+                                    + chunk["reasoning_content"]
+                                )
                 else:
                     # If they don't match, yield a end message for the last message type and a start message for the new one
                     if last_flag_base:

@@ -352,3 +352,81 @@ def test_chat_sends_telemetry_on_error():
     ]
     assert len(error_calls) == 1
     assert error_calls[0][1]["properties"]["error"] == "API failed"
+
+
+def test_chat_accumulates_reasoning_content_across_chunks():
+    """Reasoning deltas on successive message chunks accumulate on the stored message (issue #215)."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = False
+    chunks = [
+        {"type": "message", "content": "a", "reasoning_content": "r1"},
+        {"type": "message", "content": "b", "reasoning_content": "r2"},
+    ]
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+    assert interpreter.messages[-1] == {
+        "role": "assistant",
+        "type": "message",
+        "content": "ab",
+        "reasoning_content": "r1r2",
+    }
+
+
+def test_chat_accumulates_a_reasoning_only_chunk():
+    """A reasoning-only chunk is stored, not skipped before accumulation (issue #215)."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = False
+    chunks = [
+        {"type": "message", "content": "", "reasoning_content": "r1"},
+        {"type": "message", "content": "answer", "reasoning_content": "r2"},
+    ]
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+    assert interpreter.messages[-1] == {
+        "role": "assistant",
+        "type": "message",
+        "content": "answer",
+        "reasoning_content": "r1r2",
+    }
+
+
+def test_chat_runs_code_before_a_trailing_reasoning_message():
+    """A reasoning-only chunk after code must not stop the code from running."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = True
+    chunks = [
+        {"type": "code", "format": "python", "content": "1+1"},
+        {"type": "message", "content": "", "reasoning_content": "done thinking"},
+    ]
+    executed = []
+
+    def fake_run(language, code, **kwargs):
+        executed.append(code)
+        yield {"type": "console", "format": "output", "content": "42"}
+
+    interpreter.computer.run = fake_run
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+
+    assert executed == ["1+1"]
+
+
+def test_chat_merges_reasoning_into_the_current_code_message():
+    """Reasoning streamed during code stays on the code message, not a split one."""
+    interpreter = OpenInterpreter()
+    interpreter.auto_run = True
+    chunks = [
+        {"type": "code", "format": "python", "content": "print(1)"},
+        {"type": "message", "content": "", "reasoning_content": "thinking"},
+    ]
+
+    def fake_run(language, code, **kwargs):
+        yield {"type": "console", "format": "output", "content": "1"}
+
+    interpreter.computer.run = fake_run
+    with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
+        list(interpreter.chat(message="hi", display=False))
+
+    code_messages = [m for m in interpreter.messages if m["type"] == "code"]
+    assert len(code_messages) == 1
+    assert code_messages[0]["reasoning_content"] == "thinking"
