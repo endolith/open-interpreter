@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from interpreter.core.llm.run_text_llm import run_text_llm
+from interpreter.core.llm.run_text_llm import _withheld_fence_chars, run_text_llm
 
 
 def _make_llm(chunks, execution_instructions=None, verbose=False, os_mode=False):
@@ -166,7 +166,7 @@ def test_empty_language_defaults_to_text_in_os_mode():
     assert result, "the block must not vanish entirely (see #392)"
 
 
-def test_a_delta_with_no_content_key_yields_an_empty_message():
+def test_a_delta_with_no_content_key_is_skipped():
     """A delta missing the content key is skipped like an explicit null.
 
     The buffer/cursor rewrite treats a missing key the same as None: with
@@ -256,7 +256,6 @@ def test_reasoning_survives_split_fence_guard():
     ]
 
 
-
 def test_reasoning_inside_code_block_is_emitted():
     """Reasoning arriving mid-code-block is emitted on its own message (issue #215).
 
@@ -317,6 +316,7 @@ def _text_of(chunks):
 def _code_of(chunks):
     """Concatenate the code body from a run_text_llm result."""
     return "".join(c["content"] for c in chunks if c["type"] == "code")
+
 
 
 @pytest.mark.parametrize(
@@ -396,6 +396,7 @@ def test_prose_before_a_fence_is_emitted_then_code():
     assert _code_of(result) == "print(1)\n"
 
 
+
 def test_fence_split_across_deltas_yields_the_same_code():
     """The opening fence split from its language label parses identically.
 
@@ -456,3 +457,186 @@ def test_stream_cut_off_inside_a_code_block_flushes_pending_code():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert _code_of(result) == "print(1)\n``"
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # No trailing backticks: nothing ambiguous.
+        ("", 0),
+        ("hello", 0),
+        ("a`b", 0),
+        # One or two trailing backticks: ambiguous, withheld whole.
+        ("`", 1),
+        ("ls`", 1),
+        ("a`b`", 1),
+        ("``", 2),
+        ("ls``", 2),
+        # Three or more is already a fence, so nothing is withheld — even
+        # though a four-backtick run also "ends with three", and "``" is
+        # itself a suffix of the fence.
+        ("```", 0),
+        ("ls```", 0),
+        ("````", 0),
+        ("`````", 0),
+        # A complete fence wins even when backticks follow ordinary text.
+        ("```py\nprint(1)\n```", 0),
+    ],
+)
+def test_withheld_fence_chars(text, expected):
+    """_withheld_fence_chars withholds exactly an incomplete trailing fence.
+
+    Pins the boundary the caller depends on: a trailing run of one or two
+    backticks is held back because the next chunk may complete a fence, while
+    three or more already form a fence and must be emitted immediately. The
+    four-backtick case is the one that a "does it end with two backticks"
+    implementation gets wrong, since it also ends with two.
+    """
+    assert _withheld_fence_chars(text) == expected
+
+
+def test_mid_line_fence_does_not_close_code_block():
+    """A ``` in the middle of a line is code content, not the closing fence.
+
+    Models emit code that itself contains fences (a quoted ``` in a string
+    literal, a heredoc writing Markdown). CommonMark only accepts a closing
+    fence at the start of a line; anything else is body text that must reach
+    the runner intact rather than truncating the block early.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": 'x = "```"\nprint(1)\n'}}]},
+            {"choices": [{"delta": {"content": "```"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "system"}]}))
+    assert result == [
+        {"type": "code", "format": "python", "content": 'x = "```"\nprint(1)\n'},
+    ]
+
+
+def test_indented_closing_fence_closes_the_block():
+    """Up to three leading spaces are allowed on a closing fence."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n"}}]},
+            {"choices": [{"delta": {"content": "   ```\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n"
+
+
+def test_closing_fence_with_trailing_text_is_code():
+    """A line starting with ``` but trailing text does not close the block."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n"}}]},
+            {"choices": [{"delta": {"content": "```python\nmore\n"}}]},
+            {"choices": [{"delta": {"content": "```\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n```python\nmore\n"
+
+
+def test_split_closing_fence_candidate_is_held():
+    """A fence split across deltas closes instead of being emitted as code."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n  `"}}]},
+            {"choices": [{"delta": {"content": "``\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n"
+
+
+def test_split_candidate_with_trailing_text_is_code():
+    """A held candidate that gains trailing text becomes ordinary code."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\ncode\n  ``"}}]},
+            {"choices": [{"delta": {"content": "x\n"}}]},
+            {"choices": [{"delta": {"content": "```\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "code\n  ``x\n"
+
+
+def test_unterminated_code_tail_that_is_not_a_closing_fence_is_emitted():
+    """A cut-off code tail with ordinary text is emitted, not held as a fence."""
+    llm = _make_llm([{"choices": [{"delta": {"content": "```python\nprint(1) x"}}]}])
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "print(1) x"
+
+
+def test_code_ending_at_a_newline_without_a_closing_fence_is_emitted():
+    """Code ending on a newline is flushed when the stream ends without a fence."""
+    llm = _make_llm([{"choices": [{"delta": {"content": "```python\nprint(1)\n"}}]}])
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert _code_of(result) == "print(1)\n"
+
+
+def test_closing_fence_after_code_in_one_delta_is_emitted():
+    """A complete block with a newline after the closing fence yields its code."""
+    llm = _make_llm(
+        [{"choices": [{"delta": {"content": "```python\nprint(1)\n```\n"}}]}]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+def test_empty_code_block_yields_nothing():
+    """A fence that closes immediately has no code to emit."""
+    llm = _make_llm([{"choices": [{"delta": {"content": "```python\n```\n"}}]}])
+    assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == []
+
+
+def test_four_tick_fence_keeps_inner_three_tick_line():
+    """A closing run must be at least as long as the opening run."""
+    llm = _make_llm(
+        [
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "````markdown\nfirst\n```\ninner-fence-is-code\n````\n"
+                        }
+                    }
+                ]
+            }
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [
+        {
+            "type": "code",
+            "format": "markdown",
+            "content": "first\n```\ninner-fence-is-code\n",
+        }
+    ]
+
+
+def test_four_tick_unlabelled_fence_is_not_lost():
+    """The extra opening backtick is part of the fence, not the language label."""
+    llm = _make_llm(
+        [{"choices": [{"delta": {"content": "````\nprint(1)\n````\n"}}]}]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+def test_four_tick_opener_split_across_deltas():
+    """A split extra backtick still counts toward the required closing length."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```"}}]},
+            {"choices": [{"delta": {"content": "`python\nprint(1)\n"}}]},
+            {"choices": [{"delta": {"content": "````\n"}}]},
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]

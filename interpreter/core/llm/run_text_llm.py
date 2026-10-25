@@ -6,16 +6,60 @@ def _reasoning_chunk(reasoning):
     return {"type": "message", "content": "", "reasoning_content": reasoning}
 
 
-def _incomplete_fence_length(text):
-    """How many trailing backticks might still grow into a fence.
+def _withheld_fence_chars(text):
+    """How many trailing backticks to hold back because they may still grow into a fence.
 
     A stream can split ``` across chunks, so a trailing run of one or two
     backticks is ambiguous: it may be literal prose (`ls`) or the start of a
-    fence. Those are held back until the next chunk disambiguates them. A run
-    of three is already a fence, so nothing is held back.
+    fence. Those are withheld until the next chunk disambiguates them. A run of
+    three is already a fence, so nothing is withheld.
     """
-    trailing = len(text) - len(text.rstrip("`"))
-    return trailing if trailing < 3 else 0
+    # Check for a complete fence before counting, rather than counting and
+    # comparing the count to len(FENCE) afterward. Order matters: a run of four
+    # also ends with three, and "``" is itself a suffix of the fence, so
+    # counting first makes it easy to read the comparison as redundant.
+    if text.endswith(FENCE):
+        return 0
+    return len(text) - len(text.rstrip("`"))
+
+
+def _find_closing_fence(text, start, at_eof=False, opener_len=len(FENCE)):
+    """Find a CommonMark closing fence at or after ``start``.
+
+    A closing fence is a line with up to three leading spaces, three or more
+    backticks, and only spaces/tabs after them. Mid-line fences and fences with
+    trailing text are code content.
+
+    Returns ``(fence_start, safe_end)``. ``fence_start`` is None when no
+    complete fence is present. ``safe_end`` is the point up to which code can
+    be emitted now: it holds an unterminated line that could still grow into a
+    fence, and otherwise extends to the end of the buffer.
+    """
+    pos = start
+    while pos < len(text):
+        newline = text.find("\n", pos)
+        end = len(text) if newline == -1 else newline
+        line = text[pos:end]
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        backticks = len(stripped) - len(stripped.lstrip("`"))
+        trailing = stripped[backticks:]
+        if indent <= 3 and backticks >= opener_len and not trailing.strip():
+            if newline != -1 or at_eof:
+                return pos, pos
+            return None, pos
+        if newline == -1:
+            # An unterminated tail made only of spaces/backticks can still grow
+            # into a fence; hold it. Anything else is ordinary code.
+            if (
+                indent <= 3
+                and not trailing.strip()
+                and set(stripped) <= {"`", " ", "\t"}
+            ):
+                return None, pos
+            return None, len(text)
+        pos = newline + 1
+    return None, len(text)
 
 
 def run_text_llm(llm, params):
@@ -46,6 +90,9 @@ def run_text_llm(llm, params):
     # language line completes can still emit the fence and the partial label it
     # already consumed, rather than dropping them.
     block_open_at = 0
+    # The opening run can be longer than FENCE (e.g. ```` for Markdown that
+    # contains a bare ``` line). The closing run must be at least as long.
+    opener_len = len(FENCE)
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
@@ -57,8 +104,8 @@ def run_text_llm(llm, params):
 
         delta = chunk["choices"][0]["delta"]
         content = delta.get("content", "")
-        # Thinking models stream their chain of thought separately; providers
-        # require it passed back verbatim.
+        # Thinking models (e.g. DeepSeek via OpenRouter) stream their chain
+        # of thought separately; providers require it passed back verbatim.
         reasoning = delta.get("reasoning_content") or ""
         if content is None and not reasoning:
             continue
@@ -75,9 +122,7 @@ def run_text_llm(llm, params):
 
                 if fence_at == -1:
                     # No fence yet: emit the prose that cannot be part of one.
-                    safe_end = len(accumulated) - _incomplete_fence_length(
-                        accumulated
-                    )
+                    safe_end = len(accumulated) - _withheld_fence_chars(accumulated)
                     if safe_end > cursor:
                         message = {
                             "type": "message",
@@ -101,7 +146,11 @@ def run_text_llm(llm, params):
                         pending_reasoning = ""
                     yield message
                 block_open_at = fence_at
-                cursor = fence_at + len(FENCE)
+                opener_end = fence_at
+                while opener_end < len(accumulated) and accumulated[opener_end] == "`":
+                    opener_end += 1
+                opener_len = opener_end - fence_at
+                cursor = opener_end
                 inside_code_block = True
                 continue
 
@@ -114,16 +163,26 @@ def run_text_llm(llm, params):
                 if newline_at == -1:
                     break  # the language line is still arriving
 
+                # A run split across deltas leaves extra backticks at the start
+                # of the info line. Count them toward the opener so a shorter
+                # inner run cannot close the block.
+                label = accumulated[cursor:newline_at]
+                extra = len(label) - len(label.lstrip("`"))
+                if extra:
+                    opener_len += extra
+                    cursor += extra
+                    label = label[extra:]
+
                 # Assigned before being refined so that an unlabelled fence in
                 # OS mode settles on "" rather than staying None, which would
                 # make the next line be parsed as a label.
-                language = accumulated[cursor:newline_at]
+                language = label
 
                 # Default to python if not specified
                 if language == "":
                     if llm.interpreter.os == False:
                         language = "python"
-                    elif llm.interpreter.os == False:
+                    elif llm.interpreter.os == False:  # pragma: no cover - see #392
                         # OS mode does this frequently. Takes notes with markdown code blocks
                         # NOTE: repeats the condition above, so it is unreachable
                         # and OS mode emits nothing here — see issue #220.
@@ -133,10 +192,11 @@ def run_text_llm(llm, params):
                     language = "".join(char for char in language if char.isalpha())
                 cursor = newline_at + 1
 
-            fence_at = accumulated.find(FENCE, cursor)
+            fence_at, safe_end = _find_closing_fence(
+                accumulated, cursor, opener_len=opener_len
+            )
 
-            if fence_at == -1:
-                safe_end = len(accumulated) - _incomplete_fence_length(accumulated)
+            if fence_at is None:
                 if safe_end > cursor:
                     if pending_reasoning:
                         yield _reasoning_chunk(pending_reasoning)
@@ -164,6 +224,21 @@ def run_text_llm(llm, params):
 
         if pending_reasoning:
             yield _reasoning_chunk(pending_reasoning)
+
+    # A closing fence may be complete only because the stream ended (no
+    # trailing newline); resolve it before flushing the tail as code.
+    if inside_code_block and language is not None:
+        fence_at, _ = _find_closing_fence(
+            accumulated, cursor, at_eof=True, opener_len=opener_len
+        )
+        if fence_at is not None:
+            if fence_at > cursor:  # pragma: no cover - content already emitted
+                yield {
+                    "type": "code",
+                    "format": language,
+                    "content": accumulated[cursor:fence_at],
+                }
+            return
 
     # The stream ended with something still unemitted.
     if inside_code_block and language is None:
