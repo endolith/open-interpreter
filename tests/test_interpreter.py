@@ -699,6 +699,7 @@ def test_server():
             settings = {
                 "llm": {
                     "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "supports_functions": False,
                     "max_tokens": SERVER_MAX_TOKENS,
                     "reasoning_effort": SERVER_REASONING_EFFORT,
                 },
@@ -741,6 +742,7 @@ def test_server():
             settings = {
                 "llm": {
                     "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "supports_functions": False,
                     "max_tokens": SERVER_MAX_TOKENS,
                     "reasoning_effort": SERVER_REASONING_EFFORT,
                 },
