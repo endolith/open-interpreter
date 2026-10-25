@@ -706,7 +706,7 @@ def _stage_patch_copy(workdir, target):
     """
     path = Path(target)
     work = Path(workdir) / path.name
-    work.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+    work.write_bytes(re.sub(rb"(?<!\r)\r\n", b"\n", path.read_bytes()))
     return work
 
 
@@ -731,6 +731,8 @@ def run_patch(target, code):
     reject is read first; it is the best account of why a hunk failed.
     """
     _validate_target(target, must_exist=True)
+    if Path(target).is_symlink():
+        raise ValueError("patch: symbolic-link targets are not supported")
     if not code.strip():
         raise ValueError("patch: diff body is empty")
 

@@ -1133,6 +1133,44 @@ class TestRunPatchCrlf(unittest.TestCase):
                 Path(target).read_bytes(), b"A" + body[1:]
             )
 
+    def test_patch_keeps_crcrlf_sequence_on_untouched_lines(self):
+        """A CR immediately before a CRLF pair is data and must survive a patch.
+
+        Staging used to replace every CRLF pair, turning an untouched CRCRLF
+        line into CRLF; the commit conversion then treated it as one line
+        ending, silently dropping the extra CR.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "log.bat")
+            Path(target).write_bytes(b"a\r\nb\r\r\nc\r\n")
+            diff = (
+                "--- log.bat\n+++ log.bat\n"
+                "@@ -1 +1 @@\n"
+                "-a\n"
+                "+A\n"
+            )
+            run_patch(target, diff)
+            self.assertEqual(Path(target).read_bytes(), b"A\r\nb\r\r\nc\r\n")
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_patch_rejects_symlink_target(self):
+        """patching a symlink must not replace the link and leave its referent stale."""
+        with tempfile.TemporaryDirectory() as tmp:
+            referent = Path(tmp) / "real.bat"
+            link = Path(tmp) / "link.bat"
+            referent.write_bytes(b"old\r\n")
+            os.symlink(referent.name, link)
+            diff = (
+                "--- link.bat\n+++ link.bat\n"
+                "@@ -1 +1 @@\n"
+                "-old\n"
+                "+new\n"
+            )
+            with self.assertRaisesRegex(ValueError, "symbolic-link"):
+                run_patch(str(link), diff)
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(referent.read_bytes(), b"old\r\n")
+
     def test_patch_preview_on_crlf_file_accepts_the_diff_the_run_applies(self):
         """The patch dry run on a CRLF file passes when run_patch would apply.
 
