@@ -415,6 +415,31 @@ def test_prose_before_a_fence_is_emitted_then_code():
     assert _code_of(result) == "print(1)\n"
 
 
+def test_closing_fence_must_start_a_physical_line():
+    """Backticks after code on a resumed mid-line are content, not a closer.
+
+    The caller emits a partial line and resumes at its end when the next delta
+    arrives. A run of three backticks there is part of a comment (``# ``` ``),
+    not a closing fence, so the rest of the block must still be emitted.
+    """
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n# "}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "```\nprint('should run')\n```"
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+    assert {chunk["type"] for chunk in result} == {"code"}
+    assert _code_of(result) == "# ```\nprint('should run')\n"
+
 
 def test_fence_split_across_deltas_yields_the_same_code():
     """The opening fence split from its language label parses identically.

@@ -36,6 +36,16 @@ def _find_closing_fence(text, start, at_eof=False, opener_len=len(FENCE)):
     fence, and otherwise extends to the end of the buffer.
     """
     pos = start
+    # ``start`` can be in the middle of a code line: the caller emits a partial
+    # line and resumes there when the next delta arrives. A closing fence must
+    # begin at a physical line start, so a run of backticks at ``start`` with
+    # text before it is code (e.g. ``# ``` ``), not a closer. Skip the rest of
+    # that line before scanning for one.
+    if pos > 0 and text[pos - 1] != "\n":
+        newline = text.find("\n", pos)
+        if newline == -1:
+            return None, len(text)
+        pos = newline + 1
     while pos < len(text):
         newline = text.find("\n", pos)
         end = len(text) if newline == -1 else newline
