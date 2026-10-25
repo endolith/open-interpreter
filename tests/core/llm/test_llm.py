@@ -223,6 +223,29 @@ def test_run_includes_optional_llm_params():
     assert params["temperature"] == 0.5
 
 
+def test_run_sends_reasoning_effort_to_openrouter():
+    """reasoning_effort reaches the API, including OpenRouter's extra_body shape."""
+    llm = Llm(_interp())
+    llm._is_loaded = True
+    llm.model = "openrouter/~deepseek/deepseek-flash-latest"
+    llm.supports_functions = True
+    llm.supports_vision = False
+    llm.context_window = 128000
+    llm.max_tokens = 100
+    llm.reasoning_effort = "low"
+
+    params = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )["params"]
+
+    assert params["reasoning_effort"] == "low"
+    assert params["extra_body"]["reasoning"]["effort"] == "low"
+
+
 def test_run_never_sends_a_conversation_id():
     """llm.run must not attach a conversation_id to the request.
 

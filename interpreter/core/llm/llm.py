@@ -93,6 +93,9 @@ class Llm:
         # Optional settings
         self.context_window = None
         self.max_tokens = None
+        # Model-specific reasoning effort (e.g. DeepSeek V4 low/high/max).
+        # Passed through as configured; the provider validates it.
+        self.reasoning_effort = None
         self.api_base = None
         self.api_key = None
         self.api_version = None
@@ -332,6 +335,13 @@ Continuing...
             params["max_tokens"] = self.max_tokens
         if self.temperature is not None:
             params["temperature"] = self.temperature
+        if self.reasoning_effort:
+            params["reasoning_effort"] = self.reasoning_effort
+            if model.startswith("openrouter/"):
+                extra_body = params.setdefault("extra_body", {})
+                extra_body.setdefault("reasoning", {})["effort"] = (
+                    self.reasoning_effort
+                )
 
         # Set some params directly on LiteLLM
         if self.max_budget:
