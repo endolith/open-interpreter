@@ -119,3 +119,24 @@ class TestStreamReaderSurvivesUnexpectedErrors(unittest.TestCase):
 
         process.terminate.assert_called_once()
         self.assertIsNone(reader.process)
+
+    def test_poll_process_handles_a_cleared_handle(self):
+        """The liveness check returns None after a reader abort clears the handle."""
+        reader = self._reader()
+        reader.process = None
+        assert reader._poll_process() is None
+
+        process = mock.Mock()
+        process.poll.return_value = 3
+        reader.process = process
+        assert reader._poll_process() == 3
+
+    def test_exit_check_tolerates_a_process_cleared_by_abort(self):
+        """run()'s liveness check must not crash if the reader cleared the process."""
+        reader = self._reader()
+        process = mock.Mock()
+        reader.process = process
+        reader.handle_stream_output(_ExplodingStream([], RuntimeError("boom")), False)
+
+        assert reader.process is None
+        assert reader.done.is_set()
