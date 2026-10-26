@@ -144,7 +144,6 @@ def query_reduce_chunks(responses, llm, chunk_size, query):
 
     return responses[0] if responses else None
 
-
 class Ai:
     """
     Provides AI capabilities for text processing, chat, and summarization.

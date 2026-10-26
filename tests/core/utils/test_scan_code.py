@@ -13,11 +13,9 @@ def test_scan_code_runs_and_cleans_up(tmp_path):
     interpreter = SimpleNamespace(
         verbose=False,
         safe_mode="auto",
-        computer=SimpleNamespace(
-            terminal=SimpleNamespace(
-                get_language=lambda lang: SimpleNamespace(
-                    file_extension="py", name="Python"
-                )
+        terminal=SimpleNamespace(
+            get_language=lambda lang: SimpleNamespace(
+                file_extension="py", name="Python"
             )
         ),
     )
@@ -81,11 +79,9 @@ def _interpreter(safe_mode="auto", verbose=False):
     return SimpleNamespace(
         verbose=verbose,
         safe_mode=safe_mode,
-        computer=SimpleNamespace(
-            terminal=SimpleNamespace(
-                get_language=lambda lang: SimpleNamespace(
-                    file_extension="py", name="Python"
-                )
+        terminal=SimpleNamespace(
+            get_language=lambda lang: SimpleNamespace(
+                file_extension="py", name="Python"
             )
         ),
     )
@@ -187,11 +183,9 @@ def _scan_interpreter(verbose=False):
     return SimpleNamespace(
         verbose=verbose,
         safe_mode="auto",
-        computer=SimpleNamespace(
-            terminal=SimpleNamespace(
-                get_language=lambda lang: SimpleNamespace(
-                    file_extension="py", name="Python"
-                )
+        terminal=SimpleNamespace(
+            get_language=lambda lang: SimpleNamespace(
+                file_extension="py", name="Python"
             )
         ),
     )

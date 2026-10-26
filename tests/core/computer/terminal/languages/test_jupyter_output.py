@@ -17,7 +17,7 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
+from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
 
 
 def _msg(msg_type, content):
@@ -56,11 +56,9 @@ def _run_listener(lang, messages):
 def _language(*, stop_event_set=False):
     """A JupyterLanguage with a stub kernel and an interpreter double."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(
+    lang.interpreter = SimpleNamespace(
             stop_event=SimpleNamespace(is_set=lambda: stop_event_set),
         )
-    )
     lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
     lang.kc = SimpleNamespace(execute=mock.Mock(), input=mock.Mock(), iopub_channel=SimpleNamespace())
     lang.finish_flag = False

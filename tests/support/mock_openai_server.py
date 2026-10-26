@@ -298,7 +298,7 @@ def tool_chain_tool_deltas(messages: list) -> list[dict] | None:
         arguments = json.dumps({"language": "python", "code": _CHAIN_WRITE_FILE_CODE})
         return _split_tool_call_deltas("call_step1", "execute", arguments)
     if turns == 1:
-        arguments = json.dumps({"language": "shell", "code": _CHAIN_EDIT_FILE_CODE})
+        arguments = json.dumps({"language": "bash", "code": _CHAIN_EDIT_FILE_CODE})
         return [_tool_call_delta("call_step2", "execute", arguments)]
     if turns == 2:
         arguments = json.dumps({"language": "python", "code": _CHAIN_FAILING_CODE})
@@ -349,7 +349,7 @@ def tool_chain_text_reply(messages: list) -> str | None:
     if turns == 0:
         return "```python\n" + _CHAIN_WRITE_FILE_CODE + "\n```"
     if turns == 1:
-        return "```shell\n" + _CHAIN_EDIT_FILE_CODE + "\n```"
+        return "```bash\n" + _CHAIN_EDIT_FILE_CODE + "\n```"
     if turns == 2:
         return "```python\n" + _CHAIN_FAILING_CODE + "\n```"
     if turns == 3:
@@ -393,7 +393,7 @@ def parallel_tool_deltas(messages: list) -> list[dict] | None:
     turns = _assistant_count_since(messages, _PARALLEL_KEYWORD)
     if turns == 0:
         python_args = json.dumps({"language": "python", "code": _PARALLEL_PYTHON_CODE})
-        shell_args = json.dumps({"language": "shell", "code": _PARALLEL_SHELL_CODE})
+        shell_args = json.dumps({"language": "bash", "code": _PARALLEL_SHELL_CODE})
         return [
             _tool_call_delta("call_parallel_1", "execute", python_args, index=0),
             _tool_call_delta("call_parallel_2", "execute", shell_args, index=1),
@@ -534,10 +534,10 @@ def shell_recovery_tool_deltas(messages: list) -> list[dict] | None:
         arguments = json.dumps({"language": "python", "code": _SHELL_REC_WRITE_CODE})
         return [_tool_call_delta("call_sr1", "execute", arguments)]
     if turns == 1:
-        arguments = json.dumps({"language": "shell", "code": _SHELL_REC_FAIL_CODE})
+        arguments = json.dumps({"language": "bash", "code": _SHELL_REC_FAIL_CODE})
         return [_tool_call_delta("call_sr2", "execute", arguments)]
     if turns == 2:
-        arguments = json.dumps({"language": "shell", "code": _SHELL_REC_FIX_CODE})
+        arguments = json.dumps({"language": "bash", "code": _SHELL_REC_FIX_CODE})
         return [_tool_call_delta("call_sr3", "execute", arguments)]
     if turns == 3:
         return [{"content": "Shell recovery complete."}]
@@ -558,9 +558,9 @@ def shell_recovery_text_reply(messages: list) -> str | None:
     if turns == 0:
         return "```python\n" + _SHELL_REC_WRITE_CODE + "\n```"
     if turns == 1:
-        return "```shell\n" + _SHELL_REC_FAIL_CODE + "\n```"
+        return "```bash\n" + _SHELL_REC_FAIL_CODE + "\n```"
     if turns == 2:
-        return "```shell\n" + _SHELL_REC_FIX_CODE + "\n```"
+        return "```bash\n" + _SHELL_REC_FIX_CODE + "\n```"
     if turns == 3:
         return "Shell recovery complete."
     return None
@@ -646,13 +646,13 @@ def _persist_step(keyword: str, turn: int):
     if keyword == _STORE_STATE_KEYWORD:
         steps = [
             ("python", _PERSIST_DEFINE_CODE, "persist_step1"),
-            ("shell", _PERSIST_EXPORT_CODE, "persist_step2"),
+            ("bash", _PERSIST_EXPORT_CODE, "persist_step2"),
             ("talk", "values defined."),
         ]
     elif keyword == _USE_STATE_KEYWORD:
         steps = [
             ("python", _PERSIST_USE_PYTHON_CODE, "persist_step3"),
-            ("shell", _PERSIST_USE_SHELL_CODE, "persist_step4"),
+            ("bash", _PERSIST_USE_SHELL_CODE, "persist_step4"),
             ("talk", "values verified."),
         ]
     else:

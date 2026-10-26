@@ -8,13 +8,13 @@ interaction behavior.
 from types import SimpleNamespace
 from unittest import mock
 
-from interpreter.core.computer.browser import browser as browser_mod
-from interpreter.core.computer.browser.browser import Browser
+from interpreter.core.toolbox.browser import browser as browser_mod
+from interpreter.core.toolbox.browser.browser import Browser
 
 
-def _make_browser(computer=None):
+def _make_browser(toolbox=None):
     return Browser(
-        computer
+        toolbox
         or SimpleNamespace(
             api_base="http://api:8000",
             interpreter=SimpleNamespace(
@@ -176,8 +176,8 @@ def test_analyze_page_queries_ai_and_restores_model():
     with mock.patch.object(browser_mod.html2text, "html2text", return_value="TEXT"):
         browser.analyze_page("find the price")
 
-    assert browser.computer.interpreter.llm.model == "gpt-4"  # restored
-    query = browser.computer.ai.chat.call_args[0][0]
+    assert browser.toolbox.interpreter.llm.model == "gpt-4"  # restored
+    query = browser.toolbox.ai.chat.call_args[0][0]
     assert "find the price" in query
     assert "TEXT" in query
     assert "Interactive Elements" in query

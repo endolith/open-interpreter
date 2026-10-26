@@ -2,9 +2,7 @@ import sys
 from io import StringIO
 from unittest import mock
 
-import pytest
-
-from interpreter.core.computer.terminal.languages.subprocess_language import (
+from interpreter.core.terminal.languages.subprocess_language import (
     SubprocessLanguage,
 )
 
@@ -73,7 +71,7 @@ def test_run_yields_queue_output():
     lang.done.set()
 
     with mock.patch.object(lang, "start_process"):
-        with mock.patch("interpreter.core.computer.terminal.languages.subprocess_language.time.sleep"):
+        with mock.patch("interpreter.core.terminal.languages.subprocess_language.time.sleep"):
             chunks = []
             for chunk in lang.run("echo hi"):
                 chunks.append(chunk)

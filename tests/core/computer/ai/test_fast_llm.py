@@ -1,4 +1,4 @@
-"""Tests for ``interpreter.core.computer.ai.ai.fast_llm``.
+"""Tests for ``interpreter.core.toolbox.ai.ai.fast_llm``.
 
 ``fast_llm`` temporarily swaps the interpreter's messages/system message, calls
 the LLM, and restores the prior state. These tests pin both the happy path and
@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from interpreter.core.computer.ai.ai import fast_llm
+from interpreter.core.toolbox.ai.ai import fast_llm
 
 
 def _interpreter(chat):

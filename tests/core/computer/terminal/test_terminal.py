@@ -1,21 +1,21 @@
 from types import SimpleNamespace
 from unittest import mock
 
-from interpreter.core.computer.terminal.terminal import Terminal
+from interpreter.core.terminal.terminal import Terminal
 
 
 def test_get_language_by_name():
     """Terminal.get_language() resolves known language names and returns None for unknown ones."""
-    terminal = Terminal(computer=SimpleNamespace())
-    assert terminal.get_language("python").name == "Python"
-    assert terminal.get_language("bash").name == "Shell"
+    terminal = Terminal(SimpleNamespace())
+    assert terminal.get_language("python").name == "python"
+    assert terminal.get_language("bash").name == "bash"
     assert terminal.get_language("unknown_xyz") is None
 
 
-def test_get_language_by_alias():
-    """Terminal.get_language() resolves shell aliases such as 'sh' to Shell."""
-    terminal = Terminal(computer=SimpleNamespace())
-    assert terminal.get_language("sh").name == "Shell"
+def test_get_language_is_case_insensitive():
+    """Terminal.get_language() matches language names regardless of case."""
+    terminal = Terminal(SimpleNamespace())
+    assert terminal.get_language("BASH").name == "bash"
 
 
 def test_run_non_streaming_merges_output_chunks():
@@ -28,7 +28,7 @@ def test_run_non_streaming_merges_output_chunks():
         verbose=False,
         skills=SimpleNamespace(import_skills=mock.Mock()),
     )
-    terminal = Terminal(computer=computer)
+    terminal = Terminal(computer)
 
     def fake_streaming_run(language, code, display=False):
         yield {"type": "console", "format": "output", "content": "part1"}
@@ -51,9 +51,9 @@ def test_apt_install_delegates_to_sudo_install():
         verbose=False,
         skills=SimpleNamespace(import_skills=mock.Mock()),
     )
-    terminal = Terminal(computer=computer)
+    terminal = Terminal(computer)
     with mock.patch.object(terminal, "sudo_install", return_value=True) as sudo_install:
-        output = terminal.run("shell", "apt install cowsay", stream=False)
+        output = terminal.run("bash", "apt install cowsay", stream=False)
     sudo_install.assert_called_once_with("cowsay")
     assert "installed successfully" in output[0]["content"]
 
@@ -68,7 +68,7 @@ def test_streaming_run_parses_recipient_markers():
         verbose=False,
         skills=SimpleNamespace(import_skills=mock.Mock()),
     )
-    terminal = Terminal(computer=computer)
+    terminal = Terminal(computer)
     terminal._active_languages["fake"] = SimpleNamespace(
         run=lambda code: iter(
             [
@@ -95,7 +95,7 @@ def test_streaming_run_strips_hide_traceback_marker():
         verbose=False,
         skills=SimpleNamespace(import_skills=mock.Mock()),
     )
-    terminal = Terminal(computer=computer)
+    terminal = Terminal(computer)
     terminal._active_languages["fake"] = SimpleNamespace(
         run=lambda code: iter(
             [
@@ -113,26 +113,26 @@ def test_streaming_run_strips_hide_traceback_marker():
 
 
 def _bare_computer(**overrides):
-    """A computer stand-in with the flags Terminal.run() consults."""
+    """An interpreter stand-in with the toolbox flags Terminal.run() consults."""
     defaults = dict(
-        import_computer_api=False,
+        import_toolbox_api=False,
         import_skills=False,
-        _has_imported_computer_api=False,
+        _has_imported_toolbox_api=False,
         _has_imported_skills=False,
         verbose=False,
         skills=SimpleNamespace(import_skills=mock.Mock()),
     )
     defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    return SimpleNamespace(toolbox=SimpleNamespace(**defaults))
 
 
 def test_sudo_install_without_sudo_when_apt_succeeds():
     """sudo_install() returns True without prompting when plain apt works."""
     import subprocess
 
-    terminal = Terminal(computer=SimpleNamespace())
+    terminal = Terminal(SimpleNamespace())
     with mock.patch(
-        "interpreter.core.computer.terminal.terminal.subprocess.run"
+        "interpreter.core.terminal.terminal.subprocess.run"
     ) as run:
         assert terminal.sudo_install("cowsay") is True
     run.assert_called_once_with(["apt", "install", "-y", "cowsay"], check=True)
@@ -142,15 +142,15 @@ def test_sudo_install_falls_back_to_sudo_password(capsys):
     """sudo_install() retries with sudo -S on CalledProcessError, feeding the password."""
     import subprocess
 
-    terminal = Terminal(computer=SimpleNamespace())
+    terminal = Terminal(SimpleNamespace())
     with mock.patch(
-        "interpreter.core.computer.terminal.terminal.subprocess.run",
+        "interpreter.core.terminal.terminal.subprocess.run",
         side_effect=[
             subprocess.CalledProcessError(1, "apt"),
             mock.Mock(),
         ],
     ) as run, mock.patch(
-        "interpreter.core.computer.terminal.terminal.getpass.getpass",
+        "interpreter.core.terminal.terminal.getpass.getpass",
         return_value="pw",
     ):
         assert terminal.sudo_install("cowsay") is True
@@ -163,12 +163,12 @@ def test_sudo_install_returns_false_when_sudo_fails(capsys):
     """sudo_install() returns False and reports when both attempts fail."""
     import subprocess
 
-    terminal = Terminal(computer=SimpleNamespace())
+    terminal = Terminal(SimpleNamespace())
     with mock.patch(
-        "interpreter.core.computer.terminal.terminal.subprocess.run",
+        "interpreter.core.terminal.terminal.subprocess.run",
         side_effect=subprocess.CalledProcessError(1, "apt"),
     ), mock.patch(
-        "interpreter.core.computer.terminal.terminal.getpass.getpass",
+        "interpreter.core.terminal.terminal.getpass.getpass",
         return_value="pw",
     ):
         assert terminal.sudo_install("cowsay") is False
@@ -177,42 +177,54 @@ def test_sudo_install_returns_false_when_sudo_fails(capsys):
 
 def test_run_reports_failed_apt_install():
     """Terminal.run() reports failure when sudo_install() returns False."""
-    terminal = Terminal(computer=_bare_computer())
+    terminal = Terminal(_bare_computer())
     with mock.patch.object(terminal, "sudo_install", return_value=False):
-        output = terminal.run("shell", "apt install cowsay", stream=False)
+        output = terminal.run("bash", "apt install cowsay", stream=False)
     assert "Failed to install package cowsay." in output[0]["content"]
 
 
-def test_run_imports_computer_api_for_python_once(monkeypatch):
-    """Python code mentioning computer triggers one computer-API import run."""
-    run = mock.Mock()
-    computer = _bare_computer(
-        import_computer_api=True,
-        run=run,
+def test_run_imports_toolbox_api_for_python_once(monkeypatch):
+    """Python code mentioning toolbox triggers one toolbox-API import run."""
+    toolbox = SimpleNamespace(
+        import_toolbox_api=True,
+        _has_imported_toolbox_api=False,
+        import_skills=False,
+        _has_imported_skills=False,
+        verbose=False,
+        skills=SimpleNamespace(import_skills=mock.Mock()),
     )
-    terminal = Terminal(computer=computer)
+    interpreter = SimpleNamespace(toolbox=toolbox)
+    terminal = Terminal(interpreter)
     monkeypatch.setattr("time.sleep", lambda seconds: None)
-    # Terminal.run() skips the computer-API import when this variable is
-    # "False" (the import payload itself sets it to stop recursive imports),
-    # so a leaked value would skip the run() this test asserts on. Pin it
-    # away to exercise the import path regardless of the environment.
-    monkeypatch.delenv("INTERPRETER_COMPUTER_API", raising=False)
+    monkeypatch.delenv("INTERPRETER_TOOLBOX_API", raising=False)
+    seen = []
 
     def fake_streaming_run(language, code, display=False):
-        yield {"type": "console", "format": "output", "content": "done"}
+        seen.append(code)
+        if "__TOOLBOX_API_IMPORTED__" in code:
+            yield {"type": "console", "format": "output", "content": "__TOOLBOX_API_IMPORTED__"}
+        else:
+            yield {"type": "console", "format": "output", "content": "done"}
 
     with mock.patch.object(terminal, "_streaming_run", side_effect=fake_streaming_run):
-        output = terminal.run("python", "computer.display.view()", stream=False)
-    assert computer._has_imported_computer_api is True
-    import_code = run.call_args[0][1] if run.call_args[0] else run.call_args[1]["code"]
-    assert "INTERPRETER_COMPUTER_API" in import_code
+        output = terminal.run("python", "toolbox.display.view()", stream=False)
+    assert toolbox._has_imported_toolbox_api is True
+    assert any("INTERPRETER_TOOLBOX_API" in code for code in seen)
     assert output[0]["content"] == "done"
 
 
 def test_run_imports_skills_once_before_python():
     """Python runs import skills exactly once when enabled but not imported."""
-    computer = _bare_computer(import_skills=True)
-    terminal = Terminal(computer=computer)
+    toolbox = SimpleNamespace(
+        import_toolbox_api=False,
+        _has_imported_toolbox_api=False,
+        import_skills=True,
+        _has_imported_skills=False,
+        verbose=False,
+        skills=SimpleNamespace(import_skills=mock.Mock()),
+    )
+    interpreter = SimpleNamespace(toolbox=toolbox)
+    terminal = Terminal(interpreter)
 
     def fake_streaming_run(language, code, display=False):
         yield {"type": "console", "format": "output", "content": "done"}
@@ -220,13 +232,13 @@ def test_run_imports_skills_once_before_python():
     with mock.patch.object(terminal, "_streaming_run", side_effect=fake_streaming_run):
         terminal.run("python", "print(1)", stream=False)
         terminal.run("python", "print(2)", stream=False)
-    assert computer._has_imported_skills is True
-    computer.skills.import_skills.assert_called_once_with()
+    assert toolbox._has_imported_skills is True
+    toolbox.skills.import_skills.assert_called_once_with()
 
 
 def test_run_stream_true_returns_the_generator():
     """Terminal.run(stream=True) hands back _streaming_run's generator unconsumed."""
-    terminal = Terminal(computer=_bare_computer())
+    terminal = Terminal(_bare_computer())
     with mock.patch.object(
         terminal, "_streaming_run", return_value=iter([{"a": 1}])
     ) as streaming:
@@ -237,7 +249,7 @@ def test_run_stream_true_returns_the_generator():
 
 def test_streaming_run_close_stops_languages():
     """Closing a _streaming_run generator routes GeneratorExit into stop()."""
-    terminal = Terminal(computer=_bare_computer())
+    terminal = Terminal(_bare_computer())
 
     def hanging_run(code):
         yield {"type": "console", "format": "output", "content": "x"}
@@ -253,7 +265,7 @@ def test_streaming_run_close_stops_languages():
 
 def test_terminate_skips_none_languages_and_clears():
     """terminate() tolerates None entries and drops every active language."""
-    terminal = Terminal(computer=_bare_computer())
+    terminal = Terminal(_bare_computer())
     language = mock.Mock()
     terminal._active_languages["real"] = language
     terminal._active_languages["ghost"] = None

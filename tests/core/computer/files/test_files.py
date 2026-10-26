@@ -8,18 +8,6 @@ class TestFiles(unittest.TestCase):
     def setUp(self):
         self.files = Files(mock.Mock())
 
-    @mock.patch("interpreter.core.toolbox.files.files.aifs")
-    def test_search(self, mock_aifs):
-        # Arrange
-        mock_args = ["foo", "bar"]
-        mock_kwargs = {"foo": "bar"}
-
-        # Act
-        self.files.search(mock_args, mock_kwargs)
-
-        # Assert
-        mock_aifs.search.assert_called_once_with(mock_args, mock_kwargs)
-
     def test_edit_original_text_in_filedata(self):
         # Arrange
         mock_open = mock.mock_open(read_data="foobar")

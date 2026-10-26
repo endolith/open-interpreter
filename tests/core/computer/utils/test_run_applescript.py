@@ -1,6 +1,6 @@
 from unittest import mock
 
-import interpreter.core.computer.utils.run_applescript as run_applescript
+import interpreter.core.toolbox.utils.run_applescript as run_applescript
 
 
 def test_run_applescript_returns_stdout(monkeypatch):

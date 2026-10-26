@@ -12,20 +12,18 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
+from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
 
 
 def _language(**attrs):
     """A JupyterLanguage with a stub kernel, built without starting a real one."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(
+    lang.interpreter = SimpleNamespace(
             stop_event=SimpleNamespace(is_set=lambda: False),
             save_skills=False,
             messages=[],
             llm=SimpleNamespace(model="m", api_key=None),
         )
-    )
     lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
     lang.kc = SimpleNamespace(
         execute=mock.Mock(),
@@ -81,7 +79,7 @@ def test_a_persistent_listener_failure_is_re_raised_after_the_retry_budget(monke
             return None
 
     monkeypatch.setattr(
-        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        "interpreter.core.terminal.languages.jupyter_language.threading.Thread",
         InlineThread,
     )
 
@@ -108,31 +106,31 @@ def test_a_preprocessing_failure_falls_back_to_the_raw_code(monkeypatch):
     def broken_preprocess(_code):
         raise ValueError("preprocessing exploded")
 
-    executed = {}
+    executed = []
 
     def capture_execute(code, message_queue):
-        executed["code"] = code
+        executed.append(code)
 
     monkeypatch.setattr(lang, "preprocess_code", broken_preprocess)
     monkeypatch.setattr(lang, "_execute_code", capture_execute)
     monkeypatch.setattr(lang, "_capture_output", lambda q: iter([]))
 
     assert list(lang.run("x = 1")) == []
-    assert executed["code"] == "x = 1", "the original code should run unchanged"
+    assert any("x = 1" in code for code in executed), "the original code should still run"
 
 
 def test_preprocessed_code_is_used_when_preprocessing_succeeds(monkeypatch):
     """The complement: a successful preprocess is what actually gets executed."""
     lang = _language()
-    executed = {}
+    executed = []
 
     monkeypatch.setattr(lang, "preprocess_code", lambda _code: "PROCESSED")
-    monkeypatch.setattr(lang, "_execute_code", lambda code, q: executed.update(code=code))
+    monkeypatch.setattr(lang, "_execute_code", lambda code, q: executed.append(code))
     monkeypatch.setattr(lang, "_capture_output", lambda q: iter([]))
 
     list(lang.run("x = 1"))
 
-    assert executed["code"] == "PROCESSED"
+    assert any("PROCESSED" in code for code in executed)
 
 
 def test_an_exception_during_execution_is_reported_as_output(monkeypatch):

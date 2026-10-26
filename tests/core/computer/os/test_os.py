@@ -2,7 +2,7 @@ import pytest
 from types import SimpleNamespace
 from unittest import mock
 
-from interpreter.core.computer.os.os import Os
+from interpreter.core.toolbox.os.os import Os
 
 
 def test_get_selected_text_uses_clipboard():
@@ -24,7 +24,7 @@ def test_notify_truncates_long_text_on_linux():
 
     os_module = Os(SimpleNamespace(verbose=False))
     plyer = mock.Mock()
-    with mock.patch("interpreter.core.computer.os.os.platform.system", return_value="Linux"):
+    with mock.patch("interpreter.core.toolbox.os.os.platform.system", return_value="Linux"):
         with mock.patch.dict(sys.modules, {"plyer": plyer}):
             os_module.notify("x" * 300)
     plyer.notification.notify.assert_called_once()
@@ -37,10 +37,10 @@ def test_notify_macos_runs_osascript():
     """On macOS, notify() runs osascript with a display notification script."""
     os_module = Os(SimpleNamespace(verbose=False))
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Darwin"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Darwin"
     ):
         with mock.patch(
-            "interpreter.core.computer.os.os.subprocess.run"
+            "interpreter.core.toolbox.os.os.subprocess.run"
         ) as run:
             os_module.notify('Say "hello"')
     run.assert_called_once_with(["osascript", "-e", mock.ANY])
@@ -52,10 +52,10 @@ def _darwin_notify(text):
     """Run notify() as macOS would, returning the AppleScript that was executed."""
     os_module = Os(SimpleNamespace(verbose=False))
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Darwin"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Darwin"
     ):
         with mock.patch(
-            "interpreter.core.computer.os.os.subprocess.run"
+            "interpreter.core.toolbox.os.os.subprocess.run"
         ) as run:
             os_module.notify(text)
     run.assert_called_once()
@@ -136,7 +136,7 @@ def test_notify_truncates_only_past_200_characters(length, truncated):
     os_module = Os(SimpleNamespace(verbose=False))
     plyer = mock.Mock()
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Linux"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Linux"
     ):
         with mock.patch.dict(sys.modules, {"plyer": plyer}):
             os_module.notify("x" * length)
@@ -159,7 +159,7 @@ def test_notify_is_silent_when_plyer_is_missing():
     # Make the import fail the way a missing package does.
     with mock.patch.dict(sys.modules, {"plyer": None}):
         with mock.patch(
-            "interpreter.core.computer.os.os.platform.system", return_value="Linux"
+            "interpreter.core.toolbox.os.os.platform.system", return_value="Linux"
         ):
             assert os_module.notify("hello") is None
 
@@ -173,20 +173,20 @@ def test_notify_swallows_errors_unless_verbose(capsys):
     """
     quiet = Os(SimpleNamespace(verbose=False))
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Darwin"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Darwin"
     ):
         with mock.patch(
-            "interpreter.core.computer.os.os.subprocess.run", side_effect=OSError("boom")
+            "interpreter.core.toolbox.os.os.subprocess.run", side_effect=OSError("boom")
         ):
             quiet.notify("hello")
     assert capsys.readouterr().out == ""
 
     loud = Os(SimpleNamespace(verbose=True))
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Darwin"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Darwin"
     ):
         with mock.patch(
-            "interpreter.core.computer.os.os.subprocess.run", side_effect=OSError("boom")
+            "interpreter.core.toolbox.os.os.subprocess.run", side_effect=OSError("boom")
         ):
             loud.notify("hello")
     out = capsys.readouterr().out
@@ -209,7 +209,7 @@ def test_notify_swallows_a_failure_from_the_notifier_itself():
     plyer = mock.Mock()
     plyer.notification.notify.side_effect = AttributeError("no dbus session")
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Linux"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Linux"
     ):
         with mock.patch.dict(sys.modules, {"plyer": plyer}):
             assert os_module.notify("hello") is None
@@ -228,7 +228,7 @@ def test_notify_passes_the_title_to_the_cross_platform_notifier():
     os_module = Os(SimpleNamespace(verbose=False))
     plyer = mock.Mock()
     with mock.patch(
-        "interpreter.core.computer.os.os.platform.system", return_value="Linux"
+        "interpreter.core.toolbox.os.os.platform.system", return_value="Linux"
     ):
         with mock.patch.dict(sys.modules, {"plyer": plyer}):
             os_module.notify("hello")

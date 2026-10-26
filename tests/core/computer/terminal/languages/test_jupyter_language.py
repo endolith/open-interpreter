@@ -1,6 +1,6 @@
 import ast
 
-from interpreter.core.computer.terminal.languages.jupyter_language import (
+from interpreter.core.terminal.languages.jupyter_language import (
     AddLinePrints,
     add_active_line_prints,
     preprocess_python,

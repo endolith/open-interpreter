@@ -41,7 +41,7 @@ def test_main_terminates_computer_on_success():
     with mock.patch.object(sti, "start_terminal_interface"):
         with patch_interp:
             sti.main()
-    interpreter.computer.terminate.assert_called_once()
+    interpreter.terminal.terminate.assert_called_once()
 
 
 def test_main_terminates_computer_on_keyboard_interrupt():
@@ -58,7 +58,7 @@ def test_main_terminates_computer_on_keyboard_interrupt():
         with patch_interp:
             sti.main()
 
-    interpreter.computer.terminate.assert_called_once()
+    interpreter.terminal.terminate.assert_called_once()
 
 
 def test_main_does_not_prompt_after_keyboard_interrupt():
@@ -93,7 +93,7 @@ def test_main_terminates_on_exception():
         sti, "start_terminal_interface", side_effect=RuntimeError("boom")
     ):
         with patch_interp:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(SystemExit):
                 sti.main()
 
-    interpreter.computer.terminate.assert_called_once()
+    interpreter.terminal.terminate.assert_called_once()

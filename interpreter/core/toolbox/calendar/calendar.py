@@ -291,12 +291,12 @@ class Calendar:
         else:
             return "Unknown error deleting event. Please check event title and date."
 
-    def get_first_calendar(self) -> str:
+    def get_first_calendar(self) -> str | None:
         """
         Gets the first calendar name from all calendars on the system.
 
         Returns:
-            str: Calendar name.
+            str | None: Calendar name, or None when no calendars exist.
         """
         script = f"""
             -- Open calendar first

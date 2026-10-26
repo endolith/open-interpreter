@@ -186,6 +186,27 @@ def _render_temporary_retry_status(retry_count):
     sys.stdout.flush()
 
 
+def _pending_code_message(messages):
+    """The code message awaiting execution, ignoring trailing reasoning-only chunks.
+
+    Thinking models can emit a final message chunk carrying only reasoning, which
+    lands after the code block. Execution keys off the last meaningful message,
+    not strictly messages[-1], or that reasoning chunk silently stops the code
+    from running.
+    """
+    for message in reversed(messages):
+        if message.get("type") == "code":
+            return message
+        if (
+            message.get("type") == "message"
+            and not (message.get("content") or "").strip()
+            and message.get("reasoning_content")
+        ):
+            continue
+        return None
+    return None
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -273,7 +294,8 @@ def respond(interpreter):
             len(interpreter.messages) > 0
         ), "User message was not passed in. You need to pass in at least one message."
 
-        if interpreter.messages[-1]["type"] not in ("code", "edit"):  # If it is, we run below
+        if _pending_code_message(interpreter.messages) is None:
+            # No code is pending: call the LLM. A code block runs below.
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
                     clear_temporary_retry_status()
@@ -313,7 +335,8 @@ def respond(interpreter):
                 )
                 print("")  # Add space after error
                 return
-                clear_temporary_retry_status()
+
+            except litellm.exceptions.BudgetExceededError:
                 interpreter.display_message(
                     f"""> Max budget exceeded
 
@@ -328,6 +351,21 @@ def respond(interpreter):
             except Exception as e:
                 # Continue with existing error handling
                 error_message = str(e).lower()
+
+                # Surface the quota/billing hint before the retry loop: an
+                # exhausted quota is not fixed by retrying inside the session.
+                if (
+                    isinstance(e, litellm.exceptions.RateLimitError)
+                    and ("exceeded" in error_message or "insufficient_quota" in error_message)
+                ):
+                    display_markdown_message(
+                        f""" > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
+
+                        To check your current usage and billing details, visit the [OpenAI billing page](https://platform.openai.com/settings/organization/billing/overview).
+
+                        You can also use `interpreter --max_budget [higher USD amount]` to set a budget for your sessions.
+                        """
+                    )
 
                 # Check for API errors - display them in a panel without tracebacks
                 # Also check for our formatted errors (containing |||)
