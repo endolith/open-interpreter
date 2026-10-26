@@ -66,7 +66,7 @@ def interpreter():
 @pytest.mark.timeout(60)
 def test_python_subprocess_smoke(interpreter):
     """Python code runs through the Jupyter kernel and stdout is captured."""
-    chunks = list(interpreter.computer.run("python", 'print("py_ok")'))
+    chunks = list(interpreter.toolbox.run("python", 'print("py_ok")'))
     assert "py_ok" in console_output_text(chunks)
 
 
@@ -75,7 +75,7 @@ def test_javascript_subprocess_smoke(interpreter):
     """JavaScript runs in a node -i subprocess; the banner is filtered out."""
     if shutil.which("node") is None:
         pytest.skip("node not installed")
-    chunks = list(interpreter.computer.run("javascript", 'console.log("js_ok")'))
+    chunks = list(interpreter.toolbox.run("javascript", 'console.log("js_ok")'))
     assert "js_ok" in console_output_text(chunks)
 
 
@@ -83,7 +83,7 @@ def test_javascript_subprocess_smoke(interpreter):
 def test_shell_bash_echo_smoke(interpreter):
     """Shell uses $SHELL (must be bash-compatible); a basic echo reaches stdout."""
     require_bash_compatible_shell()
-    chunks = list(interpreter.computer.run("shell", "echo shell_ok"))
+    chunks = list(interpreter.toolbox.run("bash", "echo shell_ok"))
     assert "shell_ok" in console_output_text(chunks)
 
 
@@ -103,7 +103,7 @@ def test_ruby_subprocess_smoke(interpreter):
     """Ruby runs in an irb subprocess; puts output reaches the output queue."""
     if shutil.which("irb") is None:
         pytest.skip("irb not installed")
-    chunks = list(interpreter.computer.run("ruby", 'puts "ruby_ok"'))
+    chunks = list(interpreter.toolbox.run("ruby", 'puts "ruby_ok"'))
     assert "ruby_ok" in console_output_text(chunks)
 
 
@@ -112,7 +112,7 @@ def test_r_subprocess_smoke(interpreter):
     """R runs in R --vanilla; cat() output is captured after postprocessor filtering."""
     if shutil.which("R") is None:
         pytest.skip("R not installed")
-    chunks = list(interpreter.computer.run("r", 'cat("r_ok\\n")'))
+    chunks = list(interpreter.toolbox.run("r", 'cat("r_ok\\n")'))
     assert "r_ok" in console_output_text(chunks)
 
 
@@ -121,7 +121,7 @@ def test_java_subprocess_smoke(interpreter):
     """Java source is written, compiled with javac, and run; stdout is captured."""
     if shutil.which("javac") is None or shutil.which("java") is None:
         pytest.skip("jdk not installed")
-    chunks = list(interpreter.computer.run("java", _JAVA_SMOKE))
+    chunks = list(interpreter.toolbox.run("java", _JAVA_SMOKE))
     assert "java_ok" in console_output_text(chunks)
 
 
@@ -131,7 +131,7 @@ def test_html_runtime_smoke(interpreter):
     require_chrome_for_html()
     try:
         chunks = list(
-            interpreter.computer.run(
+            interpreter.toolbox.run(
                 "html", '<html><body style="font-size:32px">html_ok</body></html>'
             )
         )
@@ -150,7 +150,7 @@ def test_react_runtime_smoke(interpreter):
     """React code is injected into the CDN-backed HTML template and screenshotted."""
     require_chrome_for_html()
     try:
-        chunks = list(interpreter.computer.run("react", _REACT_SMOKE))
+        chunks = list(interpreter.toolbox.run("react", _REACT_SMOKE))
     except FileNotFoundError as exc:
         pytest.skip(f"html2image screenshot failed: {exc}")
     assert chunks_of_type(chunks, "console")

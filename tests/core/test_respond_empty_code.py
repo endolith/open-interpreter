@@ -14,6 +14,8 @@ def _interpreter_with_code(code, language="python"):
     terminal = SimpleNamespace(
         languages=[FakeLanguage()],
         get_language=lambda lang: FakeLanguage() if lang == "python" else None,
+        get_language_instance=lambda lang: FakeLanguage() if lang == "python" else None,
+        run=lambda *a, **k: iter([]),
     )
     return SimpleNamespace(
         system_message="",
@@ -21,9 +23,12 @@ def _interpreter_with_code(code, language="python"):
         messages=[
             {"role": "assistant", "type": "code", "format": language, "content": code}
         ],
-        computer=SimpleNamespace(
-            terminal=terminal,
-            import_computer_api=False,
+        terminal=terminal,
+        toolbox=SimpleNamespace(
+            import_toolbox_api=False,
+            _has_imported_toolbox_api=False,
+            import_skills=False,
+            _has_imported_skills=False,
             system_message="",
             run=lambda *a, **k: iter([]),
             verbose=False,

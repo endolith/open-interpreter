@@ -18,8 +18,8 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.computer.terminal.languages import jupyter_language as jl
-from interpreter.core.computer.terminal.languages.jupyter_language import JupyterLanguage
+from interpreter.core.terminal.languages import jupyter_language as jl
+from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
 
 
 def _join_listener(lang, timeout=10):
@@ -66,13 +66,19 @@ def _language(*, finish_after_first_poll=True, patience=15):
     listener returns instead of spinning forever.
     """
     lang = JupyterLanguage.__new__(JupyterLanguage)
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(
+    lang.interpreter = SimpleNamespace(
             stop_event=mock.Mock(is_set=mock.Mock(return_value=False)),
             messages=[],
-            llm=SimpleNamespace(model="test-model", api_key="sk-test"),
+            llm=SimpleNamespace(
+                model="test-model",
+                api_key="sk-test",
+                wire_model_name=lambda: "test-model",
+                wire_provider=lambda: None,
+                api_base=None,
+                api_version=None,
+                extra_headers=None,
+            ),
         )
-    )
     lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
     lang.kc = SimpleNamespace(
         execute=mock.Mock(),
@@ -101,7 +107,7 @@ def _language(*, finish_after_first_poll=True, patience=15):
 
 def _run_listener(lang, monkeypatch, completion_response=None, api_key="sk-test"):
     """Run `_execute_code` and join the listener, returning the litellm mock."""
-    lang.computer.interpreter.llm.api_key = api_key
+    lang.interpreter.llm.api_key = api_key
     chunks = (
         [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=c))]) for c in completion_response]
         if completion_response is not None

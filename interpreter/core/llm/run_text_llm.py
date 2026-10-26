@@ -135,24 +135,21 @@ def run_text_llm(llm, params):
             continue
         delta = chunk["choices"][0]["delta"]
 
-        # Stream reasoning_content as it arrives
+        # Stream reasoning_content as it arrives. A delta may carry content
+        # alongside reasoning; emit the reasoning first and still process the
+        # content (dropping it would lose the visible reply).
         if "reasoning_content" in delta and delta["reasoning_content"]:
             yield {"role": "assistant", "type": "message", "format": "reasoning", "content": delta["reasoning_content"]}
-            continue
 
         content = delta.get("content", "")
-        if content == None:
+        if content is None:
             continue
-        content = content or ""
-        pending_reasoning = reasoning
 
-        accumulated += content
+        accumulated_block += content
 
-        # One chunk can cross a boundary — prose, then a fence, then code — so
-        # keep consuming the buffer until it needs more input.
-        while True:
-            if not inside_code_block:
-                fence_at = accumulated.find(FENCE, cursor)
+        if accumulated_block.endswith("`"):
+            # We might be writing "```" one token at a time.
+            continue
 
                 if fence_at == -1:
                     # No fence yet: emit the prose that cannot be part of one.
@@ -169,48 +166,15 @@ def run_text_llm(llm, params):
                         cursor = safe_end
                     break
 
-                # Emit any prose preceding the fence, then enter the block.
-                if fence_at > cursor:
-                    message = {
-                        "type": "message",
-                        "content": accumulated[cursor:fence_at],
-                    }
-                    if pending_reasoning:
-                        message["reasoning_content"] = pending_reasoning
-                        pending_reasoning = ""
-                    yield message
-                block_open_at = fence_at
-                opener_end = fence_at
-                while opener_end < len(accumulated) and accumulated[opener_end] == "`":
-                    opener_end += 1
-                opener_len = opener_end - fence_at
-                cursor = opener_end
-                inside_code_block = True
-                continue
+        # Did we just exit a code block?
+        if inside_code_block and "```" in accumulated_block:
+            return
 
-            # Inside a code block. The language label occupies the rest of the
-            # line after the opening fence and is structural, not code, so it is
-            # consumed by advancing the cursor past it rather than by stripping
-            # the label out of the emitted text.
-            if language is None:
-                newline_at = accumulated.find("\n", cursor)
-                if newline_at == -1:
-                    break  # the language line is still arriving
-
-                # A run split across deltas leaves extra backticks at the start
-                # of the info line. Count them toward the opener so a shorter
-                # inner run cannot close the block.
-                label = accumulated[cursor:newline_at]
-                extra = len(label) - len(label.lstrip("`"))
-                if extra:
-                    opener_len += extra
-                    cursor += extra
-                    label = label[extra:]
-
-                # Assigned before being refined so that an unlabelled fence in
-                # OS mode settles on "" rather than staying None, which would
-                # make the next line be parsed as a label.
-                language = label.strip()
+        # If we're in a code block,
+        if inside_code_block:
+            # If we don't have a `language`, find it
+            if language is None and "\n" in accumulated_block:
+                language = accumulated_block.split("\n")[0]
 
                 # Default to python if not specified
                 if language == "":
@@ -286,6 +250,4 @@ def run_text_llm(llm, params):
     # text rather than the start of a fence. Emit them instead of dropping them.
     elif cursor < len(accumulated):
         if not inside_code_block:
-            yield {"type": "message", "content": accumulated[cursor:]}
-        elif language:
-            yield {"type": "code", "format": language, "content": accumulated[cursor:]}
+            yield {"type": "message", "content": content}

@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 from unittest import mock
 
-from interpreter.core.computer.ai import ai as ai_mod
-from interpreter.core.computer.ai.ai import Ai, fast_llm
+from interpreter.core.toolbox.ai import ai as ai_mod
+from interpreter.core.toolbox.ai.ai import Ai, fast_llm
 
 
 def test_fast_llm_restores_interpreter_state():
@@ -111,7 +111,7 @@ def test_query_reduce_chunks_collapses_many_responses_to_one():
     See #389. The stub raises after a few rounds so a broken loop fails instead of
     hanging the suite, which is the whole failure mode.
     """
-    from interpreter.core.computer.ai.ai import query_reduce_chunks
+    from interpreter.core.toolbox.ai.ai import query_reduce_chunks
 
     rounds = []
 
@@ -123,11 +123,11 @@ def test_query_reduce_chunks_collapses_many_responses_to_one():
 
     llm = mock.Mock()
     with mock.patch(
-        "interpreter.core.computer.ai.ai.chunk_responses",
+        "interpreter.core.toolbox.ai.ai.chunk_responses",
         side_effect=fake_chunk_responses,
     ):
         with mock.patch(
-            "interpreter.core.computer.ai.ai.fast_llm", return_value="the summary"
+            "interpreter.core.toolbox.ai.ai.fast_llm", return_value="the summary"
         ):
             result = query_reduce_chunks(["a", "b", "c"], llm, 10, "summarise")
 
@@ -142,7 +142,7 @@ def test_query_reduce_chunks_returns_a_single_response_unchanged():
     Currently raises UnboundLocalError, because `return summaries[0]` reads a
     name only assigned inside the loop. See #389.
     """
-    from interpreter.core.computer.ai.ai import query_reduce_chunks
+    from interpreter.core.toolbox.ai.ai import query_reduce_chunks
 
     llm = mock.Mock()
     result = query_reduce_chunks(["only"], llm, 10, "summarise")
@@ -173,15 +173,15 @@ def test_query_reduce_chunks_summarises_each_chunk_separately():
     The reduction is parallel-per-chunk, so dropping one loses content that was
     present in the input.
     """
-    from interpreter.core.computer.ai.ai import query_reduce_chunks
+    from interpreter.core.toolbox.ai.ai import query_reduce_chunks
 
     calls = []
     llm = mock.Mock()
     with mock.patch(
-        "interpreter.core.computer.ai.ai.chunk_responses", return_value=["one", "two"]
+        "interpreter.core.toolbox.ai.ai.chunk_responses", return_value=["one", "two"]
     ):
         with mock.patch(
-            "interpreter.core.computer.ai.ai.fast_llm",
+            "interpreter.core.toolbox.ai.ai.fast_llm",
             side_effect=_bounded_fast_llm(calls, limit=2),
         ):
             with pytest.raises(RuntimeError):
@@ -200,15 +200,15 @@ def test_query_reduce_chunks_passes_the_query_to_every_summary():
     The summary prompt is the caller's only way to steer the reduction, so a
     dropped or reordered argument silently produces unrelated summaries.
     """
-    from interpreter.core.computer.ai.ai import query_reduce_chunks
+    from interpreter.core.toolbox.ai.ai import query_reduce_chunks
 
     calls = []
     llm = mock.Mock()
     with mock.patch(
-        "interpreter.core.computer.ai.ai.chunk_responses", return_value=["one", "two"]
+        "interpreter.core.toolbox.ai.ai.chunk_responses", return_value=["one", "two"]
     ):
         with mock.patch(
-            "interpreter.core.computer.ai.ai.fast_llm",
+            "interpreter.core.toolbox.ai.ai.fast_llm",
             side_effect=_bounded_fast_llm(calls, limit=2),
         ):
             with pytest.raises(RuntimeError):
@@ -234,13 +234,13 @@ def test_query_splits_then_maps_then_reduces():
     ai = Ai(computer)
 
     with mock.patch(
-        "interpreter.core.computer.ai.ai.split_into_chunks", return_value=["c1", "c2"]
+        "interpreter.core.toolbox.ai.ai.split_into_chunks", return_value=["c1", "c2"]
     ) as split:
         with mock.patch(
-            "interpreter.core.computer.ai.ai.query_map_chunks", return_value=["r1", "r2"]
+            "interpreter.core.toolbox.ai.ai.query_map_chunks", return_value=["r1", "r2"]
         ) as mapper:
             with mock.patch(
-                "interpreter.core.computer.ai.ai.query_reduce_chunks", return_value="final"
+                "interpreter.core.toolbox.ai.ai.query_reduce_chunks", return_value="final"
             ) as reducer:
                 result = ai.query("body", "my query")
 
@@ -264,13 +264,13 @@ def test_query_defaults_the_reduce_prompt_to_the_map_prompt():
     ai = Ai(computer)
 
     with mock.patch(
-        "interpreter.core.computer.ai.ai.split_into_chunks", return_value=["c"]
+        "interpreter.core.toolbox.ai.ai.split_into_chunks", return_value=["c"]
     ):
         with mock.patch(
-            "interpreter.core.computer.ai.ai.query_map_chunks", return_value=["r"]
+            "interpreter.core.toolbox.ai.ai.query_map_chunks", return_value=["r"]
         ):
             with mock.patch(
-                "interpreter.core.computer.ai.ai.query_reduce_chunks", return_value="final"
+                "interpreter.core.toolbox.ai.ai.query_reduce_chunks", return_value="final"
             ) as reducer:
                 ai.query("body", "same question")
 
@@ -291,13 +291,13 @@ def test_summarize_uses_a_different_prompt_for_reducing_than_for_mapping():
     ai = Ai(computer)
 
     with mock.patch(
-        "interpreter.core.computer.ai.ai.split_into_chunks", return_value=["c"]
+        "interpreter.core.toolbox.ai.ai.split_into_chunks", return_value=["c"]
     ):
         with mock.patch(
-            "interpreter.core.computer.ai.ai.query_map_chunks", return_value=["r"]
+            "interpreter.core.toolbox.ai.ai.query_map_chunks", return_value=["r"]
         ) as mapper:
             with mock.patch(
-                "interpreter.core.computer.ai.ai.query_reduce_chunks", return_value="final"
+                "interpreter.core.toolbox.ai.ai.query_reduce_chunks", return_value="final"
             ) as reducer:
                 ai.summarize("a long body")
 

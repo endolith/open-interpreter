@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from interpreter.core.computer.skills.skills import Skills
+from interpreter.core.toolbox.skills.skills import Skills
 
-SKILLS_MODULE = "interpreter.core.computer.skills.skills"
+SKILLS_MODULE = "interpreter.core.toolbox.skills.skills"
 
 
 # 3 regression tests for issue #3: lazy pynput import masking AttributeError.
@@ -117,8 +117,9 @@ def test_list_returns_skill_names(tmp_path):
         import_skills=True,
         _has_imported_skills=True,
         save_skills=True,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(return_value=[]),
+        interpreter=SimpleNamespace(
+            debug=False, terminal=SimpleNamespace(run=mock.Mock(return_value=[]))
+        ),
     )
     skills = Skills(computer)
     skills.path = str(skills_dir)
@@ -135,23 +136,28 @@ def test_import_skills_runs_python_files(tmp_path):
     computer = SimpleNamespace(
         import_skills=True,
         save_skills=True,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(return_value=[]),
+        interpreter=SimpleNamespace(
+            debug=False, terminal=SimpleNamespace(run=mock.Mock(return_value=[]))
+        ),
     )
     skills = Skills(computer)
     skills.path = str(skills_dir)
     skills.import_skills()
-    computer.run.assert_called_once_with("python",
-                                         skill_file.read_text() + "\n")
+    computer.interpreter.terminal.run.assert_called_once_with(
+        "python", skill_file.read_text() + "\n"
+    )
     assert computer.save_skills is True
 
 
 def test_import_skills_skips_when_disabled():
     """import_skills() does nothing when import_skills is False on the computer."""
-    computer = SimpleNamespace(import_skills=False, run=mock.Mock())
+    computer = SimpleNamespace(
+        import_skills=False,
+        interpreter=SimpleNamespace(terminal=SimpleNamespace(run=mock.Mock())),
+    )
     skills = Skills(computer)
     skills.import_skills()
-    computer.run.assert_not_called()
+    computer.interpreter.terminal.run.assert_not_called()
 
 
 # search() and the import guards
@@ -226,8 +232,7 @@ def test_import_skills_refuses_a_directory_over_100mb(tmp_path):
     computer = SimpleNamespace(
         import_skills=True,
         save_skills=True,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(return_value=[]),
+        interpreter=SimpleNamespace(debug=False, terminal=SimpleNamespace(run=mock.Mock(return_value=[]))),
     )
     skills = Skills(computer)
     skills.path = str(skills_dir)
@@ -235,7 +240,7 @@ def test_import_skills_refuses_a_directory_over_100mb(tmp_path):
     with pytest.raises(Warning):
         skills.import_skills()
 
-    computer.run.assert_not_called()
+    computer.interpreter.terminal.run.assert_not_called()
 
 
 def test_import_skills_retries_individually_after_a_traceback(tmp_path, capsys):
@@ -265,8 +270,7 @@ def test_import_skills_retries_individually_after_a_traceback(tmp_path, capsys):
     computer = SimpleNamespace(
         import_skills=True,
         save_skills=True,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(side_effect=fake_run),
+        interpreter=SimpleNamespace(debug=False, terminal=SimpleNamespace(run=mock.Mock(side_effect=fake_run))),
     )
     skills = Skills(computer)
     skills.path = str(skills_dir)
@@ -274,7 +278,7 @@ def test_import_skills_retries_individually_after_a_traceback(tmp_path, capsys):
     skills.import_skills()
 
     # One combined attempt, then one per file.
-    assert computer.run.call_count == 3
+    assert computer.interpreter.terminal.run.call_count == 3
     assert "bad.py" in capsys.readouterr().out
 
 
@@ -291,8 +295,7 @@ def test_import_skills_restores_the_save_skills_setting(tmp_path):
     computer = SimpleNamespace(
         import_skills=True,
         save_skills=True,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(return_value=[]),
+        interpreter=SimpleNamespace(debug=False, terminal=SimpleNamespace(run=mock.Mock(return_value=[]))),
     )
     skills = Skills(computer)
     skills.path = str(skills_dir)
@@ -302,8 +305,7 @@ def test_import_skills_restores_the_save_skills_setting(tmp_path):
     computer2 = SimpleNamespace(
         import_skills=True,
         save_skills=False,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(return_value=[]),
+        interpreter=SimpleNamespace(debug=False, terminal=SimpleNamespace(run=mock.Mock(return_value=[]))),
     )
     skills2 = Skills(computer2)
     skills2.path = str(skills_dir)
@@ -498,8 +500,7 @@ def _enabled_computer(**overrides):
         import_skills=True,
         _has_imported_skills=True,
         save_skills=True,
-        interpreter=SimpleNamespace(debug=False),
-        run=mock.Mock(return_value=[]),
+        interpreter=SimpleNamespace(debug=False, terminal=SimpleNamespace(run=mock.Mock(return_value=[]))),
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -533,7 +534,7 @@ def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
     with mock.patch("os.path.getsize", return_value=200 * 1024 * 1024):
         with pytest.raises(Warning, match="can't exceed 100mb"):
             skills.import_skills()
-    computer.run.assert_not_called()
+    computer.interpreter.terminal.run.assert_not_called()
     try:
         assert computer.save_skills is True
     except AssertionError:
@@ -558,11 +559,15 @@ def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys)
         assert language == "python"
         return "Traceback: Boom" if "raise Boom" in code else "ok"
 
-    computer = _enabled_computer(run=mock.Mock(side_effect=fake_run))
+    computer = _enabled_computer(
+        interpreter=SimpleNamespace(
+            debug=False, terminal=SimpleNamespace(run=mock.Mock(side_effect=fake_run))
+        )
+    )
     skills = Skills(computer)
     skills.path = str(skills_dir)
     skills.import_skills()
-    assert computer.run.call_count == 3
+    assert computer.interpreter.terminal.run.call_count == 3
     out = capsys.readouterr().out
     assert "might be broken" in out
     assert "bad.py" in out

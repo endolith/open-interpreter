@@ -11,12 +11,10 @@ from .assemble_system_message import assemble_system_message
 
 
 def get_python_version():
-    """Return the version string of the running Python interpreter."""
     return platform.python_version()
 
 
 def get_pip_version():
-    """Return the installed pip version, or the error message if it fails."""
     try:
         pip_version = subprocess.check_output(
             ["pip", "--version"]).decode().split()[1]
@@ -26,8 +24,6 @@ def get_pip_version():
 
 
 def get_oi_version():
-    """Return the Open Interpreter version from `interpreter --version` and the
-    installed package metadata as a (cmd_output, pkg_version) tuple."""
     try:
         oi_version_cmd = subprocess.check_output(
             ["interpreter", "--version"], text=True
@@ -38,22 +34,19 @@ def get_oi_version():
         pkg_ver = version("open-interpreter")
     except PackageNotFoundError:
         pkg_ver = None
-    oi_version = oi_version_cmd.strip(), pkg_ver.strip()
+    oi_version = oi_version_cmd.strip(), (pkg_ver.strip() if pkg_ver else None)
     return oi_version
 
 
 def get_os_version():
-    """Return a human-readable OS name and version string."""
     return platform.platform()
 
 
 def get_cpu_info():
-    """Return the CPU model name reported by the platform."""
     return platform.processor()
 
 
 def get_ram_info():
-    """Return a human-readable summary of total, used, and free RAM in GB."""
     vm = psutil.virtual_memory()
     used_ram_gb = vm.used / (1024**3)
     free_ram_gb = vm.free / (1024**3)
@@ -103,7 +96,6 @@ def _llm_prompt_sections_for_info(interpreter):
 
 
 def interpreter_info(interpreter):
-    """Render a debug summary of the interpreter's settings and messages."""
     try:
         if interpreter.offline and interpreter.llm.api_base:
             try:
@@ -156,7 +148,6 @@ def interpreter_info(interpreter):
 
 
 def system_info(interpreter):
-    """Print a debug report of the environment and the given interpreter."""
     oi_version = get_oi_version()
     markdown_content = f"""
 ## System Debug Info

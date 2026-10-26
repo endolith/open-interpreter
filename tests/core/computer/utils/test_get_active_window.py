@@ -14,7 +14,7 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.computer.utils.get_active_window import get_active_window
+from interpreter.core.toolbox.utils.get_active_window import get_active_window
 
 
 def test_windows_returns_region_and_title():

@@ -254,7 +254,16 @@ def apply_profile(interpreter, profile, profile_path):
             for i in interpreter.terminal.languages
             if i.name.lower() in [l.lower() for l in profile["computer"]["languages"]]
         ]
-        del profile["computer"]["languages"]
+        # Drop the key from a copy so the caller's dictionary keeps the
+        # filter for repeated applications of the same profile.
+        profile = {
+            **profile,
+            "computer": {
+                key: value
+                for key, value in profile["computer"].items()
+                if key != "languages"
+            },
+        }
 
     # Map "computer" key to "toolbox" for backward compatibility with profile files
     if "computer" in profile:

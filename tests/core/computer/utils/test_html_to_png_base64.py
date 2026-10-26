@@ -1,6 +1,6 @@
 from unittest import mock
 
-from interpreter.core.computer.utils import html_to_png_base64
+from interpreter.core.terminal.utils import html_to_png_base64
 
 
 def test_html_to_png_base64_returns_base64(tmp_path, monkeypatch):

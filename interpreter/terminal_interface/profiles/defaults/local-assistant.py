@@ -61,7 +61,7 @@ print(toolbox.calendar.get_events(datetime.date.today()))
 toolbox.calendar.delete_event("Meeting", datetime.datetime.now())
 ```
 
-6. Managing contacts and communication:
+7. Managing contacts and communication:
 ```python
 # Get contact's phone number
 toolbox.contacts.get_phone_number("John Doe")

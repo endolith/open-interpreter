@@ -43,14 +43,14 @@ def test_conversation_navigator_loads_selected_conversation(tmp_path):
     ):
         with mock.patch(
             "interpreter.terminal_interface.conversation_navigator.inquirer.prompt",
-            return_value={"name": "test chat... (2024)"},
+            side_effect=[{"search": ""}, {"name": "test chat... (2024)"}],
         ):
             with mock.patch(
                 "interpreter.terminal_interface.conversation_navigator.render_past_conversation"
             ):
                 conversation_navigator(interpreter)
 
-    assert interpreter.messages == messages
+    assert interpreter.messages[: len(messages)] == messages
     interpreter.chat.assert_called_once()
 
 

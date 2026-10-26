@@ -561,12 +561,13 @@ def run_tool_calling_llm(llm, request_params):
 
     # Append tool-calling-specific instructions to the system message (analogous to
     # how run_text_llm appends execution_instructions in markdown/no-functions mode).
-    if llm.tool_calling_instructions:
+    if llm.tool_calling_instructions and request_params["messages"]:
         request_params["messages"][0]["content"] += "\n" + llm.tool_calling_instructions
 
-    llm.interpreter._last_rendered_system_message = request_params["messages"][0][
-        "content"
-    ]
+    if request_params["messages"]:
+        llm.interpreter._last_rendered_system_message = request_params["messages"][0][
+            "content"
+        ]
 
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
@@ -904,7 +905,16 @@ def run_tool_calling_llm(llm, request_params):
                     tool_call_id_for_error = tool_call.id
 
                 converted = False
-                if isinstance(tool_call, dict) and "function" in tool_call:
+                function_obj = (
+                    tool_call.get("function")
+                    if isinstance(tool_call, dict)
+                    else getattr(tool_call, "function", None)
+                )
+                if function_obj is None:
+                    # A provider can send an empty tool-call entry; there is
+                    # nothing to convert or execute, so skip it silently.
+                    converted = True
+                elif isinstance(tool_call, dict) and "function" in tool_call:
                     if isinstance(tool_call["function"], dict):
                         accumulated_deltas["function_call"] = {
                             "name": tool_call["function"].get("name"),

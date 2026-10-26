@@ -518,12 +518,12 @@ def test_shell_recovery_tool_deltas_run_write_fail_fix_then_talk():
     messages.append({"role": "assistant", "content": ""})
     second = shell_recovery_tool_deltas(messages)
     args = json.loads(second[0]["tool_calls"][0]["function"]["arguments"])
-    assert args["language"] == "shell"
+    assert args["language"] == "bash"
     assert "sr-missing" in args["code"]
     messages.append({"role": "assistant", "content": ""})
     third = shell_recovery_tool_deltas(messages)
     args = json.loads(third[0]["tool_calls"][0]["function"]["arguments"])
-    assert args["language"] == "shell"
+    assert args["language"] == "bash"
     assert "sr2.txt" in args["code"]
     messages.append({"role": "assistant", "content": ""})
     assert shell_recovery_tool_deltas(messages) == [
@@ -548,7 +548,7 @@ def test_shell_recovery_text_reply_mirrors_tool_turns():
     assert shell_recovery_text_reply(messages).startswith("```python")
     messages.append({"role": "assistant", "content": ""})
     assert "sr-missing" in shell_recovery_text_reply(messages)
-    assert shell_recovery_text_reply(messages).startswith("```shell")
+    assert shell_recovery_text_reply(messages).startswith("```bash")
     messages.append({"role": "assistant", "content": ""})
     assert "sr2.txt" in shell_recovery_text_reply(messages)
     messages.append({"role": "assistant", "content": ""})

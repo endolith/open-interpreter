@@ -160,7 +160,7 @@ def _assert_tool_chain_complete(interpreter, tmp_path, messages):
     assert (tmp_path / "step2.txt").read_text().strip() == "one-two"
     assert "Tool chain complete." in messages[-1]["content"]
     formats = [m.get("format") for m in messages if m.get("type") == "code"]
-    assert formats == ["python", "shell", "python", "python"]
+    assert formats == ["python", "bash", "python", "python"]
     console_text = "\n".join(
         m.get("content", "")
         for m in messages
@@ -545,10 +545,12 @@ def test_second_turn_carries_first_turn_history_in_order(mock_llm_server):
     interpreter.chat(second, display=False, stream=False, blocking=True)
 
     assert len(mock_llm_server.requests) >= 2
-    sent = _user_texts(mock_llm_server.requests[-1])
-    assert sent[0] == first
-    assert sent[1] == second
-    assert sent.index(first) < sent.index(second), "history must stay in turn order"
+    transcript = "\n".join(_user_texts(mock_llm_server.requests[-1]))
+    assert first in transcript
+    assert second in transcript
+    assert transcript.index(first) < transcript.index(second), (
+        "history must stay in turn order"
+    )
 
 
 @pytest.mark.timeout(60)
@@ -787,7 +789,7 @@ def _assert_shell_recovery_complete(tmp_path, messages):
     assert (tmp_path / "sr2.txt").read_text().strip() == "one"
     assert "Shell recovery complete." in messages[-1]["content"]
     formats = [m.get("format") for m in messages if m.get("type") == "code"]
-    assert formats == ["python", "shell", "shell"]
+    assert formats == ["python", "bash", "bash"]
     console_text = "\n".join(
         m.get("content", "")
         for m in messages

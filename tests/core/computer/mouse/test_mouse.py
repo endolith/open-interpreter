@@ -10,16 +10,16 @@ from unittest import mock
 import pytest
 
 
-def _make_mouse(computer=None):
-    from interpreter.core.computer.mouse.mouse import Mouse
+def _make_mouse(toolbox=None):
+    from interpreter.core.toolbox.mouse.mouse import Mouse
 
-    if computer is None:
-        computer = SimpleNamespace(
+    if toolbox is None:
+        toolbox = SimpleNamespace(
             display=SimpleNamespace(width=100, height=100),
             emit_images=False,
             verbose=False,
         )
-    return Mouse(computer)
+    return Mouse(toolbox)
 
 
 def _patch_pyautogui(**attrs):
@@ -29,7 +29,7 @@ def _patch_pyautogui(**attrs):
     for name, value in attrs.items():
         getattr(pyautogui, name).return_value = value
     patcher = mock.patch(
-        "interpreter.core.computer.mouse.mouse.pyautogui", pyautogui
+        "interpreter.core.toolbox.mouse.mouse.pyautogui", pyautogui
     )
     return patcher, pyautogui
 
@@ -88,7 +88,7 @@ def test_move_xy_delegates_to_smooth_move_to():
     """Mouse.move(x=, y=) smooth-moves to the given pixel coordinates."""
     mouse = _make_mouse()
     with mock.patch(
-        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
     ) as smooth_move_to:
         mouse.move(x=10, y=20)
     smooth_move_to.assert_called_once_with(10, 20)
@@ -105,7 +105,7 @@ def test_move_text_locates_and_moves_to_scaled_coordinates():
     mouse = _make_mouse(computer)
 
     with mock.patch(
-        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
     ) as smooth_move_to:
         mouse.move("hello")
 
@@ -126,7 +126,7 @@ def test_move_text_falls_back_to_icon_when_not_found():
     mouse = _make_mouse(computer)
 
     with mock.patch(
-        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
     ) as smooth_move_to:
         mouse.move("hello")
 
@@ -161,7 +161,7 @@ def test_move_icon_moves_to_scaled_coordinates():
     mouse = _make_mouse(computer)
 
     with mock.patch(
-        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
     ) as smooth_move_to:
         mouse.move(icon='"folder"')
 
@@ -183,7 +183,7 @@ def test_click_moves_then_clicks():
     """Mouse.click() moves first, then clicks with the default button/timing."""
     mouse = _make_mouse()
     patcher, pyautogui = _patch_pyautogui()
-    with mock.patch("interpreter.core.computer.mouse.mouse.smooth_move_to") as smooth_move_to:
+    with mock.patch("interpreter.core.toolbox.mouse.mouse.smooth_move_to") as smooth_move_to:
         with patcher:
             mouse.click(x=5, y=7)
 
@@ -204,7 +204,7 @@ def test_double_click_moves_then_double_clicks():
     """Mouse.double_click() moves first, then calls pyautogui.doubleClick."""
     mouse = _make_mouse()
     patcher, pyautogui = _patch_pyautogui()
-    with mock.patch("interpreter.core.computer.mouse.mouse.smooth_move_to"):
+    with mock.patch("interpreter.core.toolbox.mouse.mouse.smooth_move_to"):
         with patcher:
             mouse.double_click(x=1, y=2)
     pyautogui.doubleClick.assert_called_once_with(button="left", interval=0.1)
@@ -242,13 +242,13 @@ def test_down_and_up_delegate():
 def test_smooth_move_to_eases_then_lands_exactly():
     """smooth_move_to() interpolates along an ease-in-out curve and always ends
     exactly at the target coordinates."""
-    from interpreter.core.computer.mouse.mouse import smooth_move_to
+    from interpreter.core.toolbox.mouse.mouse import smooth_move_to
 
     fake_pyautogui = mock.Mock()
     fake_pyautogui.position.return_value = (0, 0)
-    with mock.patch("interpreter.core.computer.mouse.mouse.pyautogui", fake_pyautogui):
+    with mock.patch("interpreter.core.toolbox.mouse.mouse.pyautogui", fake_pyautogui):
         with mock.patch(
-            "interpreter.core.computer.mouse.mouse.time.time",
+            "interpreter.core.toolbox.mouse.mouse.time.time",
             side_effect=[0, 0.5, 1.5, 3.0],
         ):
             smooth_move_to(10, 20, duration=2)
@@ -261,7 +261,7 @@ def test_cv2_import_failure_falls_back_to_none(monkeypatch):
     """A failing cv2 lazy import leaves module cv2 as None (Marimo path)."""
     import importlib
 
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
     import interpreter.core.utils.lazy_import as lazy_source
 
     real_lazy_import = lazy_source.lazy_import
@@ -315,7 +315,7 @@ def _image_display(monkeypatch, mouse_mod, find_result, emit_images=True):
 def test_move_text_multiple_matches_annotates_and_raises(monkeypatch):
     """Multiple text matches with emit_images draw numbered circles, then
     raise a disambiguation ValueError listing each candidate."""
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
 
     matches = [
         {"coordinates": (0.1, 0.2), "similarity": 1, "text": "save"},
@@ -335,7 +335,7 @@ def test_move_text_multiple_matches_annotates_and_raises(monkeypatch):
 
 def test_move_text_kwarg_with_screenshot_skips_capture(monkeypatch):
     """Mouse.move(text=, screenshot=) uses the given shot without capturing."""
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
     from PIL import Image
 
     screenshot = Image.new("RGB", (100, 100), "white")
@@ -355,7 +355,7 @@ def test_move_text_kwarg_with_screenshot_skips_capture(monkeypatch):
     )
     mouse = mouse_mod.Mouse(computer)
     with mock.patch(
-        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
     ) as smooth:
         mouse.move(text="ok", screenshot=screenshot)
 
@@ -365,7 +365,7 @@ def test_move_text_kwarg_with_screenshot_skips_capture(monkeypatch):
 
 def test_move_verbose_with_screenshot_skips_recapture(monkeypatch):
     """verbose=True reuses a provided screenshot instead of capturing."""
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
     from PIL import Image
 
     import numpy as np
@@ -386,10 +386,10 @@ def test_move_verbose_with_screenshot_skips_recapture(monkeypatch):
     cv2.cvtColor.return_value = canvas
     monkeypatch.setattr(mouse_mod, "cv2", cv2)
     with mock.patch(
-        "interpreter.core.computer.mouse.mouse.smooth_move_to"
+        "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
     ) as smooth:
         with mock.patch(
-            "interpreter.core.computer.mouse.mouse.plt"
+            "interpreter.core.toolbox.mouse.mouse.plt"
         ) as shown:
             mouse.move(x=10, y=20, screenshot=screenshot)
 
@@ -413,7 +413,7 @@ def test_double_click_without_args_skips_move():
 def test_move_icon_multiple_matches_annotates_and_raises(monkeypatch):
     """Multiple icon matches with emit_images draw numbered circles, then
     raise a disambiguation ValueError."""
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
 
     computer, _ = _image_display(monkeypatch, mouse_mod, [(0.1, 0.1), (0.9, 0.9)])
     mouse = mouse_mod.Mouse(computer)
@@ -427,7 +427,7 @@ def test_move_icon_multiple_matches_annotates_and_raises(monkeypatch):
 
 def test_move_verbose_draws_target_circle(monkeypatch):
     """verbose=True draws a circle at the scaled target, then smooth-moves."""
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
     from PIL import Image
 
     screenshot = Image.new("RGB", (200, 100), "white")
@@ -443,10 +443,10 @@ def test_move_verbose_draws_target_circle(monkeypatch):
     mouse = mouse_mod.Mouse(computer)
     with mock.patch.object(mouse_mod, "cv2", mock.Mock()):
         with mock.patch(
-            "interpreter.core.computer.mouse.mouse.smooth_move_to"
+            "interpreter.core.toolbox.mouse.mouse.smooth_move_to"
         ) as smooth:
             with mock.patch(
-                "interpreter.core.computer.mouse.mouse.plt"
+                "interpreter.core.toolbox.mouse.mouse.plt"
             ) as shown:
                 mouse.move(x=10, y=20)
 
@@ -457,7 +457,7 @@ def test_move_verbose_draws_target_circle(monkeypatch):
 
 def test_click_variants_forward_to_move_then_click(monkeypatch):
     """click/double/triple/right-click move first when given a target."""
-    import interpreter.core.computer.mouse.mouse as mouse_mod
+    import interpreter.core.toolbox.mouse.mouse as mouse_mod
 
     computer = SimpleNamespace(
         display=SimpleNamespace(width=100, height=100),

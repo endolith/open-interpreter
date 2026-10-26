@@ -218,6 +218,7 @@ class _Computer:
 
 class _Interpreter:
     computer = _Computer()
+    toolbox = _Computer()
     os = False
     shrink_images = False
     verbose = False

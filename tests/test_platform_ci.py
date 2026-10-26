@@ -21,7 +21,9 @@ import os
 import pytest
 
 from interpreter import OpenInterpreter
-from interpreter.core.computer.terminal.languages.shell import Shell
+from interpreter.core.terminal.languages.bash import Bash
+from interpreter.core.terminal.languages.cmd import Cmd
+from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
 from tests.helpers import console_output_text, run_bash_nested_loop_quoting_smoke
 
 
@@ -45,17 +47,17 @@ def test_windows_imports_tests_package():
 
 
 @pytest.mark.windows_ci
-def test_shell_start_cmd_uses_cmd_exe():
-    """On Windows, Shell.start_cmd is cmd.exe, not a Unix shell."""
-    shell = Shell()
-    assert shell.start_cmd == ["cmd.exe"]
+def test_cmd_start_cmd_uses_cmd_exe():
+    """On Windows, Cmd.start_cmd is cmd.exe, not a Unix shell."""
+    shell = Cmd()
+    assert shell.start_cmd[:1] == ["cmd.exe"]
 
 
 @pytest.mark.windows_ci
 @pytest.mark.timeout(30)
 def test_shell_cmd_echo_smoke(interpreter):
     """cmd.exe can run a basic echo command end-to-end through computer.run."""
-    chunks = list(interpreter.computer.run("shell", "echo shell_ok"))
+    chunks = list(interpreter.toolbox.run("cmd", "echo shell_ok"))
     assert "shell_ok" in console_output_text(chunks)
 
 
@@ -65,7 +67,7 @@ def test_shell_cmd_nested_loop_quoting(interpreter):
     """cmd.exe nested ``for`` loops — distinct quoting from bash (Linux CI)."""
 
     code = "for %i in (a b) do for %j in (1 2) do echo %i_%j"
-    chunks = list(interpreter.computer.run("shell", code))
+    chunks = list(interpreter.toolbox.run("cmd", code))
     output = console_output_text(chunks)
     assert "a_1" in output
     assert "b_2" in output
@@ -75,7 +77,7 @@ def test_shell_cmd_nested_loop_quoting(interpreter):
 @pytest.mark.timeout(30)
 def test_powershell_subprocess_smoke(interpreter):
     """PowerShell runs in powershell.exe and Write-Output reaches the output queue."""
-    chunks = list(interpreter.computer.run("powershell", 'Write-Output "ps_ok"'))
+    chunks = list(interpreter.toolbox.run("powershell", 'Write-Output "ps_ok"'))
     assert "ps_ok" in console_output_text(chunks)
 
 
@@ -83,10 +85,10 @@ def test_powershell_subprocess_smoke(interpreter):
 
 
 @pytest.mark.darwin_ci
-def test_shell_start_cmd_uses_shell_env():
-    """On macOS/Linux, Shell.start_cmd reads $SHELL from the environment."""
-    shell = Shell()
-    assert shell.start_cmd == [os.environ.get("SHELL", "bash")]
+def test_bash_start_cmd_resolves_gnu_bash():
+    """On macOS/Linux, Bash resolves a GNU bash executable, not $SHELL."""
+    shell = Bash()
+    assert shell.start_cmd == [resolve_bash_executable()]
 
 
 @pytest.mark.darwin_ci
@@ -100,5 +102,5 @@ def test_shell_bash_nested_loop_quoting(interpreter):
 @pytest.mark.timeout(30)
 def test_applescript_subprocess_smoke(interpreter):
     """AppleScript runs via osascript through the shell; return value is captured."""
-    chunks = list(interpreter.computer.run("applescript", 'return "as_ok"'))
+    chunks = list(interpreter.toolbox.run("applescript", 'return "as_ok"'))
     assert "as_ok" in console_output_text(chunks)

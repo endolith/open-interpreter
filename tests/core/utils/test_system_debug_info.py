@@ -1,3 +1,6 @@
+import unittest
+from interpreter import interpreter
+from interpreter.core.utils.system_debug_info import _llm_prompt_sections_for_info
 import platform
 import re
 from types import SimpleNamespace
@@ -104,11 +107,19 @@ def test_system_info_runs_without_error(capsys):
             supports_functions=True,
             context_window=8000,
             max_tokens=1000,
+            tool_calling_instructions="",
+            execution_instructions="",
         ),
         messages=[],
         system_message="test",
+        custom_instructions="",
         auto_run=True,
-        computer=SimpleNamespace(import_computer_api=False),
+        verbose=False,
+        debug=False,
+        terminal=SimpleNamespace(languages=[]),
+        toolbox=SimpleNamespace(
+            import_toolbox_api=False, system_message="", save_skills=True
+        ),
     )
     system_debug_info.system_info(interpreter)
     captured = capsys.readouterr().out
@@ -236,6 +247,8 @@ def _debug_interpreter(llm_overrides=None, **overrides):
         supports_functions=True,
         context_window=8000,
         max_tokens=1000,
+        tool_calling_instructions="",
+        execution_instructions="",
     )
     llm.update(llm_overrides or {})
     base = dict(
@@ -243,8 +256,14 @@ def _debug_interpreter(llm_overrides=None, **overrides):
         llm=SimpleNamespace(**llm),
         messages=[],
         system_message="test",
+        custom_instructions="",
         auto_run=True,
-        computer=SimpleNamespace(import_computer_api=False),
+        verbose=False,
+        debug=False,
+        terminal=SimpleNamespace(languages=[]),
+        toolbox=SimpleNamespace(
+            import_toolbox_api=False, system_message="", save_skills=True
+        ),
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -431,7 +450,7 @@ def test_messages_are_joined_by_a_blank_line():
     assert "FIRST\n\nSECOND" in out
 
 
-def test_system_info_labels_the_command_and_package_versions_separately():
+def test_system_info_labels_the_command_and_package_versions_separately(capsys):
     """The report shows the CLI version under "cmd:" and the package under "pkg:".
 
     Both halves come from a tuple, so a swapped index still renders a
@@ -442,9 +461,31 @@ def test_system_info_labels_the_command_and_package_versions_separately():
     with mock.patch.object(
         system_debug_info, "get_oi_version", return_value=("CMD_VERSION", "PKG_VERSION")
     ):
-        with mock.patch("builtins.print") as fake_print:
-            system_debug_info.system_info(interpreter)
+        system_debug_info.system_info(interpreter)
 
-    report = fake_print.call_args.args[0]
+    report = capsys.readouterr().out
     assert "cmd: CMD_VERSION" in report
     assert "pkg: PKG_VERSION" in report
+
+
+class TestSystemDebugInfo(unittest.TestCase):
+    def test_info_includes_tools_json_in_tool_calling_mode(self):
+        interpreter.llm.supports_functions = True
+        sections = dict(_llm_prompt_sections_for_info(interpreter))
+        self.assertIn("System message (`messages[0]`)", sections)
+        tools_section = sections["Tools (`request.tools` JSON)"]
+        self.assertIn("```json", tools_section)
+        self.assertIn('"name": "execute"', tools_section)
+        self.assertIn("persistent REPL", tools_section)
+        self.assertIn('"name": "edit"', tools_section)
+        self.assertIn('"write"', tools_section)
+
+    def test_info_includes_execution_instructions_in_text_mode(self):
+        interpreter.llm.supports_functions = False
+        sections = dict(_llm_prompt_sections_for_info(interpreter))
+        self.assertIn("System Message (text / markdown mode)", sections)
+        self.assertIn(interpreter.llm.execution_instructions, sections["System Message (text / markdown mode)"])
+
+
+if __name__ == "__main__":
+    unittest.main()

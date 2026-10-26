@@ -157,6 +157,10 @@ def test_send_output_does_not_spin_when_client_disconnects_with_unsent_messages(
     import subprocess
     import sys
 
+    # The generated endpoint imports websockets in the subprocess; skip when it
+    # is not installed in this environment (it is a dev dependency in CI).
+    pytest.importorskip("websockets")
+
     script = f"""
 import asyncio
 import os

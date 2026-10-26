@@ -286,19 +286,19 @@ def test_apply_profile_filters_computer_languages(profile_env):
     drops the languages key without error (regression test for #225)."""
     path = os.path.join(profile_env["profile_dir"], "p.yaml")
     interpreter = mock.Mock()
-    interpreter.computer.languages = [
+    interpreter.terminal.languages = [
         mock.Mock(name="python"),
         mock.Mock(name="javascript"),
     ]
-    interpreter.computer.languages[0].name = "python"
-    interpreter.computer.languages[1].name = "javascript"
+    interpreter.terminal.languages[0].name = "python"
+    interpreter.terminal.languages[1].name = "javascript"
     with mock.patch("interpreter.terminal_interface.profiles.profiles.time.sleep"):
         profiles.apply_profile(
             interpreter,
             {"version": "0.2.5", "computer": {"languages": ["javascript"]}},
             path,
         )
-    assert [l.name for l in interpreter.computer.languages] == ["javascript"]
+    assert [l.name for l in interpreter.terminal.languages] == ["javascript"]
 
 
 def test_apply_profile_raises_when_llm_not_dict(profile_env):

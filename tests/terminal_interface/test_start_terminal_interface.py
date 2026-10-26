@@ -127,8 +127,8 @@ def _patch_module(monkeypatch):
     interpreter.disable_telemetry = False
     interpreter.chat = mock.Mock()
     interpreter.server = mock.Mock()
-    interpreter.computer = mock.Mock()
-    interpreter.computer.vision = mock.Mock()
+    interpreter.toolbox = mock.Mock()
+    interpreter.toolbox.vision = mock.Mock()
     # Concrete values so the model/api_base string logic sees real strings.
     interpreter.llm.model = "gpt-4o-mini"
     interpreter.llm.api_base = None
@@ -240,13 +240,12 @@ def test_start_terminal_interface_remaps_claude_35_model(monkeypatch):
 def test_start_terminal_interface_safe_mode_disables_auto_run(monkeypatch):
     """A safe mode of ask/auto turns off auto_run so code still needs approval."""
     sti, interpreter = _patch_module(monkeypatch)
-    interpreter.auto_run = True
-    interpreter.safe_mode = "ask"
-    monkeypatch.setattr(sys, "argv", ["oi"])
+    interpreter.auto_run_mode = "all"
+    monkeypatch.setattr(sys, "argv", ["oi", "--safe_mode", "ask"])
 
     start_terminal_interface(interpreter)
 
-    assert interpreter.auto_run is False
+    assert interpreter.auto_run_mode == "prompt"
 
 
 def test_start_terminal_interface_stdin_mode_chats_with_input(monkeypatch):
@@ -320,7 +319,7 @@ def test_start_terminal_interface_local_vision_loads_moondream(monkeypatch):
     start_terminal_interface(interpreter)
 
     assert sti.profile.call_args[0][1] == "local.py"
-    interpreter.computer.vision.load.assert_called_once_with()
+    interpreter.toolbox.vision.load.assert_called_once_with()
 
 
 def test_start_terminal_interface_local_os_profile(monkeypatch):

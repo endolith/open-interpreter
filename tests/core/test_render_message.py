@@ -7,7 +7,8 @@ from interpreter.core.render_message import render_message
 def test_message_without_templates_returned_unchanged():
     """Messages with no {{...}} template blocks are returned verbatim without running code."""
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=mock.Mock()),
+        terminal=SimpleNamespace(run=mock.Mock()),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -20,7 +21,8 @@ def test_template_replaced_with_code_output():
         yield {"format": "output", "content": "hi"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -37,7 +39,7 @@ def test_save_skills_disabled_during_template_execution():
         yield {"format": "output", "content": "42"}
 
     computer = SimpleNamespace(save_skills=True, run=fake_run)
-    interpreter = SimpleNamespace(computer=computer, verbose=False, debug=False)
+    interpreter = SimpleNamespace(terminal=computer, toolbox=computer, verbose=False, debug=False)
     result = render_message(interpreter, "Answer: {{1+1}}")
     assert result == "Answer: 42"
     assert save_skills_during_run == [False]
@@ -47,7 +49,7 @@ def test_save_skills_disabled_during_template_execution():
 def test_save_skills_restored_after_render_without_templates():
     """Rendering a message without templates leaves computer.save_skills unchanged."""
     computer = SimpleNamespace(save_skills=True, run=lambda *a, **k: iter([]))
-    interpreter = SimpleNamespace(computer=computer, verbose=False, debug=False)
+    interpreter = SimpleNamespace(terminal=computer, toolbox=computer, verbose=False, debug=False)
     render_message(interpreter, "no templates")
     assert computer.save_skills is True
 
@@ -62,7 +64,8 @@ def test_multiline_template_is_matched():
         yield {"format": "output", "content": "multi"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -81,7 +84,8 @@ def test_only_both_braces_make_a_template():
         yield {"format": "output", "content": "RAN"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -105,7 +109,8 @@ def test_template_code_is_stripped_of_braces_and_whitespace():
         yield {"format": "output", "content": "ok"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -126,7 +131,8 @@ def test_display_flag_follows_verbose():
         yield {"format": "output", "content": "x"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=True,
         debug=False,
     )
@@ -146,7 +152,8 @@ def test_only_output_formatted_lines_are_joined():
         yield {"format": "console", "content": "not-output"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -168,7 +175,8 @@ def test_ignore_all_above_marker_is_filtered_out():
         yield {"format": "output", "content": "after"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )
@@ -187,7 +195,8 @@ def test_multiple_output_lines_joined_with_newlines():
         yield {"format": "output", "content": "two"}
 
     interpreter = SimpleNamespace(
-        computer=SimpleNamespace(save_skills=True, run=fake_run),
+        terminal=SimpleNamespace(run=fake_run),
+        toolbox=SimpleNamespace(save_skills=True),
         verbose=False,
         debug=False,
     )

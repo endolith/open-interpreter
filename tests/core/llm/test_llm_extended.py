@@ -16,8 +16,8 @@ def _make_llm(interpreter=None):
     """Build an Llm with a mocked interpreter to avoid real API calls."""
     if interpreter is None:
         interpreter = mock.MagicMock()
-        interpreter.computer.vision.query = mock.MagicMock()
-        interpreter.computer.vision.ocr = mock.MagicMock(return_value="")
+        interpreter.toolbox.vision.query = mock.MagicMock()
+        interpreter.toolbox.vision.ocr = mock.MagicMock(return_value="")
         interpreter.shrink_images = True
         interpreter.os = False
         interpreter.verbose = False
@@ -31,7 +31,7 @@ def _make_llm(interpreter=None):
 def test_llm_default_model():
     """Llm defaults to gpt-4o."""
     llm = _make_llm()
-    assert llm.model == "gpt-4o"
+    assert llm.model == "gpt-4o-mini"
 
 
 def test_llm_default_temperature():
@@ -55,7 +55,7 @@ def test_llm_supports_functions_defaults_none():
 def test_llm_vision_renderer_set():
     """vision_renderer is set to computer.vision.query at construction."""
     llm = _make_llm()
-    assert llm.vision_renderer == llm.interpreter.computer.vision.query
+    assert llm.vision_renderer == llm.interpreter.toolbox.vision.query
 
 
 def test_llm_completions_is_fixed_litellm():
@@ -189,7 +189,7 @@ def test_llm_run_builds_params():
          mock.patch("interpreter.core.llm.llm.litellm.supports_function_calling", return_value=False), \
          mock.patch("interpreter.core.llm.llm.litellm.supports_vision", return_value=False):
         list(llm.run(messages))
-    assert captured_params["model"] == "gpt-4o"
+    assert captured_params["model"] == "gpt-4o-mini"
     assert captured_params["api_key"] == "test-key"
     assert captured_params["api_base"] == "http://localhost:8000/v1"
     assert captured_params["max_tokens"] == 1000
@@ -287,20 +287,21 @@ def test_fixed_litellm_completions_strips_latest_tag():
     assert call_kwargs["model"] == "ollama/llama3.1"
 
 
-def test_fixed_litellm_completions_retries_on_error():
-    """fixed_litellm_completions retries up to 4 times on error."""
+def test_fixed_litellm_completions_does_not_retry_itself():
+    """Retries live in respond.py; the completion call is attempted once."""
     params = {"model": "gpt-4o", "messages": []}
     with mock.patch("litellm.completion") as mock_completion:
         mock_completion.side_effect = [Exception("fail"), iter([])]
-        list(fixed_litellm_completions(**params))
-    assert mock_completion.call_count == 2
+        with pytest.raises(Exception, match="fail"):
+            list(fixed_litellm_completions(**params))
+    assert mock_completion.call_count == 1
 
 
-def test_fixed_litellm_completions_raises_after_max_retries():
-    """fixed_litellm_completions raises the first error after exhausting retries."""
+def test_fixed_litellm_completions_raises_the_provider_error():
+    """The provider error propagates after a single attempt."""
     params = {"model": "gpt-4o", "messages": []}
     with mock.patch("litellm.completion") as mock_completion:
         mock_completion.side_effect = Exception("persistent failure")
         with pytest.raises(Exception, match="persistent failure"):
             list(fixed_litellm_completions(**params))
-    assert mock_completion.call_count == 4
+    assert mock_completion.call_count == 1
