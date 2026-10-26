@@ -153,6 +153,10 @@ def convert_to_openai_messages(
     last_tool_call_id); `end_state`, when given, is filled with the loop's
     final state so a later call can resume from it. Both default to a fresh
     conversion.
+
+    Stored `reasoning_content` is passed through when present. Only thinking
+    providers emit it; others are expected to ignore unknown message fields.
+    The DeepSeek backfill is gated separately in llm.py.
     """
     new_messages = []
     _resume = resume_state or {}
@@ -273,8 +277,6 @@ def convert_to_openai_messages(
         elif message["type"] == "code":
             last_tool_name = "execute"
             new_message["role"] = "assistant"
-            if message.get("reasoning_content"):
-                new_message["reasoning_content"] = message["reasoning_content"]
             if function_calling:
                 if _modern_tools and _mi in _paired_call_idx:
                     last_tool_call_id = f"oi-call-{_mi}"
@@ -374,8 +376,6 @@ def convert_to_openai_messages(
             # as "No output" instead of raising KeyError on .strip() below.
             message["content"] = message.get("content", "")
             if function_calling:
-                if "content" not in message:
-                    print("What is this??", content)
                 if type(message["content"]) != str:
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
@@ -393,8 +393,6 @@ def convert_to_openai_messages(
                 else:
                     new_message["role"] = "function"
                     new_message["name"] = last_tool_name
-                    if "content" not in message:
-                        print("What is this??", content)
                     new_message["content"] = output_content
 
             else:
@@ -438,7 +436,7 @@ def convert_to_openai_messages(
 
                     encoded_string = message["content"]
 
-                elif message["format"] == "path":
+                elif message.get("format") == "path":
                     image_path = message["content"]
                     if not os.path.exists(image_path):
                         new_message = {
@@ -526,7 +524,7 @@ def convert_to_openai_messages(
                             ).decode("utf-8")
 
                             # Set the content
-                            content = f"data:image/{mimetype};base64,{encoded_string}"
+                            content = f"data:image/{extension};base64,{encoded_string}"
 
                             # Recalculate the size of the content in bytes
                             content_size_bytes = sys.getsizeof(str(content))
@@ -614,6 +612,11 @@ def convert_to_openai_messages(
         else:
             raise Exception(f"Unable to convert this message type: {message}")
 
+        if new_message.get("role") == "assistant" and message.get("reasoning_content"):
+            # A stored assistant message may carry its reasoning directly; pass
+            # it back verbatim (providers such as DeepSeek require it).
+            new_message["reasoning_content"] = message["reasoning_content"]
+
         if pending_assistant_reasoning is not None:
             if new_message.get("role") == "assistant":
                 # OpenRouter accepts "reasoning_content" as an alias of "reasoning".
@@ -678,16 +681,25 @@ def convert_to_openai_messages(
             """Extra fields (not role/content) from a single new_message dict."""
             return {k: v for k, v in message.items() if k not in ("role", "content") and v is not None}
 
+        def _merge_extra(current, message):
+            """Accumulate extra fields, joining reasoning instead of overwriting it."""
+            extra = _msg_extra(message)
+            if extra.get("reasoning_content") and current.get("reasoning_content"):
+                extra["reasoning_content"] = (
+                    current["reasoning_content"] + "\n" + extra["reasoning_content"]
+                )
+            current.update(extra)
+
         for message in new_messages:
             if isinstance(message["content"], str):
                 if current_role is None:
                     current_role = message["role"]
                     current_content.append(message["content"])
-                    current_extra.update(_msg_extra(message))
+                    _merge_extra(current_extra, message)
                 elif current_role == message["role"]:
                     # Same role: accumulate content and extra fields
                     current_content.append(message["content"])
-                    current_extra.update(_msg_extra(message))
+                    _merge_extra(current_extra, message)
                 else:
                     # Role changed: flush the previous block, then start a new one
                     _flush(current_role, current_content, current_extra)

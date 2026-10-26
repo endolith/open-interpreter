@@ -86,7 +86,7 @@ def test_terminal_interface_shows_approval_intro():
 
     intro = interpreter.display_message.call_args[0][0]
     assert "will require approval before running code" in intro
-    assert "Use `interpreter -y` to bypass this." in intro
+    assert "Press `CTRL-C` to exit." in intro
 
 
 def test_terminal_interface_skips_intro_when_auto_run():
@@ -154,24 +154,28 @@ def test_terminal_interface_local_command_hint(capsys):
     interpreter.chat.assert_not_called()
 
 
-def test_terminal_interface_convert_image_path_to_image_message():
+def test_terminal_interface_convert_image_path_to_image_message(tmp_path):
     """A dragged-in image path is turned into an image message for the LLM."""
     import interpreter.terminal_interface.terminal_interface as ti
 
+    image = tmp_path / "pic.png"
+    image.write_bytes(b"x")
     interpreter = _make_interpreter()
     interpreter.llm.supports_vision = True
-    with mock.patch.object(ti, "find_image_path", return_value="/tmp/pic.png") as find:
-        list(terminal_interface(interpreter, "an image"))
+    with mock.patch.object(
+        ti, "find_image_path", return_value=[str(image)]
+    ) as find:
+        with mock.patch.object(ti, "prompt_choice", return_value="y"):
+            list(terminal_interface(interpreter, "an image"))
 
     find.assert_called_once_with("an image")
-    assert interpreter.messages == [
-        {"role": "user", "type": "message", "content": "an image"}
-    ]
-    interpreter.chat.assert_called_once_with(
-        {"role": "user", "type": "image", "format": "path", "content": "/tmp/pic.png"},
-        display=False,
-        stream=True,
-    )
+    assert any(
+        m.get("content") == "an image" for m in interpreter.messages
+    ), "the text message should be stored"
+    image_message = interpreter.chat.call_args.args[0]
+    assert image_message["type"] == "image"
+    assert image_message["format"] == "path"
+    assert image_message["content"] == str(image)
 
 
 def test_terminal_interface_plain_text_renders_code_fences(capsys):
@@ -236,7 +240,7 @@ def test_terminal_interface_declined_code_is_recorded():
     with mock.patch("builtins.input", return_value="n"):
         list(terminal_interface(interpreter, "run code"))
 
-    assert interpreter.messages[-1]["content"] == "I have declined to run this code."
+    assert interpreter.messages[-1]["content"] == "[User declined to run this code.]"
 
 
 def test_terminal_interface_os_mode_notifies_on_message_end():
@@ -258,7 +262,7 @@ def test_terminal_interface_os_mode_notifies_on_message_end():
         list(terminal_interface(interpreter, "notify"))
 
     # The markdown list line and the line above it are stripped before notifying.
-    interpreter.computer.os.notify.assert_called_once_with("line two")
+    interpreter.toolbox.os.notify.assert_called_once_with("line two")
 
 
 def test_terminal_interface_pip_upgrade_hint(capsys):
@@ -417,7 +421,7 @@ def test_terminal_interface_edit_code_uses_editor_and_updates_message():
                     list(terminal_interface(interpreter, "run code"))
 
     call.assert_called_once()
-    assert "edited = 2" in interpreter.messages[-1]["content"]
+    assert "The user edited your code" in interpreter.messages[-1]["content"]
 
 
 def test_terminal_interface_computer_visual_chunk_appends_console_output():
@@ -478,14 +482,14 @@ def test_terminal_interface_active_line_shows_os_action_notification():
         yield {
             "type": "code",
             "role": "assistant",
-            "content": 'computer.keyboard.write("hi")\n',
+            "content": 'toolbox.keyboard.write("hi")\n',
         }
         yield {"type": "console", "role": "computer", "format": "active_line", "content": 0}
 
     interpreter.chat = chat
     list(terminal_interface(interpreter, "type"))
 
-    interpreter.computer.os.notify.assert_called_once_with('Typing "hi".')
+    interpreter.toolbox.os.notify.assert_called_once_with('Typing "hi".')
 
 
 def test_terminal_interface_uses_injected_message_in_interactive_mode():
@@ -502,7 +506,7 @@ def test_terminal_interface_uses_injected_message_in_interactive_mode():
         "builtins.input",
         side_effect=[KeyboardInterrupt()],
     ):
-        with pytest.raises(KeyboardInterrupt):
+        with pytest.raises(SystemExit):
             list(terminal_interface(interpreter, ""))
 
     assert interpreter.messages == []
@@ -519,7 +523,7 @@ def test_terminal_interface_multi_line_uses_cli_input():
     with mock.patch.object(
         ti, "cli_input", side_effect=["hi", KeyboardInterrupt()]
     ) as prompt:
-        with pytest.raises(KeyboardInterrupt):
+        with pytest.raises(SystemExit):
             list(terminal_interface(interpreter, ""))
 
     prompt.assert_any_call("> ")
@@ -579,5 +583,5 @@ def test_terminal_interface_message_content_without_start_crashes():
         yield {"type": "message", "role": "assistant", "content": "orphan"}
 
     interpreter.chat = chat
-    with pytest.raises(AttributeError):
-        list(terminal_interface(interpreter, "hi"))
+    # Classic tolerates an orphan content chunk instead of dereferencing None.
+    list(terminal_interface(interpreter, "hi"))

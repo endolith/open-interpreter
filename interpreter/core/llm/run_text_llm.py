@@ -56,25 +56,20 @@ def run_text_llm(llm, params):
             continue
         delta = chunk["choices"][0]["delta"]
 
-        # Stream reasoning_content as it arrives
+        # Stream reasoning_content as it arrives. A delta may carry content
+        # alongside reasoning; emit the reasoning first and still process the
+        # content (dropping it would lose the visible reply).
         if "reasoning_content" in delta and delta["reasoning_content"]:
             yield {"role": "assistant", "type": "message", "format": "reasoning", "content": delta["reasoning_content"]}
-            continue
 
         content = delta.get("content", "")
-        if content == None:
+        if content is None:
             continue
-
-        content = content or ""
 
         accumulated_block += content
 
         if accumulated_block.endswith("`"):
             # We might be writing "```" one token at a time.
-            if reasoning:
-                # The fence parser suppresses this chunk; emit thinking-model
-                # reasoning on its own so providers get it back verbatim.
-                yield _reasoning_chunk(reasoning)
             continue
 
         # Did we just enter a code block?
@@ -84,18 +79,10 @@ def run_text_llm(llm, params):
 
         # Did we just exit a code block?
         if inside_code_block and "```" in accumulated_block:
-            if reasoning:
-                # The closing fence ends the turn; emit reasoning first so it
-                # still reaches stored history.
-                yield _reasoning_chunk(reasoning)
             return
 
         # If we're in a code block,
         if inside_code_block:
-            if reasoning:
-                # Code chunks carry no reasoning; emit it on its own message
-                # so it still reaches stored history.
-                yield _reasoning_chunk(reasoning)
             # If we don't have a `language`, find it
             if language is None and "\n" in accumulated_block:
                 language = accumulated_block.split("\n")[0]
@@ -121,7 +108,4 @@ def run_text_llm(llm, params):
 
         # If we're not in a code block, send the output as a message
         if not inside_code_block:
-            message_chunk = {"type": "message", "content": content}
-            if reasoning:
-                message_chunk["reasoning_content"] = reasoning
-            yield message_chunk
+            yield {"type": "message", "content": content}

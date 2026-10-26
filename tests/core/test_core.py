@@ -9,7 +9,7 @@ def test_reset_clears_messages():
     """reset() terminates the computer session and clears the conversation history."""
     interpreter = OpenInterpreter()
     interpreter.messages = [{"role": "user", "content": "hi"}]
-    with mock.patch.object(interpreter.computer, "terminate") as terminate:
+    with mock.patch.object(interpreter.terminal, "terminate") as terminate:
         interpreter.reset()
         terminate.assert_called_once()
     assert interpreter.messages == []
@@ -30,9 +30,10 @@ def test_streaming_chat_string_message_appended():
     interpreter = OpenInterpreter()
     with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
         list(interpreter._streaming_chat(message="Hello", display=False))
-    assert interpreter.messages == [
-        {"role": "user", "type": "message", "content": "Hello"}
-    ]
+    assert len(interpreter.messages) == 1
+    message = dict(interpreter.messages[0])
+    message.pop("sent_at", None)  # added by chat(), not part of this assertion
+    assert message == {"role": "user", "type": "message", "content": "Hello"}
 
 
 def test_streaming_chat_list_replaces_messages():
@@ -59,7 +60,7 @@ def test_max_output_must_be_positive_integer():
 def test_skills_path_overrides_skills_directory(tmp_path):
     """skills_path= points the computer's skills at the given directory."""
     interpreter = OpenInterpreter(skills_path=str(tmp_path))
-    assert interpreter.computer.skills.path == str(tmp_path)
+    assert interpreter.toolbox.skills.path == str(tmp_path)
 
 
 def test_local_setup_delegates_to_wizard():

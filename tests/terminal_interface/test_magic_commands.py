@@ -68,7 +68,7 @@ def test_handle_auto_run_toggles_flag():
     """%auto_run true enables interpreter.auto_run."""
     interpreter = _interpreter(auto_run=False)
     magic_commands.handle_auto_run(interpreter, "true")
-    assert interpreter.auto_run is True
+    assert interpreter.auto_run_mode == "all"
 
 
 def test_handle_save_and_load_message_round_trip(tmp_path):
@@ -83,11 +83,10 @@ def test_handle_save_and_load_message_round_trip(tmp_path):
 
 def test_get_downloads_path_uses_home_on_posix(monkeypatch, tmp_path):
     """Non-Windows path uses expanduser('~')/Downloads and creates the folder."""
-    monkeypatch.setattr(magic_commands.os, "name", "posix")
+    from interpreter.terminal_interface.utils import downloads_path as dp
+
     monkeypatch.setattr(
-        magic_commands.os.path,
-        "expanduser",
-        lambda path: str(tmp_path) if path == "~" else path,
+        dp.platformdirs, "user_downloads_dir", lambda: str(tmp_path / "Downloads")
     )
     downloads = magic_commands.get_downloads_path()
     assert downloads == str(tmp_path / "Downloads")
@@ -154,7 +153,7 @@ def test_handle_undo_shows_function_call_preview():
     )
     magic_commands.handle_undo(interpreter, "")
     assert interpreter.messages == []
-    interpreter.display_message.assert_called_with("**Removed codeblock**")
+    interpreter.display_message.assert_called_with("**Removed code block.**")
 
 
 def test_handle_verbose_unknown_argument():
@@ -201,10 +200,13 @@ def test_handle_save_message_adds_json_extension(tmp_path):
 def test_handle_magic_command_runs_shell():
     """%% prefix runs the remainder as a shell command via computer.run."""
     interpreter = _interpreter()
-    interpreter.computer = SimpleNamespace(run=mock.Mock())
+    interpreter.toolbox = SimpleNamespace(run=mock.Mock())
     magic_commands.handle_magic_command(interpreter, "%% ls -la")
-    interpreter.computer.run.assert_called_once_with(
-        "shell", "ls -la", stream=False, display=True
+    import platform
+
+    expected = "cmd" if platform.system() == "Windows" else "bash"
+    interpreter.toolbox.run.assert_called_once_with(
+        expected, "ls -la", stream=False, display=True
     )
 
 

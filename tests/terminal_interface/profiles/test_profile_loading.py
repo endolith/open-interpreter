@@ -174,7 +174,7 @@ def test_get_profile_not_found(monkeypatch):
 def test_apply_profile_runs_start_script():
     """apply_profile executes the start_script in a scope with interpreter."""
     interpreter = mock.MagicMock()
-    interpreter.computer.languages = []
+    interpreter.terminal.languages = []
     interpreter.auto_run = False
     profile_data = {"start_script": "interpreter.auto_run = True", "version": "0.2.5"}
     apply_profile(interpreter, profile_data, "/tmp/profile.yaml")
@@ -192,21 +192,21 @@ def test_apply_profile_filters_languages(monkeypatch):
         def __init__(self, name):
             self.name = name
 
-    interpreter.computer.languages = [FakeLang("python"), FakeLang("shell"), FakeLang("javascript")]
+    interpreter.terminal.languages = [FakeLang("python"), FakeLang("shell"), FakeLang("javascript")]
     profile_data = {
         "computer": {"languages": ["python", "javascript"]},
         "llm": {"model": "gpt-4.1"},
         "version": "0.2.5",
     }
     apply_profile(interpreter, profile_data, "/tmp/profile.yaml")
-    assert [lang.name for lang in interpreter.computer.languages] == ["python", "javascript"]
+    assert [lang.name for lang in interpreter.terminal.languages] == ["python", "javascript"]
     assert interpreter.llm.model == "gpt-4.1"
 
 
 def test_apply_profile_warns_about_system_message():
     """apply_profile displays a warning when system_message is in the profile."""
     interpreter = mock.MagicMock()
-    interpreter.computer.languages = []
+    interpreter.terminal.languages = []
     interpreter.display_message = mock.MagicMock()
     profile_data = {"system_message": "Custom system message", "version": "0.2.5"}
     with mock.patch(
@@ -220,7 +220,7 @@ def test_apply_profile_warns_about_system_message():
 def test_apply_profile_skips_migration_when_version_matches():
     """apply_profile skips migration prompt when version matches OI_VERSION."""
     interpreter = mock.MagicMock()
-    interpreter.computer.languages = []
+    interpreter.terminal.languages = []
     profile_data = {"version": "0.2.5", "llm": {"model": "gpt-4.1"}}
     result = apply_profile(interpreter, profile_data, "/tmp/profile.yaml")
     assert result is interpreter
@@ -229,7 +229,7 @@ def test_apply_profile_skips_migration_when_version_matches():
 def test_profile_resolves_default_name():
     """profile() resolves shorthand names to default profile files."""
     interpreter = mock.MagicMock()
-    interpreter.computer.languages = []
+    interpreter.terminal.languages = []
     with mock.patch(
         "interpreter.terminal_interface.profiles.profiles.get_default_profile",
         return_value={"version": "0.2.5", "llm": {"model": "gpt-4.1"}},
@@ -251,7 +251,7 @@ def test_profile_renames_reserved_name(tmp_path, monkeypatch):
     existing = tmp_path / "local.yaml"
     existing.write_text("old: true\n")
     interpreter = mock.MagicMock()
-    interpreter.computer.languages = []
+    interpreter.terminal.languages = []
     with mock.patch(
         "interpreter.terminal_interface.profiles.profiles.get_default_profile",
         return_value={"version": "0.2.5"},
@@ -332,7 +332,7 @@ def test_apply_profile_preserves_caller_languages_filter():
         def __init__(self, name):
             self.name = name
 
-    interpreter.computer.languages = [FakeLang("python"), FakeLang("shell")]
+    interpreter.terminal.languages = [FakeLang("python"), FakeLang("shell")]
     profile_data = {
         "computer": {"languages": ["python"]},
         "version": "0.2.5",
@@ -343,7 +343,7 @@ def test_apply_profile_preserves_caller_languages_filter():
         "computer": {"languages": ["python"]},
         "version": "0.2.5",
     }
-    assert [lang.name for lang in interpreter.computer.languages] == ["python"]
+    assert [lang.name for lang in interpreter.terminal.languages] == ["python"]
 
 
 def test_migrate_profile_merges_nested_llm():

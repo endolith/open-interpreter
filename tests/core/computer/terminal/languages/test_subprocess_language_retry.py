@@ -16,7 +16,7 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
-from interpreter.core.computer.terminal.languages.subprocess_language import (
+from interpreter.core.terminal.languages.subprocess_language import (
     SubprocessLanguage,
 )
 

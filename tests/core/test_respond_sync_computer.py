@@ -15,8 +15,8 @@ import pytest
 
 from interpreter.core.respond import respond
 
-SYNC_IN_MARKER = "computer.load_dict(json.loads("
-SYNC_OUT_MARKER = "computer_dict = computer.to_dict()"
+SYNC_IN_MARKER = "toolbox.load_dict(json.loads("
+SYNC_OUT_MARKER = "toolbox_dict = toolbox.to_dict()"
 
 
 class FakeLanguage:
@@ -28,7 +28,7 @@ class FakeLanguage:
 def _sync_interpreter(
     *,
     language="python",
-    sync_computer=True,
+    sync_toolbox=True,
     debug=False,
     to_dict_value=None,
     run_result=None,
@@ -56,15 +56,18 @@ def _sync_interpreter(
 
     loaded = []
 
+    terminal = SimpleNamespace(
+        languages=[FakeLanguage()],
+        # Any language resolves, so a test can drive execution with a
+        # non-python language and reach the `language == "python"` gate
+        # rather than being rejected as unsupported first.
+        get_language=lambda lang: FakeLanguage(lang.capitalize(), "txt"),
+        get_language_instance=lambda lang: FakeLanguage(lang.capitalize(), "txt"),
+        run=run,
+    )
+
     computer = SimpleNamespace(
-        terminal=SimpleNamespace(
-            languages=[FakeLanguage()],
-            # Any language resolves, so a test can drive execution with a
-            # non-python language and reach the `language == "python"` gate
-            # rather than being rejected as unsupported first.
-            get_language=lambda lang: FakeLanguage(lang.capitalize(), "txt"),
-        ),
-        import_computer_api=False,
+        import_toolbox_api=False,
         system_message="",
         run=run,
         load_dict=loaded.append,
@@ -84,7 +87,8 @@ def _sync_interpreter(
         system_message="You are helpful.",
         custom_instructions="",
         messages=messages,
-        computer=computer,
+        terminal=terminal,
+        toolbox=computer,
         llm=SimpleNamespace(run=lambda msgs: iter([]),
                             supports_vision=False),
         verbose=False,
@@ -93,7 +97,7 @@ def _sync_interpreter(
         loop=False,
         loop_message="continue",
         loop_breakers=[],
-        sync_computer=sync_computer,
+        sync_computer=sync_toolbox,
         offline=True,
         os=False,
         display_message=mock.Mock(),
@@ -191,7 +195,7 @@ def test_hashes_and_system_message_are_stripped_before_syncing():
 
 def _explode_on_sync_out(interpreter, error):
     """Replace `computer.run` so the read-back raises, and flag the attempt."""
-    original_run = interpreter.computer.run
+    original_run = interpreter.terminal.run
 
     def run(lang, code_to_run, **run_kwargs):
         if SYNC_OUT_MARKER in code_to_run:
@@ -199,7 +203,7 @@ def _explode_on_sync_out(interpreter, error):
             raise error
         return original_run(lang, code_to_run, **run_kwargs)
 
-    interpreter.computer.run = run
+    interpreter.terminal.run = run
     return run
 
 
@@ -251,7 +255,7 @@ def test_no_sync_happens_when_sync_computer_is_off():
     Off is the default, so this is the path most turns take; it must not pay for
     two extra interpreter invocations.
     """
-    interpreter = _sync_interpreter(sync_computer=False)
+    interpreter = _sync_interpreter(sync_toolbox=False)
     _drain(interpreter)
 
     assert not any(SYNC_IN_MARKER in c["code"] for c in interpreter.calls)

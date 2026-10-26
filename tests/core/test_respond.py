@@ -16,14 +16,21 @@ def _code_interpreter(*, language="python", code="1+1"):
     terminal = SimpleNamespace(
         languages=[FakeLanguage()],
         get_language=lambda lang: FakeLanguage() if lang == "python" else None,
+        get_language_instance=lambda lang: FakeLanguage() if lang == "python" else None,
     )
 
     def run(lang, code_to_run, **run_kwargs):
         yield {"type": "console", "format": "output", "content": "42"}
 
+    terminal.run = run
+
     computer = SimpleNamespace(
         terminal=terminal,
         import_computer_api=False,
+        import_toolbox_api=False,
+        _has_imported_toolbox_api=False,
+        import_skills=False,
+        _has_imported_skills=False,
         system_message="",
         run=run,
         verbose=False,
@@ -40,7 +47,8 @@ def _code_interpreter(*, language="python", code="1+1"):
         messages=[
             {"role": "assistant", "type": "code", "format": language, "content": code}
         ],
-        computer=computer,
+        terminal=terminal,
+        toolbox=computer,
         llm=SimpleNamespace(run=lambda msgs: iter([]), supports_vision=False, max_budget=0),
         verbose=False,
         debug=False,
@@ -117,8 +125,8 @@ def test_respond_assembles_full_system_message():
     """respond() builds the system message from the base, language-specific
     messages, custom instructions, and the computer API message."""
     interpreter = _message_interpreter()
-    interpreter.computer.import_computer_api = True
-    interpreter.computer.system_message = "COMPUTER MSG"
+    interpreter.toolbox.import_toolbox_api = True
+    interpreter.toolbox.system_message = "COMPUTER MSG"
     interpreter.custom_instructions = "CUSTOM MSG"
 
     class LangWithSystemMessage:
@@ -126,7 +134,7 @@ def test_respond_assembles_full_system_message():
         file_extension = "py"
         system_message = "LANG MSG"
 
-    interpreter.computer.terminal.languages = [LangWithSystemMessage()]
+    interpreter.terminal.languages = [LangWithSystemMessage()]
     captured = {}
     interpreter.llm.run = lambda msgs: (captured.update(msgs=msgs), iter([]))[1]
 
@@ -247,19 +255,19 @@ def test_respond_offline_errors_are_re_raised():
 def test_respond_rewrites_import_computer():
     """Python code is stripped of `import computer` when the computer API is
     enabled."""
-    interpreter = _code_interpreter(code="import computer\nprint('hi')")
-    interpreter.computer.import_computer_api = True
+    interpreter = _code_interpreter(code="import toolbox\nprint('hi')")
+    interpreter.toolbox.import_toolbox_api = True
     captured = []
 
     def run(lang, code, stream=False):
         captured.append(code)
         return iter([{"type": "console", "format": "output", "content": "ok"}])
 
-    interpreter.computer.run = run
+    interpreter.terminal.run = run
     list(itertools.islice(respond(interpreter), 3))
 
     assert captured
-    assert "import computer\n" not in captured[0]
+    assert "import toolbox\n" not in captured[0]
     assert "print('hi')" in captured[0]
 
 
@@ -277,7 +285,7 @@ def test_respond_yields_traceback_when_code_runner_fails():
     def run(lang, code, stream=False):
         raise RuntimeError("nope")
 
-    interpreter.computer.run = run
+    interpreter.terminal.run = run
     chunks = list(itertools.islice(respond(interpreter), 4))
     outputs = [c for c in chunks if c.get("format") == "output"]
     assert any("RuntimeError" in c["content"] for c in outputs)

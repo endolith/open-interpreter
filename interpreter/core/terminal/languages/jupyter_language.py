@@ -494,6 +494,14 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             "It might require user input. Are there keystrokes that the user "
             "should type in, to proceed after the last command?"
         )
+        # A brief pause may just be a slow command; a very long one may be stuck.
+        stall_seconds = time.time() - self.last_output_time
+        if stall_seconds > 500:
+            text += (
+                " If you think the process is frozen, or that the user wasn't "
+                f"expecting it to run for this long (it has been {stall_seconds} "
+                "seconds since last output) then say <input>CTRL-C</input>."
+            )
 
         messages = [
             {
@@ -536,7 +544,10 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         input_match = re.search(r"<input>(.*?)</input>", response)
         if input_match:
             user_input = input_match.group(1)
-            # Do not automatically send CTRL-C - only send user-provided input
+            # Stop the listener once input has been handled: the listener's next
+            # pass sees finish_flag, interrupts the kernel and returns.
+            self.finish_flag = True
+            # CTRL-C is a signal, not text: never type it into the process.
             if user_input.upper() != "CTRL-C":
                 self.kc.input(user_input)
 

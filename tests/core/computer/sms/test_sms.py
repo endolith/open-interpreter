@@ -11,8 +11,8 @@ import sys
 
 import pytest
 
-import interpreter.core.computer.sms.sms as sms_module
-from interpreter.core.computer.sms.sms import SMS
+import interpreter.core.toolbox.sms.sms as sms_module
+from interpreter.core.toolbox.sms.sms import SMS
 from tests.helpers import patch_expanduser
 
 _needs_geteuid = pytest.mark.skipif(
@@ -23,7 +23,7 @@ _needs_geteuid = pytest.mark.skipif(
 def test_send_non_macos_prints_message(capsys):
     """SMS.send() prints a Mac-only notice and returns None on non-macOS platforms."""
     with mock.patch("sys.platform", "linux"):
-        sms = SMS(computer=SimpleNamespace())
+        sms = SMS(toolbox=SimpleNamespace())
         assert sms.send("+1", "hi") is None
     assert "Only supported on Mac" in capsys.readouterr().out
 
@@ -32,14 +32,14 @@ def test_resolve_database_path(monkeypatch, tmp_path):
     """On macOS, chat.db lives under expanduser('~')/Library/Messages."""
     patch_expanduser(monkeypatch, sms_module, tmp_path)
     with mock.patch("sys.platform", "darwin"):
-        sms = SMS(computer=SimpleNamespace())
+        sms = SMS(toolbox=SimpleNamespace())
     assert Path(sms.database_path) == (tmp_path / "Library" / "Messages" / "chat.db")
 
 
 def test_get_non_macos(capsys):
     """SMS.get() prints a Mac-only notice and returns None on non-macOS platforms."""
     with mock.patch("sys.platform", "linux"):
-        sms = SMS(computer=SimpleNamespace())
+        sms = SMS(toolbox=SimpleNamespace())
         assert sms.get() is None
     assert "Only supported on Mac" in capsys.readouterr().out
 
@@ -47,7 +47,7 @@ def test_get_non_macos(capsys):
 def _mac_sms(monkeypatch=None, database_path=":memory:"):
     """An SMS instance that believes it is on macOS, with a stubbed database."""
     with mock.patch("sys.platform", "darwin"):
-        sms = SMS(computer=SimpleNamespace())
+        sms = SMS(toolbox=SimpleNamespace())
     sms.database_path = database_path
     return sms
 
@@ -59,7 +59,7 @@ def test_resolve_database_path_root_uses_sudo_user(monkeypatch, tmp_path):
     monkeypatch.setattr(sms_module.os, "geteuid", lambda: 0)
     monkeypatch.setenv("SUDO_USER", "someone")
     with mock.patch("sys.platform", "darwin"):
-        sms = SMS(computer=SimpleNamespace())
+        sms = SMS(toolbox=SimpleNamespace())
     # "~someone" is not stubbed, so it passes through — the point is the root
     # branch looked up SUDO_USER instead of using "~" like the branch below.
     assert sms.database_path == "~someone/Library/Messages/chat.db"
@@ -75,7 +75,7 @@ def test_resolve_database_path_falls_back_when_geteuid_raises(monkeypatch, tmp_p
 
     monkeypatch.setattr(sms_module.os, "geteuid", _boom)
     with mock.patch("sys.platform", "darwin"):
-        sms = SMS(computer=SimpleNamespace())
+        sms = SMS(toolbox=SimpleNamespace())
     assert Path(sms.database_path) == (tmp_path / "Library" / "Messages" / "chat.db")
 
 

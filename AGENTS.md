@@ -4,6 +4,14 @@ Open Interpreter — Python CLI (3.11+) that lets LLMs execute code locally. Use
 
 This repo (`endolith/open-interpreter`) is the community-maintained home of OI Classic (Python). Contributions belong here (branches `main` and `classic/develop`). The original home [openinterpreter/openinterpreter](https://github.com/openinterpreter/openinterpreter) is now an unrelated Rust coding agent (Codex fork). Do not treat it as upstream or copy its architecture. OpenInterpreter.com is now dedicated to an unrelated desktop tool.
 
+## Quick commands
+
+- `pytest -m "not integration"` – fast local unit tests (skip LLM calls)
+- `pytest -k "test_name"` – run a single test
+- `ruff check .` – lint
+- `ruff format .` – auto-format
+- `OI_RUN_INTEGRATION=1 pytest -m integration` – integration tests (also needs the provider key for the model: `OPENAI_API_KEY` by default, or the key matching `OI_INTEGRATION_MODEL`; use sparingly locally)
+
 ## Development setup
 
 Features from this branch will eventually be merged into `main`.
@@ -51,15 +59,14 @@ drive-by fix; give the fix its own commit instead.
   (`interpreter` command). Parses args, builds the `Interpreter`, starts it.
 - `interpreter/terminal_interface/terminal_interface.py` — the interactive REPL
   (chat loop, confirmations, display). `%`-commands in `magic_commands.py`;
-  first-run contribution prompts in `contributing_conversations.py`; profiles
-  (`--profile os`, `--local`, …) in `profiles/defaults` +
+  profiles (`--profile os`, `--local`, …) in `profiles/defaults` +
   `validate_llm_settings.py`.
 - `interpreter/core/core.py` — the `Interpreter` object (config, `chat()`).
 - `interpreter/core/respond.py` — the respond loop (LLM chunks → code blocks →
   execution → approval). `_respond_and_store` is the seam most tests patch.
 - `interpreter/core/llm/` — LiteLLM wrapper (`llm.py`; see Model providers above),
-  streaming runners (`run_tool_calling_llm.py`, `run_function_calling_llm.py`,
-  `run_text_llm.py`), message conversion in `utils/`
+  streaming runners (`run_tool_calling_llm.py`, `run_text_llm.py`),
+  message conversion in `utils/`
   (`convert_to_openai_messages`, `merge_deltas`, `parse_partial_json`), and
   `utils/provider_quirks.py` — the per-route `Quirks` table (stream options,
   thinking parameters) resolved once from the truthful route name. Add a row
@@ -85,7 +92,7 @@ drive-by fix; give the fix its own commit instead.
 - `interpreter/core/tools/file_edit.py` — file-editing tool.
 - `scripts/wtf.py` — standalone "fix my last terminal error" CLI.
 - **Dead or fragile live code**: `Skills.run()` (in `core/toolbox/skills`),
-  `api.openinterpreter.com` callers, `aifs`-based search, torch-based icon
+  `api.openinterpreter.com` callers, torch-based icon
   grounding. macOS-only (AppleScript/DB-gated): mail, sms, calendar, contacts.
   Moondream/EasyOCR vision is **not** present here — that is `main`.
 
@@ -100,7 +107,7 @@ Prefixes that route to a specific provider are wired in `Llm.load()`
   requirement on `OPENCODE_GO_API_KEY` (never `OPENAI_API_KEY`), a refusal for the
   Go models that are not served over chat completions, and a hardcoded answer for
   the one vision-capable model. See `docs/settings/all-settings.mdx`.
-- `i` — Open Interpreter's own hosted model, special-cased in `Llm.run()`.
+- `i` — the free hosted model was shut down; selecting it now fails loudly instead of pointing at a dead endpoint.
 
 Three things to know before adding another prefix:
 
@@ -131,6 +138,8 @@ Three things to know before adding another prefix:
 - `start_terminal_interface.py` has a hardcoded allowlist of prefixes that must not be
   re-prefixed when `--api_base` is set; a new prefix needs adding there too.
 
+The build backend is hatchling with PEP 621 metadata (`[project]` in `pyproject.toml`); there is no lock file — CI installs via pip. The package manager may change — always check `pyproject.toml` and CI for the current approach.
+
 ## Code change guidelines
 
 ### Don't reinvent the wheel
@@ -148,6 +157,15 @@ Before writing your own bug fixes and features:
 
 - **Always write or update unit tests** when changing code. New functions/methods need tests; bug fixes need regression tests.
 - **Every test function must have a docstring** explaining what behavior it verifies and why. Someone who breaks the test must be able to understand what they broke and what the intended behavior is.
+- **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, fixing any failures before considering the work complete.
+- **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally they need `OI_RUN_INTEGRATION=1` and the provider key for the model under test: `OPENAI_API_KEY` by default, or the key matching `OI_INTEGRATION_MODEL` (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Without both, pytest skips them. CI sets `OI_INTEGRATION_MODEL` to `openrouter/~deepseek/deepseek-flash-latest` by default, so it uses `OPENROUTER_API_KEY` (see `docs/CONTRIBUTING.md`).
+- **Optional test gates skip; they do not fail.** Integration tests, OS markers (`linux_ci` / `windows_ci` / `darwin_ci`), and missing external binaries should produce a pytest skip with a clear reason—not a test failure—when prerequisites are absent.
+- **Shell tests on Unix** that feed bash-syntax snippets to `subprocess_language` should call `require_bash_compatible_shell()` from `tests.helpers`: Non-bash `$SHELL` (e.g. fish) hangs instead of failing.
+- **Shared test helpers** live in `tests/helpers.py` (import `from tests.helpers import …`). Do not import from `conftest.py` — it is not a stable import path on all platforms.
+- **Computer subsystem tests** use `COMPUTER_TOOL_SUBSYSTEMS` in `tests/helpers.py` — update when `_get_all_computer_tools_list` changes (until [#101](https://github.com/endolith/open-interpreter/issues/101) lands).
+- Most of the unit tests were written after the fact by AI, with the assumption that the current state of the code was correct (which is likely not true in all cases).  Keep that in mind when a test fails.  Is your code actually wrong, or was the test written to validate incorrect code?
+- **Platform-specific tests** use `linux_ci`, `windows_ci`, or `darwin_ci` markers. Add OS-only coverage to `tests/test_platform_ci.py` (or the appropriate language file) rather than running the full suite on every CI runner.
+- **Manual harness tests** in `tests/test_interpreter.py` (e.g. `@pytest.mark.skip(reason="Mac only")`) are legacy developer smokes — they `assert False`, read private data (SMS), or need a display. **Do not enable them in macOS CI**; write deterministic `darwin_ci` tests in `test_platform_ci.py` instead (AppleScript and shell quoting are already covered there).
 
 ### Documentation
 
@@ -162,6 +180,7 @@ When changing code, update **all** relevant documentation:
 
 - **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). Unrelated edits belong in separate commits even when each is small (e.g. a workflow trigger change and a pytest marker are two commits). A commit's idea includes everything that supports it—its tests, documentation, and any CI/workflow changes for it—so keep those in the same commit as the code they describe, not in a later commit for a different feature, and reviewers can read commit-by-commit while `git revert <commit>` undoes one idea cleanly.
 - **Fold follow-up fixes into the commit that caused the problem.** If a commit in an unmerged branch needs a small fix (e.g. it broke CI), squash that fix into the original commit with `git rebase -i` (mark it `fixup`) rather than stacking a "fix CI" commit on top. History should read as if each commit was correct the first time, so every commit is one coherent, CI-green unit.  (Actually in `develop` if the fix is several commits later, just leave it clearly marked so it can be folded into the feature PR later.)
+- **Never commit agent-generated scratch files.** AI assistants sometimes write summary/status notes into the repo (e.g. `*_summary.md`, session notes, chat dumps); these are not part of the codebase and must not be committed. If one is accidentally committed in an unmerged branch, remove it from history with `git rebase -i` rather than adding a "delete file" commit that leaves an add-then-delete pair.
 - **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain the problem being solved, the chosen approach, and any trade-offs. Provide the *context* that makes the diff understandable—why each change exists and what it achieves. Avoid meta-commentary about the commit itself (e.g., "fixing my commit according to instructions"). Keep process discussion in chat.
 - **Use Conventional Commits** (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`) to categorize changes and enable automated changelog generation.
 

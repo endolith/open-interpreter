@@ -101,7 +101,7 @@ def run_bash_nested_loop_quoting_smoke(interpreter):
 
     require_bash_compatible_shell()
     chunks = list(
-        interpreter.computer.run("shell", BASH_NESTED_LOOP_QUOTING_SNIPPET)
+        interpreter.toolbox.run("bash", BASH_NESTED_LOOP_QUOTING_SNIPPET)
     )
     assert_bash_nested_loop_output(console_output_text(chunks))
 
@@ -117,7 +117,7 @@ def patch_expanduser(monkeypatch, module, home):
 
 
 def install_point_heavy_deps(monkeypatch):
-    """Make ``interpreter.core.computer.display.point.point`` importable in CI.
+    """Make ``interpreter.core.toolbox.display.point.point`` importable in CI.
 
     ``point.py`` imports torch, sentence_transformers, timm, nltk and cv2
     unconditionally at module level. Those are [computer]-optional deps that are

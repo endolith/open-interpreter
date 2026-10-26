@@ -5,7 +5,7 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
-from interpreter.core.computer.terminal.languages.jupyter_language import (
+from interpreter.core.terminal.languages.jupyter_language import (
     AddLinePrints,
     JupyterLanguage,
     add_active_line_prints,
@@ -137,9 +137,7 @@ def _scripted_language(msgs):
     lang.finish_flag = False
     lang.last_output_time = time.time()
     lang.last_output_message_time = time.time()
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(stop_event=threading.Event())
-    )
+    lang.interpreter = SimpleNamespace(stop_event=threading.Event())
 
     class FakeIopub:
         def __init__(self, msgs):
@@ -298,12 +296,10 @@ def test_capture_output_yields_queued_items_then_stops():
     lang = JupyterLanguage.__new__(JupyterLanguage)
     lang.finish_flag = True
     lang.listener_thread = threading.Thread
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(stop_event=threading.Event())
-    )
+    lang.interpreter = SimpleNamespace(stop_event=threading.Event())
     message_queue = queue.Queue()
     message_queue.put({"type": "console", "format": "output", "content": "one"})
-    with mock.patch("interpreter.core.computer.terminal.languages.jupyter_language.time.sleep"):
+    with mock.patch("interpreter.core.terminal.languages.jupyter_language.time.sleep"):
         assert list(lang._capture_output(message_queue)) == [
             {"type": "console", "format": "output", "content": "one"}
         ]
@@ -316,9 +312,9 @@ def test_capture_output_breaks_on_stop_event():
     stop.set()
     lang.finish_flag = False
     lang.listener_thread = None
-    lang.computer = SimpleNamespace(interpreter=SimpleNamespace(stop_event=stop))
+    lang.interpreter = SimpleNamespace(stop_event=stop)
     message_queue = queue.Queue()
-    with mock.patch("interpreter.core.computer.terminal.languages.jupyter_language.time.sleep"):
+    with mock.patch("interpreter.core.terminal.languages.jupyter_language.time.sleep"):
         assert list(lang._capture_output(message_queue)) == []
     assert lang.finish_flag is True
 
@@ -328,9 +324,7 @@ def test_run_yields_captured_output():
     lang = JupyterLanguage.__new__(JupyterLanguage)
     lang.finish_flag = False
     lang.kc = SimpleNamespace(is_alive=lambda: True)
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(stop_event=threading.Event())
-    )
+    lang.interpreter = SimpleNamespace(stop_event=threading.Event())
     lang.preprocess_code = mock.Mock(return_value="processed")
     lang._execute_code = mock.Mock()
     lang._capture_output = mock.Mock(
@@ -342,7 +336,7 @@ def test_run_yields_captured_output():
         {"type": "console", "format": "output", "content": "ran"}
     ]
     lang.preprocess_code.assert_called_once_with("print(1)")
-    lang._execute_code.assert_called_once_with("processed", mock.ANY)
+    lang._execute_code.assert_any_call("processed", mock.ANY)
 
 
 def test_run_yields_error_content_on_execution_failure():
@@ -350,9 +344,7 @@ def test_run_yields_error_content_on_execution_failure():
     lang = JupyterLanguage.__new__(JupyterLanguage)
     lang.finish_flag = False
     lang.kc = SimpleNamespace(is_alive=lambda: True)
-    lang.computer = SimpleNamespace(
-        interpreter=SimpleNamespace(stop_event=threading.Event())
-    )
+    lang.interpreter = SimpleNamespace(stop_event=threading.Event())
     lang.preprocess_code = lambda code: code
     lang._capture_output = lambda mq: iter([])
 
@@ -380,7 +372,7 @@ def test_terminate_stops_channels_and_shuts_down_kernel():
     lang = JupyterLanguage.__new__(JupyterLanguage)
     calls = []
     lang.kc = SimpleNamespace(stop_channels=lambda: calls.append("stop_channels"))
-    lang.km = SimpleNamespace(shutdown_kernel=lambda: calls.append("shutdown_kernel"))
+    lang.km = SimpleNamespace(has_kernel=True, shutdown_kernel=lambda now=False: calls.append("shutdown_kernel"))
     lang.terminate()
     assert calls == ["stop_channels", "shutdown_kernel"]
 

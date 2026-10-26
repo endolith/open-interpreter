@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import threading
@@ -6,15 +7,23 @@ import pytest
 import socket
 from unittest import TestCase, mock
 
+import janus
+
 from interpreter.core.async_core import (
     AsyncInterpreter,
     Server,
+    SENSITIVE_LLM_SETTINGS,
+    SENSITIVE_SERVER_SETTINGS,
     _format_openai_console_output,
     _is_openai_auxiliary_title_request,
-    _normalize_openai_code_approval_reply,
     _new_openai_completion_id,
+    _normalize_openai_code_approval_reply,
     _openai_messages_to_lmc,
     _openai_sse_chunk,
+    authenticate_function,
+    complete_message,
+    confirmation_digest,
+    is_websocket_origin_allowed,
 )
 
 
@@ -63,6 +72,27 @@ class TestOpenAICompatHelpers(TestCase):
         )
         self.assertEqual(client_system, "You are helpful.")
         self.assertTrue(all(m["role"] != "system" for m in lmc))
+
+
+def wait_until(predicate, timeout_message, *, fail, timeout=5):
+    """Block until predicate() is truthy, or fail with timeout_message.
+
+    Waits on a threading.Event rather than time.sleep because the approval tests
+    patch interpreter.core.async_core.time.sleep, which is the shared time
+    module: a time.sleep poll returns instantly and burns all its iterations
+    before the worker thread is ever scheduled.
+
+    Exceeding the timeout calls fail() rather than returning, so a caller cannot
+    fall through to an assertion that reports a confusing None mismatch instead
+    of the real problem.
+    """
+    poll = threading.Event()
+    for _ in range(int(timeout / 0.01)):
+        if predicate():
+            return
+        poll.wait(0.01)
+    fail(timeout_message)
+
 
 
 class TestServerConstruction(TestCase):
@@ -2281,7 +2311,15 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
         payloads = []
         for line in text.splitlines():
             if line.startswith("data: "):
-                payloads.append(json.loads(line[len("data: "):]))
+                raw = line[len("data: "):]
+                if raw == "[DONE]":
+                    continue
+                payload = json.loads(raw)
+                # Classic emits a terminal finish frame; these tests count and
+                # assert content frames only.
+                if any(c.get("finish_reason") for c in payload.get("choices", [])):
+                    continue
+                payloads.append(payload)
         return payloads
 
     def _post_yes_turn(self, chunks):
@@ -2323,7 +2361,7 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
         self.assertEqual(frame["object"], "chat.completion.chunk")
         self.assertEqual(frame["model"], "open-interpreter")
         self.assertEqual(frame["choices"][0]["delta"]["content"], "hello")
-        self.assertEqual(frame["id"], 0)
+        self.assertIsInstance(frame["id"], str)
 
     def test_code_chunks_become_fenced_frames_in_order(self):
         """A code turn streams as fence-open, body, fence-close frames."""
@@ -2342,9 +2380,9 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
 
         self.assertEqual(
             [p["choices"][0]["delta"]["content"] for p in payloads],
-            ["```python\n", "x = 1", "\n```\n"],
+            ["\n\n```python\n", "x = 1", "\n```\n\n"],
         )
-        self.assertEqual([p["id"] for p in payloads], [0, 1, 2])
+        self.assertEqual(len({p["id"] for p in payloads}), 1)
 
     def test_chunks_without_displayable_content_emit_no_frames(self):
         """Status and progress chunks pass through silently on the stream."""
@@ -2389,7 +2427,15 @@ class TestOpenAIGeneratorChatPath(TestCase):
         payloads = []
         for line in response.text.splitlines():
             if line.startswith("data: "):
-                payloads.append(json.loads(line[len("data: "):]))
+                raw = line[len("data: "):]
+                if raw == "[DONE]":
+                    continue
+                payload = json.loads(raw)
+                # Classic emits a terminal finish frame; these tests count and
+                # assert content frames only.
+                if any(c.get("finish_reason") for c in payload.get("choices", [])):
+                    continue
+                payloads.append(payload)
         return payloads
 
     def test_confirmation_is_surfaced_as_an_approval_prompt(self):
@@ -2399,15 +2445,15 @@ class TestOpenAIGeneratorChatPath(TestCase):
             "role": "computer",
             "content": {"format": "python", "content": "print(1)"},
         }
-        self.interpreter.chat = mock.MagicMock(return_value=iter([confirmation]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([confirmation]))
 
         payloads = self._post_chat()
 
         self.assertEqual(
             [p["choices"][0]["delta"]["content"] for p in payloads],
-            ["Do you want to run this code?"],
+            ["\n\n---\n**[Open Interpreter]** Execution is paused. Reply with exactly **yes** to run this code or **no** to skip.\n\n---\n"],
         )
-        self.assertEqual(self.interpreter.chat.call_count, 1)
+        self.assertEqual(self.interpreter._respond_and_store.call_count, 1)
 
     def test_confirmation_frame_carries_the_full_chunk_envelope(self):
         """The approval frame is a complete chat.completion.chunk, not just text.
@@ -2421,7 +2467,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
             "role": "computer",
             "content": {"format": "python", "content": "print(1)"},
         }
-        self.interpreter.chat = mock.MagicMock(return_value=iter([confirmation]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([confirmation]))
 
         frame = self._post_chat()[0]
 
@@ -2431,8 +2477,8 @@ class TestOpenAIGeneratorChatPath(TestCase):
         self.assertEqual(frame["object"], "chat.completion.chunk")
         self.assertEqual(frame["model"], "open-interpreter")
         self.assertIsInstance(frame["created"], (int, float))
-        self.assertEqual(
-            frame["choices"], [{"delta": {"content": "Do you want to run this code?"}}]
+        self.assertIn(
+            "Execution is paused", frame["choices"][0]["delta"]["content"]
         )
 
     def test_chat_message_frame_carries_the_full_chunk_envelope(self):
@@ -2443,18 +2489,18 @@ class TestOpenAIGeneratorChatPath(TestCase):
         a renamed `choices`/`delta` key would break every non-code client.
         """
         message = {"type": "message", "role": "assistant", "content": "only"}
-        self.interpreter.chat = mock.MagicMock(return_value=iter([message]))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter([message]))
 
         frame = self._post_chat()[0]
 
         self.assertEqual(
             set(frame), {"id", "object", "created", "model", "choices"}
         )
-        self.assertEqual(frame["id"], 0)
+        self.assertIsInstance(frame["id"], str)
         self.assertEqual(frame["object"], "chat.completion.chunk")
         self.assertEqual(frame["model"], "open-interpreter")
         self.assertIsInstance(frame["created"], (int, float))
-        self.assertEqual(frame["choices"], [{"delta": {"content": "only"}}])
+        self.assertEqual(frame["choices"][0]["delta"]["content"], "only")
 
     def test_chat_code_chunks_stream_as_fenced_frames(self):
         """A code turn streams fence-open, body and fence-close frames in order.
@@ -2468,15 +2514,15 @@ class TestOpenAIGeneratorChatPath(TestCase):
             {"type": "code", "role": "computer", "format": "python", "content": "x = 1"},
             {"type": "code", "role": "computer", "format": "python", "end": True},
         ]
-        self.interpreter.chat = mock.MagicMock(return_value=iter(chunks))
+        self.interpreter._respond_and_store = mock.MagicMock(return_value=iter(chunks))
 
         payloads = self._post_chat()
 
         self.assertEqual(
             [p["choices"][0]["delta"]["content"] for p in payloads],
-            ["```python\n", "x = 1", "\n```\n"],
+            ["\n\n```python\n", "x = 1", "\n```\n\n"],
         )
-        self.assertEqual([p["id"] for p in payloads], [0, 1, 2])
+        self.assertEqual(len({p["id"] for p in payloads}), 1)
 
     def test_retry_prompt_sequence_is_exact(self):
         """Every silent prompt is tried in the documented order before giving up.
@@ -2484,6 +2530,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
         The prompts escalate as the model stays silent; repeating or dropping one
         would change how many attempts a silent provider gets and what it sees.
         """
+        self.interpreter.context_mode = True
         self.interpreter.chat = mock.MagicMock(return_value=iter([]))
 
         self._post_chat()
@@ -2503,6 +2550,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
     def test_silent_prompts_are_retried_until_chunks_arrive(self):
         """Empty prompts yield nothing and fall through to the next prompt."""
         message = {"type": "message", "role": "assistant", "content": "second"}
+        self.interpreter.context_mode = True
         self.interpreter.chat = mock.MagicMock(
             side_effect=[iter([]), iter([message])]
         )
@@ -2513,17 +2561,18 @@ class TestOpenAIGeneratorChatPath(TestCase):
             [p["choices"][0]["delta"]["content"] for p in payloads], ["second"]
         )
         asked = [
-            call.kwargs["message"]
-            for call in self.interpreter.chat.call_args_list
+            call.kwargs["message"] for call in self.interpreter.chat.call_args_list
         ]
         self.assertEqual(asked[0], ".")
         self.assertEqual(asked[1], "Just say something, anything.")
         for call in self.interpreter.chat.call_args_list:
             self.assertTrue(call.kwargs["stream"])
-            self.assertTrue(call.kwargs["display"])
+            # The server must not render a terminal-style display.
+            self.assertFalse(call.kwargs["display"])
 
     def test_fully_silent_prompts_yield_an_empty_stream(self):
         """When every prompt stays silent, the stream carries no frames."""
+        self.interpreter.context_mode = True
         self.interpreter.chat = mock.MagicMock(return_value=iter([]))
 
         payloads = self._post_chat()
@@ -2542,7 +2591,7 @@ class TestOpenAIGeneratorChatPath(TestCase):
                 [{"type": "message", "role": "assistant", "content": "too late"}]
             )
 
-        self.interpreter.chat = mock.MagicMock(side_effect=stop_then_yield)
+        self.interpreter._respond_and_store = mock.MagicMock(side_effect=stop_then_yield)
 
         payloads = self._post_chat()
 
@@ -2798,7 +2847,7 @@ class TestOpenAINonStreamingCompletion(TestCase):
 
     def _stub_chat(self, content="canned"):
         """Make interpreter.chat return one assistant message with the content."""
-        self.interpreter.chat = mock.MagicMock(
+        self.interpreter._respond_and_store = mock.MagicMock(
             return_value=[{"role": "assistant", "type": "message", "content": content}]
         )
 
@@ -2817,12 +2866,13 @@ class TestOpenAINonStreamingCompletion(TestCase):
         self.assertIn("application/json", response.headers["content-type"])
         payload = response.json()
         self.assertEqual(payload["object"], "chat.completion")
-        self.assertEqual(payload["id"], "200")
+        self.assertIsInstance(payload["id"], str)
+        self.assertTrue(payload["id"])
         self.assertEqual(payload["model"], "default-model")
         self.assertIsInstance(payload["created"], (int, float))
         self.assertEqual(
-            payload["choices"],
-            [{"message": {"role": "assistant", "content": "canned"}}],
+            payload["choices"][0]["message"],
+            {"role": "assistant", "content": "canned"},
         )
 
     def test_request_model_is_echoed_back(self):

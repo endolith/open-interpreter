@@ -2,8 +2,8 @@ from unittest import mock
 
 import pytest
 
-import interpreter.core.computer.clipboard.clipboard as clipboard_mod
-from interpreter.core.computer.clipboard.clipboard import Clipboard
+import interpreter.core.toolbox.clipboard.clipboard as clipboard_mod
+from interpreter.core.toolbox.clipboard.clipboard import Clipboard
 
 
 def test_clipboard_view_returns_pasted_content(monkeypatch):

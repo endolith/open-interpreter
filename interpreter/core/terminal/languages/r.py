@@ -42,7 +42,7 @@ class R(SubprocessLanguage):
         processed_code = "\n".join(processed_lines)
 
         # Wrap in a tryCatch for error handling and add end of execution marker
-        return f"""
+        wrapped = f"""
 tryCatch({{
 {processed_code}
 }}, error=function(e){{
@@ -50,8 +50,16 @@ tryCatch({{
 }})
 cat("##end_of_execution##\\n");
 """
+        # R echoes the submitted program back; remember how many lines it wrapped
+        # to so line_postprocessor can drop exactly that echo.
+        self.code_line_count = len(wrapped.split("\n")) - 1
+        return wrapped
 
     def line_postprocessor(self, line):
+        # Drop the echoed program first: R prints every submitted line back.
+        if hasattr(self, "code_line_count") and self.code_line_count > 0:
+            self.code_line_count -= 1
+            return None
         # A bare R continuation prompt carries no output of ours. With --no-echo
         # these should not appear at all, but dropping them is cheap insurance
         # for an R build that ignores the flag.

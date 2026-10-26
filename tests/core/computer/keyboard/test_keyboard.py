@@ -10,12 +10,12 @@ from unittest import mock
 import pytest
 
 
-def _make_keyboard(computer=None):
-    from interpreter.core.computer.keyboard.keyboard import Keyboard
+def _make_keyboard(toolbox=None):
+    from interpreter.core.toolbox.keyboard.keyboard import Keyboard
 
-    if computer is None:
-        computer = SimpleNamespace(clipboard=_make_clipboard())
-    return Keyboard(computer)
+    if toolbox is None:
+        toolbox = SimpleNamespace(clipboard=_make_clipboard())
+    return Keyboard(toolbox)
 
 
 def _make_clipboard(history="history"):
@@ -29,9 +29,9 @@ def _make_clipboard(history="history"):
 def _patch_keyboard_deps():
     pyautogui = mock.Mock()
     patcher = mock.patch(
-        "interpreter.core.computer.keyboard.keyboard.pyautogui", pyautogui
+        "interpreter.core.toolbox.keyboard.keyboard.pyautogui", pyautogui
     )
-    sleep = mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep")
+    sleep = mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep")
     return patcher, sleep, pyautogui
 
 
@@ -57,8 +57,8 @@ def test_write_with_interval_types_via_pyautogui():
     clipboard = _make_clipboard()
     keyboard = _make_keyboard(SimpleNamespace(clipboard=clipboard))
 
-    with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
-        with mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep"):
+    with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
+        with mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep"):
             keyboard.write("hi", interval=0.05)
 
     pyautogui.write.assert_called_once_with("hi", interval=0.05)
@@ -86,7 +86,7 @@ def test_write_multiline_short_text_pastes_line_by_line():
     keyboard = _make_keyboard(SimpleNamespace(clipboard=clipboard))
 
     _, sleep, _ = _patch_keyboard_deps()
-    with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()), sleep:
+    with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()), sleep:
         keyboard.write("a\nb")
 
     assert [call.args for call in clipboard.copy.call_args_list] == [
@@ -104,7 +104,7 @@ def test_write_long_text_pastes_once():
     long_text = "a\nb\nc\nd\ne"
 
     _, sleep, _ = _patch_keyboard_deps()
-    with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()), sleep:
+    with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()), sleep:
         keyboard.write(long_text)
 
     clipboard.copy.assert_any_call(long_text)
@@ -116,8 +116,8 @@ def test_press_delegates_to_pyautogui():
     """Keyboard.press() forwards key presses to pyautogui with default timing."""
     keyboard = _make_keyboard()
 
-    with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
-        with mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep"):
+    with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
+        with mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep"):
             keyboard.press("enter")
 
     pyautogui.press.assert_called_once_with(("enter",), presses=1, interval=0.1)
@@ -139,11 +139,11 @@ def test_hotkey_non_darwin_uses_pyautogui():
     keyboard = _make_keyboard()
 
     with mock.patch(
-        "interpreter.core.computer.keyboard.keyboard.platform.system",
+        "interpreter.core.toolbox.keyboard.keyboard.platform.system",
         return_value="Linux",
     ):
-        with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
-            with mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep"):
+        with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
+            with mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep"):
                 keyboard.hotkey("ctrl", "x")
 
     pyautogui.hotkey.assert_called_once_with("ctrl", "x", interval=0.1)
@@ -151,11 +151,11 @@ def test_hotkey_non_darwin_uses_pyautogui():
 
 def _hotkey_on_darwin(keyboard, *args):
     with mock.patch(
-        "interpreter.core.computer.keyboard.keyboard.platform.system",
+        "interpreter.core.toolbox.keyboard.keyboard.platform.system",
         return_value="Darwin",
     ):
-        with mock.patch("interpreter.core.computer.keyboard.keyboard.os.system", mock.Mock()) as os_system:
-            with mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep"):
+        with mock.patch("interpreter.core.toolbox.keyboard.keyboard.os.system", mock.Mock()) as os_system:
+            with mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep"):
                 keyboard.hotkey(*args)
     return os_system
 
@@ -191,8 +191,8 @@ def test_down_and_up_delegate():
     """Keyboard.down()/up() call pyautogui.keyDown()/keyUp()."""
     keyboard = _make_keyboard()
 
-    with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
-        with mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep"):
+    with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()) as pyautogui:
+        with mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep"):
             keyboard.down("a")
             keyboard.up("a")
 
@@ -206,8 +206,8 @@ def test_write_ignores_missing_clipboard():
     computer = SimpleNamespace(clipboard=mock.Mock(view=mock.Mock(side_effect=AttributeError("no clipboard"))))
     keyboard = _make_keyboard(computer)
 
-    with mock.patch("interpreter.core.computer.keyboard.keyboard.pyautogui", mock.Mock()):
-        with mock.patch("interpreter.core.computer.keyboard.keyboard.time.sleep"):
+    with mock.patch("interpreter.core.toolbox.keyboard.keyboard.pyautogui", mock.Mock()):
+        with mock.patch("interpreter.core.toolbox.keyboard.keyboard.time.sleep"):
             keyboard.write("hi")
 
     computer.clipboard.copy.assert_called_once_with("hi")

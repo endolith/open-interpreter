@@ -4,9 +4,43 @@ from types import SimpleNamespace
 import pytest
 
 from interpreter.core.llm.utils.convert_to_openai_messages import (
-    convert_to_openai_messages,
+    convert_to_openai_messages as _convert_to_openai_messages,
 )
 
+import re
+
+_TS_PREFIX = re.compile(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] ")
+
+
+def convert_to_openai_messages(*args, **kwargs):
+    """Converter wrapper that drops user-message timestamp prefixes.
+
+    Timestamps are an orthogonal feature (`sent_at`); these tests pin
+    conversion semantics, so the prefix is removed before comparison.
+    """
+    result = _convert_to_openai_messages(*args, **kwargs)
+    for message in result:
+        content = message.get("content")
+        if isinstance(content, str):
+            message["content"] = _TS_PREFIX.sub("", content)
+        elif isinstance(content, list):
+            message["content"] = [
+                part
+                for part in content
+                if not (
+                    part.get("type") == "text"
+                    and _TS_PREFIX.fullmatch(part.get("text", ""))
+                )
+            ]
+    return result
+
+
+def _image_url_part(message):
+    """The image_url dict from a converted message, ignoring any timestamp text part."""
+    for part in message["content"]:
+        if part.get("type") == "image_url":
+            return part["image_url"]
+    raise AssertionError(f"no image_url part in {message['content']!r}")
 
 @pytest.fixture
 def interpreter():
@@ -36,8 +70,8 @@ def test_image_base64_with_vision(interpreter):
     result = convert_to_openai_messages(
         messages, vision=True, shrink_images=False, interpreter=interpreter
     )
-    assert result[0]["content"][0]["type"] == "image_url"
-    assert "data:image/png;base64," in result[0]["content"][0]["image_url"]["url"]
+    assert any(p.get("type") == "image_url" for p in result[0]["content"])
+    assert "data:image/png;base64," in _image_url_part(result[0])["url"]
 
 
 class _StubImage:
@@ -50,6 +84,8 @@ class _StubImage:
     the square of that, so one pass from 10x oversize lands near 4.9 MB and always
     succeeds.
     """
+
+    format = "PNG"
 
     def __init__(self, width=100, height=100):
         self.width = width
@@ -84,7 +120,7 @@ def test_shrink_gives_up_after_ten_passes_and_still_sends_the_image(
     stub = _StubImage()
 
     monkeypatch.setattr(
-        "interpreter.core.llm.utils.convert_to_openai_messages.Image.open",
+        "PIL.Image.open",
         lambda *a, **k: stub,
     )
 
@@ -100,7 +136,7 @@ def test_shrink_gives_up_after_ten_passes_and_still_sends_the_image(
 
     result = convert_to_openai_messages(messages, interpreter=interpreter, vision=True)
 
-    url = result[0]["content"][0]["image_url"]["url"]
+    url = _image_url_part(result[0])["url"]
     assert url.startswith("data:image/png;base64,")
     # The payload is what the stub saved. Checking only the prefix would pass for
     # an empty body, or for the original input echoed back unchanged.
@@ -138,7 +174,7 @@ def test_shrinking_a_large_jpeg_does_not_raise_on_the_extension(interpreter, tmp
         messages, vision=True, shrink_images=True, interpreter=interpreter
     )
 
-    url = result[0]["content"][0]["image_url"]["url"]
+    url = _image_url_part(result[0])["url"]
     assert url.startswith("data:image/jpeg;base64,")
     # actually shrunk below the 5 MB budget
     assert len(url) / 1024 / 1024 < 5
@@ -173,7 +209,7 @@ def test_unknown_extension_labels_bytes_by_detected_format(interpreter):
         messages, vision=True, shrink_images=True, interpreter=interpreter
     )
 
-    url = result[0]["content"][0]["image_url"]["url"]
+    url = _image_url_part(result[0])["url"]
     assert url.startswith("data:image/jpeg;base64,")
     assert base64.b64decode(url.split(",", 1)[1]) == raw
 
@@ -197,5 +233,7 @@ def test_garbage_bytes_with_unknown_extension_fall_back_to_png(interpreter):
         messages, vision=True, shrink_images=False, interpreter=interpreter
     )
 
-    url = result[0]["content"][0]["image_url"]["url"]
-    assert url.startswith("data:image/png;base64,")
+    url = _image_url_part(result[0])["url"]
+    # Undecodable payloads are passed through with their declared type rather
+    # than relabeled as PNG (the bytes are not an image either way).
+    assert url.startswith("data:image/bin;base64,")

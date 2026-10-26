@@ -286,8 +286,16 @@ class OpenInterpreter:
             self._auto_run_mode = normalize_auto_run_mode(value)
 
     @property
-    def anonymous_telemetry(self) -> bool:
-        return not self.disable_telemetry and not self.offline
+    def max_output(self):
+        return self._max_output
+
+    @max_output.setter
+    def max_output(self, value):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(
+                f"max_output must be a positive integer, got {value!r}"
+            )
+        self._max_output = value
 
     @property
     def anonymous_telemetry(self) -> bool:
@@ -765,9 +773,14 @@ class OpenInterpreter:
                 # Skip empty content, except for console output - empty command output is
                 # meaningful (e.g. grep with no matches) and must be added so the LLM
                 # sees that the command ran, preventing it from re-proposing the same code.
-                if chunk.get("content") == "" and not (
-                    chunk.get("type") == "console"
-                    and chunk.get("format") == "output"
+                # Reasoning-only chunks are not empty for history purposes.
+                if (
+                    chunk.get("content") == ""
+                    and not chunk.get("reasoning_content")
+                    and not (
+                        chunk.get("type") == "console"
+                        and chunk.get("format") == "output"
+                    )
                 ):
                     continue
 
@@ -815,6 +828,24 @@ class OpenInterpreter:
                     # )
                     continue
 
+                # Reasoning that arrives while a code block is streaming belongs
+                # to that assistant code message. Storing it as its own message
+                # splits the code block and can leave only the tail selected for
+                # execution.
+                if (
+                    chunk.get("content") == ""
+                    and chunk.get("reasoning_content")
+                    and self.messages
+                    and self.messages[-1].get("role") == "assistant"
+                    and self.messages[-1].get("type") == "code"
+                ):
+                    self.messages[-1]["reasoning_content"] = (
+                        self.messages[-1].get("reasoning_content", "")
+                        + chunk["reasoning_content"]
+                    )
+                    yield chunk.copy()
+                    continue
+
                 # view_image_call: records the assistant's view_image tool call so it can be
                 # reconstructed as assistant+tool_calls in convert_to_openai_messages, preventing
                 # process_messages from inserting a synthetic execute call on the next turn.
@@ -849,6 +880,7 @@ class OpenInterpreter:
                     if last_flag_base:
                         yield {**last_flag_base, "end": True}
                     last_flag_base = None
+
                     continue
 
                 # Check if the chunk's role, type, and format (if present) match the last_flag_base

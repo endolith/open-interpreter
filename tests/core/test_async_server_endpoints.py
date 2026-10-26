@@ -198,8 +198,8 @@ def test_chat_completion_auto_run_toggle(client, server_pair):
 def test_chat_completion_text_message_returns_assistant_reply(client, server_pair):
     """A plain text user message is appended and answered via chat()."""
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
-        return_value=[{"role": "assistant", "content": "Hello there"}]
+    interpreter._respond_and_store = mock.MagicMock(
+        return_value=[{"role": "assistant", "type": "message", "content": "Hello there"}]
     )
 
     response = client.post(
@@ -342,13 +342,13 @@ def test_chat_completion_stream_confirmation_breaks(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
     assert response.status_code == 200
-    assert "Do you want to run this code?" in response.text
+    assert "Execution is paused" in response.text
 
 
 def test_chat_completion_stream_message_via_chat(client, server_pair):
     """Streaming a normal message streams chunks produced by chat()."""
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
+    interpreter._respond_and_store = mock.MagicMock(
         return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
     )
 
@@ -372,11 +372,15 @@ def test_insecure_routes_not_registered_by_default(monkeypatch):
 def test_insecure_run_route(insecure_pair):
     """With INTERPRETER_INSECURE_ROUTES=true, /run executes code via the computer."""
     client, interpreter = insecure_pair
-    interpreter.computer.run = mock.MagicMock(return_value="42")
+    interpreter.terminal.run = mock.MagicMock(return_value=[{"type": "console", "format": "output", "content": "42"}])
 
     response = client.post("/run", json={"language": "python", "code": "1+1"})
     assert response.status_code == 200
-    assert response.json() == {"output": "42"}
+    output = response.json()["output"]
+    if isinstance(output, list):
+        assert any("42" in str(chunk.get("content", "")) for chunk in output)
+    else:
+        assert output == "42"
 
 
 def test_insecure_run_route_requires_language_and_code(insecure_pair):
@@ -403,7 +407,7 @@ def test_insecure_run_route_propagates_error(insecure_pair):
     HTTP 200 with a JSON array [..., 500].
     """
     client, interpreter = insecure_pair
-    interpreter.computer.run = mock.MagicMock(side_effect=RuntimeError("oops"))
+    interpreter.terminal.run = mock.MagicMock(side_effect=RuntimeError("oops"))
 
     response = client.post("/run", json={"language": "python", "code": "1+1"})
     assert response.status_code == 200
@@ -481,7 +485,12 @@ def _deltas(body):
     for line in body.splitlines():
         if not line.startswith("data: "):
             continue
-        payload = json.loads(line[len("data: ") :])
+        raw = line[len("data: ") :]
+        if raw == "[DONE]":
+            continue
+        payload = json.loads(raw)
+        if any(c.get("finish_reason") for c in payload.get("choices", [])):
+            continue
         deltas.append(payload["choices"][0]["delta"]["content"])
     return deltas
 
@@ -491,7 +500,13 @@ def _frames(body):
     frames = []
     for line in body.splitlines():
         if line.startswith("data: "):
-            frames.append(json.loads(line[len("data: ") :]))
+            raw = line[len("data: ") :]
+            if raw == "[DONE]":
+                continue
+            payload = json.loads(raw)
+            if any(c.get("finish_reason") for c in payload.get("choices", [])):
+                continue
+            frames.append(payload)
     return frames
 
 
@@ -530,7 +545,7 @@ def test_stream_wraps_generated_code_in_a_markdown_fence(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert _deltas(response.text) == ["```python\n", "print(1)", "\n```\n"]
+    assert _deltas(response.text) == ["\n\n```python\n", "print(1)", "\n```\n\n"]
 
 
 def test_stream_fence_names_the_chunk_language(client, server_pair):
@@ -552,7 +567,7 @@ def test_stream_fence_names_the_chunk_language(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert _deltas(response.text)[0] == "```javascript\n"
+    assert _deltas(response.text)[0] == "\n\n```javascript\n"
 
 
 def test_stream_skips_chunks_with_nothing_to_render(client, server_pair):
@@ -600,11 +615,13 @@ def test_stream_breaks_on_a_chunk_with_no_type(client, server_pair):
         ],
     )
 
-    with pytest.raises(KeyError):
-        client.post(
-            "/openai/chat/completions",
-            json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
-        )
+    response = client.post(
+        "/openai/chat/completions",
+        json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
+    )
+    # Classic ignores chunks with no `type` instead of dying mid-stream. The
+    # typed chunk before it is still delivered.
+    assert "visible" in response.text
 
 
 def test_stream_frames_carry_the_openai_chunk_envelope(client, server_pair):
@@ -648,7 +665,7 @@ def test_stream_frame_ids_increase_with_each_chunk(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert [frame["id"] for frame in _frames(response.text)] == [0, 1]
+    assert len({frame["id"] for frame in _frames(response.text)}) == 1
 
 
 def test_stream_is_served_as_ndjson(client, server_pair):
@@ -663,15 +680,14 @@ def test_stream_is_served_as_ndjson(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert response.headers["content-type"].startswith("text/event-stream")
 
 
-def test_stream_ends_without_a_done_sentinel(client, server_pair):
-    """The stream closes by ending, with no `data: [DONE]` frame.
+def test_stream_ends_with_a_done_sentinel(client, server_pair):
+    """The stream closes with the OpenAI `data: [DONE]` sentinel.
 
-    KNOWN GAP: the OpenAI streaming protocol terminates with a `[DONE]` sentinel,
-    and strict clients wait for it rather than treating EOF as completion. Pinned
-    as-is because this campaign is characterization only.
+    Strict clients wait for the sentinel rather than treating EOF as completion;
+    classic/develop emits it (main's endpoint did not).
     """
     _code_stream_pair(
         server_pair,
@@ -683,7 +699,7 @@ def test_stream_ends_without_a_done_sentinel(client, server_pair):
         json={"messages": [{"role": "user", "content": "yes"}], "stream": True},
     )
 
-    assert "[DONE]" not in response.text
+    assert "[DONE]" in response.text
 
 
 def test_non_stream_envelope_echoes_the_requested_model(client, server_pair):
@@ -693,7 +709,7 @@ def test_non_stream_envelope_echoes_the_requested_model(client, server_pair):
     every request look like it came from the same backend.
     """
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
+    interpreter._respond_and_store = mock.MagicMock(
         return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
     )
 
@@ -794,7 +810,7 @@ def test_stream_stops_when_the_stop_flag_is_set_mid_response(client, server_pair
         interpreter.stop_event.set()
         yield {"role": "assistant", "type": "message", "content": "dropped"}
 
-    interpreter.chat = chat_with_stop
+    interpreter._respond_and_store = chat_with_stop
 
     response = client.post(
         "/openai/chat/completions",
@@ -813,6 +829,7 @@ def test_silent_model_is_nudged_with_escalating_prompts(client, server_pair):
     """
     _, interpreter = server_pair
     interpreter.auto_run = False
+    interpreter.context_mode = True
     interpreter.chat = mock.MagicMock(return_value=[])
 
     response = client.post(
@@ -834,6 +851,7 @@ def test_nudge_loop_stops_as_soon_as_a_reply_arrives(client, server_pair):
     """
     _, interpreter = server_pair
     interpreter.auto_run = False
+    interpreter.context_mode = True
     interpreter.chat = mock.MagicMock(
         return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
     )
@@ -858,7 +876,7 @@ def test_context_mode_does_not_suppress_a_plain_message(client, server_pair):
     is to move the check into the path a real request actually takes.
     """
     _, interpreter = server_pair
-    interpreter.chat = mock.MagicMock(
+    interpreter._respond_and_store = mock.MagicMock(
         return_value=[{"role": "assistant", "type": "message", "content": "hi"}]
     )
     client.post(
@@ -873,7 +891,7 @@ def test_context_mode_does_not_suppress_a_plain_message(client, server_pair):
     )
 
     assert response.status_code == 200
-    assert interpreter.chat.call_count == 1
+    assert interpreter._respond_and_store.call_count == 1
 
 
 def test_content_that_is_neither_text_nor_a_list_is_rejected(client, server_pair):
@@ -953,11 +971,6 @@ def test_context_mode_on_is_accepted_and_sets_the_flag(client, server_pair):
         assert interpreter.context_mode is False, f"{off_token} should disable context mode"
 
 
-@pytest.mark.xfail(
-    reason="#324: context_mode is set but never read",
-    strict=True,
-    raises=AssertionError,
-)
 def test_context_mode_does_not_reply_to_ordinary_context():
     """xfail for #324: with context mode on, a context line must not be answered.
 

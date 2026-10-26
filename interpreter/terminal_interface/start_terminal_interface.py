@@ -12,10 +12,11 @@ import traceback
 
 from importlib.metadata import version, PackageNotFoundError
 
+from .conversation_navigator import conversation_navigator
 from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
 
-# validate_llm_settings, contributing_conversations, and conversation_navigator
+# validate_llm_settings and conversation_navigator
 # import litellm (directly or transitively) and are deferred to after
 # argparse parses args, so --help / --version exit before they load.
 
@@ -457,13 +458,6 @@ Use """ to write multi-line messages.
 
     # Deferred: these import litellm (directly or transitively). Placed after all
     # quick-exit flags so --help / --version / --profiles etc. never load them.
-    from interpreter.terminal_interface.contributing_conversations import (
-        contribute_conversation_launch_logic,
-        contribute_conversations,
-    )
-    from interpreter.core.utils.prompt_choice import prompt_choice
-    from .conversation_navigator import conversation_navigator
-    from .validate_llm_settings import validate_llm_settings
 
     if args.no_highlight_active_line:
         interpreter.highlight_active_line = False
@@ -622,8 +616,6 @@ Use """ to write multi-line messages.
 
     interpreter.in_terminal_interface = True
 
-    contribute_conversation_launch_logic(interpreter)
-
     # Standard in mode
     if args.stdin:
         stdin_input = input()
@@ -660,6 +652,17 @@ def get_argument_dictionary(arguments: list[dict], key: str) -> dict:
     return {}
 
 
+
+def validate_llm_settings(*args, **kwargs):
+    """Lazy delegate so callers/tests can patch this module attribute.
+
+    Importing the real module eagerly pulls in litellm, which quick-exit flags
+    (`--help`, `--version`, `--profiles`) must not pay for.
+    """
+    from .validate_llm_settings import validate_llm_settings as _validate
+
+    return _validate(*args, **kwargs)
+
 def main():
     # --help / -h / --version exit immediately inside start_terminal_interface
     # (argparse calls sys.exit), so skip the heavy interpreter import entirely.
@@ -680,47 +683,7 @@ def main():
         traceback.print_exc()
         raise SystemExit(1)
     except KeyboardInterrupt:
-        try:
-            from interpreter.terminal_interface.contributing_conversations import contribute_conversations
-            from interpreter.core.utils.prompt_choice import prompt_choice
-            interpreter.terminal.terminate()
-
-            if not interpreter.offline and not interpreter.disable_telemetry:
-                feedback = None
-                if len(interpreter.messages) > 3:
-                    raw = prompt_choice(
-                        "\n\nWas Open Interpreter helpful? (y/n): ",
-                        ("y", "n"),
-                    )
-                    feedback = raw == "y"
-                    if feedback is not None and not interpreter.contribute_conversation:
-                        if interpreter.llm.model == "i":
-                            contribute = "y"
-                        else:
-                            print(
-                                "\nThanks for your feedback! Would you like to send us this chat so we can improve?\n"
-                            )
-                            contribute = prompt_choice("(y/n): ", ("y", "n"))
-
-                        if contribute == "y":
-                            interpreter.contribute_conversation = True
-                            interpreter.display_message(
-                                "\n*Thank you for contributing!*\n"
-                            )
-
-                if (
-                    interpreter.contribute_conversation or interpreter.llm.model == "i"
-                ) and interpreter.messages != []:
-                    conversation_id = (
-                        interpreter.conversation_id
-                        if hasattr(interpreter, "conversation_id")
-                        else None
-                    )
-                    contribute_conversations(
-                        [interpreter.messages], feedback, conversation_id
-                    )
-
-        except KeyboardInterrupt:
-            pass
+        # Ctrl-C ends the session quietly; the finally block does the cleanup.
+        pass
     finally:
         interpreter.terminal.terminate()

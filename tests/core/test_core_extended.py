@@ -59,9 +59,10 @@ def test_streaming_chat_dict_message_gets_role():
     interpreter = OpenInterpreter()
     with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
         list(interpreter._streaming_chat(message={"type": "message", "content": "hi"}, display=False))
-    assert interpreter.messages == [
-        {"role": "user", "type": "message", "content": "hi"}
-    ]
+    assert len(interpreter.messages) == 1
+    message = dict(interpreter.messages[0])
+    message.pop("sent_at", None)
+    assert message == {"role": "user", "type": "message", "content": "hi"}
 
 
 def test_streaming_chat_empty_string_message():
@@ -69,9 +70,10 @@ def test_streaming_chat_empty_string_message():
     interpreter = OpenInterpreter()
     with mock.patch.object(interpreter, "_respond_and_store", return_value=iter([])):
         list(interpreter._streaming_chat(message="", display=False))
-    assert interpreter.messages == [
-        {"role": "user", "type": "message", "content": ""}
-    ]
+    assert len(interpreter.messages) == 1
+    message = dict(interpreter.messages[0])
+    message.pop("sent_at", None)
+    assert message == {"role": "user", "type": "message", "content": ""}
 
 
 def test_streaming_chat_no_message_raises():
@@ -185,7 +187,7 @@ def test_respond_and_store_truncates_console_output():
     """Console output chunks are truncated when they exceed max_output."""
     interpreter = OpenInterpreter()
     interpreter.max_output = 10
-    interpreter.computer.import_computer_api = False
+    interpreter.toolbox.import_computer_api = False
 
     def fake_respond(interpreter):
         """Yield a long console output chunk."""
@@ -310,7 +312,7 @@ def test_reset_resets_last_messages_count():
     interpreter = OpenInterpreter()
     interpreter.messages = [{"role": "user", "content": "hi"}]
     interpreter.last_messages_count = 1
-    with mock.patch.object(interpreter.computer, "terminate"):
+    with mock.patch.object(interpreter.toolbox, "terminate"):
         interpreter.reset()
     assert interpreter.last_messages_count == 0
 
@@ -404,7 +406,7 @@ def test_chat_runs_code_before_a_trailing_reasoning_message():
         executed.append(code)
         yield {"type": "console", "format": "output", "content": "42"}
 
-    interpreter.computer.run = fake_run
+    interpreter.terminal.run = fake_run
     with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
         list(interpreter.chat(message="hi", display=False))
 
@@ -423,7 +425,7 @@ def test_chat_merges_reasoning_into_the_current_code_message():
     def fake_run(language, code, **kwargs):
         yield {"type": "console", "format": "output", "content": "1"}
 
-    interpreter.computer.run = fake_run
+    interpreter.terminal.run = fake_run
     with mock.patch.object(interpreter.llm, "run", return_value=iter(chunks)):
         list(interpreter.chat(message="hi", display=False))
 

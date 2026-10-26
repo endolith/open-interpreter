@@ -5,8 +5,8 @@ from unittest import mock
 import pytest
 from _pytest.outcomes import Skipped
 
-from interpreter.core.computer.terminal.languages.shell import (
-    Shell,
+from interpreter.core.terminal.languages.bash import Bash
+from interpreter.core.terminal.languages.shell_preprocess import (
     add_active_line_prints,
     has_multiline_commands,
     preprocess_shell,
@@ -32,17 +32,14 @@ def test_has_multiline_commands_detects_line_continuation():
     assert has_multiline_commands("echo hello \\\nworld")
 
 
-def test_shell_start_cmd_uses_shell_env():
-    """Shell subprocess uses os.environ['SHELL'] on Unix; cmd.exe on Windows."""
+def test_bash_start_cmd_resolves_gnu_bash():
+    """Bash resolves a real bash executable rather than trusting $SHELL."""
     import os
 
-    if platform.system() == "Windows":
-        shell = Shell()
-        assert shell.start_cmd == ["cmd.exe"]
-    else:
-        with mock.patch.dict(os.environ, {"SHELL": "/bin/bash"}):
-            shell = Shell()
-        assert shell.start_cmd == ["/bin/bash"]
+    with mock.patch.dict(os.environ, {"SHELL": "/nowhere/fish", "INTERPRETER_BASH": ""}):
+        shell = Bash()
+    assert shell.start_cmd, "Bash must resolve an executable"
+    assert os.path.basename(shell.start_cmd[0]).lower().startswith("bash")
 
 
 def test_require_bash_compatible_shell_rejects_fish(monkeypatch):
@@ -129,23 +126,22 @@ def test_has_multiline_commands_false_for_plain_script():
 
 def test_detect_active_line_parses_the_marker():
     """detect_active_line extracts the line number and returns None otherwise."""
-    shell = Shell()
+    shell = Bash()
     assert shell.detect_active_line('echo "##active_line3##"') == 3
     assert shell.detect_active_line("no marker here") is None
 
 
 def test_detect_end_of_execution_recognises_the_sentinel():
     """detect_end_of_execution is true only for the exact sentinel."""
-    shell = Shell()
+    shell = Bash()
     assert shell.detect_end_of_execution('echo "##end_of_execution##"') is True
     assert shell.detect_end_of_execution("still running") is False
 
 
-def test_shell_start_cmd_defaults_to_bash_when_shell_unset():
-    """With no SHELL env var on Unix, Shell defaults to "bash"."""
-    if platform.system() == "Windows":
-        pytest.skip("SHELL default only applies to Unix")
-    with mock.patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("SHELL", None)
-        shell = Shell()
-    assert shell.start_cmd == ["bash"]
+def test_bash_start_cmd_ignores_fish_shell_env():
+    """A fish/zsh $SHELL must not become the execution shell (it would hang)."""
+    import os
+
+    with mock.patch.dict(os.environ, {"SHELL": "/usr/bin/fish", "INTERPRETER_BASH": ""}):
+        shell = Bash()
+    assert "fish" not in shell.start_cmd[0]

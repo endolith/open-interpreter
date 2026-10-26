@@ -1,4 +1,4 @@
-from interpreter.core.computer.terminal.languages.r import R
+from interpreter.core.terminal.languages.r import R
 
 
 def test_r_preprocess_code_wraps_in_trycatch():

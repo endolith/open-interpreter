@@ -1,6 +1,6 @@
 from unittest import mock
 
-from interpreter.core.computer.terminal.languages.java import Java, preprocess_java
+from interpreter.core.terminal.languages.java import Java, preprocess_java
 
 _VALID_CLASS = "class Hello { public static void main(String[] args) {} }"
 
@@ -29,7 +29,7 @@ def test_java_run_compilation_error_cleans_up_java_file(tmp_path, monkeypatch):
     compile_proc.returncode = 1
 
     with mock.patch(
-        "interpreter.core.computer.terminal.languages.java.subprocess.Popen",
+        "interpreter.core.terminal.languages.java.subprocess.Popen",
         return_value=compile_proc,
     ):
         chunks = list(java.run(_VALID_CLASS))
@@ -53,7 +53,7 @@ def test_java_run_finally_removes_java_and_class_files(tmp_path, monkeypatch):
     compile_proc.communicate.side_effect = fail_compile_and_touch_class
 
     with mock.patch(
-        "interpreter.core.computer.terminal.languages.java.subprocess.Popen",
+        "interpreter.core.terminal.languages.java.subprocess.Popen",
         return_value=compile_proc,
     ):
         list(java.run(_VALID_CLASS))
@@ -89,11 +89,11 @@ def test_java_run_success_cleans_up_after_execution(tmp_path, monkeypatch):
         return run_proc
 
     with mock.patch(
-        "interpreter.core.computer.terminal.languages.java.subprocess.Popen",
+        "interpreter.core.terminal.languages.java.subprocess.Popen",
         side_effect=popen_side_effect,
     ):
         with mock.patch(
-            "interpreter.core.computer.terminal.languages.java.threading.Thread"
+            "interpreter.core.terminal.languages.java.threading.Thread"
         ) as thread_cls:
             thread_cls.return_value.start = mock.Mock()
             thread_cls.return_value.join = mock.Mock()

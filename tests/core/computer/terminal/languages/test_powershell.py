@@ -1,4 +1,4 @@
-from interpreter.core.computer.terminal.languages.powershell import (
+from interpreter.core.terminal.languages.powershell import (
     PowerShell,
     preprocess_powershell,
 )
@@ -12,5 +12,7 @@ def test_preprocess_powershell_adds_end_marker():
 
 def test_powershell_detect_active_line():
     """PowerShell detect_active_line() parses ##active_lineN## markers from echoed output."""
-    ps = PowerShell()
+    # Bypass __init__: resolving pwsh is not needed to parse a marker line,
+    # and these tests run on hosts without PowerShell installed.
+    ps = PowerShell.__new__(PowerShell)
     assert ps.detect_active_line('echo "##active_line4##"') == 4

@@ -1,4 +1,4 @@
-from interpreter.core.computer.terminal.languages.javascript import (
+from interpreter.core.terminal.languages.javascript import (
     JavaScript,
     preprocess_javascript,
 )

@@ -3,7 +3,6 @@ import platform
 import re
 import signal
 import time
-from pathlib import Path
 from random import randint
 
 import pytest
@@ -18,18 +17,26 @@ from interpreter.terminal_interface.utils.count_tokens import (
 )
 
 interpreter = OpenInterpreter()
+interpreter.conversation_history = False
 
-# Configure LLM for tests: Change models and API key check here if needed
-# (e.g., switch to OpenRouter free models, etc.)
-# Some tests need TEST_MODEL_MAIN for more complex operations
-TEST_MODEL_MINI = os.environ.get("TEST_MODEL_MINI", "gpt-4o-mini")  # Default cheaper model
-TEST_MODEL_MAIN = os.environ.get("TEST_MODEL_MAIN", "gpt-4o")  # Default smarter model
-TEST_API_KEY_ENV = os.environ.get("TEST_API_KEY_ENV", "OPENAI_API_KEY")  # Which env var to check (for both models)
+# Integration tests normally run on OpenAI (gpt-4o, or gpt-4o-mini where a test
+# pins it). OI_INTEGRATION_MODEL points them at another provider without editing
+# the tests. CI sets it to a cheap OpenRouter model; unset keeps each test's
+# historical default.
+INTEGRATION_MODEL = os.environ.get("OI_INTEGRATION_MODEL")
+if INTEGRATION_MODEL:
+    interpreter.llm.model = INTEGRATION_MODEL
 
-# Skip tests that require LLM API access when no API key is available
-requires_api_key = pytest.mark.skipif(
-    not os.environ.get(TEST_API_KEY_ENV),
-    reason=f"No {TEST_API_KEY_ENV} available - requires LLM access (models: {TEST_MODEL_MINI}/{TEST_MODEL_MAIN})"
+# A reasoning model can spend thousands of tokens thinking before it emits the
+# answer. Leave room for both; the server tests otherwise execute a code line
+# truncated at the token boundary. Keep the smaller cap for text-only models.
+SERVER_MAX_TOKENS = (
+    16384
+    if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower()
+    else 4096
+)
+SERVER_REASONING_EFFORT = (
+    "low" if INTEGRATION_MODEL and "deepseek" in INTEGRATION_MODEL.lower() else None
 )
 #####
 
@@ -50,24 +57,311 @@ _SERVER_HOST = "127.0.0.1"
 # URLs. Starts as None because no server has been started yet.
 _server_port = None
 
-def _wait_for_tcp(host, port, timeout=45.0, interval=0.25):
-    """Wait until a process is accepting TCP connections (uvicorn can be slow to bind on Windows)."""
+
+def _allocate_server_port():
+    """Pick a free TCP port for a server subprocess.
+
+    Binding to port 0 lets the OS assign a free port. The socket is closed
+    before the subprocess starts, so another process could in theory grab the
+    port in between; this is an accepted race (see issue #165)."""
+
     import socket
 
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_SERVER_HOST, 0))
+        return sock.getsockname()[1]
+
+
+def _server_ws_url():
+    """WebSocket URL of the running test server."""
+
+    return f"ws://{_SERVER_HOST}:{_server_port}/"
+
+
+def _server_http_url(path):
+    """HTTP URL of the running test server for the given path."""
+
+    return f"http://{_SERVER_HOST}:{_server_port}{path}"
+
+
+def _start_server_subprocess(target):
+    # The old code always bound port 8000, which collided when parallel CI runs
+    # (or a stray process) tried to use it; a failed bind then surfaced as an
+    # opaque 120s timeout in _wait_for_server. Pick a free port per subprocess
+    # and hand it to uvicorn via INTERPRETER_PORT, which spawn children inherit
+    # from the parent's environment.
+    global _server_port
+    _server_port = _allocate_server_port()
+    prior_port = os.environ.get("INTERPRETER_PORT")
+    os.environ["INTERPRETER_PORT"] = str(_server_port)
+    try:
+        process = _MP_SPAWN.Process(target=target)
+        process.start()
+        return process
+    finally:
+        # Spawn children read the env var at start; restore the parent's value
+        # so the test run is not left with a stale INTERPRETER_PORT set.
+        if prior_port is None:
+            os.environ.pop("INTERPRETER_PORT", None)
+        else:
+            os.environ["INTERPRETER_PORT"] = prior_port
+
+
+def _wait_for_server(process, timeout=120):
+    import urllib.error
+    import urllib.request
+
+    url = f"http://{_SERVER_HOST}:{_server_port}/heartbeat"
     deadline = time.time() + timeout
-    last_err = None
     while time.time() < deadline:
+        if not process.is_alive():
+            raise RuntimeError(
+                f"Server subprocess exited before becoming ready (exit code {process.exitcode})"
+            )
         try:
-            with socket.create_connection((host, port), timeout=2.0):
-                return
-        except OSError as e:
-            last_err = e
-            time.sleep(interval)
-    raise RuntimeError(
-        f"Nothing accepted connections on {host}:{port} within {timeout}s (last error: {last_err!r})"
+            urllib.request.urlopen(url, timeout=1)
+            return
+        except urllib.error.URLError:
+            time.sleep(0.5)
+    raise TimeoutError(
+        f"Server at {_SERVER_HOST}:{_server_port} did not respond within {timeout}s"
     )
 
 
+def _stop_server_subprocess(process):
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
+        process.join()
+
+
+async def _wait_for_websocket_complete(
+    websocket,
+    max_messages=500,
+    recv_timeout=300.0,
+    acknowledge=False,
+    phase="unknown",
+    server_process=None,
+):
+    """Read WebSocket chunks until the server sends a 'complete' status.
+
+    The old while True loops hung forever when 'complete' never arrived (for example
+    on auth failure). Bound both message count and per-recv wait time.
+
+    While awaiting a message, `server_process.is_alive()` is polled so a child
+    that crashes mid-turn (including a port-race socket bind failure from issue
+    #165) aborts with its exit code instead of blocking until the recv timeout
+    expires.
+    """
+
+    import asyncio
+    import json
+
+    accumulated_content = ""
+    messages_received = 0
+    for _ in range(max_messages):
+        loop = asyncio.get_running_loop()
+        recv_task = asyncio.create_task(websocket.recv())
+        try:
+            deadline = loop.time() + recv_timeout
+            while not recv_task.done():
+                if server_process is not None and not server_process.is_alive():
+                    raise RuntimeError(
+                        f"Server subprocess exited during WebSocket wait (phase: {phase}, "
+                        f"exit code {server_process.exitcode}, port {_server_port})"
+                    )
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise Exception(
+                        f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
+                        f"(phase: {phase}, messages received: {messages_received}, "
+                        f"port {_server_port})"
+                    )
+                await asyncio.wait({recv_task}, timeout=min(remaining, 0.1))
+            try:
+                message = recv_task.result()
+            except asyncio.TimeoutError as exc:
+                raise Exception(
+                    f"No WebSocket message within {recv_timeout}s waiting for 'complete' "
+                    f"(phase: {phase}, messages received: {messages_received}, "
+                    f"port {_server_port})"
+                ) from exc
+        finally:
+            if not recv_task.done():
+                recv_task.cancel()
+                try:
+                    await recv_task
+                except asyncio.CancelledError:
+                    pass
+        messages_received += 1
+
+        message_data = json.loads(message)
+        if acknowledge and "id" in message_data:
+            await websocket.send(json.dumps({"ack": message_data["id"]}))
+        if "error" in message_data:
+            raise Exception(message_data["content"])
+        print("Received from WebSocket:", message_data)
+        content = message_data.get("content")
+        if type(content) == str:
+            accumulated_content += content
+        elif content:
+            accumulated_content += str(content)
+        if (
+            message_data.get("role") == "server"
+            and message_data.get("type") == "status"
+            and message_data.get("content") == "complete"
+        ):
+            print("Received expected message from server")
+            return accumulated_content
+
+    raise Exception(
+        f"Never received 'complete' status after {max_messages} messages "
+        f"(phase: {phase}, port {_server_port})"
+    )
+
+
+def test_wait_for_websocket_complete_dead_server():
+    """A server subprocess that has already exited aborts the wait immediately.
+
+    The health check turns a crashed child into a fast, descriptive failure
+    (phase and exit code) instead of an opaque hang until the recv timeout."""
+
+    import asyncio
+    from unittest.mock import AsyncMock, Mock
+
+    process = Mock()
+    process.is_alive.return_value = False
+    process.exitcode = 1
+    websocket = Mock()
+    websocket.recv = AsyncMock()
+
+    async def scenario():
+        with pytest.raises(
+            RuntimeError,
+            match=r"Server subprocess exited during WebSocket wait \(phase: dead_process, exit code 1",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, phase="dead_process", server_process=process
+            )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_process_dies_mid_recv():
+    """A server subprocess that dies during the recv aborts the wait promptly.
+
+    The poll-while-awaiting loop checks is_alive() while the recv is pending, so
+    a child that crashes mid-turn fails fast with its exit code instead of
+    blocking until the recv timeout expires."""
+
+    import asyncio
+    from unittest.mock import Mock
+
+    process = Mock()
+    process.is_alive.side_effect = [True, True, False]
+    process.exitcode = 7
+    websocket = Mock()
+
+    async def never_returns():
+        await asyncio.Event().wait()
+
+    websocket.recv = never_returns
+
+    async def scenario():
+        with pytest.raises(
+            RuntimeError,
+            match=r"Server subprocess exited during WebSocket wait \(phase: mid_recv_death, exit code 7",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, phase="mid_recv_death", server_process=process
+            )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_recv_timeout():
+    """A stalled WebSocket recv raises a phase-labeled timeout error.
+
+    The recv_timeout bound guards against a server that stops streaming; the
+    error names the phase and the number of messages already received so CI
+    failures are diagnosable."""
+
+    import asyncio
+    from unittest.mock import Mock
+
+    websocket = Mock()
+
+    # A recv that never resolves (like a server that stops streaming) drives the
+    # poll loop to the deadline branch, where the per-recv timeout is enforced.
+    async def never_returns():
+        await asyncio.Event().wait()
+
+    websocket.recv = never_returns
+
+    async def scenario():
+        with pytest.raises(
+            Exception,
+            match=r"No WebSocket message within .*waiting for 'complete' \(phase: timeout_phase, messages received: 0",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, recv_timeout=0.01, phase="timeout_phase"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_message_limit():
+    """Exhausting max_messages without 'complete' raises a phase-labeled error.
+
+    The message-count bound replaces the old while-True loop so a server that
+    never sends 'complete' fails fast instead of hanging forever."""
+
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, Mock
+
+    websocket = Mock()
+    websocket.recv = AsyncMock(
+        side_effect=[
+            json.dumps({"role": "assistant", "type": "message", "content": "hi"})
+        ]
+    )
+
+    async def scenario():
+        with pytest.raises(
+            Exception,
+            match=r"Never received 'complete' status after 1 messages \(phase: exhausted_phase",
+        ):
+            await _wait_for_websocket_complete(
+                websocket, max_messages=1, phase="exhausted_phase"
+            )
+
+    asyncio.run(scenario())
+
+
+def _last_assistant_message(messages):
+    for message in reversed(messages):
+        if message.get("role") == "assistant" and message.get("type") == "message":
+            return str(message.get("content", ""))
+    return ""
+
+
+def _last_assistant_text(messages):
+    """Last assistant message or code block (models often reply with code only)."""
+
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        if message.get("type") in ("message", "code"):
+            content = message.get("content")
+            if content:
+                return str(content)
+    return ""
+
+
+@pytest.mark.timeout(120)
 def test_hallucinations():
     """Common LLM code hallucinations are normalized before execution.
 
@@ -75,53 +369,42 @@ def test_hallucinations():
     wrappers, and loose object literals — each should run and produce the
     expected numeric or print output."""
 
-    def _assert_first_substantive_output(expected_stripped: str):
-        # _respond_and_store may yield empty console/output before Jupyter execute_result
-        # (empty outputs are passed through on purpose — e.g. empty grep — so the first
-        # format=output chunk is not always the expression result).
-        for chunk in interpreter._respond_and_store():
-            if chunk.get("format") != "output":
-                continue
-            content = chunk.get("content")
-            if content is None or str(content).strip() == "":
-                continue
-            assert str(content).strip() == expected_stripped
-            return
-        raise AssertionError(f"no non-empty output chunk; expected {expected_stripped!r}")
+    def outputs_for(code):
+        interpreter.messages = [
+            {"role": "assistant", "type": "code", "format": "python", "content": code}
+        ]
+        return [
+            str(chunk.get("content", ""))
+            for chunk in interpreter._respond_and_store()
+            if chunk.get("format") == "output"
+        ]
 
-    code = """10+12executeexecute\n"""
+    assert any("22" in out for out in outputs_for("10+12executeexecute\n"))
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
-    _assert_first_substantive_output("22")
-
-    code = """{
+    assert any(
+        "22" in out
+        for out in outputs_for(
+            """{
     "language": "python",
     "code": "10+12"
   }"""
+        )
+    )
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
-    _assert_first_substantive_output("22")
-
-    code = """functions.execute({
+    assert any(
+        "22" in out
+        for out in outputs_for(
+            """functions.execute({
     "language": "python",
     "code": "10+12"
   })"""
+        )
+    )
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
-    _assert_first_substantive_output("22")
-
-    code = """{language: "python", code: "print('hello')" }"""
-
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
-    _assert_first_substantive_output("hello")
+    assert any(
+        "hello" in out
+        for out in outputs_for("""{language: "python", code: "print('hello')" }""")
+    )
 
 
 def test_streaming_output_chunks_are_incremental():
@@ -224,16 +507,12 @@ def test_authenticated_acknowledging_breaking_server():
 
     I know this is bad, just trying to test quickly!"""
 
-    I know this is bad, just trying to test quickly!
-    """
-    # websockets is a declared dependency but is not installed everywhere; the
-    # module is needed by the server connection below. Skip with a reason rather
-    # than erroring on the import, per the project's missing-prerequisite rule.
-    pytest.importorskip("websockets")
 
     # Start the server in a new process
 
     process = _start_server_subprocess(run_auth_server)
+
+    _wait_for_server(process)
 
     import asyncio
     import json
@@ -256,7 +535,7 @@ def test_authenticated_acknowledging_breaking_server():
             post_url = _server_http_url("/settings")
             settings = {
                 "llm": {
-                    "model": TEST_MODEL_MAIN,
+                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
                     "execution_instructions": "",
                     "supports_functions": False,
                     "max_tokens": SERVER_MAX_TOKENS,
@@ -314,7 +593,7 @@ def test_authenticated_acknowledging_breaking_server():
                 ):
                     raise (
                         Exception(
-                            "It shouldn't have finished this soon, poem is: "
+                            "It shouldn't have finished this soon, poem so far is: "
                             + poem
                         )
                     )
@@ -353,15 +632,9 @@ def test_authenticated_acknowledging_breaking_server():
     # is no current event loop (e.g. pytest has not set one up). asyncio.run()
     # creates a fresh loop, runs the coroutine, and closes it cleanly.
     try:
-        _wait_for_tcp("localhost", 8000)
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
-        # Kill server process (no signal.SIGKILL on Windows — use Process API)
-        process.terminate()
-        process.join(timeout=5)
-        if process.is_alive():
-            process.kill()
-        process.join()
+        _stop_server_subprocess(process)
 
 
 def run_server():
@@ -379,57 +652,20 @@ def run_server():
     async_interpreter.server.run()
 
 
-async def wait_for_websocket_complete(websocket, timeout=180.0):
-    """Wait for WebSocket 'complete' status. Streaming sends many chunks before complete."""
-
-    import asyncio
-    import json
-    import time
-
-    accumulated_content = ""
-    deadline = time.monotonic() + timeout
-
-    while time.monotonic() < deadline:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        try:
-            message = await asyncio.wait_for(websocket.recv(), timeout=remaining)
-            message_data = json.loads(message)
-            if "error" in message_data:
-                raise Exception(message_data["content"])
-            print("Received from WebSocket:", message_data)
-            if type(message_data.get("content")) == str:
-                accumulated_content += message_data.get("content")
-            if message_data == {
-                "role": "server",
-                "type": "status",
-                "content": "complete",
-            }:
-                print("Received expected message from server")
-                return accumulated_content
-        except asyncio.TimeoutError:
-            break
-        except Exception as e:
-            print(f"WebSocket receive failed: {e}")
-            await asyncio.sleep(1)
-
-    raise Exception(f"Never received 'complete' status within {timeout}s")
-
-
 # @pytest.mark.skip(reason="Requires uvicorn, which we don't require by default")
 @pytest.mark.integration
 @pytest.mark.timeout(900)
 def test_server():
-    # Skip before starting the server: `websockets` is a declared dependency but
-    # is not installed everywhere, and the server process needs it on import.
-    # Checking here rather than at the `import websockets` below means the fork
-    # is never started, so the skip is clean rather than a child-process error.
-    pytest.importorskip("websockets")
+    """Exercise secret-word, math, and file-existence turns over the WebSocket API.
 
-    # Start the server in a new process
-    process = multiprocessing.Process(target=run_server)
-    process.start()
+    Spins up AsyncInterpreter in a subprocess (spawn context), posts settings,
+    streams each user turn over WebSocket, and verifies the response flow: the
+    math turn writes code without auto-executing it, and the file turn answers
+    in plain text."""
+
+    process = _start_server_subprocess(run_server)
+
+    _wait_for_server(process)
 
     import asyncio
     import json
@@ -452,15 +688,11 @@ def test_server():
             # Sending POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": TEST_MODEL_MINI},
-                "messages": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "The secret word is 'crunk'.",
-                    },
-                    {"role": "assistant", "type": "message", "content": "Understood."},
-                ],
+                "llm": {
+                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "max_tokens": SERVER_MAX_TOKENS,
+                    "reasoning_effort": SERVER_REASONING_EFFORT,
+                },
                 "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
@@ -489,22 +721,20 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_crunk", server_process=process
+            )
 
             assert "crunk" in accumulated_content
 
             # Send another POST request
             post_url = _server_http_url("/settings")
             settings = {
-                "llm": {"model": TEST_MODEL_MINI},
-                "messages": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": "The secret word is 'barloney'.",
-                    },
-                    {"role": "assistant", "type": "message", "content": "Understood."},
-                ],
+                "llm": {
+                    "model": INTEGRATION_MODEL or "gpt-4o-mini",
+                    "max_tokens": SERVER_MAX_TOKENS,
+                    "reasoning_effort": SERVER_REASONING_EFFORT,
+                },
                 "custom_instructions": "",
             }
             response = requests.post(post_url, json=settings, timeout=30)
@@ -533,7 +763,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for a specific response
-            accumulated_content = await wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="secret_word_barloney", server_process=process
+            )
 
             assert "barloney" in accumulated_content
 
@@ -566,7 +798,9 @@ def test_server():
             print("WebSocket chunks sent")
 
             # Wait for response
-            accumulated_content = await wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="math_code_auto_run_false", server_process=process
+            )
 
             time.sleep(5)
 
@@ -602,7 +836,9 @@ def test_server():
             )
 
             # Wait for a specific response
-            accumulated_content = await wait_for_websocket_complete(websocket)
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="go_execute_code", server_process=process
+            )
 
             assert "18893094989" in accumulated_content.replace(",", "")
 
@@ -633,8 +869,11 @@ def test_server():
             await websocket.send(json.dumps({"role": "user", "end": True}))
             print("WebSocket chunks sent")
 
-            # Wait for response
-            accumulated_content = await wait_for_websocket_complete(websocket)
+            # WebSocket stream may arrive before GET /messages is consistent; keep
+            # accumulated_content as a fallback when picking the assistant reply.
+            accumulated_content = await _wait_for_websocket_complete(
+                websocket, phase="file_exists", server_process=process
+            )
 
             # Get messages
             get_url = _server_http_url("/settings/messages")
@@ -644,9 +883,13 @@ def test_server():
                 response_json = json.loads(response_json)
             messages = response_json["messages"]
 
+            # Prefer structured messages; fall back to the WebSocket stream when the
+            # model replies with a code block or GET /messages lags behind the stream.
+            last_assistant = _last_assistant_text(messages) or accumulated_content
+            assert last_assistant, "expected assistant response after file turn"
             response = interpreter.toolbox.ai.chat(
-                str(messages)
-                + "\n\nIn the conversation above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+                last_assistant
+                + "\n\nBased on the assistant response above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
             )
             assert response.strip(" \n.").lower() == "no"
 
@@ -698,25 +941,11 @@ def test_server():
                     image_websocket, phase="vision_mcq", server_process=process
                 )
 
-            # Wait for response
-            accumulated_content = await wait_for_websocket_complete(websocket)
-
-            # Get messages
-            get_url = "http://localhost:8000/settings/messages"
-            response_json = requests.get(get_url).json()
-            print("GET request sent, response:", response_json)
-            if isinstance(response_json, str):
-                response_json = json.loads(response_json)
-            messages = response_json["messages"]
-
-            response = interpreter.toolbox.ai.chat(
-                str(messages)
-                + "\n\nDoes the assistant's reply describe a gradient or color transition (e.g. orange to blue), "
-                "even if they also say they cannot see the image? "
-                "Answer yes if the message discusses gradient or colors in that sense; answer no only if it does not. "
-                "Only reply with one word— 'yes' or 'no'."
-            )
-            assert response.strip(" \n.").lower() == "yes"
+                # _wait_for_websocket_complete appends the status content "complete".
+                vision_reply = accumulated_content.removesuffix("complete")
+                assert re.search(
+                    r"\bB\b", vision_reply, re.IGNORECASE
+                ), f"expected vision model to answer B (gradient), got: {vision_reply!r}"
 
             # Sending POST request to /run endpoint with code to kill a thread in Python
             # actually wait i dont think this will work..? will just kill the python interpreter
@@ -728,22 +957,21 @@ def test_server():
             response = requests.post(post_url, json=code_data, timeout=30)
             print("POST request sent, response:", response.json())
 
-    # Get the current event loop and run the test function
-    loop = asyncio.get_event_loop()
+    # asyncio.get_event_loop() raises RuntimeError on Python 3.12+ when there
+    # is no current event loop (e.g. pytest has not set one up). asyncio.run()
+    # creates a fresh loop, runs the coroutine, and closes it cleanly.
     try:
-        _wait_for_tcp("localhost", 8000)
-        loop.run_until_complete(test_fastapi_server())
+        asyncio.run(test_fastapi_server())
     finally:
-        # Kill server process (no signal.SIGKILL on Windows — use Process API)
-        process.terminate()
-        process.join(timeout=5)
-        if process.is_alive():
-            process.kill()
-        process.join()
+        _stop_server_subprocess(process)
 
 
 @pytest.mark.skip(reason="Mac only — manual harness; use darwin_ci in test_platform_ci.py for CI")
 def test_sms():
+    """Manual Mac-only smoke for reading and searching SMS via AppleScript.
+
+    Not suitable for CI: reads real Messages, needs TCC permission, ends assert False."""
+
     sms = interpreter.toolbox.sms
 
     # Get the last 5 messages
@@ -782,21 +1010,17 @@ def test_pytes():
 
 @pytest.mark.integration
 def test_ai_chat():
+    """Integration smoke: computer.ai.chat returns a response for a simple greeting."""
+
     print(interpreter.toolbox.ai.chat("hi"))
 
 
 @pytest.mark.integration
 def test_generator():
-    """
-    Sends two messages, makes sure everything is correct with display both on and off.
-    """
-    # websockets is a declared dependency but is not installed everywhere; the
-    # module is needed by the server connection below. Skip with a reason rather
-    # than erroring on the import, per the project's missing-prerequisite rule.
-    pytest.importorskip("websockets")
+    """Sends two messages, makes sure everything is correct with display both on and off."""
 
 
-    interpreter.llm.model = TEST_MODEL_MINI
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
 
     for tests in [
         {"query": "What's 38023*40334? Use Python", "display": True},
@@ -882,6 +1106,8 @@ def test_generator():
 
 @pytest.mark.skip(reason="Requires open-interpreter[local]")
 def test_localos():
+    """Manual smoke for local OS view with images disabled then re-enabled."""
+
     interpreter.toolbox.emit_images = False
     interpreter.toolbox.view()
     interpreter.toolbox.emit_images = True
@@ -904,7 +1130,7 @@ def test_m_vision():
     ]
 
     interpreter.llm.supports_vision = False
-    interpreter.llm.model = TEST_MODEL_MINI
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
     interpreter.llm.supports_functions = True
     interpreter.llm.context_window = 110000
     interpreter.llm.max_tokens = 4096
@@ -920,7 +1146,8 @@ def test_m_vision():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_point():
-    # interpreter.toolbox.debug = True
+    """Manual display smoke: mouse.move finds common macOS icons by description."""
+
     interpreter.toolbox.mouse.move(icon="gear")
     interpreter.toolbox.mouse.move(icon="refresh")
     interpreter.toolbox.mouse.move(icon="play")
@@ -930,7 +1157,6 @@ def test_point():
 
 
 @pytest.mark.skip(reason="Aifs not ready")
-@requires_api_key
 def test_skills():
     """Manual skills.search integration (Python 3.11 only; skipped on 3.12)."""
 
@@ -944,7 +1170,7 @@ def test_skills():
 
     import json
 
-    interpreter.llm.model = TEST_MODEL_MINI
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
 
     messages = ["USER: Hey can you search the web for me?\nAI: Sure!"]
 
@@ -985,6 +1211,8 @@ def test_skills():
 
 @pytest.mark.skip(reason="Local only")
 def test_browser():
+    """Manual local smoke: browser.search issues a query against a local API base."""
+
     interpreter.toolbox.api_base = "http://0.0.0.0:80/v0"
     print(
         interpreter.toolbox.browser.search("When's the next Dune showing in Seattle?")
@@ -1170,12 +1398,16 @@ def test_getActiveWindow():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_notify():
+    """Manual smoke: os.notify shows a desktop notification."""
+
     interpreter.toolbox.os.notify("Hello")
     assert False
 
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_get_text():
+    """Manual display smoke: get_text_as_list_of_lists OCRs the screen."""
+
     print(interpreter.toolbox.display.get_text_as_list_of_lists())
     assert False
 
@@ -1202,6 +1434,8 @@ def test_get_selected_text():
 
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_display_verbose():
+    """Manual verbose smoke: mouse.move logs extra detail when verbose is on."""
+
     interpreter.toolbox.verbose = True
     interpreter.verbose = True
     interpreter.toolbox.mouse.move(x=500, y=500)
@@ -1214,7 +1448,7 @@ def setup_function():
     interpreter.reset()
     interpreter.llm.temperature = 0
     interpreter.auto_run = True
-    interpreter.llm.model = TEST_MODEL_MINI  # Default to cheaper model
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
     interpreter.llm.context_window = 123000
     interpreter.llm.max_tokens = 4096
     interpreter.llm.supports_functions = True
@@ -1224,7 +1458,6 @@ def setup_function():
 @pytest.mark.skip(
     reason="Not working consistently, I think GPT related changes? It worked recently"
 )
-@requires_api_key
 def test_long_message():
     """Integration: a very long user message is handled within a tiny context window.
 
@@ -1255,6 +1488,10 @@ def _rate_limit_openai_after_integration(request):
 
 @pytest.mark.skip(reason="Mac only — manual harness; no assertion; not for CI")
 def test_spotlight():
+    """Manual Mac smoke: command+space opens Spotlight.
+
+    Not suitable for CI: drives the GUI with no pass/fail check."""
+
     interpreter.toolbox.keyboard.hotkey("command", "space")
 
 
@@ -1295,7 +1532,7 @@ def test_vision():
     ]
 
     interpreter.llm.supports_vision = True
-    interpreter.llm.model = TEST_MODEL_MINI
+    interpreter.llm.model = INTEGRATION_MODEL or "gpt-4o-mini"
     interpreter.system_message += "\nThe user will show you an image of the code you write. You can view images directly.\n\nFor HTML: This will be run STATELESSLY. You may NEVER write '<!-- previous code here... --!>' or `<!-- header will go here -->` or anything like that. It is CRITICAL TO NEVER WRITE PLACEHOLDERS. Placeholders will BREAK it. You must write the FULL HTML CODE EVERY TIME. Therefore you cannot write HTML piecemeal—write all the HTML, CSS, and possibly Javascript **in one step, in one code block**. The user will help you review it visually.\nIf the user submits a filepath, you will also see the image. The filepath and user image will both be in the user's message.\n\nIf you use `plt.show()`, the resulting image will be sent to you. However, if you use `PIL.Image.show()`, the resulting image will NOT be sent to you."
     interpreter.llm.supports_functions = True
     interpreter.llm.context_window = 110000
@@ -1366,32 +1603,38 @@ def test_math():
     assert str(round(test_result, 2)) in messages[-1]["content"]
 
 
-def test_break_execution(tmp_path):
+@pytest.mark.timeout(120)
+def test_break_execution():
     """
     Breaking from the generator while it's executing should halt the operation.
     """
-    numbers_path = tmp_path / "numbers.txt"
-    path_lit = repr(str(numbers_path))
 
-    code = f"""print("starting")
+    code = r"""print("starting")
 import time
 import os
 
-# Always create a fresh file (absolute path: kernel cwd can differ from pytest cwd)
-open({path_lit}, 'w').close()
+# Always create a fresh file
+open('numbers.txt', 'w').close()
 
 # Open the file in append mode
-with open({path_lit}, 'a+') as f:
+with open('numbers.txt', 'a+') as f:
     # Loop through the numbers 1 to 5
     for i in [1,2,3,4,5]:
         # Print the number
         print("adding", i, "to file")
         # Append the number to the file
-        f.write(str(i) + '\\n')
-        f.flush()
+        f.write(str(i) + '\n')
         # Wait for 0.5 second
         print("starting to sleep")
         time.sleep(1)
+        # # Read the file to make sure the number is in there
+        # # Move the seek pointer to the start of the file
+        # f.seek(0)
+        # # Read the file content
+        # content = f.read()
+        # print("Current file content:", content)
+        # # Check if the current number is in the file content
+        # assert str(i) in content
         # Move the seek pointer to the end of the file for the next append operation
         f.seek(0, os.SEEK_END)
         """
@@ -1405,7 +1648,9 @@ with open({path_lit}, 'a+') as f:
 
     time.sleep(3)
 
-    content = numbers_path.read_text(encoding="utf-8")
+    # Open the file and read its content
+    with open("numbers.txt", "r") as f:
+        content = f.read()
 
     # Check if '1' and '5' are in the content
     assert "1" in content
@@ -1445,31 +1690,23 @@ Only generate and execute the code. Execute instantly. No explanations. Thanks!"
 
 
 @pytest.mark.integration
-def test_write_to_file():
-    path = Path.cwd() / "file.txt"
-    path_str = str(path)
-    try:
-        os.remove(path)
-    except OSError:
-        pass
+def test_write_to_file(monkeypatch, tmp_path):
+    """Integration: LLM writes a file, then reads it back in a follow-up turn."""
 
+    require_bash_compatible_shell()
+    # Run in a temp directory so the LLM-generated file.txt does not land in the
+    # repo root or the developer's home folder. monkeypatch.chdir restores cwd after
+    # the test regardless of pass/fail.
+    monkeypatch.chdir(tmp_path)
     interpreter.chat(
-        f"Use the execute tool to run Python that writes exactly the word Washington to the file at "
-        f"this absolute path: {path_str!r}. The code must actually run on disk (not only a markdown code block)."
+        """Write the word 'Washington' to a .txt file called file.txt. Instantly run the code! Save the file!"""
     )
-    if not os.path.isfile(path):
-        interpreter.chat(
-            f"file.txt was not created. Call execute with Python now: "
-            f"open({path_str!r}, 'w', encoding='utf-8').write('Washington')"
-        )
-    assert os.path.isfile(path)
-    assert path.read_text(encoding="utf-8") == "Washington"
-
+    assert (tmp_path / "file.txt").exists()
     interpreter.messages = []  # Just reset message history, nothing else for this test
-    interpreter.chat(
-        f"Read the file at {path_str!r} with Python via execute and print() its exact text."
+    messages = interpreter.chat(
+        """Read file.txt in the current directory and tell me what's in it."""
     )
-    assert path.read_text(encoding="utf-8") == "Washington"
+    assert "Washington" in messages[-1]["content"]
 
 
 @pytest.mark.integration

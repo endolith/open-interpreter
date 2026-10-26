@@ -11,7 +11,7 @@ from unittest import mock
 import pytest
 from PIL import Image
 
-from interpreter.core.computer.utils import computer_vision as cv_mod
+from interpreter.core.toolbox.utils import computer_vision as cv_mod
 
 
 def _image(width=200, height=100):

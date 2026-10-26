@@ -1,4 +1,4 @@
-from interpreter.core.computer.terminal.base_language import BaseLanguage
+from interpreter.core.terminal.base_language import BaseLanguage
 
 
 def test_base_language_run_returns_lmc_output():

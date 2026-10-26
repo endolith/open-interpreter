@@ -1,4 +1,4 @@
-from interpreter.core.computer.ai.ai import chunk_responses, split_into_chunks
+from interpreter.core.toolbox.ai.ai import chunk_responses, split_into_chunks
 
 
 def test_split_into_chunks_with_tiktoken():

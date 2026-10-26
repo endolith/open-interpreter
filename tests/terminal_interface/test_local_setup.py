@@ -113,7 +113,7 @@ def test_local_setup_ollama_selects_model_and_pings(monkeypatch):
 
     assert result is interpreter
     assert interpreter.llm.model == "ollama/llama3.1"
-    interpreter.computer.ai.chat.assert_called_once_with("ping")
+    interpreter.toolbox.ai.chat.assert_called_once_with("ping")
     assert interpreter.llm.context_window == 8000
 
 

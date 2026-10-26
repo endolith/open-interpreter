@@ -1,4 +1,4 @@
-from interpreter.core.computer.terminal.languages.ruby import Ruby
+from interpreter.core.terminal.languages.ruby import Ruby
 
 
 def test_ruby_preprocess_code_wraps_in_begin_rescue():

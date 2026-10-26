@@ -23,7 +23,7 @@ from tests.helpers import install_point_heavy_deps, patch_expanduser
 def _import_point(monkeypatch):
     """Install heavy deps then import the point module for testing."""
     install_point_heavy_deps(monkeypatch)
-    import interpreter.core.computer.display.point.point as point_mod
+    import interpreter.core.toolbox.display.point.point as point_mod
 
     return point_mod
 
@@ -868,7 +868,7 @@ def test_point_downloads_words_on_lookup_error(monkeypatch):
         nltk_stub, "download", lambda *a, **k: downloads.append((a, k))
     )
 
-    import interpreter.core.computer.display.point.point as point_mod
+    import interpreter.core.toolbox.display.point.point as point_mod
 
     original_words = point_mod.english_words
     try:
@@ -897,7 +897,7 @@ def test_point_selects_non_cpu_device_when_available(
     )
     monkeypatch.setattr(torch_stub, "device", lambda name: name)
 
-    import interpreter.core.computer.display.point.point as point_mod
+    import interpreter.core.toolbox.display.point.point as point_mod
 
     original_device = point_mod.device
     try:

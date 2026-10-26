@@ -13,7 +13,7 @@ from pathlib import Path
 
 def _block_size_assignments():
     """Assignments to random_block_size inside get_element_boxes."""
-    source = Path("interpreter/core/computer/display/point/point.py").read_text()
+    source = Path("interpreter/core/toolbox/display/point/point.py").read_text()
     module = ast.parse(source)
     (func,) = [
         node

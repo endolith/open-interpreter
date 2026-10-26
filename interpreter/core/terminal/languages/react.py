@@ -61,7 +61,7 @@ class React(BaseLanguage):
             yield {
                 "type": "console",
                 "format": "output",
-                "content": "Error: React format not supported. Inline `react` cannot use `require` or ES module `import`/`export`. Write component code only.",
+                "content": f"Error: React format not supported. {self.system_message} Therefore some things like `require` and 'import' aren't supported.",
                 "recipient": "assistant",
             }
             return

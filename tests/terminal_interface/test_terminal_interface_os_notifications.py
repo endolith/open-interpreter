@@ -40,98 +40,98 @@ def _active_line_interpreter(code, active_line=0):
 
 def test_mouse_click_notification():
     """OS mode notifies when computer.mouse.click() is the active line."""
-    code = "computer.mouse.click()\n"
+    code = "toolbox.mouse.click()\n"
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "click"))
-    interpreter.computer.os.notify.assert_called_with("Clicking...")
+    interpreter.toolbox.os.notify.assert_called_with("Clicking...")
 
 
 def test_mouse_click_with_text_notification():
     """OS mode notifies with 'text' when clicking by text."""
-    code = 'computer.mouse.click("Submit")\n'
+    code = 'toolbox.mouse.click("Submit")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "click"))
-    interpreter.computer.os.notify.assert_called_with("Clicking text...")
+    interpreter.toolbox.os.notify.assert_called_with("Clicking text...")
 
 
 def test_mouse_click_with_icon_notification():
     """OS mode notifies with 'icon' when clicking by icon."""
-    code = 'computer.mouse.click(icon="button.png")\n'
+    code = 'toolbox.mouse.click(icon="button.png")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "click"))
-    interpreter.computer.os.notify.assert_called_with("Clicking icon...")
+    interpreter.toolbox.os.notify.assert_called_with("Clicking icon...")
 
 
 def test_mouse_move_notification():
     """OS mode notifies 'Mousing over' when moving without click in code."""
-    code = 'computer.mouse.move("target")\n'
+    code = 'toolbox.mouse.move("target")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "move"))
-    interpreter.computer.os.notify.assert_called_with("Mousing over text...")
+    interpreter.toolbox.os.notify.assert_called_with("Mousing over text...")
 
 
 def test_mouse_move_with_click_in_code_notification():
     """OS mode notifies 'Clicking' when moving with click elsewhere in code."""
-    code = 'computer.mouse.click()\ncomputer.mouse.move("target")\n'
+    code = 'toolbox.mouse.click()\ntoolbox.mouse.move("target")\n'
     interpreter = _active_line_interpreter(code, active_line=1)
     list(terminal_interface(interpreter, "move"))
-    interpreter.computer.os.notify.assert_called_with("Clicking text...")
+    interpreter.toolbox.os.notify.assert_called_with("Clicking text...")
 
 
 def test_mouse_move_with_icon_notification():
     """OS mode notifies with 'icon' when moving to icon."""
-    code = 'computer.mouse.move(icon="button.png")\n'
+    code = 'toolbox.mouse.move(icon="button.png")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "move"))
-    interpreter.computer.os.notify.assert_called_with("Mousing over icon...")
+    interpreter.toolbox.os.notify.assert_called_with("Mousing over icon...")
 
 
 def test_keyboard_hotkey_notification():
     """OS mode notifies when computer.keyboard.hotkey() is the active line."""
-    code = 'computer.keyboard.hotkey("ctrl", "c")\n'
+    code = 'toolbox.keyboard.hotkey("ctrl", "c")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "hotkey"))
-    interpreter.computer.os.notify.assert_called_with('Pressing "ctrl", "c".')
+    interpreter.toolbox.os.notify.assert_called_with('Pressing "ctrl", "c".')
 
 
 def test_keyboard_press_notification():
     """OS mode notifies when computer.keyboard.press() is the active line."""
-    code = 'computer.keyboard.press("enter")\n'
+    code = 'toolbox.keyboard.press("enter")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "press"))
-    interpreter.computer.os.notify.assert_called_with('Pressing "enter".')
+    interpreter.toolbox.os.notify.assert_called_with('Pressing "enter".')
 
 
 def test_get_selected_text_notification():
-    """OS mode notifies when computer.os.get_selected_text() is active."""
-    code = "computer.os.get_selected_text()\n"
+    """OS mode notifies when toolbox.os.get_selected_text() is active."""
+    code = "toolbox.os.get_selected_text()\n"
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "select"))
-    interpreter.computer.os.notify.assert_called_with("Getting selected text.")
+    interpreter.toolbox.os.notify.assert_called_with("Getting selected text.")
 
 
 def test_screenshot_action_notification():
     """OS mode notifies 'Viewing screen...' for screenshot actions."""
-    code = "computer.screenshot()\n"
+    code = "toolbox.screenshot()\n"
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "screenshot"))
-    interpreter.computer.os.notify.assert_called_with("Viewing screen...")
+    interpreter.toolbox.os.notify.assert_called_with("Viewing screen...")
 
 
 def test_display_view_notification():
     """OS mode notifies 'Viewing screen...' for computer.display.view()."""
-    code = "computer.display.view()\n"
+    code = "toolbox.display.view()\n"
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "view"))
-    interpreter.computer.os.notify.assert_called_with("Viewing screen...")
+    interpreter.toolbox.os.notify.assert_called_with("Viewing screen...")
 
 
 def test_keyboard_write_notification():
     """OS mode notifies with the text being typed."""
-    code = 'computer.keyboard.write("hello world")\n'
+    code = 'toolbox.keyboard.write("hello world")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "type"))
-    interpreter.computer.os.notify.assert_called_with('Typing "hello world".')
+    interpreter.toolbox.os.notify.assert_called_with('Typing "hello world".')
 
 
 def test_no_notification_for_non_computer_actions():
@@ -139,7 +139,7 @@ def test_no_notification_for_non_computer_actions():
     code = 'print("hello")\n'
     interpreter = _active_line_interpreter(code)
     list(terminal_interface(interpreter, "print"))
-    interpreter.computer.os.notify.assert_not_called()
+    interpreter.toolbox.os.notify.assert_not_called()
 
 
 def test_darwin_speak_path():

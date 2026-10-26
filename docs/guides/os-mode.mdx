@@ -16,7 +16,7 @@ This is the normal Classic interpreter loop (`respond.py`):
 
 - The model uses the **`execute` tool** (or markdown code blocks) with languages such as `python` or `shell`.
 - GUI actions use the Python **`computer.*` module** (PyAutoGUI, screenshots, etc.), as described in `interpreter/terminal_interface/profiles/defaults/os.py`.
-- Shell commands run through **`interpreter/core/computer/terminal/`** (a persistent `Shell` subprocess). This is the same execution path as everyday Classic use—not Anthropic's computer-use beta API.
+- Shell commands run through **`interpreter/core/terminal/`** (a persistent `Shell` subprocess). This is the same execution path as everyday Classic use—not Anthropic's computer-use beta API.
 
 This path works with any model LiteLLM supports — OpenAI, Anthropic, local, and others — using tool calling or markdown code blocks. Profiles set `interpreter.os = True` and `auto_run = True`.
 

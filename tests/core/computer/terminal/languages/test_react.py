@@ -1,6 +1,11 @@
+from types import SimpleNamespace
 from unittest import mock
 
-from interpreter.core.computer.terminal.languages.react import React, is_incompatible
+from interpreter.core.terminal.languages.react import React, is_incompatible
+
+
+def _vision_interpreter():
+    return SimpleNamespace(llm=SimpleNamespace(supports_vision=True))
 
 
 def test_is_incompatible_detects_import():
@@ -23,9 +28,9 @@ def test_react_incompatible_yields_error():
 
 def test_react_compatible_yields_image_chunk():
     """React.run() renders compatible JSX to a base64 PNG image chunk."""
-    react = React()
+    react = React(_vision_interpreter())
     with mock.patch(
-        "interpreter.core.computer.terminal.languages.react.html_to_png_base64",
+        "interpreter.core.terminal.languages.react.html_to_png_base64",
         return_value="imgdata",
     ):
         chunks = list(react.run("function App(){return <div/>}"))
@@ -33,3 +38,15 @@ def test_react_compatible_yields_image_chunk():
     assert len(image_chunks) == 1
     assert image_chunks[0]["format"] == "base64.png"
     assert image_chunks[0]["content"] == "imgdata"
+
+
+def test_react_non_vision_yields_source_console_chunk():
+    """Non-vision models get the rendered HTML source instead of a screenshot."""
+    react = React(SimpleNamespace(llm=SimpleNamespace(supports_vision=False)))
+    with mock.patch(
+        "interpreter.core.terminal.languages.react.html_to_png_base64",
+        return_value="imgdata",
+    ) as to_png:
+        chunks = list(react.run("function App(){return <div/>}"))
+    assert any(c["type"] == "console" for c in chunks)
+    to_png.assert_not_called()

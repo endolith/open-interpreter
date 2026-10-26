@@ -9,6 +9,7 @@ from .calendar.calendar import Calendar
 from .clipboard.clipboard import Clipboard
 from .contacts.contacts import Contacts
 from .display.display import Display
+from .files.files import Files
 from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse

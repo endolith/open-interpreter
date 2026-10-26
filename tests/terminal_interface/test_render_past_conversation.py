@@ -5,19 +5,42 @@ from interpreter.terminal_interface.render_past_conversation import (
 
 def _code_output_messages(output):
     return [
-        {
-            "role": "assistant",
-            "type": "code",
-            "format": "bash",
-            "content": "ls",
-        },
-        {
-            "role": "computer",
-            "type": "console",
-            "format": "output",
-            "content": output,
-        },
+        {"role": "assistant", "type": "code", "format": "bash", "content": "ls"},
+        {"role": "computer", "type": "console", "format": "output", "content": output},
     ]
+
+
+def test_replay_prints_user_messages(capsys):
+    """User messages are printed with a leading > prefix when replaying history."""
+    render_past_conversation(
+        [
+            {"role": "user", "type": "message", "content": "Hello"},
+            {"role": "assistant", "type": "message", "content": "Hi"},
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "Hello" in out
+    assert "Hi" in out
+
+
+def test_replay_prints_code_and_output(capsys):
+    """A code block and its captured output are both replayed."""
+    render_past_conversation(_code_output_messages("total 0"))
+    out = capsys.readouterr().out
+    assert "ls" in out
+    assert "total 0" in out
+
+
+def test_replay_skips_empty_and_system_messages(capsys):
+    """Empty messages and system alerts are not replayed as user content."""
+    render_past_conversation(
+        [
+            {"role": "assistant", "type": "message", "content": ""},
+            {"role": "system", "type": "message", "content": "hidden system"},
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "hidden system" not in out
 
 
 def test_replay_strips_mouse_tracking_enables(capsys):

@@ -130,6 +130,29 @@ class AsyncInterpreter(OpenInterpreter):
         # OpenInterpreter() in CLI uses terminal_interface for approval instead.
         self._view_image_approval = "y"
 
+    def _clear_pending_confirmation(self):
+        self.pending_confirmation = None
+        self.pending_confirmation_digest = None
+
+    def _cancel_pending_approval(self):
+        self._approval_granted = False
+        self._approval_event.set()
+
+    def _reset_respond_iterator(self):
+        self._respond_iterator = None
+        self._clear_pending_confirmation()
+
+    def _approve_pending_confirmation(self, digest: Optional[str] = None) -> bool:
+        if self.pending_confirmation is None:
+            return False
+
+        if digest is not None and digest != self.pending_confirmation_digest:
+            return False
+
+        self._approval_granted = True
+        self._approval_event.set()
+        return True
+
     async def input(self, chunk):
         """
         Accumulates LMC chunks onto interpreter.messages.
@@ -1072,14 +1095,14 @@ def create_router(async_interpreter):
     async def set_settings(payload: Dict[str, Any]):
         for key, value in payload.items():
             print("Updating settings...")
-            # print(f"Updating settings: {key} = {value}")
-            if key in ["llm", "toolbox"] and isinstance(value, dict):
-                if key == "auto_run":
-                    return {
+            if key in SENSITIVE_SERVER_SETTINGS:
+                return JSONResponse(
+                    status_code=HTTP_403_FORBIDDEN,
+                    content={
                         "error": f"The setting {key} is not modifiable through the server due to security constraints."
                     },
                 )
-            if key in ["llm", "computer"] and isinstance(value, dict):
+            if key in ["llm", "toolbox"] and isinstance(value, dict):
                 if key == "llm":
                     for sub_key in value:
                         if sub_key in SENSITIVE_LLM_SETTINGS:
@@ -1265,6 +1288,8 @@ def create_router(async_interpreter):
             chunk_iter = async_interpreter._respond_and_store()
 
         for chunk in chunk_iter:
+            if async_interpreter.stop_event.is_set():
+                break
             if run_code and "content" in chunk:
                 print(chunk.get("content", ""), end="")
             if run_code and "start" in chunk:

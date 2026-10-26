@@ -201,7 +201,7 @@ def test_reasoning_only_delta_yields_message_with_reasoning():
         ]
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
-        {"type": "message", "content": "", "reasoning_content": "Let me think"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "Let me think"},
         {"type": "message", "content": "hi"},
     ]
 
@@ -234,8 +234,10 @@ def test_reasoning_content_attached_per_chunk():
         ]
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
-        {"type": "message", "content": "a", "reasoning_content": "r1"},
-        {"type": "message", "content": "b", "reasoning_content": "r2"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "r1"},
+        {"type": "message", "content": "a"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "r2"},
+        {"type": "message", "content": "b"},
     ]
 
 
@@ -257,7 +259,7 @@ def test_reasoning_survives_split_fence_guard():
         ]
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
-        {"type": "message", "content": "", "reasoning_content": "thinking"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "thinking"},
         {"type": "message", "content": "more"},
     ]
 
@@ -285,7 +287,7 @@ def test_reasoning_inside_code_block_is_emitted():
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
         {"type": "code", "format": "python", "content": "```\n"},
-        {"type": "message", "content": "", "reasoning_content": "r-code"},
+        {"role": "assistant", "type": "message", "format": "reasoning", "content": "r-code"},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
 
@@ -309,7 +311,8 @@ def test_reasoning_on_closing_fence_is_emitted_before_return():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result[-1] == {
+        "role": "assistant",
         "type": "message",
-        "content": "",
-        "reasoning_content": "done",
+        "format": "reasoning",
+        "content": "done",
     }

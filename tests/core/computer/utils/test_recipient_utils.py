@@ -1,4 +1,4 @@
-from interpreter.core.computer.utils.recipient_utils import (
+from interpreter.core.utils.recipient_utils import (
     format_to_recipient,
     parse_for_recipient,
 )

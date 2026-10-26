@@ -1,4 +1,4 @@
-from interpreter.core.computer.terminal.languages.applescript import AppleScript
+from interpreter.core.terminal.languages.applescript import AppleScript
 
 
 def test_applescript_add_active_line_indicators():

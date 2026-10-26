@@ -18,7 +18,7 @@ _TOOLS = [
 ]
 
 
-def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS):
+def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS, **extra):
     """Run messages through the outgoing-request normalization and return them.
 
     fixed_litellm_completions mutates the message list (filling reasoning_content
@@ -34,7 +34,7 @@ def _process(messages, model="deepseek/deepseek-v4-flash", tools=_TOOLS):
         captured["messages"] = params["messages"]
         return iter(())
 
-    kwargs = {"model": model, "messages": messages, "stream": True}
+    kwargs = {"model": model, "messages": messages, "stream": True, **extra}
     if tools is not None:
         kwargs["tools"] = tools
 
@@ -198,6 +198,149 @@ def test_no_thinking_history_leaves_unknown_model_untouched():
     assert "reasoning_content" not in out[3]
 
 
+def test_without_tools_leaves_deepseek_untouched():
+    """Without tools the field is ignored, so the request must stay byte-identical.
+
+    The guide makes passback conditional on the request carrying tools; filling
+    a text-only request only mutates stored messages and bloats the payload.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    out = _process(messages, tools=None)
+    assert "reasoning_content" not in out[1]
+
+
+def test_placeholder_only_history_does_not_trigger_fill():
+    """Placeholders are ours, not the provider's: a history holding only "."
+    (real reasoning trimmed away, or a mid-conversation switch to a
+    non-thinking model) must not keep the fill running on speculation.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": PLACEHOLDER,
+            "tool_calls": [_tool_call("c1")],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c2")]},
+    ]
+    out = _process(messages, model="opencode_go/some-plain-model")
+    assert "reasoning_content" not in out[3]
+
+
+def test_legacy_placeholder_on_plain_assistant_becomes_empty():
+    """A legacy placeholder on a non-tool turn is normalized to "".
+
+    Only tool_calls messages need a non-empty value; a plain assistant turn
+    accepts "", and forwarding the fabricated phrase would teach the model
+    that narrating an action is acceptable.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "done",
+            "reasoning_content": LEGACY_PLACEHOLDER,
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == ""
+
+
+def test_empty_reasoning_on_tool_call_gets_placeholder():
+    """A tool_calls message carrying "" is as fatal as a missing field."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "",
+            "tool_calls": [_tool_call("c1")],
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_extra_body_disable_leaves_messages_untouched():
+    """An explicit include_reasoning=False in extra_body disables the fill."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, extra_body={"include_reasoning": False})
+    assert "reasoning_content" not in out[1]
+
+
+def test_top_level_disable_leaves_messages_untouched():
+    """An explicit include_reasoning=False in params disables the fill."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, include_reasoning=False)
+    assert "reasoning_content" not in out[1]
+
+
+def test_non_string_reasoning_is_not_thinking_history():
+    """A non-string reasoning_content is not evidence of a thinking provider."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": None,
+            "tool_calls": [_tool_call("c1")],
+        },
+    ]
+    out = _process(messages, model="opencode_go/some-plain-model")
+    assert out[1]["reasoning_content"] is None
+
+
+def test_non_string_reasoning_on_tool_call_gets_placeholder():
+    """A relay can send a list; it must be treated as no reasoning, not crash."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": ["not", "a", "string"],
+            "tool_calls": [_tool_call("c1")],
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_non_string_reasoning_on_plain_assistant_becomes_empty():
+    """A non-string reasoning value on a plain turn is normalized to ""."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "done",
+            "reasoning_content": {"unexpected": "shape"},
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == ""
+
+
+def test_thinking_disabled_leaves_messages_untouched():
+    """DeepSeek's own thinking-off switch disables the fill."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
+    ]
+    out = _process(messages, extra_body={"thinking": {"type": "disabled"}})
+    assert "reasoning_content" not in out[1]
+
+
 def test_wire_model_is_applied_after_policy_decisions():
     """The opencode_go wire name is parked and applied last.
 
@@ -238,39 +381,3 @@ def test_wire_model_is_applied_after_policy_decisions():
     assert captured["model"] == "deepseek-v4.1-flash"
     assert "_oi_wire_model" not in captured
     assert captured["messages"][1]["reasoning_content"] == PLACEHOLDER
-
-
-def test_placeholder_only_history_does_not_trigger_fill():
-    """Placeholders are ours, not the provider's: a history holding only "."
-    (real reasoning trimmed away, or a mid-conversation switch to a
-    non-thinking model) must not keep the fill running on speculation.
-    """
-    messages = [
-        {"role": "user", "content": "go"},
-        {
-            "role": "assistant",
-            "content": "",
-            "reasoning_content": PLACEHOLDER,
-            "tool_calls": [_tool_call("c1")],
-        },
-        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
-        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c2")]},
-    ]
-    out = _process(messages, model="opencode_go/some-plain-model")
-    assert "reasoning_content" not in out[3]
-
-
-def test_no_tools_does_not_fill_reasoning_content():
-    """Without `tools`, DeepSeek ignores the field, so history must be left alone.
-
-    The thinking-mode guide makes passback conditional on the request carrying
-    `tools`: without it the field is not concatenated even if sent. Filling it
-    there only mutates stored messages and bloats every later request -- and it
-    would inject a provider-specific field into non-DeepSeek routes.
-    """
-    messages = [
-        {"role": "user", "content": "go"},
-        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1")]},
-    ]
-    out = _process(messages, tools=None)
-    assert "reasoning_content" not in out[1]

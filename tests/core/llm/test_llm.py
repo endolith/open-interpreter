@@ -73,7 +73,7 @@ def test_llm_clamps_max_tokens_to_context_window():
     interpreter = SimpleNamespace(
         shrink_images=True,
         display_message=mock.Mock(),
-        computer=SimpleNamespace(vision=SimpleNamespace(query=mock.Mock())),
+        toolbox=SimpleNamespace(vision=SimpleNamespace(query=mock.Mock())),
         os=False,
         verbose=False,
         debug=False,
@@ -92,7 +92,7 @@ def test_llm_clamps_max_tokens_to_context_window():
             "interpreter.core.llm.llm.convert_to_openai_messages",
             return_value=[{"role": "system", "content": "sys"}],
         ):
-            with mock.patch("interpreter.core.llm.llm.tt.trim", return_value=([], {})):
+            with mock.patch("interpreter.core.llm.llm.tt.trim", return_value=[]):
                 with mock.patch(
                     "interpreter.core.llm.llm.run_text_llm", return_value=iter([])
                 ):
@@ -105,7 +105,7 @@ def test_llm_run_requires_system_first():
     interpreter = SimpleNamespace(
         shrink_images=True,
         display_message=mock.Mock(),
-        computer=SimpleNamespace(vision=SimpleNamespace(query=mock.Mock())),
+        toolbox=SimpleNamespace(vision=SimpleNamespace(query=mock.Mock())),
     )
     llm = Llm(interpreter)
     with pytest.raises(AssertionError, match="system"):
@@ -119,12 +119,13 @@ def _interp(**attrs):
         verbose=False,
         debug=False,
         display_message=mock.Mock(),
-        computer=SimpleNamespace(
+        toolbox=SimpleNamespace(
             vision=SimpleNamespace(
                 query=mock.Mock(return_value="description"),
                 ocr=mock.Mock(return_value="ocr text"),
             ),
             import_computer_api=True,
+            import_toolbox_api=True,
         ),
     )
     for name, value in attrs.items():
@@ -392,7 +393,7 @@ def test_run_import_error_on_vision_blanks_image():
     """llm.run blanks the image content when the vision renderer exists but
     raises ImportError."""
     interp = _interp()
-    interp.computer.vision.query.side_effect = ImportError
+    interp.toolbox.vision.query.side_effect = ImportError
     llm = Llm(interp)
     llm._is_loaded = True
     llm.supports_functions = True
@@ -438,7 +439,7 @@ def test_load_ollama_downloads_and_pings_model():
     """llm.load for an ollama model pulls it if missing, reads its context
     window, and pings it to force a load."""
     interp = _interp()
-    interp.computer.ai = SimpleNamespace(chat=mock.Mock())
+    interp.toolbox.ai = SimpleNamespace(chat=mock.Mock())
     llm = Llm(interp)
     llm.model = "ollama/llama3"
     llm.api_base = "http://ollama:11434"
@@ -461,7 +462,7 @@ def test_load_ollama_downloads_and_pings_model():
     )
     assert llm.context_window == 8192
     assert llm.max_tokens == 1638
-    interp.computer.ai.chat.assert_called_once_with("ping")
+    interp.toolbox.ai.chat.assert_called_once_with("ping")
     interp.display_message.assert_any_call("*Model loaded.*\n")
 
 
@@ -482,8 +483,8 @@ def test_load_ollama_exits_when_ollama_unreachable():
     assert "ollama.com" in interp.display_message.call_args[0][0]
 
 
-def test_fixed_litellm_completions_retries_then_raises_first_error():
-    """fixed_litellm_completions retries all attempts and re-raises the first error."""
+def test_fixed_litellm_completions_raises_first_error_without_retrying():
+    """Retries live in respond.py, so the completion call itself is attempted once."""
     from interpreter.core.llm.llm import fixed_litellm_completions
 
     with mock.patch(
@@ -493,7 +494,7 @@ def test_fixed_litellm_completions_retries_then_raises_first_error():
         with pytest.raises(RuntimeError, match="failure 0"):
             list(fixed_litellm_completions(model="gpt-4o", messages=[]))
 
-    assert completion.call_count == 4
+    assert completion.call_count == 1
 
 
 def test_fixed_litellm_completions_uses_dummy_key_on_auth_error():
@@ -877,8 +878,8 @@ def test_fixed_litellm_completions_drops_unknown_params():
     assert llm_mod.litellm.drop_params is True
 
 
-def test_fixed_litellm_completions_exits_on_keyboard_interrupt():
-    """A KeyboardInterrupt during completion calls sys.exit(0)."""
+def test_fixed_litellm_completions_propagates_keyboard_interrupt():
+    """Ctrl-C propagates so the terminal can cancel the response instead of exiting."""
     import interpreter.core.llm.llm as llm_mod
     from interpreter.core.llm.llm import fixed_litellm_completions
 
@@ -886,11 +887,9 @@ def test_fixed_litellm_completions_exits_on_keyboard_interrupt():
         with mock.patch.object(
             llm_mod.sys, "exit", side_effect=SystemExit
         ) as exit_mock:
-            with pytest.raises(SystemExit):
+            with pytest.raises(KeyboardInterrupt):
                 list(fixed_litellm_completions(model="gpt-4o", messages=[]))
-    # The first KeyboardInterrupt terminates the generator via sys.exit(0);
-    # assert it was called exactly once, so retries don't continue silently.
-    exit_mock.assert_called_once_with(0)
+    exit_mock.assert_not_called()
 
 
 def test_run_verbose_logs_image_removal():
@@ -917,7 +916,7 @@ def test_run_verbose_logs_image_removal():
 def test_run_path_image_without_import_api_has_no_postcursor():
     """Without the computer API, a path image gets no vision-query postcursor."""
     interp = _interp()
-    interp.computer.import_computer_api = False
+    interp.toolbox.import_computer_api = False
     llm = Llm(interp)
     llm._is_loaded = True
     llm.supports_functions = True

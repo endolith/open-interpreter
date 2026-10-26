@@ -1,9 +1,7 @@
 """Tests for the per-conversation identifier.
 
-OI mints one id per conversation and re-mints it on reset. It is read by two
-different audiences: the hosted `i` model (as a request body field) and
-providers that key prompt caching/routing on a per-conversation id (as an HTTP
-header). Both must see a value that is stable within a conversation and distinct
+OI mints one id per conversation and re-mints it on reset. It is read by providers that key prompt caching/routing on a
+per-conversation id (as an HTTP header). Both must see a value that is stable within a conversation and distinct
 between conversations.
 """
 
@@ -52,63 +50,6 @@ def test_reset_mints_a_new_conversation_id():
     before = interpreter.conversation_id
     interpreter.reset()
     assert interpreter.conversation_id != before
-
-
-def test_i_model_still_configures_its_endpoint():
-    """The hosted `i` model keeps its api_base/api_key/context_window defaults.
-
-    Regression guard: that block used to be nested inside
-    `if not hasattr(interpreter, "conversation_id")`. Now that every conversation
-    has an id from construction, that guard is always false and would silently
-    skip the whole block, leaving `i` pointed at the default OpenAI endpoint.
-    """
-    interpreter = OpenInterpreter()
-    interpreter.llm.model = "i"
-
-    captured = {}
-
-    def fake_completions(**params):
-        captured.update(params)
-        return iter(())
-
-    interpreter.llm.completions = fake_completions
-    list(
-        interpreter.llm.run(
-            [
-                {"role": "system", "type": "message", "content": "sys"},
-                {"role": "user", "type": "message", "content": "hi"},
-            ]
-        )
-    )
-
-    assert captured["api_base"] == "https://api.openinterpreter.com/v0"
-    assert captured["api_key"] == "x"
-    assert interpreter.llm.context_window == 7000
-    assert interpreter.llm.max_tokens == 1000
-
-
-def test_i_model_sends_conversation_id_in_the_body():
-    """The `i` API receives the id as a request field, as it always has."""
-    interpreter = OpenInterpreter()
-    interpreter.llm.model = "i"
-
-    captured = {}
-
-    def fake_completions(**params):
-        captured.update(params)
-        return iter(())
-
-    interpreter.llm.completions = fake_completions
-    list(
-        interpreter.llm.run(
-            [
-                {"role": "system", "type": "message", "content": "sys"},
-                {"role": "user", "type": "message", "content": "hi"},
-            ]
-        )
-    )
-
-    assert captured["conversation_id"] == interpreter.conversation_id
 
 
 def test_non_i_models_do_not_send_conversation_id_in_the_body():

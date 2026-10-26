@@ -13,8 +13,8 @@ from unittest import mock
 import pytest
 from PIL import Image
 
-from interpreter.core.computer.vision import vision as vision_mod
-from interpreter.core.computer.vision.vision import Vision
+from interpreter.core.toolbox.vision import vision as vision_mod
+from interpreter.core.toolbox.vision.vision import Vision
 
 
 def _make_vision():
@@ -84,7 +84,7 @@ def test_ocr_from_base64_lmc_uses_easyocr():
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
         b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc``\x00\x00\x00\x02\x00\x01\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82"
     ).decode()
-    vision = Vision(computer=SimpleNamespace(debug=False))
+    vision = Vision(toolbox=SimpleNamespace(debug=False))
     lmc = {"format": "base64.png", "content": png}
 
     fake_reader = mock.Mock()

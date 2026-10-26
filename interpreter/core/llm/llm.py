@@ -23,8 +23,29 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ...terminal_interface.utils.local_storage_path import get_storage_path
+from .providers import OpenRouterCatalogError, openrouter_model_entry
 from .run_text_llm import run_text_llm
 from .utils.provider_quirks import resolve_quirks
+
+def _supports_vision(model: str) -> bool | None:
+    """Whether litellm (or OpenRouter's catalog) knows the model takes images.
+
+    Returns None when the OpenRouter catalog cannot be fetched, so the caller can
+    fail before sending rather than silently dropping images.
+    """
+    try:
+        if litellm.supports_vision(model):
+            return True
+        entry = openrouter_model_entry(model)
+        if entry is not None:
+            modalities = (entry.get("architecture") or {}).get("input_modalities") or []
+            return "image" in modalities
+    except OpenRouterCatalogError:
+        return None
+    except Exception:
+        pass
+    return False
+
 
 # Appended to the system message in tool-calling mode. Tool names, parameters, languages,
 # and execution modes live only in request.tools JSON — not duplicated here.
@@ -299,32 +320,6 @@ class SuppressDebugFilter(logging.Filter):
         return True  # Allow all other messages
 
 
-def _supports_vision(model: str) -> bool | None:
-    """Return whether litellm knows the model accepts image input.
-
-    litellm's registry lags provider releases and does not know some
-    ``openrouter/`` slugs, which would make OI treat a vision model as
-    text-only and silently drop images. Fall back to the OpenRouter catalog,
-    which is authoritative for the exact slug.
-
-    Returns None when the catalog cannot be fetched, so the caller can abort
-    before sending the request and retry on a later run instead of treating
-    the model as text-only.
-    """
-    try:
-        if litellm.supports_vision(model):
-            return True
-        entry = openrouter_model_entry(model)
-        if entry is not None:
-            modalities = (entry.get("architecture") or {}).get("input_modalities") or []
-            return "image" in modalities
-    except OpenRouterCatalogError:
-        return None
-    except Exception:
-        pass
-    return False
-
-
 class Llm:
     """
     A stateless LMC-style LLM with some helpful properties.
@@ -358,9 +353,6 @@ class Llm:
         # Optional settings
         self.context_window = None
         self.max_tokens = None
-        # Model-specific reasoning effort (e.g. DeepSeek V4 low/high/max).
-        # Passed through as configured; the provider validates it.
-        self.reasoning_effort = None
         self.api_base = None
         self.api_key = None
         self.api_version = None
@@ -375,9 +367,6 @@ class Llm:
         # in use (dashscope-intl/, dashscope-us/). None for every other route,
         # including plain dashscope/ where the prefix is the wire name.
         self._dashscope_wire_model = None
-        # Set when the hosted `i` model is selected; distinguishes it from an
-        # arbitrary model string that happens to route to api.openinterpreter.com.
-        self._is_hosted_i_model = False
         self._is_loaded = False
 
         # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
@@ -463,21 +452,11 @@ class Llm:
         # The free, hosted `i` model was shut down. Fail loudly instead of
         # silently pointing at a dead endpoint.
         if model == "i":
-            model = "openai/i"
-            self._is_hosted_i_model = True
-            # Set defaults without clobbering explicit user/profile values. This
-            # used to be guarded by `if not hasattr(self.interpreter,
-            # "conversation_id")`, which conflated "haven't configured this yet"
-            # with "no conversation id" -- now that the id always exists, that
-            # guard would silently skip the whole block.
-            if self.context_window is None:
-                self.context_window = 7000
-            if self.api_key is None:
-                self.api_key = "x"
-            if self.max_tokens is None:
-                self.max_tokens = 1000
-            if self.api_base is None:
-                self.api_base = "https://api.openinterpreter.com/v0"
+            raise ValueError(
+                "The hosted `i` model has been removed. "
+                "Please choose a different model, e.g. `interpreter --model gpt-4o` "
+                "or `interpreter --local` for a local model."
+            )
 
         # LiteLLM's registry keys DashScope models as dashscope/<model>; the
         # region prefixes are ours, not its. Query the spelling it knows so tool
@@ -514,18 +493,17 @@ class Llm:
                     self.supports_functions = False
 
         # Detect vision support
-        if self.supports_vision == None:
-            try:
-                if litellm.supports_vision(_metadata_model):
-                    self.supports_vision = True
-                else:
-                    # LiteLLM's registry can lag behind provider releases (e.g.
-                    # openrouter/qwen/qwen3.7-plus is not listed yet). OpenRouter's
-                    # model list is authoritative for modalities, so consult it
-                    # before concluding the model can't receive images.
-                    self.supports_vision = self._openrouter_supports_vision(model)
-            except:
-                self.supports_vision = False
+        if self.supports_vision is None:
+            detected = _supports_vision(_metadata_model)
+            if detected is None:
+                raise OpenRouterCatalogError(
+                    f"Could not determine whether {_metadata_model} accepts images: "
+                    "the OpenRouter model catalog could not be fetched. Retry, or "
+                    "set `supports_vision` explicitly (e.g. "
+                    "`interpreter.llm.supports_vision = True`) to proceed."
+                )
+            self._supports_vision = detected
+            self._supports_vision_is_manual = False
 
         # Render images to descriptions for non-vision models up front. This
         # mutates stored image dicts in place, but idempotently: already
@@ -535,7 +513,22 @@ class Llm:
         # (Middle-image culling lives in conversion_cache's full path and is
         # skipped on fast paths, where the culled set provably cannot change.)
         image_messages = [msg for msg in messages if msg["type"] == "image"]
-        if self.supports_vision == False and self.vision_renderer:
+        if self.supports_vision:
+            if self.interpreter.os:
+                # Keep only the last two images when running in OS mode.
+                if len(image_messages) > 1:
+                    for img_msg in image_messages[:-2]:
+                        messages.remove(img_msg)
+                        if self.interpreter.verbose:
+                            print("Removing image message!")
+            else:
+                # Keep the first and last two images; drop the middle ones.
+                if len(image_messages) > 3:
+                    for img_msg in image_messages[1:-2]:
+                        messages.remove(img_msg)
+                        if self.interpreter.verbose:
+                            print("Removing image message!")
+        elif self.supports_vision is False and self.vision_renderer:
             for img_msg in image_messages:
                 if img_msg["format"] != "description":
                     self.interpreter.display_message("\n  *Viewing image...*\n")
@@ -902,11 +895,6 @@ Continuing...
             params["max_tokens"] = self.max_tokens
         if self.temperature is not None:
             params["temperature"] = self.temperature
-        # `conversation_id` is a body field only the hosted `i` API understands
-        # (see fixed_litellm_completions, which disables drop_params for it).
-        # Other providers get the id via a header instead, if they want it at all.
-        if self._is_hosted_i_model and hasattr(self.interpreter, "conversation_id"):
-            params["conversation_id"] = self.interpreter.conversation_id
 
         if auxiliary_title_request:
             # Avoid huge reasoning streams and hung streams with no wall clock (OpenRouter etc.).
@@ -944,18 +932,6 @@ Continuing...
         # only show our own debug messages, not LiteLLM's internal logging.
         # if self.interpreter.verbose:
         #     litellm.set_verbose = True
-
-        if (
-            self.interpreter.debug == True and False  # DISABLED
-        ):  # debug will equal "server" if we're debugging the server specifically
-            print("\n\n\nOPENAI COMPATIBLE MESSAGES:\n\n\n")
-            for message in messages:
-                if len(str(message)) > 5000:
-                    print(str(message)[:200] + "...")
-                else:
-                    print(message)
-                print("\n")
-            print("\n\n\n")
 
         if self.supports_functions and not auxiliary_title_request:
             # yield from run_function_calling_llm(self, params)
@@ -1430,19 +1406,9 @@ def fixed_litellm_completions(**params):
         # Kinda hacky, but this helps sometimes
         params["stop"] = ["<|assistant|>", "<|end|>", "<|eot_id|>"]
 
-    # The hosted `i` model was rewritten to the OpenAI-compatible "openai/i" by
-    # the time params reach here, so match that spelling -- the old `== "i"` check
-    # never fired and conversation_id was silently stripped by drop_params.
-    if params.get("model") == "openai/i" and "conversation_id" in params:
-        litellm.drop_params = (
-            False  # If we don't do this, litellm will drop this param!
-        )
-    else:
-        litellm.drop_params = True
+    litellm.drop_params = True
 
     params["model"] = params["model"].replace(":latest", "")
-
-    _fill_reasoning_content(params)
 
     # Run completion
     # Keep provider retries explicit in respond.py so user choices ("n = stop")
@@ -1470,9 +1436,16 @@ def fixed_litellm_completions(**params):
     # present.  We skip this only when reasoning was explicitly disabled by the caller.
     _model = params.get("model", "")
     _extra_body = params.get("extra_body", {})
+    _thinking_switch = (
+        _extra_body.get("thinking") if isinstance(_extra_body, dict) else None
+    )
     _reasoning_explicitly_disabled = (
         _extra_body.get("include_reasoning") is False
         or params.get("include_reasoning") is False
+        or (
+            isinstance(_thinking_switch, dict)
+            and _thinking_switch.get("type") == "disabled"
+        )
     )
     # params["model"] is the WIRE name here, not self.model: for the opencode_go
     # route run() strips the prefix (model.split("/", 1)[1]), so
@@ -1575,6 +1548,11 @@ def fixed_litellm_completions(**params):
             if msg.get("role") == "assistant":
                 if "reasoning_content" in msg:
                     rc = msg.get("reasoning_content")
+                    if not isinstance(rc, str):
+                        # A non-string payload cannot be sent back verbatim.
+                        # Treat it as no reasoning and normalize below.
+                        rc = ""
+                        msg["reasoning_content"] = rc
                     if (rc or "").strip() in (
                         _no_reasoning_placeholder,
                         _legacy_no_reasoning_placeholder,
