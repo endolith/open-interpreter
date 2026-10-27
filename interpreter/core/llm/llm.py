@@ -389,6 +389,15 @@ Continuing...
 
         self._is_loaded = True
 
+        # DeepSeek's OpenAI-compatible endpoint. LiteLLM reads the key itself,
+        # but mirroring it here makes the optional base explicit and keeps the
+        # provider config visible in one place.
+        if self.model.startswith("deepseek/"):
+            if self.api_key is None:
+                self.api_key = os.environ.get("DEEPSEEK_API_KEY")
+            if self.api_base is None:
+                self.api_base = os.environ.get("DEEPSEEK_API_BASE")
+
         if self.model.startswith("ollama/"):
             model_name = self.model.replace("ollama/", "")
             api_base = getattr(self, "api_base", None) or os.getenv(
