@@ -286,7 +286,9 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A normal run is ~3 minutes; bound a stalled provider call instead of
+    # letting non-daemon client threads hold the job for 45 minutes.
+    timeout-minutes: 10
     # Needs the provider key for OI_INTEGRATION_MODEL (OPENROUTER_API_KEY for the
     # default openrouter/ model). Only run where secrets are available and trusted:
     # - pushes to main (post-merge verification)
