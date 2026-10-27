@@ -31,9 +31,19 @@ Before writing your own bug fixes and features:
 - If there's an existing library that implements something you need, don't be afraid to suggest it instead of rolling your own solution.
 - Always remember to give attribution and links for anything borrowed, and verify license compatibility.
 
+### Keep diffs minimal and readable
+
+Reviewers should see only the changes the task requires; unrelated churn hides bugs and makes review slower.
+
+- **Do not move, rename, reorder, or reformat existing code, tests, documentation, or comments for tidiness.** Change them only when the task requires it. If a move or rename is genuinely necessary, put it in its own commit and explain why.
+- **Do not rewrite or replace test files wholesale.** Preserve existing test names and docstrings; when behavior changes, update expectations minimally and append new regression tests. Delete a test only when its behavior is demonstrably obsolete, and explain the deletion in the commit message.
+- **Do not delete or paraphrase existing comments or documentation.** Keep the author's wording while it remains accurate; edit only what the change makes wrong. Wording-only changes are churn.
+- **Inspect the staged diff before committing.** Check `git diff --cached --stat` and the actual diff for deleted tests, comments, moved blocks, and formatting-only changes. Every deletion or move must be intentional and called out in the commit message; formatting-only changes should not be mixed with behavior changes.
+
 ### Testing
 
 - **Always write or update unit tests** when changing code. New functions/methods need tests; bug fixes need regression tests.
+- **Preserve existing tests.** Only delete a test when its behavior is demonstrably obsolete; otherwise keep it and append new cases. Do not rename or drop tests while reorganizing a file.
 - **Every test function must have a docstring** explaining what behavior it verifies and why. Someone who breaks the test must be able to understand what they broke and what the intended behavior is.
 - **Autonomous agents must monitor CI** after pushing: keep checking the workflow status until it passes, fixing any failures before considering the work complete.
 - **Integration tests** (`@pytest.mark.integration`) call an LLM and auto-execute generated code. Locally they need `OI_RUN_INTEGRATION=1` and the provider key for the model under test: `OPENAI_API_KEY` by default, or the key matching `OI_INTEGRATION_MODEL` (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Without both, pytest skips them. CI sets `OI_INTEGRATION_MODEL` to `openrouter/~deepseek/deepseek-flash-latest` by default, so it uses `OPENROUTER_API_KEY` (see `docs/CONTRIBUTING.md`).
@@ -65,7 +75,7 @@ When changing code, update **all** relevant documentation:
 ### Comments
 
 - **Code comments** explain *why*: the intent, non-obvious reasoning, edge cases, and business logic. If a comment is needed to restate what the code does, rewrite the code to be clearer instead. Historical context that explains current behavior is acceptable. Remove meta-commentary about the development process (e.g., "fixing my commit according to instructions" or "now following the directions"). Keep process discussions in chat, not in comments or commit messages.
-- Don't delete or omit comments while changing things. Comments are just as important as code.
+- Don't delete, omit, or paraphrase comments while changing things. Comments are just as important as code.
 
 ### PRs and Issues
 
