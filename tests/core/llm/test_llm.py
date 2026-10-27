@@ -194,6 +194,24 @@ def test_run_dispatches_to_text_runner_without_functions():
     assert captured["params"]["messages"][0]["content"] == "hi"
 
 
+def test_run_requests_streamed_usage():
+    """llm.run asks OpenAI-compatible APIs to attach usage to the stream."""
+    llm = Llm(_interp())
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )
+
+    assert captured["params"]["stream_options"] == {"include_usage": True}
+
+
 def test_run_includes_optional_llm_params():
     """llm.run forwards api_key/api_base/api_version/max_tokens/temperature."""
     interp = _interp()
