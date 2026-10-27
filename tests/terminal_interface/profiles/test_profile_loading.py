@@ -102,6 +102,21 @@ def test_remove_interpreter_keeps_other_imports():
     assert "from interpreter import interpreter" not in result
 
 
+def test_vision_profile_sets_interpreter_custom_instructions():
+    """--vision must send its instructions, not attach them to interpreter.llm.
+
+    The profile loader recurses nested keys onto objects; llm.custom_instructions
+    is never read by the prompt builder. The regression is a silent no-op that
+    makes --vision behave like a plain text session.
+    """
+    profile = get_default_profile("vision.yaml")
+
+    assert profile["custom_instructions"].startswith(
+        "The user will show you an image of the code you write."
+    )
+    assert "custom_instructions" not in profile["llm"]
+
+
 def test_get_profile_local_yaml(tmp_path, monkeypatch):
     """get_profile loads a YAML profile from a local file."""
     profile_file = tmp_path / "test.yaml"
