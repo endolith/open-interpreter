@@ -6,6 +6,7 @@ from .utils.normalize_double_escaped_arguments import (
     normalize_double_escaped_arguments,
 )
 from .utils.parse_partial_json import parse_partial_json
+from .utils.stream_usage import record_stream_chunk_usage
 
 tool_schema = {
     "type": "function",
@@ -179,6 +180,8 @@ def run_tool_calling_llm(llm, request_params):
     buffer = ""
 
     for chunk in llm.completions(**request_params):
+        record_stream_chunk_usage(llm, chunk)
+
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
