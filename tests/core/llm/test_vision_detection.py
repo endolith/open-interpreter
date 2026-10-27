@@ -99,6 +99,25 @@ def test_fetch_failure_is_not_cached(monkeypatch):
     assert calls["count"] == 2
 
 
+def test_openrouter_catalog_headers_default_to_this_fork(monkeypatch):
+    """OpenRouter attribution defaults to this fork, not an empty referer."""
+    captured = {}
+
+    def get(url, **kwargs):
+        captured.update(kwargs.get("headers", {}))
+        return _Response({"data": []})
+
+    monkeypatch.delenv("OR_SITE_URL", raising=False)
+    monkeypatch.delenv("OR_APP_NAME", raising=False)
+    monkeypatch.setattr(providers.requests, "get", get)
+    monkeypatch.setattr(providers, "_openrouter_models", None)
+
+    providers.openrouter_model_entry("openrouter/openai/gpt-4o-mini")
+
+    assert captured["HTTP-Referer"] == "https://github.com/endolith/open-interpreter"
+    assert captured["X-Title"] == "Open Interpreter"
+
+
 def test_other_provider_makes_no_request(monkeypatch):
     """A non-OpenRouter id returns before any HTTP call."""
     def fail(url, **kwargs):
