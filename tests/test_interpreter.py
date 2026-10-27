@@ -933,9 +933,15 @@ def test_server():
             assert last_assistant, "expected assistant response after file turn"
             response = interpreter.computer.ai.chat(
                 last_assistant
-                + "\n\nBased on the assistant response above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+                + "\n\nBased on the assistant response above, does the assistant think the file exists? "
+                "Answer with exactly one of these two words: 'yes' or 'no'. "
+                "Do not write code, shell commands, explanations, or punctuation."
             )
-            assert response.strip(" \n.").lower() == "no"
+            answer = response.strip().lower()
+            assert answer in {"yes", "no"}, (
+                f"expected exactly 'yes' or 'no', got {response!r}"
+            )
+            assert answer == "no", f"expected a negative verdict, got {response!r}"
 
             #### TEST IMAGES ####
 
