@@ -104,6 +104,10 @@ class Llm:
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
+        # Filled from the final streaming chunk when the API sends usage
+        # (see stream_usage.record_stream_chunk_usage).
+        self.last_completion_usage = None
+
     def run(self, messages):
         """
         We're responsible for formatting the call into the llm.completions object,
@@ -322,6 +326,9 @@ Continuing...
             "model": model,
             "messages": messages,
             "stream": True,
+            # OpenAI-compatible APIs need this to attach token usage to the
+            # final streaming chunk.
+            "stream_options": {"include_usage": True},
         }
 
         # Optional inputs

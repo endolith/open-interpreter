@@ -1,3 +1,6 @@
+from .utils.stream_usage import record_stream_chunk_usage
+
+
 FENCE = "```"
 
 
@@ -105,6 +108,8 @@ def run_text_llm(llm, params):
     opener_len = len(FENCE)
 
     for chunk in llm.completions(**params):
+        record_stream_chunk_usage(llm, chunk)
+
         if llm.interpreter.verbose:
             print("Chunk in coding_llm", chunk)
 
