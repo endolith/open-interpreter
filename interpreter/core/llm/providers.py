@@ -35,7 +35,9 @@ def openrouter_model_entry(model: str):
             response = requests.get(
                 "https://openrouter.ai/api/v1/models",
                 headers={
-                    "HTTP-Referer": os.environ.get("OR_SITE_URL", ""),
+                    "HTTP-Referer": os.environ.get(
+                        "OR_SITE_URL", "https://github.com/endolith/open-interpreter"
+                    ),
                     "X-Title": os.environ.get("OR_APP_NAME", "Open Interpreter"),
                 },
                 timeout=10,
