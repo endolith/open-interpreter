@@ -434,6 +434,38 @@ def test_load_fetches_context_window_from_litellm():
     assert llm.max_tokens == 1600
 
 
+def test_load_applies_deepseek_environment(monkeypatch):
+    """DeepSeek model loading reads DEEPSEEK_API_KEY and the optional base URL."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("DEEPSEEK_API_BASE", "https://deepseek.example/v1")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+
+    llm.load()
+
+    assert llm.api_key == "deepseek-key"
+    assert llm.api_base == "https://deepseek.example/v1"
+
+
+def test_load_keeps_explicit_deepseek_config(monkeypatch):
+    """Explicit llm.api_key/api_base values win over the environment."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+    monkeypatch.setenv("DEEPSEEK_API_BASE", "https://env.example/v1")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.api_key = "explicit-key"
+    llm.api_base = "https://explicit.example/v1"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+
+    llm.load()
+
+    assert llm.api_key == "explicit-key"
+    assert llm.api_base == "https://explicit.example/v1"
+
+
 def test_load_ollama_downloads_and_pings_model():
     """llm.load for an ollama model pulls it if missing, reads its context
     window, and pings it to force a load."""
