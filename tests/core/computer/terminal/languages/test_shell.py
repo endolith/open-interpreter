@@ -32,17 +32,20 @@ def test_has_multiline_commands_detects_line_continuation():
     assert has_multiline_commands("echo hello \\\nworld")
 
 
-def test_shell_start_cmd_uses_shell_env():
-    """Shell subprocess uses os.environ['SHELL'] on Unix; cmd.exe on Windows."""
-    import os
-
+def test_shell_start_cmd_uses_bash_on_unix():
+    """On Unix, Shell always invokes bash (not $SHELL) because emitted code is bash syntax."""
     if platform.system() == "Windows":
-        shell = Shell()
-        assert shell.start_cmd == ["cmd.exe"]
-    else:
-        with mock.patch.dict(os.environ, {"SHELL": "/bin/bash"}):
-            shell = Shell()
-        assert shell.start_cmd == ["/bin/bash"]
+        pytest.skip("Windows uses cmd.exe")
+    shell = Shell()
+    assert shell.start_cmd == ["bash", "--norc", "--noprofile"]
+
+
+def test_shell_start_cmd_uses_cmd_on_windows():
+    """On Windows, Shell invokes cmd.exe."""
+    if platform.system() != "Windows":
+        pytest.skip("cmd.exe path only applies on Windows")
+    shell = Shell()
+    assert shell.start_cmd == ["cmd.exe"]
 
 
 def test_require_bash_compatible_shell_rejects_fish(monkeypatch):
@@ -142,10 +145,10 @@ def test_detect_end_of_execution_recognises_the_sentinel():
 
 
 def test_shell_start_cmd_defaults_to_bash_when_shell_unset():
-    """With no SHELL env var on Unix, Shell defaults to "bash"."""
+    """With no SHELL env var on Unix, Shell still invokes bash safely."""
     if platform.system() == "Windows":
         pytest.skip("SHELL default only applies to Unix")
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("SHELL", None)
         shell = Shell()
-    assert shell.start_cmd == ["bash"]
+    assert shell.start_cmd == ["bash", "--norc", "--noprofile"]
