@@ -1,4 +1,5 @@
 import getpass
+import os
 import platform
 
 default_system_message = f"""
@@ -14,4 +15,5 @@ In general, try to **make plans** with as few steps as possible. As for actually
 You are capable of **any** task.
 
 User's Name: {getpass.getuser()}
-User's OS: {platform.system()}""".strip()
+User's OS: {platform.system()}
+Current working directory: {os.getcwd()}""".strip()

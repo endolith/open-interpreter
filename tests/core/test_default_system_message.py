@@ -1,4 +1,5 @@
 import getpass
+import os
 import platform
 
 from interpreter.core.default_system_message import default_system_message
@@ -19,3 +20,8 @@ def test_default_system_message_includes_user_context():
     """The system message embeds the user's name and OS at import time."""
     assert getpass.getuser() in default_system_message
     assert platform.system() in default_system_message
+
+
+def test_default_system_message_includes_cwd():
+    """The model is told the directory it was started in, so relative paths resolve correctly."""
+    assert os.getcwd() in default_system_message
