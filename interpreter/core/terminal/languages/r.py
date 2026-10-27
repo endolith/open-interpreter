@@ -50,23 +50,20 @@ tryCatch({{
 }})
 cat("##end_of_execution##\\n");
 """
-        # R echoes the submitted program back; remember how many lines it wrapped
-        # to so line_postprocessor can drop exactly that echo.
-        self.code_line_count = len(wrapped.split("\n")) - 1
         return wrapped
 
     def line_postprocessor(self, line):
-        # Drop the echoed program first: R prints every submitted line back.
-        if hasattr(self, "code_line_count") and self.code_line_count > 0:
-            self.code_line_count -= 1
-            return None
+        # --no-echo suppresses R's echo of the submitted program, so there is
+        # nothing to skip here. Skipping a fixed line count would swallow real
+        # output — including ##end_of_execution## — and hang the run.
         # A bare R continuation prompt carries no output of ours. With --no-echo
         # these should not appear at all, but dropping them is cheap insurance
         # for an R build that ignores the flag.
         if re.match(r"^(\s*>>>\s*|\s*\.\.\.\s*|\s*>\s*|\s*\+\s*|\s*)$", line):
             return None
-        if "R version" in line:  # Startup message
-            return None
+        # Do NOT filter "R version" here: -q suppresses the startup banner, and
+        # the string is exactly what `cat(R.version.string)` prints as real
+        # output.
         if line.strip().startswith('[1] "') and line.endswith(
             '"'
         ):  # For strings, trim quotation marks

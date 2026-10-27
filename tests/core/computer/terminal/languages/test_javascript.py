@@ -54,13 +54,19 @@ def test_line_postprocessor_strips_leading_prompt_arrows():
     assert js.line_postprocessor("> > 42") == "42"
 
 
-def test_line_postprocessor_strips_dot_space_and_newline():
-    """Leading/trailing dots, spaces and newlines are trimmed.
-
-    The strip charset is ". \\n"; dropping it would leave padding in the output.
-    """
+def test_line_postprocessor_strips_continuation_prompts():
+    """Node's multi-line continuation prompts are removed, not leaked as output."""
     js = JavaScript()
-    assert js.line_postprocessor("  .value. ") == "value"
+    assert (
+        js.line_postprocessor("> > ... ... ... ... ... ##active_line1##\n")
+        == "##active_line1##\n"
+    )
+
+
+def test_line_postprocessor_preserves_the_trailing_newline():
+    """Trailing newlines are kept so non-streaming runs do not join adjacent lines."""
+    js = JavaScript()
+    assert js.line_postprocessor("js ok | v22.22.1\n") == "js ok | v22.22.1\n"
 
 
 def test_preprocess_javascript_multiline_skips_active_line_markers():
