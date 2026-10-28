@@ -559,3 +559,34 @@ def test_execute_code_still_accepts_messages_without_a_parent_header():
     outputs = _drain_listener(lang)
 
     assert "UNPARENTED\n" in [o.get("content") for o in outputs if o.get("type") == "console"]
+
+
+def test_interrupted_startup_cleans_up_listener_and_kernel():
+    """Ctrl-C during __init__ must not leak the kernel or leave its listener running.
+
+    The instance has not escaped __init__, so Terminal cannot terminate it
+    through its normal cleanup path. The startup handler stops the listener and
+    shuts the kernel down before re-raising the interrupt.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+
+    class Listener:
+        def __init__(self):
+            self.timeout = None
+
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            self.timeout = timeout
+
+    listener = Listener()
+    lang.listener_thread = listener
+    lang.terminate = mock.Mock()
+
+    lang._cleanup_after_interrupted_startup()
+
+    assert lang.finish_flag is True
+    assert listener.timeout == 10
+    lang.terminate.assert_called_once_with()

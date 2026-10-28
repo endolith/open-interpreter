@@ -73,8 +73,15 @@ matplotlib.use('{backend}')
 import matplotlib.pyplot as plt
 """.strip()
 
-        for _ in self.run(code):
-            pass
+        try:
+            for _ in self.run(code):
+                pass
+        except KeyboardInterrupt:
+            # __init__ has not returned, so Terminal cannot clean up this
+            # half-constructed instance. Terminate the kernel before the
+            # interrupt aborts construction and leaks it.
+            self._cleanup_after_interrupted_startup()
+            raise
 
         # DISABLED because it doesn't work??
         # Disable color outputs in the terminal, which don't look good in OI and aren't useful
@@ -87,6 +94,14 @@ import matplotlib.pyplot as plt
     def terminate(self):
         self.kc.stop_channels()
         self.km.shutdown_kernel()
+
+    def _cleanup_after_interrupted_startup(self):
+        """Stop the listener and kernel when Ctrl-C interrupts __init__ warm-up."""
+        self.finish_flag = True
+        listener = getattr(self, "listener_thread", None)
+        if listener is not None and listener.is_alive():
+            listener.join(timeout=10)
+        self.terminate()
 
     def run(self, code):
         while not self.kc.is_alive():
