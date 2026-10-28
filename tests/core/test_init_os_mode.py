@@ -5,10 +5,11 @@ import and are covered, and an early branch taken when `--os` is on the command
 line that checks PyPI for a newer release and then hands off to the computer-use
 loop. The `--os` path had no coverage because pytest never puts `--os` on argv.
 
-**The branch cannot currently start.** `from packaging import version` (line 33)
-shadows `from importlib.metadata import version` (line 31), so line 41's
-`version("open-interpreter")` calls a module and raises `TypeError` — before
-`requests.get` is ever reached, and unguarded at import. See #407.
+**The branch can now start.** `from packaging import version as packaging_version`
+no longer shadows `from importlib.metadata import version`, so the version
+check calls a function (fixed in #430 for #407). Past the check the launch
+needs a display, so headless runs still report `KeyError 'DISPLAY'` — an
+environment limit, not the bug.
 
 The launch path is verified in a real subprocess rather than by exec'ing the
 source: `__main__`/package-init code is unusually hostile to in-process import
@@ -82,49 +83,48 @@ def test_importing_interpreter_normally_succeeds():
     )
 
 
-def test_os_mode_cannot_start_because_the_version_check_raises():
-    """`--os` dies at import, before the automation loop is reached.
+def test_os_mode_clears_the_version_check_without_a_type_error():
+    """`--os` gets past the version check: the shadowing TypeError is gone.
 
-    The shadowing is deterministic, so this is not an environment quirk — it fails
-    on every machine. Pinned as observed behaviour rather than an xfail, because it
-    *is* the bug: a strict xfail here would be one that cannot pass without #407
-    being fixed.
+    Fixed in #430 for #407 by aliasing the packaging import. Past the check
+    the launch needs a display, so a headless run still fails — but with
+    `KeyError 'DISPLAY'`, never the `TypeError: 'module' object is not
+    callable` the shadowing produced on every machine.
     """
     result = _run_python(["--os"])
 
-    assert result.stdout.strip().startswith("FAIL"), (
-        f"expected the crash to be reported; got {result.stdout!r}"
+    assert "TypeError" not in result.stdout, (
+        f"the version-check shadowing is back; got {result.stdout!r}"
     )
-    assert "TypeError" in result.stdout
-    assert "not callable" in result.stdout
+    assert "not callable" not in result.stdout
 
 
-def test_the_crash_is_the_shadowing_not_a_network_failure():
-    """The TypeError precedes the request, so this is not a connectivity problem.
+def test_no_shadowing_type_error_precedes_the_request():
+    """No TypeError surfaces around the update check.
 
-    Guards against the tempting wrong fix: wrapping `check_for_update()` in a
-    try/except would swallow the TypeError and *appear* to work, leaving the
-    upgrade hint permanently dead and the shadowing untouched.
+    Guards the #430 fix against regressing to the shadowing: the version
+    comparison must call functions on both sides, and no network error may
+    leak in place of the comparison.
     """
     result = _run_python(["--os"])
 
-    # No network error leaks, and the TypeError is what surfaces.
+    # No network error leaks, and the shadowing TypeError is what is gone.
     assert "ConnectionError" not in result.stdout
     assert "Max retries" not in result.stdout
-    assert "TypeError" in result.stdout
+    assert "TypeError" not in result.stdout
 
 
-def test_voice_flag_is_reached_only_after_the_version_check():
-    """`--voice` is handled after the version check, so it never prints today.
+def test_voice_flag_is_reached_after_the_version_check():
+    """`--voice` prints its notice once the version check stops crashing.
 
-    Both flags live in the same branch and the crash precedes the `--voice` test,
-    which is the ordering evidence: fixing the shadowing is a precondition for
-    seeing "Coming soon..." at all.
+    Both flags live in the same branch and the shadowing used to precede the
+    `--voice` test; with the check fixed, "Coming soon..." is reached (fixed
+    in #430 for #407).
     """
     result = _run_python(["--os", "--voice"])
 
-    assert result.stdout.strip().startswith("FAIL"), (
-        "the --voice branch is downstream of the crash"
+    assert "Coming soon..." in result.stdout, (
+        f"expected the --voice notice; got {result.stdout!r}"
     )
 
 
