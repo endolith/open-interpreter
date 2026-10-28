@@ -799,7 +799,9 @@ def create_router(async_interpreter):
             await async_interpreter.input(payload)
             return {"status": "success"}
         except Exception as e:
-            # Caller-facing validation errors are part of the local server contract.
+            # Caller-facing validation errors are part of this local server's
+            # contract. CodeQL's py/stack-trace-exposure finding is accepted
+            # risk and dismissed in Security; it is not suppressed inline.
             return JSONResponse({"error": str(e)}, status_code=500)
 
     @router.post("/settings")
@@ -878,6 +880,7 @@ def create_router(async_interpreter):
             except Exception as e:
                 # Insecure routes are gated by INTERPRETER_INSECURE_ROUTES and
                 # already expose code execution/file access to the caller.
+                # CodeQL's stack-trace finding is accepted risk and dismissed.
                 return JSONResponse({"error": str(e)}, status_code=500)
 
         @router.post("/upload")
@@ -889,14 +892,16 @@ def create_router(async_interpreter):
             except Exception as e:
                 # Insecure routes are gated by INTERPRETER_INSECURE_ROUTES and
                 # already expose code execution/file access to the caller.
+                # CodeQL's stack-trace finding is accepted risk and dismissed.
                 return JSONResponse({"error": str(e)}, status_code=500)
 
         @router.get("/download/{filename:path}")
         async def download_file(filename: str):
-            # This route is intentionally unauthenticated under the insecure
-            # routes gate, but a character device such as /dev/zero can produce
-            # an unbounded stream. Serve only regular files, in bounded chunks.
-            # The insecure download route intentionally accepts arbitrary paths.
+            # This route intentionally accepts arbitrary paths under the
+            # insecure gate; CodeQL's py/path-injection finding is dismissed as
+            # accepted risk. It is also unauthenticated, and a character device
+            # such as /dev/zero can produce an unbounded stream, so serve only
+            # regular files in bounded chunks.
             if os.path.exists(filename) and not os.path.isfile(filename):
                 return JSONResponse(
                     {"error": "Only regular files can be downloaded"},
@@ -905,6 +910,8 @@ def create_router(async_interpreter):
             try:
                 file = open(filename, "rb")
             except Exception as e:
+                # Caller-facing error text is intentional here; CodeQL's
+                # stack-trace finding is accepted risk and dismissed.
                 return JSONResponse({"error": str(e)}, status_code=500)
 
             def stream_file():
