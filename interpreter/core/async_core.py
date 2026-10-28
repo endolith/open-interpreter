@@ -796,10 +796,13 @@ def create_router(async_interpreter):
     @router.post("/")
     async def post_input(payload: Dict[str, Any]):
         try:
-            async_interpreter.input(payload)
+            await async_interpreter.input(payload)
             return {"status": "success"}
         except Exception as e:
-            return {"error": str(e)}, 500
+            # Caller-facing validation errors are part of this local server's
+            # contract. CodeQL's py/stack-trace-exposure finding is accepted
+            # risk and dismissed in Security; it is not suppressed inline.
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     @router.post("/settings")
     async def set_settings(payload: Dict[str, Any]):
@@ -827,15 +830,22 @@ def create_router(async_interpreter):
                         if hasattr(getattr(async_interpreter, key), sub_key):
                             setattr(getattr(async_interpreter, key), sub_key, sub_value)
                         else:
-                            return {
-                                "error": f"Sub-setting {sub_key} not found in {key}"
-                            }, 404
+                            return JSONResponse(
+                                {
+                                    "error": f"Sub-setting {sub_key} not found in {key}"
+                                },
+                                status_code=404,
+                            )
                 else:
-                    return {"error": f"Setting {key} not found"}, 404
+                    return JSONResponse(
+                        {"error": f"Setting {key} not found"}, status_code=404
+                    )
             elif hasattr(async_interpreter, key):
                 setattr(async_interpreter, key, value)
             else:
-                return {"error": f"Setting {key} not found"}, 404
+                return JSONResponse(
+                    {"error": f"Setting {key} not found"}, status_code=404
+                )
 
         return {"status": "success"}
 
@@ -846,9 +856,12 @@ def create_router(async_interpreter):
             try:
                 return json.dumps({setting: setting_value})
             except TypeError:
-                return {"error": "Failed to serialize the setting value"}, 500
+                return JSONResponse(
+                    {"error": "Failed to serialize the setting value"},
+                    status_code=500,
+                )
         else:
-            return json.dumps({"error": "Setting not found"}), 404
+            return JSONResponse({"error": "Setting not found"}, status_code=404)
 
     if os.getenv("INTERPRETER_INSECURE_ROUTES", "").lower() == "true":
 
@@ -856,14 +869,19 @@ def create_router(async_interpreter):
         async def run_code(payload: Dict[str, Any]):
             language, code = payload.get("language"), payload.get("code")
             if not (language and code):
-                return {"error": "Both 'language' and 'code' are required."}, 400
+                return JSONResponse(
+                    {"error": "Both 'language' and 'code' are required."}, status_code=400
+                )
             try:
                 print(f"Running {language}:", code)
                 output = async_interpreter.computer.run(language, code)
                 print("Output:", output)
                 return {"output": output}
             except Exception as e:
-                return {"error": str(e)}, 500
+                # Insecure routes are gated by INTERPRETER_INSECURE_ROUTES and
+                # already expose code execution/file access to the caller.
+                # CodeQL's stack-trace finding is accepted risk and dismissed.
+                return JSONResponse({"error": str(e)}, status_code=500)
 
         @router.post("/upload")
         async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
@@ -872,16 +890,40 @@ def create_router(async_interpreter):
                     shutil.copyfileobj(file.file, output_file)
                 return {"status": "success"}
             except Exception as e:
-                return {"error": str(e)}, 500
+                # Insecure routes are gated by INTERPRETER_INSECURE_ROUTES and
+                # already expose code execution/file access to the caller.
+                # CodeQL's stack-trace finding is accepted risk and dismissed.
+                return JSONResponse({"error": str(e)}, status_code=500)
 
-        @router.get("/download/{filename}")
+        @router.get("/download/{filename:path}")
         async def download_file(filename: str):
-            try:
-                return StreamingResponse(
-                    open(filename, "rb"), media_type="application/octet-stream"
+            # This route intentionally accepts arbitrary paths under the
+            # insecure gate; CodeQL's py/path-injection finding is dismissed as
+            # accepted risk. It is also unauthenticated, and a character device
+            # such as /dev/zero can produce an unbounded stream, so serve only
+            # regular files in bounded chunks.
+            if os.path.exists(filename) and not os.path.isfile(filename):
+                return JSONResponse(
+                    {"error": "Only regular files can be downloaded"},
+                    status_code=400,
                 )
+            try:
+                file = open(filename, "rb")
             except Exception as e:
-                return {"error": str(e)}, 500
+                # Caller-facing error text is intentional here; CodeQL's
+                # stack-trace finding is accepted risk and dismissed.
+                return JSONResponse({"error": str(e)}, status_code=500)
+
+            def stream_file():
+                try:
+                    while chunk := file.read(64 * 1024):
+                        yield chunk
+                finally:
+                    file.close()
+
+            return StreamingResponse(
+                stream_file(), media_type="application/octet-stream"
+            )
 
     ### OPENAI COMPATIBLE ENDPOINT
 
