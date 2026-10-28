@@ -34,6 +34,10 @@ computer = interpreter.computer
 # Every live Terminal, so the process can shut their kernels and shells down at
 # exit. A WeakSet keeps this registry from extending any Terminal's lifetime.
 _LIVE_TERMINALS = weakref.WeakSet()
+# A forked child inherits this registry, but the terminals belong to the parent.
+# Clear it in the child so its exit hook cannot terminate parent-owned runtimes.
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_LIVE_TERMINALS.clear)
 
 
 def _terminate_live_terminals():

@@ -7,11 +7,13 @@ holding its ZMQ sockets.
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
 
 import psutil
+import pytest
 
 # Writes the spawned child PIDs to the path in argv[1]. Output goes to a file,
 # not a pipe: a leaked child would hold a pipe open and hang the test instead
@@ -115,3 +117,32 @@ def test_terminate_live_terminals_survives_dead_runtime():
         _LIVE_TERMINALS.discard(dead)
         _LIVE_TERMINALS.discard(live)
     assert live.terminated is True
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "register_at_fork"),
+    reason="os.register_at_fork is unavailable on this platform",
+)
+def test_forked_child_does_not_inherit_live_terminals():
+    """A fork child must not run the parent's exit hook on inherited terminals.
+
+    The child gets a copy of the registry, so without clearing it a normal child
+    exit would terminate Jupyter kernels owned by the parent process.
+    """
+    from interpreter.core.computer.terminal.terminal import _LIVE_TERMINALS
+
+    class Marker:
+        pass
+
+    marker = Marker()
+    _LIVE_TERMINALS.add(marker)
+    try:
+        pid = os.fork()
+        if pid == 0:
+            os._exit(0 if marker not in _LIVE_TERMINALS else 1)
+        _, status = os.waitpid(pid, 0)
+        assert os.WIFEXITED(status)
+        assert os.WEXITSTATUS(status) == 0
+        assert marker in _LIVE_TERMINALS
+    finally:
+        _LIVE_TERMINALS.discard(marker)
