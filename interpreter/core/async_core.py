@@ -893,12 +893,30 @@ def create_router(async_interpreter):
 
         @router.get("/download/{filename:path}")
         async def download_file(filename: str):
-            try:
-                return StreamingResponse(
-                    open(filename, "rb"), media_type="application/octet-stream"
+            # This route is intentionally unauthenticated under the insecure
+            # routes gate, but a character device such as /dev/zero can produce
+            # an unbounded stream. Serve only regular files, in bounded chunks.
+            # The insecure download route intentionally accepts arbitrary paths.
+            if os.path.exists(filename) and not os.path.isfile(filename):
+                return JSONResponse(
+                    {"error": "Only regular files can be downloaded"},
+                    status_code=400,
                 )
+            try:
+                file = open(filename, "rb")
             except Exception as e:
                 return JSONResponse({"error": str(e)}, status_code=500)
+
+            def stream_file():
+                try:
+                    while chunk := file.read(64 * 1024):
+                        yield chunk
+                finally:
+                    file.close()
+
+            return StreamingResponse(
+                stream_file(), media_type="application/octet-stream"
+            )
 
     ### OPENAI COMPATIBLE ENDPOINT
 

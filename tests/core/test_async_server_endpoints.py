@@ -443,6 +443,19 @@ def test_insecure_download_route_missing_file(insecure_pair):
     assert "No such file or directory" in response.json()["error"]
 
 
+def test_insecure_download_route_rejects_non_regular_file(insecure_pair, tmp_path):
+    """The /download route refuses directories and special files.
+
+    The wide path route must not stream /dev/zero or another unbounded source.
+    A directory exercises the same non-regular-file guard portably.
+    """
+    client, _ = insecure_pair
+
+    response = client.get(f"/download/{tmp_path}")
+    assert response.status_code == 400
+    assert response.json() == {"error": "Only regular files can be downloaded"}
+
+
 def _deltas(body):
     """Extract the streamed delta content strings from an SSE response body."""
     deltas = []
