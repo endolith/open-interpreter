@@ -527,26 +527,15 @@ def string_to_python(code_as_string):
             if node.name.startswith("_"):
                 # ignore private functions
                 continue
-            docstring = ast.get_docstring(node)
-            body = node.body
-            if docstring:
-                body = body[1:]
 
-            # Unparse the whole remaining body, not just body[0], so
-            # multi-line functions keep every statement (#222).
-            code_body = ast.unparse(body).replace("\n", "\n    ")
-
-            func_info = {
-                "name": node.name,
-                "docstring": docstring,
-                "body": code_body,
-            }
-            functions.append(func_info)
+            # Keep the whole definition (signature, defaults, annotations,
+            # decorators and body) rather than rebuilding a zero-argument def.
+            functions.append({"name": node.name, "code": ast.unparse(node)})
 
     for func in functions:
         # Consolidating import statements and function definition
         function_content = "\n".join(import_statements) + "\n\n"
-        function_content += f"def {func['name']}():\n    \"\"\"{func['docstring']}\"\"\"\n    {func['body']}\n"
+        function_content += func["code"] + "\n"
 
         # Adding to dictionary
         functions_dict[func["name"]] = function_content
