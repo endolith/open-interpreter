@@ -81,6 +81,23 @@ def test_profile_reserved_default_name_renames_custom_file(tmp_path, monkeypatch
     assert interpreter.llm.model == "gpt-4o-mini"
 
 
+def test_shipped_profile_applies_without_a_migration_prompt(tmp_path, monkeypatch):
+    """Selecting a packaged profile applies it without asking to migrate.
+
+    snowpark.yml ships without a version trailer, which made apply_profile
+    mistake the packaged file for a stale user file: every launch prompted to
+    migrate, and the natural "n" answer skipped the profile entirely while the
+    user believed it was active.
+    """
+    _point_profiles_at(tmp_path, monkeypatch)
+
+    interpreter = OpenInterpreter()
+    with mock.patch("builtins.input", side_effect=AssertionError("asked to migrate")):
+        profiles.profile(interpreter, "snowpark")
+
+    assert "Snowflake" in interpreter.custom_instructions
+
+
 def test_get_profile_loads_json(tmp_path, monkeypatch):
     """get_profile() parses .json profiles into a dict."""
     profile_dir = _point_profiles_at(tmp_path, monkeypatch)
