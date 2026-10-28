@@ -276,9 +276,20 @@ class OpenInterpreter:
                         first_few_words = first_few_words.replace(char, "")
 
                     date = datetime.now().strftime("%B_%d_%Y_%H-%M-%S")
-                    self.conversation_filename = (
-                        "__".join([first_few_words, date]) + ".json"
-                    )
+                    base = "__".join([first_few_words, date])
+                    # Reserve a name no other conversation already holds. The
+                    # name is only the opening words plus a one-second
+                    # timestamp, so two conversations started with the same
+                    # words in the same second would collide — and the "w" open
+                    # below would silently destroy the earlier one.
+                    filename = f"{base}.json"
+                    counter = 1
+                    while os.path.exists(
+                        os.path.join(self.conversation_history_path, filename)
+                    ):
+                        filename = f"{base}_{counter}.json"
+                        counter += 1
+                    self.conversation_filename = filename
 
                 # Check if the directory exists, if not, create it
                 if not os.path.exists(self.conversation_history_path):
@@ -459,6 +470,11 @@ class OpenInterpreter:
         self.computer._has_imported_computer_api = False  # Flag reset
         self.messages = []
         self.last_messages_count = 0
+        # The autosave names the conversation file after the messages' first
+        # entry and keeps writing to that name, so it identifies the messages
+        # just dropped. Drop it with them, or the next turn overwrites the old
+        # conversation's file with the new conversation.
+        self.conversation_filename = None
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.
