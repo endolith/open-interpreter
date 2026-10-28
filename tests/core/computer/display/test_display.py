@@ -86,6 +86,22 @@ def test_info_returns_get_displays():
     get_displays.assert_called_once_with()
 
 
+def test_info_lists_the_monitors_screeninfo_reports():
+    """Display.info() returns the real monitor list, without mocking get_displays().
+
+    info() is advertised to the model as the way to pick a screen index, so the
+    whole path down to screeninfo has to work, not just the delegation.
+    """
+    display = _make_display()
+    monitors = [
+        SimpleNamespace(x=0, y=0, width=800, height=600, name="A"),
+        SimpleNamespace(x=800, y=0, width=1024, height=768, name="B"),
+    ]
+    with _patch_screeninfo(monitors) as screeninfo:
+        assert display.info() == monitors
+    screeninfo.get_monitors.assert_called_once_with()
+
+
 def test_view_delegates_to_screenshot():
     """Display.view() forwards all its parameters to screenshot()."""
     display = _make_display()
@@ -275,6 +291,32 @@ def test_get_text_offline_uses_pytesseract():
 
     pytesseract_get_text.assert_called_once_with("img")
     assert result == "hello"
+
+
+def test_get_text_without_screenshot_captures_the_screen():
+    """Display.get_text_as_list_of_lists() with no screenshot takes one itself.
+
+    The model is told this exact call is available, so the default branch has to
+    reach the OCR step instead of raising on the way there.
+    """
+    computer = _make_offline_computer()
+    display = _make_display(computer)
+
+    pil = Image.new("RGB", (10, 10))
+    patcher, pyautogui = _patch_pyautogui(screenshot=pil, size=(10, 10))
+    pywinctl = mock.Mock()
+    pywinctl.getActiveWindow.return_value = None
+    with mock.patch("interpreter.core.computer.display.display.pywinctl", pywinctl):
+        with patcher:
+            with mock.patch(
+                "interpreter.core.computer.display.display.pytesseract_get_text",
+                return_value="hello",
+            ) as pytesseract_get_text:
+                result = display.get_text_as_list_of_lists()
+
+    assert result == "hello"
+    pyautogui.screenshot.assert_called_once_with()
+    assert pytesseract_get_text.call_args[0][0].mode == "RGB"
 
 
 def _patch_screeninfo(monitors):
