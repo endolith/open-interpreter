@@ -78,18 +78,12 @@ def test_post_input_returns_success(client):
 
 
 def test_post_input_propagates_error(client, server_pair):
-    """POST / swallows input() failures and reports success.
-
-    KNOWN BUG: the handler calls async_interpreter.input(payload) without
-    await, so the coroutine is never awaited and its exception is never
-    raised. It responds 200 "success" and the error path is dead code. This
-    test documents the current (wrong) behavior.
-    """
+    """POST / returns a 500 with the error message when input() fails."""
     _, interpreter = server_pair
     interpreter.input = mock.AsyncMock(side_effect=ValueError("boom"))
     response = client.post("/", json={"role": "user", "type": "message", "start": True})
-    assert response.status_code == 200
-    assert response.json() == {"status": "success"}
+    assert response.status_code == 500
+    assert response.json() == {"error": "boom"}
 
 
 def test_post_settings_missing_computer_object_returns_404(

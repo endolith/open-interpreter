@@ -796,7 +796,7 @@ def create_router(async_interpreter):
     @router.post("/")
     async def post_input(payload: Dict[str, Any]):
         try:
-            async_interpreter.input(payload)
+            await async_interpreter.input(payload)
             return {"status": "success"}
         except Exception as e:
             # Caller-facing validation errors are part of the local server contract.
