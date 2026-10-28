@@ -568,3 +568,106 @@ def test_execute_code_still_accepts_messages_without_a_parent_header():
     outputs = _drain_listener(lang)
 
     assert "UNPARENTED\n" in [o.get("content") for o in outputs if o.get("type") == "console"]
+
+
+def test_interrupted_startup_cleans_up_listener_and_kernel():
+    """Ctrl-C during __init__ must not leak the kernel or leave its listener running.
+
+    The instance has not escaped __init__, so Terminal cannot terminate it
+    through its normal cleanup path. The startup handler stops the listener and
+    shuts the kernel down before re-raising the interrupt.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+
+    class Listener:
+        def __init__(self):
+            self.timeout = None
+
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            self.timeout = timeout
+
+    listener = Listener()
+    lang.listener_thread = listener
+    lang.terminate = mock.Mock()
+
+    lang._cleanup_after_interrupted_startup()
+
+    assert lang.finish_flag is True
+    assert listener.timeout == 10
+    lang.terminate.assert_called_once_with()
+
+
+def test_ctrl_c_between_execute_and_listener_start_interrupts_kernel():
+    """Ctrl-C after submission but before the listener starts must stop the kernel.
+
+    stop() only sets finish_flag; normally the listener performs the interrupt.
+    In this narrow window there is no listener yet, so run() must interrupt the
+    kernel itself before re-raising.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+    lang._request_submitted = False
+    lang._listener_started = False
+    lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.preprocess_code = lambda code: code
+
+    def execute(code, message_queue):
+        lang._request_submitted = True
+        raise KeyboardInterrupt
+
+    lang._execute_code = execute
+
+    with pytest.raises(KeyboardInterrupt):
+        list(lang.run("x = 1"))
+
+    lang.km.interrupt_kernel.assert_called_once_with()
+
+
+def test_init_sets_startup_flag_during_warmup_and_clears_it():
+    """The warm-up run sees the startup flag, and normal construction clears it."""
+    manager = mock.Mock()
+    client = manager.client.return_value
+    client.is_alive.return_value = True
+    observed = []
+
+    def fake_run(self, code):
+        observed.append(self._startup_warmup)
+        return iter([None])
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with mock.patch.object(JupyterLanguage, "run", fake_run):
+            lang = JupyterLanguage(mock.Mock())
+
+    assert observed == [True]
+    assert lang._startup_warmup is False
+
+
+def test_init_cleans_up_when_warmup_is_interrupted():
+    """Ctrl-C during __init__ warm-up runs startup cleanup before re-raising."""
+    manager = mock.Mock()
+    client = manager.client.return_value
+    client.is_alive.return_value = True
+
+    def interrupted(self, code):
+        raise KeyboardInterrupt
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with mock.patch.object(JupyterLanguage, "run", interrupted):
+            with mock.patch.object(
+                JupyterLanguage, "_cleanup_after_interrupted_startup"
+            ) as cleanup:
+                with pytest.raises(KeyboardInterrupt):
+                    JupyterLanguage(mock.Mock())
+
+    cleanup.assert_called_once_with()
