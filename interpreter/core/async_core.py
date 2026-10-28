@@ -891,7 +891,7 @@ def create_router(async_interpreter):
                 # already expose code execution/file access to the caller.
                 return JSONResponse({"error": str(e)}, status_code=500)
 
-        @router.get("/download/{filename}")
+        @router.get("/download/{filename:path}")
         async def download_file(filename: str):
             try:
                 return StreamingResponse(

@@ -423,17 +423,15 @@ def test_insecure_upload_route_propagates_error(insecure_pair):
     assert "No such file or directory" in response.json()["error"]
 
 
-def test_insecure_download_route_with_slashes_not_registered(insecure_pair):
-    """The /download route does not match paths containing slashes.
-
-    KNOWN BUG: the route is declared as /download/{filename}, which matches a
-    single path segment. Any path with a slash (including the absolute paths
-    the endpoint is meant to serve) falls through to 404. Documenting current
-    behavior; a fix would use {filename:path}.
-    """
+def test_insecure_download_route(insecure_pair, tmp_path):
+    """The /download route streams a file at an absolute path."""
     client, _ = insecure_pair
-    response = client.get("/download/some/dir/file.bin")
-    assert response.status_code == 404
+    source = tmp_path / "file.bin"
+    source.write_bytes(b"xyz")
+
+    response = client.get(f"/download/{source}")
+    assert response.status_code == 200
+    assert response.content == b"xyz"
 
 
 def test_insecure_download_route_missing_file(insecure_pair):
