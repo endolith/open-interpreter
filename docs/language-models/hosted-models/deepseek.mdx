@@ -28,15 +28,11 @@ We support any model exposed by the DeepSeek API via [LiteLLM](https://docs.lite
 ```bash Terminal
 interpreter --model deepseek/deepseek-v4-flash
 interpreter --model deepseek/deepseek-v4-pro
-interpreter --model deepseek/deepseek-chat
-interpreter --model deepseek/deepseek-reasoner
 ```
 
 ```python Python
 interpreter.llm.model = "deepseek/deepseek-v4-flash"
 interpreter.llm.model = "deepseek/deepseek-v4-pro"
-interpreter.llm.model = "deepseek/deepseek-chat"
-interpreter.llm.model = "deepseek/deepseek-reasoner"
 ```
 
 </CodeGroup>
@@ -57,12 +53,12 @@ Set the following environment variables [(click here to learn how)](https://chat
 Thinking models stream reasoning tokens when supported. Control the effort on `interpreter.llm` or in a profile:
 
 ```python
-interpreter.llm.reasoning_effort = "high"  # model-specific, e.g. low/high/max for DeepSeek V4
+interpreter.llm.reasoning_effort = "high"  # LiteLLM 1.105.1 enables thinking; it does not forward the effort level
 ```
 
 ```yaml Profile
 llm:
-  reasoning_effort: "low"   # model-specific (DeepSeek V4: low/high/max); sent as-is
+  reasoning_effort: "low"   # LiteLLM 1.105.1 enables thinking but does not forward low/high/max
 ```
 
-Multi-turn chats require prior assistant `reasoning_content` to be sent back to the API; Open Interpreter fills that for `deepseek/` requests automatically.
+When a request includes tools, DeepSeek requires prior assistant `reasoning_content` to be sent back; Open Interpreter fills it automatically for `deepseek/` requests. Tool-free requests do not use prior reasoning history.
