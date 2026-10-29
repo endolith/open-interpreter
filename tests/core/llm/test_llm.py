@@ -992,3 +992,57 @@ def test_run_prepends_empty_system_message():
 
     assert captured["params"]["messages"][0]["role"] == "system"
     assert captured["params"]["messages"][0]["content"] == ""
+
+def test_fixed_litellm_completions_retries_without_stream_options():
+    """An endpoint that rejects stream_options is retried without that parameter."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(dict(params))
+        if len(calls) == 1:
+            raise RuntimeError("Unsupported parameter: stream_options.include_usage")
+        return iter(())
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion
+    ):
+        list(
+            fixed_litellm_completions(
+                model="gpt-4o",
+                messages=[],
+                stream_options={"include_usage": True},
+            )
+        )
+
+    assert calls[0]["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in calls[1]
+
+
+def test_fixed_litellm_completions_reports_failure_after_stream_options_retry():
+    """A later failure is surfaced when the first attempt only rejected stream_options."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(dict(params))
+        if len(calls) == 1:
+            raise RuntimeError("Unsupported parameter: stream_options.include_usage")
+        raise RuntimeError("fallback failed")
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion
+    ):
+        with pytest.raises(RuntimeError, match="fallback failed"):
+            list(
+                fixed_litellm_completions(
+                    model="gpt-4o",
+                    messages=[],
+                    stream_options={"include_usage": True},
+                )
+            )
+
+    assert len(calls) == 4
+    assert "stream_options" not in calls[1]
