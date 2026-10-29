@@ -8,6 +8,11 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .default_system_message import (
+    CWD_LINE_PREFIX,
+    build_default_system_message,
+    current_working_directory_line,
+)
 from .render_message import render_message
 
 
@@ -32,6 +37,76 @@ def _pending_code_message(messages):
     return None
 
 
+_CWD_SENTINEL = "\x00open-interpreter-cwd\x00"
+_DEFAULT_SENTINEL = "\x00open-interpreter-default\x00"
+
+
+def _protect_cwd_line(message):
+    """Replace the first directory line with a marker for literal restoration."""
+    lines = message.split("\n")
+    for index, line in enumerate(lines):
+        if line.startswith(CWD_LINE_PREFIX):
+            lines[index] = _CWD_SENTINEL
+            return "\n".join(lines), True
+    return message, False
+
+
+def build_system_message(interpreter):
+    """Compose the system message for one turn.
+
+    The default message embeds the current directory as data, so build it
+    fresh for every turn and never pass it through the template renderer: a
+    directory name containing `{{...}}` must not run code. Explicitly supplied
+    system messages keep their documented template behavior.
+    """
+    generated_default = getattr(interpreter, "_default_system_message", None)
+    current_message = interpreter.system_message
+    fresh_default = None
+
+    if generated_default is None:
+        # An explicit replacement, including fast_llm's temporary message.
+        template_message = current_message
+    elif generated_default in current_message:
+        # Rebuild the generated block for the current directory and restore it
+        # in place, keeping any text the caller added before or after it.
+        fresh_default = build_default_system_message()
+        template_message = current_message.replace(
+            generated_default, _DEFAULT_SENTINEL, 1
+        )
+    else:
+        # The caller edited the generated block. Its directory line still
+        # reaches the renderer, so protect it and insert the current path
+        # literally after rendering.
+        template_message = current_message
+
+    # Add language-specific system messages
+    for language in interpreter.computer.terminal.languages:
+        if hasattr(language, "system_message"):
+            template_message += "\n\n" + language.system_message
+
+    # Add custom instructions
+    if interpreter.custom_instructions:
+        template_message += "\n\n" + interpreter.custom_instructions
+
+    # Add computer API system message
+    if interpreter.computer.import_computer_api:
+        if interpreter.computer.system_message not in template_message:
+            template_message += "\n\n" + interpreter.computer.system_message
+
+    cwd_line = None
+    if generated_default is not None:
+        template_message, protected = _protect_cwd_line(template_message)
+        if protected:
+            cwd_line = current_working_directory_line()
+
+    rendered = render_message(interpreter, template_message)
+    if cwd_line is not None:
+        rendered = rendered.replace(_CWD_SENTINEL, cwd_line)
+    if fresh_default is not None:
+        rendered = rendered.replace(_DEFAULT_SENTINEL, fresh_default)
+    return rendered
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -44,24 +119,6 @@ def respond(interpreter):
     while True:
         ## RENDER SYSTEM MESSAGE ##
 
-        system_message = interpreter.system_message
-
-        # Add language-specific system messages
-        for language in interpreter.computer.terminal.languages:
-            if hasattr(language, "system_message"):
-                system_message += "\n\n" + language.system_message
-
-        # Add custom instructions
-        if interpreter.custom_instructions:
-            system_message += "\n\n" + interpreter.custom_instructions
-
-        # Add computer API system message
-        if interpreter.computer.import_computer_api:
-            if interpreter.computer.system_message not in system_message:
-                system_message = (
-                    system_message + "\n\n" + interpreter.computer.system_message
-                )
-
         # Storing the messages so they're accessible in the interpreter's computer
         # no... this is a huge time sink.....
         # if interpreter.sync_computer:
@@ -69,9 +126,9 @@ def respond(interpreter):
         #         "python", f"messages={interpreter.messages}"
         #     )
 
-        ## Rendering ↓
-        rendered_system_message = render_message(interpreter, system_message)
-        ## Rendering ↑
+        ## Compose and render ↓
+        rendered_system_message = build_system_message(interpreter)
+        ## Compose and render ↑
 
         rendered_system_message = {
             "role": "system",
