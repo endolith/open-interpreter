@@ -1,0 +1,64 @@
+---
+title: DeepSeek
+---
+
+To use a model from the [DeepSeek API](https://platform.deepseek.com/), set the `model` flag to begin with `deepseek/`:
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --model deepseek/deepseek-v4-flash
+```
+
+```python Python
+from interpreter import interpreter
+
+interpreter.llm.model = "deepseek/deepseek-v4-flash"
+interpreter.chat()
+```
+
+</CodeGroup>
+
+# Supported Models
+
+We support any model exposed by the DeepSeek API via [LiteLLM](https://docs.litellm.ai/docs/providers/deepseek). Common models include:
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --model deepseek/deepseek-v4-flash
+interpreter --model deepseek/deepseek-v4-pro
+```
+
+```python Python
+interpreter.llm.model = "deepseek/deepseek-v4-flash"
+interpreter.llm.model = "deepseek/deepseek-v4-pro"
+```
+
+</CodeGroup>
+
+See the [DeepSeek API docs](https://api-docs.deepseek.com/) for the current model list and capabilities.
+
+# Required Environment Variables
+
+Set the following environment variables [(click here to learn how)](https://chat.openai.com/share/1062cdd8-62a1-4aa8-8ec9-eca45645971a) to use these models.
+
+| Environment Variable | Description | Where to Find |
+| -------------------- | ----------- | ------------- |
+| `DEEPSEEK_API_KEY` | API key for the DeepSeek platform. | [DeepSeek API keys](https://platform.deepseek.com/api_keys) |
+| `DEEPSEEK_API_BASE` | Optional. API base URL (default: `https://api.deepseek.com`). | [DeepSeek API docs](https://api-docs.deepseek.com/) |
+
+# Reasoning / thinking mode
+
+Thinking models stream reasoning tokens when supported. Control the effort on `interpreter.llm` or in a profile:
+
+```python
+interpreter.llm.reasoning_effort = "high"  # LiteLLM 1.105.1 enables thinking; it does not forward the effort level
+```
+
+```yaml Profile
+llm:
+  reasoning_effort: "low"   # LiteLLM 1.105.1 enables thinking but does not forward low/high/max
+```
+
+When a request includes tools, DeepSeek requires prior assistant `reasoning_content` to be sent back; Open Interpreter fills it automatically for `deepseek/` requests. Tool-free requests do not use prior reasoning history.
