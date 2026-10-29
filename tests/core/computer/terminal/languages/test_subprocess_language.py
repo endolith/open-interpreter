@@ -298,3 +298,49 @@ def test_handle_stream_output_calls_detect_active_line_once_per_line():
 
     assert len(calls) == 1
     assert lang.output_queue.get_nowait()["content"] == 7
+
+
+def test_join_stream_threads_reports_an_unfinished_reader():
+    """A timed reader join must not be reported as a complete drain.
+
+    If a reader is still alive when the process exits, run() cannot prove the
+    queue is complete; it must surface that instead of silently dropping output.
+    """
+    lang = EchoLanguage()
+
+    class Reader:
+        def __init__(self, alive):
+            self.alive = alive
+
+        def join(self, timeout=None):
+            self.timeout = timeout
+
+        def is_alive(self):
+            return self.alive
+
+    lang.stream_threads = [Reader(False), Reader(True)]
+
+    assert lang._join_stream_threads() is False
+    assert lang.stream_threads[0].timeout == 5
+
+
+def test_run_warns_when_a_reader_is_still_alive_after_exit():
+    """run() must not present a possibly incomplete drain as complete."""
+    lang = EchoLanguage()
+    lang.process = mock.Mock()
+    lang.process.poll.return_value = 1
+
+    class Reader:
+        def join(self, timeout=None):
+            self.timeout = timeout
+
+        def is_alive(self):
+            return True
+
+    lang.stream_threads = [Reader()]
+
+    chunks = list(lang.run("anything"))
+    output = "\n".join(str(chunk.get("content")) for chunk in chunks)
+
+    assert "output reader was still running" in output
+    assert lang.process is None
