@@ -163,10 +163,16 @@ class SubprocessLanguage(BaseLanguage):
                 # crashing on a cleared handle.
                 returncode = self._poll_process()
                 if returncode is not None:
-                    for thread in self.stream_threads:
-                        thread.join(timeout=1)
+                    readers_finished = self._join_stream_threads()
                     while not self.output_queue.empty():
                         yield self.output_queue.get()
+                    if not readers_finished:
+                        yield {
+                            "type": "console",
+                            "format": "output",
+                            "content": f"\nThe {self.name} process exited while its output "
+                            "reader was still running, so some output may be missing.",
+                        }
                     if not self.done.is_set():
                         yield {
                             "type": "console",
@@ -181,6 +187,12 @@ class SubprocessLanguage(BaseLanguage):
                     self.terminate()
                     self.process = None
                     break
+
+    def _join_stream_threads(self):
+        """Wait for finite reader threads and report whether all of them finished."""
+        for thread in self.stream_threads:
+            thread.join(timeout=5)
+        return all(not thread.is_alive() for thread in self.stream_threads)
 
     def _poll_process(self):
         """Return the process exit code, or None while the handle is gone.
