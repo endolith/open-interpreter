@@ -176,6 +176,8 @@ def run_tool_calling_llm(llm, request_params):
     review_category = None
     buffer = ""
 
+    llm.last_completion_usage = None
+
     for chunk in llm.completions(**request_params):
         record_stream_chunk_usage(llm, chunk)
 
