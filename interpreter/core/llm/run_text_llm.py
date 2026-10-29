@@ -107,8 +107,16 @@ def run_text_llm(llm, params):
     # contains a bare ``` line). The closing run must be at least as long.
     opener_len = len(FENCE)
 
+    llm.last_completion_usage = None
+
+    finished = False
     for chunk in llm.completions(**params):
         record_stream_chunk_usage(llm, chunk)
+
+        if finished:
+            # The response text ended at the closing fence, but the final
+            # usage-only chunk still needs to be recorded for `%usage`.
+            continue
 
         if llm.interpreter.verbose:
             print("Chunk in coding_llm", chunk)
@@ -235,7 +243,10 @@ def run_text_llm(llm, params):
                     "format": language,
                     "content": accumulated[cursor:fence_at],
                 }
-            return
+            finished = True
+            inside_code_block = False
+            cursor = len(accumulated)
+            break
 
         if pending_reasoning:
             yield _reasoning_chunk(pending_reasoning)
