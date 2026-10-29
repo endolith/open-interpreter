@@ -8,6 +8,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .default_system_message import build_default_system_message
 from .render_message import render_message
 
 
@@ -32,6 +33,53 @@ def _pending_code_message(messages):
     return None
 
 
+def build_system_message(interpreter):
+    """Compose the system message for one turn.
+
+    The default message embeds the current directory as data, so build it
+    fresh for every turn and never pass it through the template renderer: a
+    directory name containing `{{...}}` must not run code. Explicitly supplied
+    system messages keep their documented template behavior.
+    """
+    generated_default = getattr(interpreter, "_default_system_message", None)
+    current_message = interpreter.system_message
+
+    if generated_default is None:
+        default_system_message = None
+        template_message = current_message
+    elif current_message.startswith(generated_default):
+        # Rebuild the generated prefix for the current directory, and keep any
+        # text the caller appended with the documented `system_message += ...`.
+        default_system_message = build_default_system_message()
+        template_message = current_message[len(generated_default) :]
+    else:
+        # An explicit replacement, including fast_llm's temporary message.
+        default_system_message = None
+        template_message = current_message
+
+    # Add language-specific system messages
+    for language in interpreter.computer.terminal.languages:
+        if hasattr(language, "system_message"):
+            template_message += "\n\n" + language.system_message
+
+    # Add custom instructions
+    if interpreter.custom_instructions:
+        template_message += "\n\n" + interpreter.custom_instructions
+
+    # Add computer API system message
+    if interpreter.computer.import_computer_api:
+        if interpreter.computer.system_message not in template_message:
+            template_message += "\n\n" + interpreter.computer.system_message
+
+    rendered = render_message(interpreter, template_message)
+
+    if default_system_message is None:
+        return rendered
+    if rendered:
+        return default_system_message + "\n\n" + rendered
+    return default_system_message
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -44,24 +92,6 @@ def respond(interpreter):
     while True:
         ## RENDER SYSTEM MESSAGE ##
 
-        system_message = interpreter.system_message
-
-        # Add language-specific system messages
-        for language in interpreter.computer.terminal.languages:
-            if hasattr(language, "system_message"):
-                system_message += "\n\n" + language.system_message
-
-        # Add custom instructions
-        if interpreter.custom_instructions:
-            system_message += "\n\n" + interpreter.custom_instructions
-
-        # Add computer API system message
-        if interpreter.computer.import_computer_api:
-            if interpreter.computer.system_message not in system_message:
-                system_message = (
-                    system_message + "\n\n" + interpreter.computer.system_message
-                )
-
         # Storing the messages so they're accessible in the interpreter's computer
         # no... this is a huge time sink.....
         # if interpreter.sync_computer:
@@ -69,9 +99,9 @@ def respond(interpreter):
         #         "python", f"messages={interpreter.messages}"
         #     )
 
-        ## Rendering ↓
-        rendered_system_message = render_message(interpreter, system_message)
-        ## Rendering ↑
+        ## Compose and render ↓
+        rendered_system_message = build_system_message(interpreter)
+        ## Compose and render ↑
 
         rendered_system_message = {
             "role": "system",
