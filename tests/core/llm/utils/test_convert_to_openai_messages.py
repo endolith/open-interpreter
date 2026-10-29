@@ -913,3 +913,15 @@ def test_console_output_does_not_mutate_the_caller(interpreter):
         "type": "console",
         "format": "output",
     }
+
+
+def test_console_output_non_string_content_is_coerced_without_function_calling(interpreter):
+    """Plain conversion also coerces non-string output, without mutating history."""
+    messages = [
+        {"role": "computer", "type": "console", "format": "output", "content": 42}
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[0]["content"] == "Output:\n42"
+    assert messages[0]["content"] == 42
