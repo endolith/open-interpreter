@@ -14,7 +14,7 @@ from ..terminal_interface.utils.display_markdown_message import display_markdown
 from ..terminal_interface.utils.local_storage_path import get_storage_path
 from ..terminal_interface.utils.oi_dir import oi_dir
 from .computer.computer import Computer
-from .default_system_message import default_system_message
+from .default_system_message import build_default_system_message
 from .llm.llm import Llm
 from .respond import respond
 from .utils.telemetry import send_telemetry
@@ -65,7 +65,7 @@ class OpenInterpreter:
         os=False,
         speak_messages=False,
         llm=None,
-        system_message=default_system_message,
+        system_message=None,
         custom_instructions="",
         user_message_template="{content}",
         always_apply_user_message_template=False,
@@ -128,7 +128,9 @@ class OpenInterpreter:
         self.llm = Llm(self) if llm is None else llm
 
         # These are LLM related
-        self.system_message = system_message
+        self.system_message = (
+            build_default_system_message() if system_message is None else system_message
+        )
         self.custom_instructions = custom_instructions
         self.user_message_template = user_message_template
         self.always_apply_user_message_template = always_apply_user_message_template
