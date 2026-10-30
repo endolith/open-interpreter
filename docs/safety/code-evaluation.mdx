@@ -75,7 +75,9 @@ rather than in the request.
 
 For open weights, use `cloudflare/clef-flash` (Apache-2.0, 9B) or self-host Clef,
 Liquid d1, Strands Decider, or Kev. None of the decision models is code-specific;
-they judge effects, which is the point — they are not a CVE scanner.
+they judge effects, which is the point — they are not a CVE scanner. Clef and
+Clef Flash cap the text state at 2,000 UTF-8 bytes *including the policy*, so
+lower `decision_model.max_chars` (roughly 1,000) and keep the policy short there.
 
 For a local server that speaks the System One API (vLLM, Laya, Strands Decider,
 EdgeJev, …), point `--code_evaluation_api_base` at it:
