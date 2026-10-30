@@ -1360,6 +1360,47 @@ class TestRespondNotices(unittest.TestCase):
         self.fail("respond() never yielded a confirmation chunk")
 
 
+    def test_confirmation_carries_code_evaluation(self):
+        """With code_evaluation on, the confirmation carries the evaluator's result."""
+        fake = {"level": "red", "reason": None, "flags": ["destroys_data"]}
+        with patch(
+            "interpreter.core.respond.evaluate_code", return_value=fake
+        ) as evaluate:
+            chunk = self._confirmation(
+                [
+                    {"role": "user", "type": "message", "content": "hi"},
+                    {
+                        "role": "assistant",
+                        "type": "code",
+                        "format": "python",
+                        "content": "shutil.rmtree('data')",
+                    },
+                ],
+                interpreter_attrs={"code_evaluation": True},
+            )
+
+        self.assertEqual(chunk["content"]["evaluation"], fake)
+        evaluate.assert_called_once()
+
+    def test_confirmation_has_no_evaluation_when_off(self):
+        """With code_evaluation off (the default), no evaluator call is made."""
+        with patch("interpreter.core.respond.evaluate_code") as evaluate:
+            chunk = self._confirmation(
+                [
+                    {"role": "user", "type": "message", "content": "hi"},
+                    {
+                        "role": "assistant",
+                        "type": "code",
+                        "format": "python",
+                        "content": "print(1)",
+                    },
+                ]
+            )
+
+        self.assertIsNone(chunk["content"]["evaluation"])
+        evaluate.assert_not_called()
+
+
 class TestTerminalInterfaceNotices(unittest.TestCase):
     """terminal_interface handles removed-notice chunks without crashing."""
 
@@ -1419,6 +1460,37 @@ class TestTerminalInterfaceNotices(unittest.TestCase):
         with patch("sys.stdout", new_callable=StringIO) as fake_out:
             self._drive([chunk])
             self.assertIn("Removed redundant cd /x", fake_out.getvalue())
+
+    def test_confirmation_prints_evaluation(self):
+        """A decision-model evaluation is printed with the approval notice."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        chunk = {
+            "role": "computer",
+            "type": "confirmation",
+            "format": "execution",
+            "content": {
+                "type": "code",
+                "format": "bash",
+                "content": "rm -rf data",
+                "removed": None,
+                "evaluation": {
+                    "level": "red",
+                    "impact": 3.9,
+                    "flags": ["destroys_data"],
+                    "probabilities": {"destroys_data": 0.91},
+                    "model": "jev-test",
+                    "latency_ms": 100,
+                },
+            },
+        }
+        with patch("sys.stdout", new_callable=StringIO) as fake_out:
+            self._drive([chunk])
+            output = fake_out.getvalue()
+
+        self.assertIn("Safety: RED", output)
+        self.assertIn("destroys data 0.91", output)
 
     def test_auto_run_followed_by_message_chunk_does_not_crash(self):
         """Auto-run confirmation followed by a plain message chunk must not crash (the removed_notice variable is only read inside the confirmation handler)."""

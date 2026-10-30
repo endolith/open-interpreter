@@ -585,22 +585,108 @@ verbose: true
 
 </CodeGroup>
 
-### Safe Mode
+### Code Evaluation
 
-Enable or disable experimental safety mechanisms like code scanning. Valid options are `off`, `ask`, and `auto`.
+Show a decision-model safety evaluation above each code block before it runs. This is
+display-only: it never blocks or approves execution. See
+[Code Evaluation](/safety/code-evaluation) for the questions it asks and how the
+light is derived.
 
 <CodeGroup>
 
 ```bash Terminal
-interpreter --safe_mode ask
+interpreter --code_evaluation
 ```
 
 ```python Python
-interpreter.safe_mode = 'ask'
+interpreter.code_evaluation = True
 ```
 
 ```yaml Profile
-safe_mode: ask
+code_evaluation: true
+```
+
+</CodeGroup>
+
+### Code Evaluation Model
+
+The decision model used for the evaluation. Defaults to `typesafe/jev-latest`
+(requires `TYPESAFE_API_KEY`). Any decision model supported by LiteLLM works.
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --code_evaluation_model cloudflare/clef-flash
+```
+
+```python Python
+interpreter.decision_model.model = 'cloudflare/clef-flash'
+```
+
+```yaml Profile
+code_evaluation_model: cloudflare/clef-flash
+```
+
+</CodeGroup>
+
+### Code Evaluation API Base
+
+Base URL for a local or self-hosted decision-model server.
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --code_evaluation_api_base http://localhost:8000
+```
+
+```python Python
+interpreter.decision_model.api_base = 'http://localhost:8000'
+```
+
+```yaml Profile
+code_evaluation_api_base: http://localhost:8000
+```
+
+</CodeGroup>
+
+### Code Evaluation API Key
+
+API key for the decision-model provider. Defaults to the provider's environment
+variable.
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --code_evaluation_api_key ...
+```
+
+```python Python
+interpreter.decision_model.api_key = '...'
+```
+
+```yaml Profile
+code_evaluation_api_key: ...
+```
+
+</CodeGroup>
+
+### Code Evaluation Policy
+
+The policy text placed in the evaluation request. The default asks the model to
+judge the code by its effects.
+
+<CodeGroup>
+
+```bash Terminal
+interpreter --code_evaluation_policy "Judge only whether this touches production data."
+```
+
+```python Python
+interpreter.decision_model.policy = 'Judge only whether this touches production data.'
+```
+
+```yaml Profile
+code_evaluation_policy: Judge only whether this touches production data.
 ```
 
 </CodeGroup>

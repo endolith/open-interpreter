@@ -301,21 +301,26 @@ system_message: "You are Open Interpreter..."
 
 ## Options
 
-#### `--safe_mode`
+#### `--code_evaluation`
 
-Enable or disable experimental safety mechanisms like code scanning. Valid options are `off`, `ask`, and `auto`.
+Show a decision-model safety evaluation above each code block before it runs. Display
+only: it never blocks or approves execution. See
+[Code Evaluation](/safety/code-evaluation).
 
 <CodeGroup>
 
 ```bash Terminal
-interpreter --safe_mode ask
+interpreter --code_evaluation
 ```
 
 ```yaml Config
-safe_mode: ask
+code_evaluation: true
 ```
 
 </CodeGroup>
+
+Related settings: `--code_evaluation_model`, `--code_evaluation_api_base`,
+`--code_evaluation_api_key`, and `--code_evaluation_policy`.
 
 #### `--auto_run` or `-y`
 

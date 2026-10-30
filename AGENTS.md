@@ -89,6 +89,14 @@ drive-by fix; give the fix its own commit instead.
   'keyword')` signature lister, loaded by path in `jupyter_language.py`).
   `prompt_choice` takes only exact single letters and re-prompts on anything
   else.
+- `interpreter/core/code_evaluation/` — the optional, display-only safety
+  annotation. Sends the code block, its language, the tracked cwd, and a policy
+  string to a decision model through `litellm.systemone()` (Jev, Clef, Luna, or a
+  local/self-hosted server), asks atomic effect questions, and derives red /
+  yellow / green from **one** threshold in `ontology.py`. It never authorizes
+  execution; `would_allow` is computed for a future allowlist rule. Literal
+  secrets are redacted with the same `sanitize_secrets` path as chat, and every
+  provider error becomes `unknown`, never `green`.
 - `interpreter/core/tools/file_edit.py` — file-editing tool.
 - `scripts/wtf.py` — standalone "fix my last terminal error" CLI.
 - **Dead or fragile live code**: `Skills.run()` (in `core/toolbox/skills`),

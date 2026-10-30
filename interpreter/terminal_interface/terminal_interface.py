@@ -30,6 +30,7 @@ from ..core.utils.execution_allowlist import (
     persist_allowlist_rule,
     should_require_execution_confirmation,
 )
+from ..core.code_evaluation.render import print_evaluation
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.sanitize_terminal_input import sanitize_terminal_input
 from ..core.utils.scan_code import scan_code
@@ -357,6 +358,7 @@ def terminal_interface(interpreter, message):
                     confirm_content = chunk.get("content")
                     if isinstance(confirm_content, dict):
                         removed_notice = confirm_content.get("removed")
+                        print_evaluation(confirm_content.get("evaluation"), interpreter)
 
                     if should_require_execution_confirmation(interpreter, chunk):
                         # OI is about to execute code or apply an edit. The user wants to approve this

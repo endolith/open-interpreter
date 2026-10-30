@@ -16,6 +16,8 @@ from ..terminal_interface.terminal_interface import terminal_interface
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from ..terminal_interface.utils.local_storage_path import get_storage_path
 from ..terminal_interface.utils.oi_dir import oi_dir
+from .code_evaluation.evaluator import DecisionModelConfig
+from .code_evaluation.render import print_evaluation
 from .toolbox.toolbox import Toolbox
 from .terminal.terminal import Terminal
 from .default_system_message import default_system_message
@@ -183,6 +185,10 @@ class OpenInterpreter:
         self.web_timeout = web_timeout
         self.web_answer_timeout = web_answer_timeout
         self.safe_mode = safe_mode
+        # Display-only safety annotation from a decision model; no allowlist is
+        # consulted and no execution is authorized by it.
+        self.code_evaluation = False
+        self.decision_model = DecisionModelConfig()
         # One switch gates ALL boilerplate stripping (redundant cd, redundant
         # imports, `import toolbox`, and the redundant-function/scalar stripping).
         # Profile can turn it off (`strip_redundant_code: false`).
@@ -815,6 +821,10 @@ class OpenInterpreter:
 
                     if should_require_execution_confirmation(self, chunk):
                         yield chunk
+                    elif chunk.get("content", {}).get("evaluation"):
+                        # auto-run skips the terminal's confirmation prompt, so
+                        # print the annotation here; the block is about to run.
+                        print_evaluation(chunk["content"]["evaluation"], self)
 
                     # We want to append this now, so even if content is never filled, we know that the execution didn't produce output.
                     # ... rethink this though.

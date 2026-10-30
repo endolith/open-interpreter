@@ -68,7 +68,7 @@ def _is_local_model(model: str) -> bool:
     return False
 
 
-def _redact_secrets(text: str) -> str:
+def redact_text(text: str, announce: bool = True) -> str:
     """
     Use bc-detect-secrets and token-format patterns to find and redact secrets in text.
     Scans line-by-line and replaces each detected secret value with [REDACTED].
@@ -76,6 +76,9 @@ def _redact_secrets(text: str) -> str:
     and benign strings in code output are left visible.
     EnvSecretDetector is called directly (not via the library's file-loading mechanism)
     so it reliably runs regardless of path resolution or lru_cache ordering.
+
+    ``announce`` prepends a one-line disclaimer for text shown to the model; turn
+    it off for machine-read inputs such as a code snippet sent to an evaluator.
     """
     if not text or not isinstance(text, str):
         return text
@@ -104,8 +107,14 @@ def _redact_secrets(text: str) -> str:
     result = text
     for s in sorted(secrets_found, key=len, reverse=True):
         result = result.replace(s, "[REDACTED]")
+    if not announce:
+        return result
     disclaimer = "[Secret values in the output below were redacted before being sent to you; the original content is not literal.]\n\n"
     return disclaimer + result
+
+
+# Backwards-compatible private name: the message sanitiser and tests use it.
+_redact_secrets = redact_text
 
 
 def sanitize_messages(messages: list, scanner=None, only_code_output: bool = True) -> None:

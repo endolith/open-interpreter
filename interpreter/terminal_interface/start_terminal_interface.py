@@ -234,6 +234,36 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "safe_mode"},
         },
         {
+            "name": "code_evaluation",
+            "help_text": "show a decision-model safety evaluation above each code block before it runs",
+            "type": bool,
+            "attribute": {"object": interpreter, "attr_name": "code_evaluation"},
+        },
+        {
+            "name": "code_evaluation_model",
+            "help_text": "decision model for code evaluation, e.g. typesafe/jev-latest, openai/gpt-6-luna, cloudflare/clef-flash, or a local model",
+            "type": str,
+            "attribute": {"object": interpreter.decision_model, "attr_name": "model"},
+        },
+        {
+            "name": "code_evaluation_api_base",
+            "help_text": "base URL for the decision-model API (use this for a local or self-hosted server)",
+            "type": str,
+            "attribute": {"object": interpreter.decision_model, "attr_name": "api_base"},
+        },
+        {
+            "name": "code_evaluation_api_key",
+            "help_text": "optionally set the decision-model API key (this will override environment variables)",
+            "type": str,
+            "attribute": {"object": interpreter.decision_model, "attr_name": "api_key"},
+        },
+        {
+            "name": "code_evaluation_policy",
+            "help_text": "policy text describing how code should be judged (defaults to an effects-based policy)",
+            "type": str,
+            "attribute": {"object": interpreter.decision_model, "attr_name": "policy"},
+        },
+        {
             "name": "debug",
             "nickname": "debug",
             "help_text": "debug mode for open interpreter developers",
