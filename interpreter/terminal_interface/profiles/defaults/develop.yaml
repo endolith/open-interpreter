@@ -5,7 +5,8 @@
 ###
 ### This file is the default profile on classic/develop (`interpreter` with no
 ### --profile flag). Put fork-specific settings here (or in
-### ~/.open-interpreter/profiles/develop.yaml). Upstream main uses default.yaml.
+### <user config dir>/profiles/develop.yaml, e.g. ~/.config/open-interpreter/profiles/develop.yaml).
+### Upstream main uses default.yaml.
 ### Revert start_terminal_interface._DEFAULT_PROFILE before merging to main.
 ### =============================================================================
 
@@ -35,6 +36,14 @@ toolbox:
 
 # Custom Instructions
 # custom_instructions: ""  # This will be appended to the system message
+
+# Code evaluation (display-only decision-model safety annotation)
+# code_evaluation: true
+# decision_model:
+#   model: "typesafe/jev-latest"  # requires TYPESAFE_API_KEY; any LiteLLM decision model works
+#   # api_base: http://localhost:8000  # a local or self-hosted decision-model server
+#   # api_key: ...  # defaults to the provider's environment variable
+#   # timeout: 5
 
 # General Configuration
 # auto_run: False  # If True, code will run without asking. Or use prompt | all | allowlist
