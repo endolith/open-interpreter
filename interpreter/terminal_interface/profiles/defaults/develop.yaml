@@ -41,6 +41,7 @@ toolbox:
 # code_evaluation: true
 # decision_model:
 #   model: "typesafe/jev-latest"  # requires TYPESAFE_API_KEY; any LiteLLM decision model works
+#   # model: "openrouter/typesafe/jev-1.14"  # or any OpenRouter decision model (OPENROUTER_API_KEY)
 #   # api_base: http://localhost:8000  # a local or self-hosted decision-model server
 #   # api_key: ...  # defaults to the provider's environment variable
 #   # timeout: 5
