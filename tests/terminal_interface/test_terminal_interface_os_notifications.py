@@ -15,7 +15,6 @@ def _make_interpreter():
     interpreter.messages = []
     interpreter.plain_text_display = False
     interpreter.os = True
-    interpreter.safe_mode = "off"
     interpreter.verbose = False
     interpreter.multi_line = False
     interpreter.max_output = 2000

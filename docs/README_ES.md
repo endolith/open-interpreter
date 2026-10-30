@@ -352,7 +352,7 @@ Puede ejecutar `interpreter -y` o establecer `interpreter.auto_run = True` para 
 - Vigile Intérprete Abierto como si fuera un coche autónomo y esté preparado para terminar el proceso cerrando su terminal.
 - Considere ejecutar Intérprete Abierto en un entorno restringido como Google Colab o Replit. Estos entornos son más aislados, reduciendo los riesgos de ejecutar código arbitrario.
 
-Hay soporte **experimental** para un [modo seguro](SAFE_MODE.md) para ayudar a mitigar algunos riesgos.
+Se puede mostrar una **evaluación de seguridad mediante un modelo de decisión** junto a cada bloque de código (solo visual, no bloquea la ejecución). Véase [Evaluación de código](safety/code-evaluation.mdx).
 
 ## ¿Cómo Funciona?
 

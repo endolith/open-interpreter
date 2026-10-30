@@ -328,7 +328,7 @@ When using a **remote API model**, Open Interpreter runs all message text (inclu
 - **`on`**: Always sanitize (including local).
 - **`off`**: Never sanitize.
 
-This is separate from **Safe Mode** (`safe_mode`), which uses Semgrep to scan generated code for vulnerabilities before you run it. Safe Mode is optional (`pip install open-interpreter[safe]` adds semgrep).
+This is separate from [Code Evaluation](/safety/code-evaluation), which sends the code block to a decision model for a display-only safety annotation; the same detectors redact literal secrets from that request.
 
 <CodeGroup>
 

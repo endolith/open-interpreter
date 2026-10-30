@@ -80,7 +80,7 @@ def is_websocket_origin_allowed(origin: Optional[str]) -> bool:
 
 # Top-level interpreter attributes that must not be changed via POST /settings.
 SENSITIVE_SERVER_SETTINGS = frozenset(
-    {"auto_run", "safe_mode", "system_message", "messages"}
+    {"auto_run", "system_message", "messages"}
 )
 SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
 # Attributes that hold an object, so POST /settings only writes their sub-keys.
