@@ -44,6 +44,26 @@ interpreter --code_evaluation --code_evaluation_model cloudflare/clef-flash
 interpreter --code_evaluation --code_evaluation_model openrouter/typesafe/jev-1.14
 ```
 
+### OpenRouter
+
+OpenRouter serves decision models on its own decisions endpoint; LiteLLM routes
+`openrouter/…` ids there automatically (it calls `/api/alpha/decisions`, not chat
+completions). Set `OPENROUTER_API_KEY` and prefix the OpenRouter id with
+`openrouter/`:
+
+```yaml
+code_evaluation: true
+decision_model:
+  model: openrouter/typesafe/jev-1.14
+```
+
+Ids seen on OpenRouter include `typesafe/jev-1.14`, `openai/gpt-6-luna-decisions`,
+`cloudflare/clef-flash`, `cloudflare/clef`, `perplexity/pplx-decider-v1.2`, and
+`liquid/d1` — prefix each with `openrouter/` (for example
+`openrouter/cloudflare/clef-flash`). Availability changes, so use the id as
+OpenRouter lists it. `OPENROUTER_API_BASE` overrides the default
+`https://openrouter.ai/api`.
+
 For a local server that speaks the System One API (vLLM, Laya, Strands Decider,
 EdgeJev, …), point `--code_evaluation_api_base` at it:
 
