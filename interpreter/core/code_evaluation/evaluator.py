@@ -211,10 +211,23 @@ def _elapsed_ms(started):
 
 
 def _reason(exc):
+    """A short cause for the UNKNOWN line: provider status and message when there is one."""
     name = type(exc).__name__
-    text = str(exc).lower()
-    if "timeout" in name.lower() or "timed out" in text:
+    text = " ".join(str(exc).split())
+    for prefix in (f"litellm.{name}: ", f"{name}: "):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    lowered = text.lower()
+    if "timeout" in name.lower() or "timed out" in lowered:
         return "timeout"
-    if "authentication" in name.lower() or "api key" in text or "api_key" in text:
+    status = getattr(exc, "status_code", None)
+    if status == 401:
+        return "no API key"
+    if status:
+        # OpenRouter's 404s carry the actionable part ("No endpoints found
+        # matching your data policy"); the class name alone hides it.
+        return f"{status}: {text[:140]}" if text else str(status)
+    if "authentication" in name.lower() or "api key" in lowered or "api_key" in lowered:
         return "no API key"
     return name

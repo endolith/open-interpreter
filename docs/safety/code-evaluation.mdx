@@ -64,6 +64,19 @@ Ids seen on OpenRouter include `typesafe/jev-1.14`, `openai/gpt-6-luna-decisions
 OpenRouter lists it. `OPENROUTER_API_BASE` overrides the default
 `https://openrouter.ai/api`.
 
+If the line reads `UNKNOWN` with `404: No endpoints found …`, the provider's
+privacy settings excluded the model; Open Interpreter is fine. Check
+[OpenRouter privacy](https://openrouter.ai/settings/privacy): “ZDR endpoints only”
+requires the model to have a zero-retention endpoint (try `typesafe/jev-1.13`), and a
+training policy can exclude others. `401` means a missing or wrong
+`OPENROUTER_API_KEY`. LiteLLM 1.105.x builds the decision request body itself and
+does not forward a per-request `provider` block, so put ZDR at the account level
+rather than in the request.
+
+For open weights, use `cloudflare/clef-flash` (Apache-2.0, 9B) or self-host Clef,
+Liquid d1, Strands Decider, or Kev. None of the decision models is code-specific;
+they judge effects, which is the point — they are not a CVE scanner.
+
 For a local server that speaks the System One API (vLLM, Laya, Strands Decider,
 EdgeJev, …), point `--code_evaluation_api_base` at it:
 

@@ -125,6 +125,41 @@ def test_timeout_is_named(monkeypatch):
     assert evaluate_code(_interpreter(), "python", "x = 1")["reason"] == "timeout"
 
 
+def test_http_error_reason_shows_status_and_provider_message(monkeypatch):
+    """A 404 keeps the provider's text, where OpenRouter explains the real cause."""
+    import litellm
+
+    _install(
+        monkeypatch,
+        error=litellm.NotFoundError(
+            message="No endpoints found matching your data policy (Zero data retention).",
+            model="typesafe/jev-1.14",
+            llm_provider="openrouter",
+        ),
+    )
+
+    reason = evaluate_code(_interpreter(), "bash", "ls")["reason"]
+
+    assert reason.startswith("404: No endpoints found")
+    assert "litellm.NotFoundError" not in reason
+
+
+def test_auth_error_reason_is_short(monkeypatch):
+    """A missing key reads as a plain cause, not a wall of provider JSON."""
+    import litellm
+
+    _install(
+        monkeypatch,
+        error=litellm.AuthenticationError(
+            message="No auth credentials found",
+            model="typesafe/jev-1.14",
+            llm_provider="openrouter",
+        ),
+    )
+
+    assert evaluate_code(_interpreter(), "bash", "ls")["reason"] == "no API key"
+
+
 def test_empty_answers_is_unknown(monkeypatch):
     """A refusal or empty answer set must not read as green."""
     _install(monkeypatch, types.SimpleNamespace(model="jev-test", answers={}))
