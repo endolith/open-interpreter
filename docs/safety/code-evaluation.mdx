@@ -1,0 +1,103 @@
+---
+title: Code Evaluation
+---
+
+# Code Evaluation
+
+Code evaluation asks a **decision model** what a code block would do, then prints a
+one-line verdict beside the approval prompt:
+
+```
+  Safety: GREEN  impact 0.4/4  (jev-1.13.0, 312 ms)
+  Safety: RED    impact 3.9/4  destroys data 0.91 · buggy 0.62  (jev-1.13.0, 340 ms)
+```
+
+It is **display-only**. It does not block execution, does not approve it, and does
+not replace the confirmation prompt. It is meant to make a block's likely effects
+visible before you say yes.
+
+## Enabling it
+
+```shell
+interpreter --code_evaluation
+```
+
+```yaml
+# ~/.config/open-interpreter/profiles/default.yaml
+code_evaluation: true
+```
+
+## Choosing a model
+
+The default is TypeSafe's Jev (`typesafe/jev-latest`), which needs
+`TYPESAFE_API_KEY`. Any decision model supported by LiteLLM works, because the
+request is the same typed-question format regardless of provider:
+
+```shell
+# OpenAI
+interpreter --code_evaluation --code_evaluation_model openai/gpt-6-luna
+
+# Cloudflare (open weights, also self-hostable)
+interpreter --code_evaluation --code_evaluation_model cloudflare/clef-flash
+
+# Through OpenRouter
+interpreter --code_evaluation --code_evaluation_model openrouter/typesafe/jev-1.14
+```
+
+For a local server that speaks the System One API (vLLM, Laya, Strands Decider,
+EdgeJev, …), point `--code_evaluation_api_base` at it:
+
+```shell
+interpreter --code_evaluation \
+  --code_evaluation_model hosted_vllm/Qwen/Qwen3-0.6B \
+  --code_evaluation_api_base http://localhost:8000
+```
+
+## What it asks
+
+Rather than one "is this safe?" question, the evaluator asks several atomic ones
+and combines the answers in code, so a verdict is explainable:
+
+| Question | Meaning |
+|---|---|
+| `destroys_data` | deletes, overwrites, truncates, or irreversibly loses data |
+| `exposes_secrets` | prints/logs/returns credentials or secrets in output |
+| `sends_data_out` | sends data to a network service, or encodes it for later |
+| `modifies_system` | changes state beyond the project (OS, packages, services, permissions) |
+| `runs_external_code` | shell, subprocess, eval/exec, downloaded code |
+| `resource_exhaustion` | unbounded CPU, memory, disk, or processes |
+| `buggy` | likely to fail or behave differently from what it appears to do |
+| `impact` | score from 0 (no lasting effect) to 4 (irreversible/catastrophic) |
+
+A flag fires at probability **0.6**. Any red flag (`destroys_data`,
+`exposes_secrets`, `sends_data_out`) makes the block red; any yellow flag makes it
+yellow; otherwise it is green. `buggy` is a yellow flag. If the model cannot answer
+(timeout, missing key, refusal), the line says `UNKNOWN` and never `GREEN`.
+
+The state sent to the model is the code block, its language, the tracked working
+directory, and the policy text. Python kernel state is **not** sent. You can replace
+the policy with `--code_evaluation_policy`.
+
+## Secrets
+
+The snippet is passed through the same secret detector as the chat path
+(`sanitize_secrets`), so literal keys, tokens, and passwords are replaced with
+`[REDACTED]` before leaving the machine when that setting is `auto` or `on`. This is
+defense in depth, not anonymity: the code itself still goes to the decision-model
+provider unless you run a local model.
+
+## Cost and latency
+
+A decision-model call takes roughly 0.1–0.5 seconds and is priced per input token
+(typically a fraction of a cent per block). The evaluation happens after the code
+block has finished streaming and before the approval prompt, so it is normally
+hidden by the time you read the block. Results are cached per session: an identical
+block is only sent once.
+
+## Not a security boundary
+
+A decision model can be wrong, and `jev-latest` can change under you. Treat the
+line as a second opinion, not a guarantee, and validate the thresholds on your own
+labelled blocks before letting anything act on the verdict. A future allowlist rule
+may be able to authorize blocks the model calls safe; the `would_allow` field is
+already computed for that, but nothing consumes it yet.

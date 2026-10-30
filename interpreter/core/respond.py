@@ -18,6 +18,7 @@ from .utils.assemble_system_message import assemble_system_message
 from .tools.file_edit import dry_run_edit, run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
+from .code_evaluation.evaluator import evaluate_code
 
 _LITELLM_OPTIONAL_API_EXCEPTIONS = tuple(
     getattr(litellm.exceptions, name)
@@ -984,6 +985,10 @@ def respond(interpreter):
 
                 removed_notice = "; ".join(notices) if notices else None
 
+                evaluation = None
+                if getattr(interpreter, "code_evaluation", False):
+                    evaluation = evaluate_code(interpreter, language, code)
+
                 # Yield a message, such that the user can stop code execution if they want to
                 try:
                     yield {
@@ -995,6 +1000,7 @@ def respond(interpreter):
                             "format": language,
                             "content": code,
                             "removed": removed_notice,
+                            "evaluation": evaluation,
                         },
                     }
                 except GeneratorExit:
