@@ -236,6 +236,32 @@ def test_start_terminal_interface_remaps_claude_35_model(monkeypatch):
     assert interpreter.llm.model == "claude-sonnet-4-6"
 
 
+def test_start_terminal_interface_applies_code_evaluation_flags(monkeypatch):
+    """The code-evaluation CLI flags reach the interpreter and its decision-model config."""
+    sti, interpreter = _patch_module(monkeypatch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "oi",
+            "--code_evaluation",
+            "--code_evaluation_model",
+            "cloudflare/clef-flash",
+            "--code_evaluation_api_base",
+            "http://localhost:8000",
+            "--code_evaluation_policy",
+            "judge only data loss",
+        ],
+    )
+
+    start_terminal_interface(interpreter)
+
+    assert interpreter.code_evaluation is True
+    assert interpreter.decision_model.model == "cloudflare/clef-flash"
+    assert interpreter.decision_model.api_base == "http://localhost:8000"
+    assert interpreter.decision_model.policy == "judge only data loss"
+
+
 def test_start_terminal_interface_stdin_mode_chats_with_input(monkeypatch):
     """`--stdin` reads one line and passes it straight to interpreter.chat."""
     sti, interpreter = _patch_module(monkeypatch)
