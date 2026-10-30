@@ -611,7 +611,9 @@ code_evaluation: true
 ### Code Evaluation Model
 
 The decision model used for the evaluation. Defaults to `typesafe/jev-latest`
-(requires `TYPESAFE_API_KEY`). Any decision model supported by LiteLLM works.
+(requires `TYPESAFE_API_KEY`). Any decision model supported by LiteLLM works;
+OpenRouter ids take an extra prefix, e.g. `openrouter/typesafe/jev-1.14` with
+`OPENROUTER_API_KEY`.
 
 <CodeGroup>
 
