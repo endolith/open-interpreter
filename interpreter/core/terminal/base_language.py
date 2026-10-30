@@ -37,7 +37,7 @@ class BaseLanguage:
     Attributes
 
     name = "baselanguage" # Name as it is seen by the LLM (must match execute tool enum exactly)
-    file_extension = "sh" # (OPTIONAL) File extension, used for safe_mode code scanning
+    file_extension = "sh" # (OPTIONAL) File extension, used for temporary files and previews
     execution_mode = "repl" # (OPTIONAL) One of: "repl" (persistent session), "per_block" (fresh run each time), "display" (renders to UI, no execution)
 
     Methods

@@ -47,7 +47,7 @@ def test_set_attributes_applies_non_none_values():
             "type": str,
             "attribute": {"object": interpreter.llm, "attr_name": "model"},
         },
-        {"name": "safe_mode", "type": str},  # No "attribute" key -> must be ignored
+        {"name": "no_attribute_setting", "type": str},  # No "attribute" key -> must be ignored
     ]
 
     class Args:
@@ -56,14 +56,14 @@ def test_set_attributes_applies_non_none_values():
     args = Args()
     args.verbose = True
     args.model = "gpt-4"
-    args.safe_mode = "off"
+    args.no_attribute_setting = "off"
 
     set_attributes(args, arguments)
 
     assert interpreter.verbose is True
     assert interpreter.llm.model == "gpt-4"
     # Arguments without an "attribute" mapping are never applied.
-    assert not hasattr(interpreter, "safe_mode")
+    assert not hasattr(interpreter, "no_attribute_setting")
 
 
 def test_set_attributes_skips_none_values():
@@ -121,7 +121,6 @@ def _patch_module(monkeypatch):
 
     interpreter = mock.Mock()
     interpreter.auto_run = False
-    interpreter.safe_mode = "off"
     interpreter.offline = True  # skips the update check
     interpreter.messages = []
     interpreter.disable_telemetry = False
@@ -235,17 +234,6 @@ def test_start_terminal_interface_remaps_claude_35_model(monkeypatch):
     start_terminal_interface(interpreter)
 
     assert interpreter.llm.model == "claude-sonnet-4-6"
-
-
-def test_start_terminal_interface_safe_mode_disables_auto_run(monkeypatch):
-    """A safe mode of ask/auto turns off auto_run so code still needs approval."""
-    sti, interpreter = _patch_module(monkeypatch)
-    interpreter.auto_run_mode = "all"
-    monkeypatch.setattr(sys, "argv", ["oi", "--safe_mode", "ask"])
-
-    start_terminal_interface(interpreter)
-
-    assert interpreter.auto_run_mode == "prompt"
 
 
 def test_start_terminal_interface_stdin_mode_chats_with_input(monkeypatch):

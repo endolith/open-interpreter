@@ -607,7 +607,6 @@ You are capable of **any** task.""",
 
 # General Configuration
 # auto_run: False  # If True, code will run without asking for confirmation
-# safe_mode: "off"  # The safety mode (see https://github.com/endolith/open-interpreter/blob/main/docs/safety/safe-mode.mdx)
 # offline: False  # If True, will disable some online features like checking for updates
 # verbose: False  # If True, will print detailed logs
 # max_output: 2800  # The maximum characters of code output visible to the LLM

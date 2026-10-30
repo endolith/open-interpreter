@@ -134,7 +134,6 @@ class OpenInterpreter:
         max_output=2800,
         web_timeout=30.0,
         web_answer_timeout=120.0,
-        safe_mode="off",
         shrink_images=False,
         loop=False,
         loop_message="""Proceed. You CAN run code on my machine. If the entire task I asked for is done, say exactly 'The task is done.' If you need some specific information (like username or password) say EXACTLY 'Please provide more information.' If it's impossible, say 'The task is impossible.' (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.""",
@@ -184,7 +183,6 @@ class OpenInterpreter:
         self.max_output = max_output
         self.web_timeout = web_timeout
         self.web_answer_timeout = web_answer_timeout
-        self.safe_mode = safe_mode
         # Display-only safety annotation from a decision model; no allowlist is
         # consulted and no execution is authorized by it.
         self.code_evaluation = False

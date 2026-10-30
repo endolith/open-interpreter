@@ -225,15 +225,6 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "speak_messages"},
         },
         {
-            "name": "safe_mode",
-            "nickname": "safe",
-            "help_text": "optionally enable safety mechanisms like code scanning; valid options are off, ask, and auto",
-            "type": str,
-            "choices": ["off", "ask", "auto"],
-            "default": "off",
-            "attribute": {"object": interpreter, "attr_name": "safe_mode"},
-        },
-        {
             "name": "code_evaluation",
             "help_text": "show a decision-model safety evaluation above each code block before it runs",
             "type": bool,
@@ -550,10 +541,6 @@ Use """ to write multi-line messages.
         or os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
         or bool(args.disable_telemetry)
     )
-
-    # Full auto-run and safe_mode scanning are incompatible; allowlist mode is fine.
-    if interpreter.auto_run_mode == "all" and interpreter.safe_mode in ("ask", "auto"):
-        interpreter.auto_run_mode = "prompt"
 
     ### Set some helpful settings we know are likely to be true
 

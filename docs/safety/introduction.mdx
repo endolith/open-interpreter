@@ -6,7 +6,7 @@ Safety is a top priority for us at Open Interpreter. Running LLM generated code 
 
 # Safety Measures
 
-- [Safe mode](/safety/safe-mode) enables code scanning, as well as the ability to scan packages with [guarddog](https://github.com/DataDog/guarddog) with a simple change to the system message. See the [safe mode docs](/safety/safe-mode) for more information.
+- [Code evaluation](/safety/code-evaluation) shows a decision-model second opinion beside each code block: a red/yellow/green line with the effects it thinks the code would have. It is display-only and never blocks execution.
 
 - Requiring confirmation with the user before the code is actually run. This is a simple measure that can prevent a lot of accidents. It exists as another layer of protection, but can be disabled with the `--auto-run` flag if you wish.
 

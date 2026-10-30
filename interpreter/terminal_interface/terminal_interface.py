@@ -33,13 +33,11 @@ from ..core.utils.execution_allowlist import (
 from ..core.code_evaluation.render import print_evaluation
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.sanitize_terminal_input import sanitize_terminal_input
-from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
 from .magic_commands import handle_magic_command
-from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
 from .utils.display_constants import PADDING_PANEL
 from .utils.display_markdown_message import display_markdown_message
@@ -128,12 +126,7 @@ def terminal_interface(interpreter, message):
                 "**Allowlist mode**: only exact allowlisted commands run without approval."
             )
 
-        if interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto":
-            if not check_for_package("semgrep"):
-                interpreter_intro_message.append(
-                    f"**Safe Mode**: {interpreter.safe_mode}\n\n>Note: **Safe Mode** requires `semgrep` (`pip install semgrep`)"
-                )
-        elif interpreter.auto_run_mode == "prompt":
+        if interpreter.auto_run_mode == "prompt":
             interpreter_intro_message.append("Use `interpreter -y` to bypass this.")
 
         if (
@@ -426,23 +419,6 @@ def terminal_interface(interpreter, message):
                         code_to_run = chunk["content"]
                         language = code_to_run["format"]
                         code = code_to_run["content"]
-
-                        should_scan_code = False
-
-                        if not interpreter.safe_mode == "off":
-                            if interpreter.safe_mode == "auto":
-                                should_scan_code = True
-                            elif interpreter.safe_mode == "ask":
-                                print("", flush=True)
-                                response = prompt_choice(
-                                    "  Would you like to scan this code? (y/n)\n\n  ",
-                                    ("y", "n"),
-                                )
-                                if response == "y":
-                                    should_scan_code = True
-
-                        if should_scan_code:
-                            scan_code(code, language, interpreter)
 
                         # Blank line before approval: leading \n inside input() is often lost after
                         # Rich/console output on Windows (cursor sits on last panel row).

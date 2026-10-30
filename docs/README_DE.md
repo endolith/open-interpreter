@@ -352,7 +352,7 @@ Sie können `interpreter -y` ausführen oder `interpreter.auto_run = True` setze
 - Beobachten Sie Open Interpreter wie ein selbstfahrendes Auto und seien Sie bereit, den Prozess durch Schließen Ihres Terminals zu beenden.
 - Erwägen Sie, Open Interpreter in einer eingeschränkten Umgebung wie Google Colab oder Replit auszuführen. Diese Umgebungen sind isolierter und reduzieren die Risiken der Ausführung beliebigen Codes.
 
-Es gibt **experimentelle** Unterstützung für einen [Sicherheitsmodus](SAFE_MODE.md), um einige Risiken zu mindern.
+Optional kann neben jedem Codeblock eine **Sicherheitsbewertung durch ein Entscheidungsmodell** angezeigt werden (nur Anzeige, blockiert die Ausführung nicht). Siehe [Codebewertung](safety/code-evaluation.mdx).
 
 ## Wie funktioniert es?
 

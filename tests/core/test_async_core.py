@@ -229,7 +229,7 @@ class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
 
         This is the branch a caller reaches for scalar switches; if it stopped
         assigning, POST /settings would report success while changing nothing.
-        `context_mode` stands in because auto_run and safe_mode are on the
+        `context_mode` stands in because auto_run is on the
         sensitive list and are rejected before reaching this branch.
         """
         self.interpreter.context_mode = False

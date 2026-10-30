@@ -352,7 +352,7 @@ uvicorn server:app --reload
 - 像关注自动驾驶汽车一样关注 Open Interpreter，并随时准备通过关闭终端来结束进程。
 - 考虑在 Google Colab 或 Replit 等受限环境中运行 Open Interpreter。这些环境更加隔离，降低了执行任意代码的风险。
 
-对 [安全模式](SAFE_MODE.md) 有**实验性**支持，有助于降低某些风险。
+可以在每个代码块旁显示**决策模型安全评估**（仅显示，不会阻止执行）。参见[代码评估](safety/code-evaluation.mdx)。
 
 ## 它是如何工作的？
 

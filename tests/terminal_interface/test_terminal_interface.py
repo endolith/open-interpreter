@@ -18,7 +18,6 @@ def _make_interpreter():
     interpreter.messages = []
     interpreter.plain_text_display = False
     interpreter.os = False
-    interpreter.safe_mode = "off"
     interpreter.verbose = False
     interpreter.multi_line = False
     interpreter.max_output = 2000
@@ -97,21 +96,6 @@ def test_terminal_interface_skips_intro_when_auto_run():
     list(terminal_interface(interpreter, "hello"))
 
     interpreter.display_message.assert_not_called()
-
-
-def test_terminal_interface_safe_mode_ask_mentions_semgrep():
-    """terminal_interface notes that ask/auto safe mode needs semgrep."""
-    import interpreter.terminal_interface.terminal_interface as ti
-
-    interpreter = _intro_interpreter()
-    interpreter.safe_mode = "ask"
-    interpreter.chat = lambda message, display=False, stream=True: iter([])
-    with mock.patch.object(ti, "check_for_package", return_value=False):
-        list(terminal_interface(interpreter, "hello"))
-
-    intro = interpreter.display_message.call_args[0][0]
-    assert "Safe Mode" in intro
-    assert "semgrep" in intro
 
 
 def test_terminal_interface_ignores_empty_input():
@@ -335,59 +319,6 @@ def test_terminal_interface_lone_confirmation_does_not_crash():
     block.assert_called_once_with(interpreter)
     assert block.return_value.language == "python"
     assert block.return_value.code == "print(1)"
-
-
-def test_terminal_interface_safe_mode_auto_scans_code_before_run():
-    """safe_mode auto automatically requests a semgrep scan of pending code."""
-    import interpreter.terminal_interface.terminal_interface as ti
-
-    interpreter = _make_interpreter()
-    interpreter.auto_run = False
-    interpreter.safe_mode = "auto"
-
-    def chat(message, display=False, stream=True):
-        """Emulate interpreter.chat with a code block plus confirmation for a safe-mode scan."""
-        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
-        yield {
-            "type": "confirmation",
-            "role": "assistant",
-            "content": {"format": "python", "content": "print(1)"},
-        }
-
-    interpreter.chat = chat
-    with mock.patch.object(ti, "CodeBlock"):
-        with mock.patch.object(ti, "check_for_package", return_value=True):
-            with mock.patch.object(ti, "scan_code") as scan:
-                with mock.patch("builtins.input", return_value="y"):
-                    list(terminal_interface(interpreter, "run code"))
-
-    scan.assert_called_once_with("print(1)", "python", interpreter)
-
-
-def test_terminal_interface_safe_mode_ask_scans_when_user_consents():
-    """safe_mode ask scans only if the user opts in, then still asks to run."""
-    import interpreter.terminal_interface.terminal_interface as ti
-
-    interpreter = _make_interpreter()
-    interpreter.auto_run = False
-    interpreter.safe_mode = "ask"
-
-    def chat(message, display=False, stream=True):
-        """Emulate interpreter.chat with a code block plus confirmation for a safe-mode ask."""
-        yield {"type": "code", "role": "assistant", "format": "python", "start": True}
-        yield {
-            "type": "confirmation",
-            "role": "assistant",
-            "content": {"format": "python", "content": "print(1)"},
-        }
-
-    interpreter.chat = chat
-    with mock.patch.object(ti, "CodeBlock"):
-        with mock.patch.object(ti, "scan_code") as scan:
-            with mock.patch("builtins.input", side_effect=["y", "y"]):
-                list(terminal_interface(interpreter, "run code"))
-
-    scan.assert_called_once_with("print(1)", "python", interpreter)
 
 
 def test_terminal_interface_edit_code_uses_editor_and_updates_message():
