@@ -128,7 +128,6 @@
       "pages": [
         "safety/introduction",
         "safety/isolation",
-        "safety/safe-mode",
         "safety/code-evaluation",
         "safety/best-practices"
       ]

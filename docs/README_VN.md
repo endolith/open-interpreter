@@ -352,7 +352,7 @@ Bạn có thể chạy `interpreter -y` hoặc đặt `interpreter.auto_run = Tr
 - Theo dõi Open Interpreter như xe tự lái, và sẵn sàng kết thúc tiến trình bằng cách đóng terminal.
 - Cân nhắc chạy Open Interpreter trong môi trường bị hạn chế như Google Colab hoặc Replit. Các môi trường này cô lập hơn, giảm rủi ro khi chạy mã tùy ý.
 
-Có hỗ trợ **thử nghiệm** cho [chế độ an toàn](SAFE_MODE.md) để giúp giảm thiểu một số rủi ro.
+Có thể hiển thị **đánh giá an toàn bằng mô hình quyết định** bên cạnh mỗi khối mã (chỉ hiển thị, không chặn thực thi). Xem [Đánh giá mã](safety/code-evaluation.mdx).
 
 ## Cách hoạt động
 

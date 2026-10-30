@@ -14,4 +14,4 @@ LLM's are not perfect. They can make mistakes, they can be tricked into doing th
 
 - Local models are fun! But GPT-4 is probably your safest bet. OpenAI has their models aligned in a major way. It will outperform the local models, and it will generally refuse to run unsafe code, as it truly understands that the code it writes could be run. It has a pretty good idea what unsafe code looks like, and will refuse to run code like `rm -rf /` that would delete your entire disk, for example.
 
-- The [--safe_mode](/safety/safe-mode) argument is your friend. It enables code scanning, and can use [guarddog](https://github.com/DataDog/guarddog) to identify malicious PyPi and npm packages. It's not a perfect solution, but it's a great start.
+- The [--code_evaluation](/safety/code-evaluation) flag adds a decision-model second opinion beside each code block. It is display-only, so keep the confirmation prompt on: it is not a sandbox, and it can be wrong.

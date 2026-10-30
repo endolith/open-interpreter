@@ -166,7 +166,7 @@ def test_create_temporary_file_raises_when_creation_fails(capsys, monkeypatch):
 
     Fixed in #433 for #399: the `except` used to print and fall off the end,
     so the caller got `None` — indistinguishable from success at the call
-    site, and `scan_code` passed it straight to `os.path.dirname`. Now the
+    site, and callers passed it straight to `os.path.dirname`. Now the
     error is re-raised after printing, so callers see the real failure.
     """
     monkeypatch.setattr(

@@ -78,7 +78,6 @@ custom_instructions: |
 
 # General Configuration
 # auto_run: False  # If True, code will run without asking for confirmation
-# safe_mode: "off"  # The safety mode for the LLM — one of "off", "ask", "auto"
 # offline: False  # If True, will disable some online features like checking for updates
 # verbose: False  # If True, will print detailed logs
 # multi_line: False # If True, you can input multiple lines starting and ending with ```
