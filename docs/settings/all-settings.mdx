@@ -624,7 +624,8 @@ interpreter.decision_model.model = 'cloudflare/clef-flash'
 ```
 
 ```yaml Profile
-code_evaluation_model: cloudflare/clef-flash
+decision_model:
+  model: cloudflare/clef-flash
 ```
 
 </CodeGroup>
@@ -644,7 +645,8 @@ interpreter.decision_model.api_base = 'http://localhost:8000'
 ```
 
 ```yaml Profile
-code_evaluation_api_base: http://localhost:8000
+decision_model:
+  api_base: http://localhost:8000
 ```
 
 </CodeGroup>
@@ -665,7 +667,8 @@ interpreter.decision_model.api_key = '...'
 ```
 
 ```yaml Profile
-code_evaluation_api_key: ...
+decision_model:
+  api_key: ...
 ```
 
 </CodeGroup>
@@ -686,7 +689,8 @@ interpreter.decision_model.policy = 'Judge only whether this touches production 
 ```
 
 ```yaml Profile
-code_evaluation_policy: Judge only whether this touches production data.
+decision_model:
+  policy: Judge only whether this touches production data.
 ```
 
 </CodeGroup>
