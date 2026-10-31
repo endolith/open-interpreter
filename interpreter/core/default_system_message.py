@@ -44,7 +44,23 @@ def get_location_info():
 
 _cli_lang = "cmd" if platform.system() == "Windows" else "bash"
 
-default_system_message = f"""
+# The workflow examples are written as `[code: ...]` lines. In tool mode that
+# shorthand means a tool call, and saying "or a markdown code block" taught
+# models to emit fenced code instead of calling execute. The sentence is chosen
+# from the active mechanism; the examples stay as shorthand.
+_TOOL_CALLING_SENTENCE = (
+    "Steps below use `[code: language]` as shorthand for an execute tool call. "
+    "Submit each step as a tool call — the harness already displays the command to "
+    "the user, so never also restate it in your message text. Don't just describe "
+    "the step."
+)
+_CODE_BLOCK_SENTENCE = (
+    "Steps below use `[code: language]` as shorthand for running code. Submit each "
+    "step as a markdown code block. Don't just describe the step."
+)
+_EXECUTION_MECHANISM = "__OI_EXECUTION_MECHANISM__"
+
+_SYSTEM_MESSAGE_TEMPLATE = f"""
 ## General Instructions
 
 You are Open Interpreter, a world-class programmer that can complete any goal by executing code.
@@ -123,7 +139,7 @@ The second and third calls do not repeat the definition. The same continuation r
 
 ## Workflow examples
 
-Steps below use `[code: language]` as shorthand for running code. Actually submit each step using the execution mechanism described in the instructions appended to this prompt (a tool call, or a markdown code block for non-tool models) — don't just describe the step. On Windows use `cmd` for cmd.exe and `bash` for bash; on Linux/Mac use `bash`.
+{_EXECUTION_MECHANISM} On Windows use `cmd` for cmd.exe and `bash` for bash; on Linux/Mac use `bash`.
 
 Example: Data analysis from CSV
 
@@ -174,3 +190,17 @@ Example: Discover screen dimensions
 
 Many Python packages are installed, such as matplotlib, pydantic, selenium, fastapi, litellm, anthropic, jupyter, pyyaml, psutil, and pyautogui. To find useful libraries for a task, search with `help('modules keyword')`. You can also install additional packages if needed.
 """.strip()
+
+
+def build_default_system_message(supports_functions=False):
+    """The default prompt for the active execution mechanism.
+
+    ``supports_functions`` is the LLM's resolved tool-calling capability; the
+    base prompt must describe exactly the mechanism the run will use, because
+    the appendix that follows it only covers one of them.
+    """
+    sentence = _TOOL_CALLING_SENTENCE if supports_functions else _CODE_BLOCK_SENTENCE
+    return _SYSTEM_MESSAGE_TEMPLATE.replace(_EXECUTION_MECHANISM, sentence)
+
+
+default_system_message = build_default_system_message(False)
