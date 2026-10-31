@@ -161,6 +161,19 @@ def test_choice_label_without_probabilities_still_counts(monkeypatch):
     assert result["probabilities"]["runs_untrusted_code"] == 1.0
 
 
+def test_resource_heavy_scan_is_yellow(monkeypatch):
+    """A whole-filesystem scan is a warning even though it only reads."""
+    _install(
+        monkeypatch,
+        _response(resource_exhaustion=0.8, impact=0.4),
+    )
+
+    result = evaluate_code(_interpreter(), "bash", "rg -F x / | head -20")
+
+    assert result["level"] == "yellow"
+    assert result["flags"] == ["resource_exhaustion"]
+
+
 def test_flag_threshold_is_inclusive(monkeypatch):
     """Exactly at the threshold counts as fired; just below it does not."""
     _install(monkeypatch, _response(destroys_data=FLAG_THRESHOLD, impact=1.0))

@@ -100,7 +100,7 @@ and combines the answers in code, so a verdict is explainable:
 | `sends_data_out` | sends data to a network service, or encodes it for later |
 | `modifies_system` | changes state beyond the project (OS, packages, services, permissions) |
 | `execution` | none / visible / untrusted code (untrusted = fetched from the network or decoded, so what runs is not in the block) |
-| `resource_exhaustion` | unbounded CPU, memory, disk, or processes |
+| `resource_exhaustion` | fork bombs, unbounded allocation, huge downloads, or scanning a very large tree |
 | `buggy` | likely to fail or behave differently from what it appears to do |
 | `impact` | score from 0 (no lasting effect) to 4 (irreversible/catastrophic) |
 
