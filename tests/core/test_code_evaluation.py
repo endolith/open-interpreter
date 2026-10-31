@@ -378,7 +378,7 @@ def test_format_evaluation_green():
         }
     )
 
-    assert text == "  Safety: GREEN  impact 0.3/4  (jev-test, 12 ms)"
+    assert text == "  Safety: GREEN  impact 0.3/4"
 
 
 def test_format_evaluation_lists_fired_flags():
@@ -398,6 +398,7 @@ def test_format_evaluation_lists_fired_flags():
     assert "impact 3.9/4" in text
     assert "destroys data 0.91" in text
     assert "buggy 0.62" in text
+    assert "jev-test" not in text
 
 
 def test_format_evaluation_unknown_name_the_reason():
@@ -406,7 +407,26 @@ def test_format_evaluation_unknown_name_the_reason():
         {"level": "unknown", "reason": "timeout", "model": "jev-test"}
     )
 
-    assert text == "  Safety: UNKNOWN  (jev-test, timeout)"
+    assert text == "  Safety: UNKNOWN  (timeout)"
+
+
+def test_format_evaluation_verbose_shows_provenance():
+    """Model, latency, and cache state appear only in verbose mode."""
+    result = {
+        "level": "green",
+        "impact": 0.3,
+        "flags": [],
+        "probabilities": {},
+        "model": "jev-test",
+        "latency_ms": 12,
+        "cached": True,
+    }
+
+    text = format_evaluation(result, verbose=True)
+
+    assert "jev-test" in text
+    assert "12 ms" in text
+    assert "cached" in text
 
 
 @pytest.mark.parametrize("level", ["green", "yellow", "red", "unknown"])
