@@ -50,3 +50,17 @@ def test_react_non_vision_yields_source_console_chunk():
         chunks = list(react.run("function App(){return <div/>}"))
     assert any(c["type"] == "console" for c in chunks)
     to_png.assert_not_called()
+
+
+def test_react_run_falls_back_to_source_when_screenshot_fails():
+    """A failed React screenshot shows the source instead of raising into respond()."""
+    react = React(_vision_interpreter())
+    with mock.patch(
+        "interpreter.core.terminal.languages.react.html_to_png_base64",
+        return_value=None,
+    ):
+        chunks = list(react.run("function App(){return <div/>}"))
+
+    assert all(chunk["type"] != "image" for chunk in chunks)
+    assert any("headless browser failed" in c.get("content", "") for c in chunks)
+    assert any("React/HTML source shown" in c.get("content", "") for c in chunks)

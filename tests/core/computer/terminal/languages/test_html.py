@@ -71,3 +71,17 @@ def test_html_run_non_vision_yields_source_console_chunk():
     assert chunks[2]["type"] == "console"
     assert code in chunks[2]["content"]
     to_png.assert_not_called()
+
+
+def test_html_run_falls_back_to_source_when_screenshot_fails():
+    """A failed screenshot must not raise into the run loop; the source is shown."""
+    html = HTML(_vision_interpreter())
+    with mock.patch(
+        "interpreter.core.terminal.languages.html.html_to_png_base64",
+        return_value=None,
+    ):
+        chunks = list(html.run("<p>hi</p>"))
+
+    assert all(chunk["type"] != "image" for chunk in chunks)
+    assert any("headless browser failed" in c.get("content", "") for c in chunks)
+    assert any("<p>hi</p>" in c.get("content", "") for c in chunks)
