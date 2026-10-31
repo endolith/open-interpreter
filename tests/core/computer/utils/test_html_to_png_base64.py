@@ -90,3 +90,31 @@ def test_html_to_png_base64_temp_filename_is_ten_digits_and_png(tmp_path, monkey
     assert len(stem) == 10
     assert stem.isdigit()
 
+
+
+def test_html_to_png_base64_returns_none_when_no_file_is_written(tmp_path, monkeypatch):
+    """A headless browser that silently produces no file yields None, not a crash."""
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+    mock_hti = mock.Mock()
+    mock_hti.output_path = None
+    mock_hti.screenshot = lambda **kwargs: None
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.return_value = mock_hti
+        assert html_to_png_base64.html_to_png_base64("<html></html>") is None
+
+
+def test_html_to_png_base64_returns_none_when_the_browser_raises(tmp_path, monkeypatch):
+    """A browser launch failure is reported as None so the caller can show source."""
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+    mock_hti = mock.Mock()
+    mock_hti.output_path = None
+    mock_hti.screenshot = mock.Mock(side_effect=RuntimeError("chrome missing"))
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.return_value = mock_hti
+        assert html_to_png_base64.html_to_png_base64("<html></html>") is None
