@@ -63,6 +63,24 @@ def test_line_postprocessor_strips_continuation_prompts():
     )
 
 
+def test_line_postprocessor_strips_node24_multiline_prompt():
+    """Node 24 echoes buffered multi-line input with a run of "| " prompts.
+
+    Node 22 used "... "; Node 24's readline uses kMultilinePrompt "| ", so the
+    prompt leaked onto the result line ("| | | | hello"). A single or double
+    leading "| " is legitimate output (a markdown table row), so only runs of
+    four or more are stripped.
+    """
+    js = JavaScript()
+    assert (
+        js.line_postprocessor("| | | | hello from node v24\n")
+        == "hello from node v24\n"
+    )
+    assert js.line_postprocessor("| a | b |\n") == "| a | b |\n"
+    assert js.line_postprocessor("| | empty\n") == "| | empty\n"
+    assert js.line_postprocessor("| | | three\n") == "| | | three\n"
+
+
 def test_line_postprocessor_preserves_the_trailing_newline():
     """Trailing newlines are kept so non-streaming runs do not join adjacent lines."""
     js = JavaScript()
