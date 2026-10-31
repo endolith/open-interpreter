@@ -1,6 +1,8 @@
+import types
 import unittest
 
 from interpreter.core.default_system_message import default_system_message
+from interpreter.core.utils.assemble_system_message import assemble_system_message
 from interpreter.core.llm.run_tool_calling_llm import tool_schema
 from interpreter.core.terminal.base_language import (
     format_execute_language_description,
@@ -32,6 +34,23 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("complete, self-contained block", description)
         self.assertIn("complete display source", description)
 
+    def test_system_message_describes_only_the_active_execution_mode(self):
+        """Tool mode must not mention markdown blocks, and text mode must not mention tool calls."""
+        tool = assemble_system_message(_prompt_interpreter(True))
+        self.assertIn("execute tool call", tool)
+        self.assertNotIn("markdown code block", tool)
+
+        fence = assemble_system_message(_prompt_interpreter(False))
+        self.assertIn("markdown code block", fence)
+        self.assertNotIn("execute tool call", fence)
+
+    def test_custom_system_message_is_not_replaced(self):
+        """A profile's own system_message stays exactly as written."""
+        interpreter = _prompt_interpreter(True)
+        interpreter.system_message = "CUSTOM PROMPT"
+
+        self.assertEqual(assemble_system_message(interpreter), "CUSTOM PROMPT")
+
     def test_system_message_models_define_once_and_call_later(self):
         """Verify the system prompt contains a reusable helper pattern rather than repeated setup."""
         self.assertIn("continue the live session; do not restart it", default_system_message)
@@ -39,6 +58,23 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("def mean(values)", default_system_message)
         self.assertIn("mean(second_values)", default_system_message)
         self.assertIn("Stay in the live session", default_system_message)
+
+
+def _prompt_interpreter(supports_functions):
+    """A minimal interpreter shaped for assemble_system_message (no LLM, kernel, or toolbox)."""
+    return types.SimpleNamespace(
+        system_message=default_system_message,
+        llm=types.SimpleNamespace(supports_functions=supports_functions),
+        terminal=types.SimpleNamespace(languages=[]),
+        custom_instructions="",
+        toolbox=types.SimpleNamespace(
+            save_skills=False, import_toolbox_api=False, system_message=""
+        ),
+        verbose=False,
+        _server_request_system=None,
+        _launch_cwd=None,
+        _launch_time=None,
+    )
 
 
 if __name__ == "__main__":
