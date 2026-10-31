@@ -29,18 +29,27 @@ class HTML(BaseLanguage):
         yield {"type": "code", "format": "html", "content": code, "recipient": "user"}
 
         # Vision models get a screenshot; non-vision models get the source (no Moondream/png).
+        # The screenshot also fails soft: a headless browser that cannot write the
+        # file must not crash the run, so fall back to the source.
         if self._assistant_sees_rendered_image():
             base64 = html_to_png_base64(code)
-            yield {
-                "type": "image",
-                "format": "base64.png",
-                "content": base64,
-                "recipient": "assistant",
-            }
-        else:
+            if base64:
+                yield {
+                    "type": "image",
+                    "format": "base64.png",
+                    "content": base64,
+                    "recipient": "assistant",
+                }
+                return
             yield {
                 "type": "console",
                 "format": "output",
-                "content": f"HTML source shown to the user:\n\n```html\n{code}\n```",
+                "content": "Could not render a preview (the headless browser failed); showing the source instead.",
                 "recipient": "assistant",
             }
+        yield {
+            "type": "console",
+            "format": "output",
+            "content": f"HTML source shown to the user:\n\n```html\n{code}\n```",
+            "recipient": "assistant",
+        }

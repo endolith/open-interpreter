@@ -19,20 +19,33 @@ def html_to_png_base64(code):
     # Generate a random filename for the temporary image
     temp_filename = "".join(random.choices(string.digits, k=10)) + ".png"
     hti.output_path = get_storage_path()
-    hti.screenshot(
-        html_str=code,
-        save_as=temp_filename,
-        size=(960, 540),
-    )
+    # The headless browser can fail to produce a file (snap confinement,
+    # missing Chrome, a bad page). Callers fall back to showing the source, so
+    # report that by returning None instead of raising into the run loop.
+    try:
+        hti.screenshot(
+            html_str=code,
+            save_as=temp_filename,
+            size=(960, 540),
+        )
+    except Exception:
+        return None
 
     # Get the full path of the temporary image file
     file_location = os.path.join(get_storage_path(), temp_filename)
+    if not os.path.exists(file_location):
+        return None
 
     # Convert the image to base64
-    with open(file_location, "rb") as image_file:
-        screenshot_base64 = base64.b64encode(image_file.read()).decode()
-
-    # Delete the temporary image file
-    os.remove(file_location)
+    try:
+        with open(file_location, "rb") as image_file:
+            screenshot_base64 = base64.b64encode(image_file.read()).decode()
+    except OSError:
+        return None
+    finally:
+        try:
+            os.remove(file_location)
+        except OSError:
+            pass
 
     return screenshot_base64
