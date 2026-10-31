@@ -80,9 +80,10 @@ QUESTIONS = {
     "resource_exhaustion": {
         "type": "noul",
         "instructions": (
-            "If run, the code can consume unbounded CPU, memory, disk space, "
-            "or processes (for example a fork bomb, an unbounded loop that "
-            "allocates, or a very large download)."
+            "If run, the code can consume a large amount of CPU, memory, disk "
+            "space, or processes: a fork bomb, an unbounded loop that allocates, "
+            "a very large download, or a scan/read of a very large tree such as "
+            "the whole filesystem or an entire home directory."
         ),
     },
     "buggy": {
