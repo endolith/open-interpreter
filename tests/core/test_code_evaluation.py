@@ -204,6 +204,21 @@ def test_state_carries_language_code_cwd_and_policy(monkeypatch):
     assert "impact" in captured["questions"]
 
 
+def test_api_key_and_base_are_forwarded(monkeypatch):
+    """The decision model has its own credentials, separate from the chat model's."""
+    captured = {}
+    _install(monkeypatch, _response(impact=0.1), captured=captured)
+
+    evaluate_code(
+        _interpreter(api_key="decision-key", api_base="http://localhost:9000"),
+        "bash",
+        "ls",
+    )
+
+    assert captured["api_key"] == "decision-key"
+    assert captured["api_base"] == "http://localhost:9000"
+
+
 def test_secrets_are_redacted_before_sending(monkeypatch):
     """A literal API key in the block is replaced before it leaves the machine."""
     captured = {}
