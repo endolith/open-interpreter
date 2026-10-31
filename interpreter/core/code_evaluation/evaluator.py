@@ -71,8 +71,18 @@ def evaluate_code(interpreter, language, code):
     }
 
     started = time.monotonic()
+    systemone = getattr(litellm, "systemone", None)
+    if systemone is None:
+        # An old LiteLLM fails here instantly; say which one is installed
+        # instead of surfacing a bare AttributeError.
+        return _unknown(
+            model,
+            f"litellm {_litellm_version()} lacks decision support (need >=1.104.2)",
+            0,
+            redacted=redacted,
+        )
     try:
-        response = litellm.systemone(
+        response = systemone(
             model=model,
             state=state,
             questions=QUESTIONS,
@@ -210,6 +220,15 @@ def _elapsed_ms(started):
     return int((time.monotonic() - started) * 1000)
 
 
+def _litellm_version():
+    try:
+        from importlib.metadata import version
+
+        return version("litellm")
+    except Exception:
+        return "unknown"
+
+
 def _reason(exc):
     """A short cause for the UNKNOWN line: provider status and message when there is one."""
     name = type(exc).__name__
@@ -230,4 +249,4 @@ def _reason(exc):
         return f"{status}: {text[:140]}" if text else str(status)
     if "authentication" in name.lower() or "api key" in lowered or "api_key" in lowered:
         return "no API key"
-    return name
+    return f"{name}: {text[:120]}" if text else name
