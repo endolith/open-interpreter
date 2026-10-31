@@ -115,7 +115,18 @@ def test_provider_error_is_unknown(monkeypatch):
 
     assert result["level"] == "unknown"
     assert result["would_allow"] is False
-    assert result["reason"] == "RuntimeError"
+    assert result["reason"] == "RuntimeError: boom"
+
+
+def test_missing_litellm_decision_support_is_named(monkeypatch):
+    """An old LiteLLM says which version is installed and what it needs."""
+    monkeypatch.delattr(evaluator.litellm, "systemone", raising=False)
+
+    result = evaluate_code(_interpreter(), "bash", "ls")
+
+    assert result["level"] == "unknown"
+    assert "lacks decision support" in result["reason"]
+    assert "1.104.2" in result["reason"]
 
 
 def test_timeout_is_named(monkeypatch):
