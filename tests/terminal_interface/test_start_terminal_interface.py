@@ -249,6 +249,8 @@ def test_start_terminal_interface_applies_code_evaluation_flags(monkeypatch):
             "cloudflare/clef-flash",
             "--code_evaluation_api_base",
             "http://localhost:8000",
+            "--code_evaluation_api_key",
+            "decision-key",
             "--code_evaluation_policy",
             "judge only data loss",
         ],
@@ -259,6 +261,7 @@ def test_start_terminal_interface_applies_code_evaluation_flags(monkeypatch):
     assert interpreter.code_evaluation is True
     assert interpreter.decision_model.model == "cloudflare/clef-flash"
     assert interpreter.decision_model.api_base == "http://localhost:8000"
+    assert interpreter.decision_model.api_key == "decision-key"
     assert interpreter.decision_model.policy == "judge only data loss"
 
 
