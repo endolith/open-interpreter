@@ -1,5 +1,7 @@
 import ast
+from unittest import mock
 
+import interpreter.core.terminal.languages.jupyter_language as jl
 from interpreter.core.terminal.languages.jupyter_language import (
     AddLinePrints,
     add_active_line_prints,
@@ -87,3 +89,16 @@ def test_add_line_prints_transformer_inserts_prints():
     new_tree = transformer.visit(tree)
     unparsed = ast.unparse(new_tree)
     assert "##active_line" in unparsed
+
+
+def test_start_kernel_mutes_the_loopback_tcp_warning(monkeypatch):
+    """The kernel starts at --log-level=ERROR so its unencrypted-TCP warning is not shown."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.km = mock.Mock()
+    monkeypatch.setattr(jl.sys, "platform", "linux")
+
+    lang._start_kernel()
+
+    lang.km.start_kernel.assert_called_once_with(
+        extra_arguments=["--log-level=ERROR"]
+    )
