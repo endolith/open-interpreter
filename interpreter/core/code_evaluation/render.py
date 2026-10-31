@@ -7,8 +7,12 @@ from .ontology import FLAG_LABELS, IMPACT_MAX
 _LEVEL_COLORS = {"green": "green", "yellow": "yellow", "red": "red"}
 
 
-def format_evaluation(result):
-    """Return the plain one-line summary, or an empty string when there is nothing."""
+def format_evaluation(result, verbose=False):
+    """Return the plain one-line summary, or an empty string when there is nothing.
+
+    Model name and latency are provenance, not part of the verdict; they are
+    only shown with `--verbose`, while a failure `reason` is always shown.
+    """
     if not result:
         return ""
     level = str(result.get("level", "unknown")).upper()
@@ -28,12 +32,13 @@ def format_evaluation(result):
         parts.append(details)
 
     tail = []
-    if result.get("cached"):
-        tail.append("cached")
-    if result.get("model"):
-        tail.append(str(result["model"]))
-    if result.get("latency_ms"):
-        tail.append(f"{result['latency_ms']} ms")
+    if verbose:
+        if result.get("cached"):
+            tail.append("cached")
+        if result.get("model"):
+            tail.append(str(result["model"]))
+        if result.get("latency_ms"):
+            tail.append(f"{result['latency_ms']} ms")
     if result.get("reason"):
         tail.append(str(result["reason"]))
     if tail:
@@ -44,7 +49,7 @@ def format_evaluation(result):
 
 def print_evaluation(result, interpreter=None):
     """Print the summary, colored unless the interpreter is in plain-text mode."""
-    text = format_evaluation(result)
+    text = format_evaluation(result, verbose=getattr(interpreter, "verbose", False))
     if not text:
         return
     if getattr(interpreter, "plain_text_display", False):
