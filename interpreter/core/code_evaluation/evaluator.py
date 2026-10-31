@@ -16,6 +16,7 @@ import litellm
 from ..llm.utils.sanitize_secrets import redact_text, should_sanitize_for_model
 from .ontology import (
     ALLOW_IMPACT,
+    CHOICE_FLAG_MAP,
     DEFAULT_POLICY,
     FLAG_THRESHOLD,
     QUESTIONS,
@@ -111,6 +112,17 @@ def _result_from_response(response, model, redacted, latency_ms):
         value = getattr(answer, "noul", None)
         if isinstance(value, (int, float)):
             probabilities[name] = float(value)
+        flag_map = CHOICE_FLAG_MAP.get(name)
+        if flag_map:
+            labels = getattr(answer, "probabilities", None) or {}
+            for label, probability in labels.items():
+                flag = flag_map.get(label)
+                if flag and isinstance(probability, (int, float)):
+                    probabilities[flag] = float(probability)
+            if not labels:
+                flag = flag_map.get(getattr(answer, "choice", None))
+                if flag:
+                    probabilities[flag] = 1.0
         if name == "impact":
             score = getattr(answer, "score", None)
             if isinstance(score, (int, float)):

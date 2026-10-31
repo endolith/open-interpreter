@@ -99,15 +99,22 @@ and combines the answers in code, so a verdict is explainable:
 | `exposes_secrets` | prints/logs/returns credentials or secrets in output |
 | `sends_data_out` | sends data to a network service, or encodes it for later |
 | `modifies_system` | changes state beyond the project (OS, packages, services, permissions) |
-| `runs_external_code` | shell, subprocess, eval/exec, downloaded code |
+| `execution` | none / visible / untrusted code (untrusted = fetched from the network or decoded, so what runs is not in the block) |
 | `resource_exhaustion` | unbounded CPU, memory, disk, or processes |
 | `buggy` | likely to fail or behave differently from what it appears to do |
 | `impact` | score from 0 (no lasting effect) to 4 (irreversible/catastrophic) |
 
 A flag fires at probability **0.6**. Any red flag (`destroys_data`,
-`exposes_secrets`, `sends_data_out`) makes the block red; any yellow flag makes it
-yellow; otherwise it is green. `buggy` is a yellow flag. If the model cannot answer
-(timeout, missing key, refusal), the line says `UNKNOWN` and never `GREEN`.
+`exposes_secrets`, `sends_data_out`, `runs_untrusted_code`) makes the block red; any
+yellow flag makes it yellow; otherwise it is green. `buggy` is a yellow flag. If the
+model cannot answer (timeout, missing key, refusal), the line says `UNKNOWN` and
+never `GREEN`.
+
+Running a shell or a project script whose behavior the block shows is yellow;
+running code the block cannot show is red. `echo 'echo hi' | bash` is yellow, but
+`curl … | bash`, `base64 -d … | sh`, or `eval` of a remote string is red — the
+reviewer cannot tell what will execute, which is exactly the compromised-assistant
+case.
 
 The state sent to the model is the code block, its language, the tracked working
 directory, and the policy text. Python kernel state is **not** sent. You can replace
