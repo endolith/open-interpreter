@@ -1,3 +1,7 @@
+from ..default_system_message import (
+    build_default_system_message,
+    default_system_message,
+)
 from ..render_message import render_message
 
 
@@ -54,9 +58,27 @@ def _environment_block(interpreter):
     )
 
 
+def _supports_functions(interpreter):
+    """The LLM's resolved tool-calling capability, loading the model if needed.
+
+    `respond()` builds this prompt before `llm.run()`, which is where detection
+    normally happens, so resolve it here instead of assuming text mode.
+    """
+    llm = getattr(interpreter, "llm", None)
+    if llm is None:
+        return False
+    supports = getattr(llm, "supports_functions", None)
+    if supports is None and hasattr(llm, "load"):
+        llm.load()
+        supports = getattr(llm, "supports_functions", None)
+    return bool(supports)
+
+
 def assemble_system_message(interpreter):
     """Build the rendered system prompt before tool/text-mode appendices (matches respond.py)."""
     system_message = interpreter.system_message
+    if system_message is default_system_message:
+        system_message = build_default_system_message(_supports_functions(interpreter))
 
     for language in interpreter.terminal.languages:
         if hasattr(language, "system_message"):
