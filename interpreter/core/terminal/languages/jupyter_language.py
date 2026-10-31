@@ -61,51 +61,10 @@ if "ipykernel_launcher" in sys.argv:
     sys.exit(0)
 
 
-def _display_data_chunk(data):
-    """Map a display_data/execute_result data dict onto one output chunk.
-
-    Every representation leaves a record: unknown types report themselves
-    instead of vanishing, so dropped output never looks like no output.
-    """
-    if "image/png" in data:
-        return {
-            "type": "image",
-            "format": "base64.png",
-            "content": data["image/png"],
-        }
-    elif "image/jpeg" in data:
-        return {
-            "type": "image",
-            "format": "base64.jpeg",
-            "content": data["image/jpeg"],
-        }
-    elif "text/html" in data:
-        return {
-            "type": "code",
-            "format": "html",
-            "content": data["text/html"],
-        }
-    elif "text/plain" in data:
-        return {
-            "type": "console",
-            "format": "output",
-            "content": data["text/plain"],
-        }
-    elif "application/javascript" in data:
-        return {
-            "type": "code",
-            "format": "javascript",
-            "content": data["application/javascript"],
-        }
-    return {
-        "type": "console",
-        "format": "output",
-        "content": (
-            "(unrendered " + ", ".join(data) + " output)"
-            if data
-            else "(unrendered empty output)"
-        ),
-    }
+# The kernel is a loopback TCP connection with per-connection HMAC signing; the
+# "without encryption" warning is about local eavesdropping, which needs the
+# same user's connection file. Keep ERROR so real kernel errors still show.
+_QUIET_KERNEL_ARGUMENTS = ["--log-level=ERROR"]
 
 
 class JupyterLanguage(BaseLanguage):
@@ -119,10 +78,8 @@ class JupyterLanguage(BaseLanguage):
     function_fingerprints = {}
     variable_fingerprints = {}
 
-    def __init__(self, interpreter):
-        self.interpreter = interpreter
-
-        self.km = KernelManager(kernel_name="python3")
+    def _start_kernel(self):
+        """Start the kernel, keeping Ctrl+C away from it on Windows and muting its TCP warning."""
         if sys.platform == "win32":
             # On Windows, Ctrl+C is delivered to every process attached to the
             # console, including the kernel subprocess. An idle kernel then
@@ -145,13 +102,22 @@ class JupyterLanguage(BaseLanguage):
                 except ImportError:
                     CREATE_NEW_PROCESS_GROUP = 0x00000200
             try:
-                self.km.start_kernel(creationflags=CREATE_NEW_PROCESS_GROUP)
+                self.km.start_kernel(
+                    creationflags=CREATE_NEW_PROCESS_GROUP,
+                    extra_arguments=_QUIET_KERNEL_ARGUMENTS,
+                )
             except TypeError:
                 # jupyter_client too old to forward Popen kwargs — fall back
                 # to a shared process group (original behavior).
                 self.km.start_kernel()
         else:
-            self.km.start_kernel()
+            self.km.start_kernel(extra_arguments=_QUIET_KERNEL_ARGUMENTS)
+
+    def __init__(self, interpreter):
+        self.interpreter = interpreter
+
+        self.km = KernelManager(kernel_name="python3")
+        self._start_kernel()
         self.kc = self.km.client()
         self.kc.start_channels()
         while not self.kc.is_alive():
