@@ -25,6 +25,12 @@ class JavaScript(SubprocessLanguage):
         # multi-line input: "> ", "> > ", "... ... ". These otherwise leak
         # into the output (e.g. "js ok | 42" prefixed by "... ... ...").
         line = re.sub(r"^\s*(?:(?:>\s*)|(?:\.\.\.\s*))+", "", line)
+        # Node 24 renders a buffered multi-line command's continuation prompt as
+        # "| " (readline's kMultilinePrompt) and emits the run on the result
+        # line. Our try/catch wrapper is at least seven lines, so a real run is
+        # long; requiring four leaves ordinary output such as a markdown table
+        # row ("| a | b |", or "| | empty") untouched.
+        line = re.sub(r"^(?:\| ){4,}", "", line)
         # Keep the trailing newline: Terminal.run(stream=False) concatenates
         # consecutive output chunks, so stripping it joins separate lines.
         return line
