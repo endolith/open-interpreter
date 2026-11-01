@@ -247,6 +247,42 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                 except Exception:
                     pass
 
+    def _kernel_is_alive(self):
+        """Whether the kernel process is still running.
+
+        Client channels can stay open after the process exits, so checking
+        `kc.is_alive()` is not enough: `os._exit(0)` leaves them open and the
+        run waits forever for an idle message that cannot arrive.
+        """
+        km = getattr(self, "km", None)
+        if km is None:
+            return True
+        try:
+            return bool(km.is_alive())
+        except Exception:
+            return True
+
+    def _ensure_kernel(self):
+        """Recreate the kernel after a hard exit, with OI's setup applied.
+
+        Re-running __init__ is deliberate: a bare restart would leave the new
+        kernel without the matplotlib backend, the display formatter, or the
+        `introspect` global, and the model depends on all three.
+        """
+        if self._kernel_is_alive():
+            return
+        self.finish_flag = True
+        try:
+            if getattr(self, "kc", None):
+                self.kc.stop_channels()
+        except Exception:
+            pass
+        try:
+            self.km.shutdown_kernel(now=True)
+        except Exception:
+            pass
+        self.__init__(self.interpreter)
+
     def run(self, code):
         blocking = _blocking_input_call(code)
         if blocking:
@@ -257,7 +293,16 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             }
             return
 
-        while not self.kc.is_alive():
+        self._ensure_kernel()
+        if not self._kernel_is_alive():
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": "The Python kernel could not be restarted.",
+            }
+            return
+        deadline = time.time() + 10
+        while not self.kc.is_alive() and time.time() < deadline:
             time.sleep(0.1)
 
         self.last_output_time = time.time()
@@ -297,7 +342,11 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                 self._maybe_update_imported_modules(output)
                 yield output
 
-            if getattr(self, "kc", None) and self.kc.is_alive():
+            if (
+                getattr(self, "kc", None)
+                and self.kc.is_alive()
+                and self._kernel_is_alive()
+            ):
                 for output in self._get_active_state():
                     self._maybe_update_imported_modules(output)
                     yield output
@@ -325,6 +374,18 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         def iopub_message_listener():
             max_retries = 100
             while True:
+                # A hard exit (os._exit, OOM, segfault) closes the channels
+                # without sending idle; stop waiting and report it.
+                if not self._kernel_is_alive():
+                    message_queue.put(
+                        {
+                            "type": "console",
+                            "format": "output",
+                            "content": "The Python kernel exited. It will restart on the next run.",
+                        }
+                    )
+                    self.finish_flag = True
+                    return
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
                 if self.finish_flag == True:
                     if DEBUG_MODE:
@@ -369,6 +430,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                 except Exception as e:
                     max_retries -= 1
                     if max_retries < 0:
+                        self.finish_flag = True
                         raise
                     print("Jupyter error, retrying:", str(e))
                     continue
@@ -610,6 +672,20 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+                    elif not self._kernel_is_alive():
+                        while not message_queue.empty():
+                            yield message_queue.get()
+                        self.finish_flag = True
+                        break
+                    elif (
+                        self.listener_thread is not None
+                        and not self.listener_thread.is_alive()
+                        and message_queue.empty()
+                    ):
+                        # The listener died without setting finish_flag; the
+                        # run must not wait forever for output that cannot come.
+                        self.finish_flag = True
+                        break
                 except KeyboardInterrupt:
                     # Handle KeyboardInterrupt during output capture
                     self.finish_flag = True
@@ -635,7 +711,7 @@ __oi_mods = []
 __oi_funcs = []
 __oi_vars = []
 
-for __oi_k, __oi_v in __oi_globals.items():
+for __oi_k, __oi_v in list(__oi_globals.items()):
     if __oi_k.startswith('_') or __oi_k in __oi_exclude:
         continue
     if isinstance(__oi_v, __oi_types.ModuleType):
