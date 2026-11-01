@@ -5,6 +5,15 @@ import sys
 
 from PIL import Image
 
+# Image formats vision providers accept, mapped to their MIME suffixes.
+# Anything else detectable (BMP, TIFF, ...) is re-encoded to PNG below.
+SUPPORTED_IMAGE_FORMATS = {
+    "JPEG": "jpeg",
+    "PNG": "png",
+    "GIF": "gif",
+    "WEBP": "webp",
+}
+
 
 def convert_to_openai_messages(
     messages,
@@ -166,30 +175,58 @@ def convert_to_openai_messages(
                             f"Unrecognized image format: {message['format']}"
                         )
 
-                # The extension came straight off the filename or the data URI,
-                # so it may be "jpg" or "JPG" — neither of which PIL registers
-                # as a save format ("JPEG" is the only spelling it knows), and
-                # Image.save would raise KeyError below. PIL's own extension
-                # registry maps every alias it knows to its canonical format
-                # name. The data URI mimetype is that format lowercased, so
-                # "jpg" becomes the standard "jpeg" the type expects.
-                save_format = Image.registered_extensions().get(
-                    "." + extension.lower()
-                )
-                if save_format is None:
-                    # Unknown extension (e.g. ".bin"): the bytes pass through
-                    # unmodified unless shrunk, so labeling them with a
-                    # fallback format would misstate their type (a JPEG served
-                    # as data:image/png). Detect the real format from the image
-                    # header instead; only an undetectable payload keeps PNG.
+                # Sniff the real format from the bytes: a renamed file's
+                # declared extension may lie (JPEG bytes named .png), and some
+                # formats have no provider support. Supported formats pass
+                # through byte-for-byte; detectable-but-unsupported ones are
+                # re-encoded to PNG; when the bytes cannot be decoded, the
+                # declared extension is kept so conversion never crashes (#377).
+                try:
+                    probe = Image.open(io.BytesIO(base64.b64decode(encoded_string)))
+                    real_format = (probe.format or "").upper()
+                    if real_format == "MPO":
+                        # Multi-Picture JPEG: Pillow names it MPO, but the
+                        # payload is JPEG; preserve the original bytes.
+                        real_format = "JPEG"
+                except Exception:
+                    real_format = ""
+                if real_format in SUPPORTED_IMAGE_FORMATS:
+                    extension = SUPPORTED_IMAGE_FORMATS[real_format]
+                    save_format = real_format
+                elif real_format:
                     try:
-                        with Image.open(
+                        img = Image.open(
                             io.BytesIO(base64.b64decode(encoded_string))
-                        ) as probe:
-                            save_format = probe.format or "PNG"
-                    except Exception:
+                        )
+                        buffered = io.BytesIO()
+                        try:
+                            img.save(buffered, format="PNG")
+                        except Exception:
+                            # A partial save may have left garbage behind;
+                            # start fresh so the fallback is not appended to it.
+                            buffered = io.BytesIO()
+                            img.convert("RGB").save(buffered, format="PNG")
+                        encoded_string = base64.b64encode(
+                            buffered.getvalue()
+                        ).decode("utf-8")
+                        extension = "png"
                         save_format = "PNG"
-                mimetype = save_format.lower()
+                    except Exception:
+                        # Truncated bytes the probe could still name: keep the
+                        # declared extension and the original payload.
+                        save_format = Image.registered_extensions().get(
+                            "." + extension.lower()
+                        ) or "PNG"
+                else:
+                    # Nothing detected: use the declared extension when PIL
+                    # knows it, else the old PNG fallback (#347).
+                    save_format = Image.registered_extensions().get(
+                        "." + extension.lower()
+                    )
+                    if save_format is None:
+                        save_format = "PNG"
+                    extension = save_format.lower()
+                mimetype = extension
 
                 content = f"data:image/{mimetype};base64,{encoded_string}"
 

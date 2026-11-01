@@ -199,3 +199,162 @@ def test_garbage_bytes_with_unknown_extension_fall_back_to_png(interpreter):
 
     url = result[0]["content"][0]["image_url"]["url"]
     assert url.startswith("data:image/png;base64,")
+
+
+def _encode_image(pil_format):
+    """Build small real image bytes in the given PIL format."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    img = Image.new("RGB", (8, 8), color=(200, 30, 30))
+    buf = io.BytesIO()
+    img.save(buf, format=pil_format)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _image_url(result):
+    return result[0]["content"][0]["image_url"]["url"]
+
+
+def test_image_mime_sniffed_from_bytes_not_extension(interpreter):
+    """JPEG bytes mislabelled base64.png go out as image/jpeg, unchanged (issue #377)."""
+    import base64
+
+    raw = _encode_image("JPEG")
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.png", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url.startswith("data:image/jpeg;base64,")
+    assert url.split(",", 1)[1] == raw
+
+
+def test_image_unsupported_format_reencoded_to_png(interpreter):
+    """BMP bytes are re-encoded to PNG since providers lack BMP support (issue #377)."""
+    import base64
+
+    messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "base64.bmp",
+            "content": _encode_image("BMP"),
+        }
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split(",", 1)[1])[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_image_unpngable_mode_falls_back_to_rgb(interpreter):
+    """A mode PNG cannot store (CMYK TIFF) is converted to RGB first (issue #377)."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("CMYK", (8, 8)).save(buf, format="TIFF")
+    raw = base64.b64encode(buf.getvalue()).decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.tiff", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url.startswith("data:image/png;base64,")
+    assert base64.b64decode(url.split(",", 1)[1])[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_image_supported_format_passes_through_untouched(interpreter):
+    """PNG bytes keep their bytes and MIME (issue #377)."""
+    raw = _encode_image("PNG")
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.png", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url == f"data:image/png;base64,{raw}"
+
+
+def test_image_path_extension_ignored_in_favor_of_bytes(interpreter, tmp_path):
+    """A JPEG saved under a .png path is still labelled image/jpeg (issue #377)."""
+    import base64
+
+    target = tmp_path / "photo.png"
+    target.write_bytes(base64.b64decode(_encode_image("JPEG")))
+    messages = [
+        {"role": "user", "type": "image", "format": "path", "content": str(target)}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url.startswith("data:image/jpeg;base64,")
+
+
+def test_image_undecodable_bytes_keep_declared_extension(interpreter):
+    """Bytes the probe can name but neither save path can decode are passed through (issue #377).
+
+    A truncated BMP still reports format BMP, so it reaches the re-encode
+    path — but both the direct PNG save and the RGB fallback raise while
+    decoding. The original payload and declared extension must be preserved
+    instead of letting the exception escape.
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="BMP")
+    raw = base64.b64encode(buf.getvalue()[:60]).decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.bmp", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url == f"data:image/bmp;base64,{raw}"
+
+
+def test_image_mpo_is_treated_as_jpeg(interpreter):
+    """Pillow reports MPO, but it is a JPEG container; keep the JPEG bytes."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    first = Image.new("RGB", (8, 8), (200, 30, 30))
+    second = Image.new("RGB", (8, 8), (30, 200, 30))
+    first.save(buf, format="MPO", save_all=True, append_images=[second])
+    raw = base64.b64encode(buf.getvalue()).decode()
+    messages = [
+        {"role": "user", "type": "image", "format": "base64.png", "content": raw}
+    ]
+    url = _image_url(
+        convert_to_openai_messages(
+            messages, vision=True, shrink_images=False, interpreter=interpreter
+        )
+    )
+    assert url.startswith("data:image/jpeg;base64,")
+    assert url.split(",", 1)[1] == raw
