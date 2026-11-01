@@ -36,6 +36,7 @@ class CodeBlock(BaseBlock):
         self.live = create_live_display(self.live.console)
 
         self.type = "code"
+        self.interpreter = interpreter
         self.highlight_active_line = (
             interpreter.highlight_active_line if interpreter else None
         )
@@ -65,7 +66,16 @@ class CodeBlock(BaseBlock):
         return lang
 
     def _code_panel_title(self):
-        return f" {self.language} " if self.language else " Code "
+        language = self.language or "Code"
+        # Tool mode shows a call, not a fence: label it so the user (and the
+        # transcript) can tell "the model called execute" from "the model
+        # wrote a fenced example". Text mode keeps the plain language title.
+        if getattr(self, "target_path", ""):
+            return f" edit · {language} "
+        llm = getattr(getattr(self, "interpreter", None), "llm", None)
+        if getattr(llm, "supports_functions", False):
+            return f" execute · {language} "
+        return f" {language} "
 
     def sync_stored_code(self, stored_code):
         """Update the displayed code to the version that will actually be executed.
