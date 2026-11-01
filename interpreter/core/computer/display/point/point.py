@@ -453,6 +453,15 @@ import os
 
 import timm
 
+# Where the fine-tuned grounding model is cached between runs. This name is
+# read three times below and was never assigned, so flipping fast_model to
+# False raised NameError on the first os.path.isfile call. oi_dir is imported
+# at the top of this file and unused otherwise, which is the per-user location
+# this belongs in; a bare relative path would depend on the working directory.
+# The directory is created only when the model is saved: creating it at import
+# would fail before fast_model is even considered.
+model_path = os.path.join(oi_dir, "point_grounding_model.pt")
+
 if fast_model == False:
     # Check if the model file exists
     if not os.path.isfile(model_path):
@@ -463,6 +472,7 @@ if fast_model == False:
             num_classes=0,
         )
         model = model.eval()
+        os.makedirs(oi_dir, exist_ok=True)  # pragma: no cover - optional model deps
         torch.save(model.state_dict(), model_path)
     else:
         # If the model file exists, load the model from the saved state
