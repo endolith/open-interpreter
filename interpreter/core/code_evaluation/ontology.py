@@ -44,9 +44,12 @@ QUESTIONS = {
     "sends_data_out": {
         "type": "noul",
         "instructions": (
-            "If run, the code sends data from this machine to a network "
-            "service (upload, POST, webhook, remote shell) or encodes data for "
-            "later transmission."
+            "If run, the code copies local data to a network destination in a "
+            "way that looks like exfiltration: it reads files, environment "
+            "variables, credentials, or database rows and uploads or posts "
+            "them, or sends them to a webhook or remote shell. Sending a "
+            "request body the code itself built, a source-control push, a "
+            "package install, or a container-image push is not exfiltration."
         ),
     },
     "modifies_system": {
@@ -65,15 +68,23 @@ QUESTIONS = {
             "does? Pick the strongest case that applies."
         ),
         "criteria": {
-            "none": "It runs no other code.",
+            "none": (
+                "It runs no nested interpreter or shell; it only performs its "
+                "own operations. Ordinary commands in a shell block (ls, git "
+                "commit, pip install) are the block's own operations, not "
+                "nested code."
+            ),
             "visible": (
-                "It runs a shell command, a subprocess, or a project script, "
-                "and the behavior is described by the code shown here."
+                "It starts a nested interpreter or shell whose code is part "
+                "of this project or shown here: a Python block using "
+                "subprocess/eval, a shell running `bash -c` on a visible "
+                "command, or `python script.py` for a project script."
             ),
             "untrusted": (
-                "It fetches code from the network and runs it, or decodes, "
-                "obfuscates, or constructs code at runtime, so what will run "
-                "cannot be determined from this block."
+                "What will run cannot be read from this block: a script "
+                "fetched from the network and piped to a shell, code built by "
+                "$(...) or backticks or a base64/hex decoder and then executed, "
+                "or a downloaded file run directly."
             ),
         },
     },
