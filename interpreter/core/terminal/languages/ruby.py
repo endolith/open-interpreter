@@ -61,8 +61,9 @@ end
         # can run, so the marker never prints and the run would wait forever.
         # irb reports it on its own traceback; treat that as the end too.
         # An incomplete block (an unterminated `def`) prints nothing at all,
-        # so there is nothing to detect here; that parser-state hang needs the
-        # timeout watchdog in #270.
+        # so there is nothing to detect here. That parser-state hang is covered
+        # by the periodic wait-or-kill check-in in #401, with #270 as the
+        # automatic idle-timeout backstop.
         return (
             "##end_of_execution##" in line
             or "##execution_error##" in line

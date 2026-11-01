@@ -217,8 +217,10 @@ class SubprocessLanguage(BaseLanguage):
 
         # A process that exited is handled by the checks below. A process that
         # stays alive but never prints the marker (a command blocked on I/O, an
-        # unterminated compound) has no escape here yet; the timeout/stop
-        # watchdog is tracked in #270.
+        # unterminated compound) has no escape here yet. #401 plans the periodic
+        # check-in that hands the LLM live runtime evidence (output so far,
+        # CPU/IO, elapsed) and lets it choose wait or kill; #270 is the
+        # automatic idle-timeout backstop for a hang nobody is around for.
         while True:
             if not self.output_queue.empty():
                 yield self.output_queue.get()
