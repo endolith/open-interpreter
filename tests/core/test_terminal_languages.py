@@ -1024,6 +1024,43 @@ class TestTerminalLanguages(unittest.TestCase):
             self.assertEqual(result, f"cd {sub} && ls")
             self.assertEqual(bash.cwd, sub)
 
+    def test_code_block_title_marks_tool_calls_and_edits(self):
+        """A tool-mode panel says "execute" (or "edit"), not just the language.
+
+        Users were reading a call panel as a markdown fence, so the transcript
+        looked like prose code even after a rejection. The marker makes the
+        mechanism explicit.
+        """
+        from types import SimpleNamespace
+
+        from interpreter.terminal_interface.components.code_block import CodeBlock
+
+        block = object.__new__(CodeBlock)
+        block.language = "bash"
+        block.target_path = ""
+        block.interpreter = SimpleNamespace(
+            llm=SimpleNamespace(supports_functions=True)
+        )
+        self.assertEqual(block._code_panel_title(), " execute · bash ")
+
+        block.language = "python"
+        block.target_path = "/tmp/x.py"
+        self.assertEqual(block._code_panel_title(), " edit · python ")
+
+    def test_code_block_title_stays_plain_in_text_mode(self):
+        """Text mode really does use fences, so the title stays the language."""
+        from types import SimpleNamespace
+
+        from interpreter.terminal_interface.components.code_block import CodeBlock
+
+        block = object.__new__(CodeBlock)
+        block.language = "bash"
+        block.target_path = ""
+        block.interpreter = SimpleNamespace(
+            llm=SimpleNamespace(supports_functions=False)
+        )
+        self.assertEqual(block._code_panel_title(), " bash ")
+
     def test_code_block_sync_stored_code_updates_displayed_code_once(self):
         """sync_stored_code swaps in the stripped code so the finalized panel prints it only once."""
         from interpreter.terminal_interface.components.code_block import CodeBlock
