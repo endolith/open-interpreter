@@ -8,6 +8,7 @@ def test_ruby_preprocess_code_wraps_in_begin_rescue():
     assert "begin" in result
     assert "##end_of_execution##" in result
     assert "##active_line1##" in result
+    assert "rescue Exception" in result, "non-StandardError exceptions must not kill the run"
 
 
 def test_ruby_line_postprocessor_skips_echoed_code():
@@ -36,6 +37,8 @@ def test_ruby_detect_end_of_execution():
     ruby = Ruby()
     assert ruby.detect_end_of_execution("##end_of_execution##") is True
     assert ruby.detect_end_of_execution("##execution_error##") is True
+    assert ruby.detect_end_of_execution("(SyntaxError)") is True
+    assert ruby.detect_end_of_execution("syntax error, unexpected end") is False
     assert ruby.detect_end_of_execution("running") is False
 
 
