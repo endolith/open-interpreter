@@ -215,6 +215,10 @@ class SubprocessLanguage(BaseLanguage):
                     }
                     return
 
+        # A process that exited is handled by the checks below. A process that
+        # stays alive but never prints the marker (a command blocked on I/O, an
+        # unterminated compound) has no escape here yet; the timeout/stop
+        # watchdog is tracked in #270.
         while True:
             if not self.output_queue.empty():
                 yield self.output_queue.get()
@@ -321,8 +325,8 @@ class SubprocessLanguage(BaseLanguage):
         except Exception as e:
             self._abort_stream(e)
         finally:
-            # EOF (process died) or a reader failure: without this, run()
-            # waits forever for a completion marker that cannot arrive.
+            # EOF (process died, see #308) or a reader failure: without this,
+            # run() waits forever for a completion marker that cannot arrive.
             done.set()
 
     def _abort_stream(self, error):
