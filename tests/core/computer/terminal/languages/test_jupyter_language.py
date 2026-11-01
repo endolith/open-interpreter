@@ -102,3 +102,64 @@ def test_start_kernel_mutes_the_loopback_tcp_warning(monkeypatch):
     lang.km.start_kernel.assert_called_once_with(
         extra_arguments=["--log-level=ERROR"]
     )
+
+
+def test_kernel_is_alive_uses_the_process_not_the_client():
+    """The client can stay up after the process exits; liveness must use the manager."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    assert lang._kernel_is_alive() is False
+
+    lang.km.is_alive.return_value = True
+    assert lang._kernel_is_alive() is True
+
+
+def test_python_recovers_after_the_kernel_hard_exits():
+    """os._exit(0) must end the run, and the next run must restart the kernel.
+
+    A regression here hangs the REPL: the kernel is dead, the client channels
+    stay open, and the old run waited forever for an idle message.
+    """
+    import threading
+    import types
+
+    from interpreter.core.terminal.languages.python import Python
+
+    def collect(generator, timeout=30):
+        result = {}
+
+        def worker():
+            try:
+                result["chunks"] = list(generator)
+            except Exception as exc:  # pragma: no cover - surfaced by the assertion
+                result["error"] = exc
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(timeout)
+        assert not thread.is_alive(), "run() hung instead of returning"
+        assert "error" not in result, result.get("error")
+        return result["chunks"]
+
+    interpreter = types.SimpleNamespace(
+        stop_event=threading.Event(),
+        messages=[],
+        verbose=False,
+        debug=False,
+        max_output=2000,
+        plain_text_display=True,
+    )
+    language = Python(interpreter)
+    try:
+        collect(language.run("print(1)"))
+        killed = collect(
+            language.run("import os, sys; sys.stdout.flush(); os._exit(0)")
+        )
+        assert any(
+            "kernel exited" in str(chunk.get("content", "")) for chunk in killed
+        )
+        revived = collect(language.run("print(2)"))
+        assert any("2" in str(chunk.get("content", "")) for chunk in revived)
+    finally:
+        language.terminate()
