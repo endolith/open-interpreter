@@ -188,8 +188,36 @@ def run_tool_calling_llm(llm, request_params):
         # transform drops it.
         reasoning = delta.get("reasoning_content") or ""
 
+        # Content in a delta of its own after a tool call is a judge layer's
+        # review of the code (see below). Content packed into the *same* delta
+        # as the tool call carries no such ordering: providers that collapse a
+        # turn into a single message (litellm's ollama_chat and Gemini
+        # builders) put the assistant's own text there. Position cannot tell
+        # the two apart once the message is collapsed, so the review tags do.
+        content_is_review = function_call_detected
+
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
+            # Content packed into the *same* delta as a tool call carries no
+            # ordering, so the verdict tags classify it — independently for
+            # every such delta, not just the first. A later delta mixing the
+            # assistant's narration with a tool-call continuation must not
+            # inherit review status from the earlier call. Deltas arrive as
+            # dicts or objects depending on the provider/litellm version,
+            # hence both.
+            if isinstance(delta, dict):
+                content = delta.get("content")
+            else:
+                content = getattr(delta, "content", None)
+
+            if content:
+                # A review already opened by an earlier content-only delta must
+                # stay a review even when the body arrives with a later
+                # tool-call fragment and contains no opening tag itself.
+                content_is_review = review_category is not None or any(
+                    tag in content for tag in ["<safe>", "<warning>", "<unsafe>"]
+                )
+
             # import pdb; pdb.set_trace()
             converted_call = None
             for tool_call in delta["tool_calls"]:
@@ -210,10 +238,11 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     name = getattr(function, "name", None)
                     arguments = getattr(function, "arguments", None)
-                if name is None and arguments is None:
-                    # An entry with neither a name nor arguments carries
-                    # nothing to merge; keep scanning the list for a usable
-                    # entry rather than selecting this one.
+                if not name and not arguments:
+                    # An entry with neither a name nor arguments (including
+                    # empty strings) carries nothing to merge; keep scanning
+                    # the list for a usable entry rather than selecting this
+                    # one.
                     continue
                 converted_call = {"name": name, "arguments": arguments}
                 break
@@ -221,6 +250,9 @@ def run_tool_calling_llm(llm, request_params):
                 function_call_detected = True
                 delta = {
                     # "id": delta["tool_calls"][0],
+                    # Carry the content across: rebuilding the delta out of the
+                    # tool call alone threw away text sent in the same message.
+                    "content": content,
                     "function_call": converted_call,
                 }
             else:
@@ -250,7 +282,7 @@ def run_tool_calling_llm(llm, request_params):
             }
 
         if "content" in delta and delta["content"]:
-            if function_call_detected:
+            if content_is_review:
                 # More content after a code block? This is a code review by a judge layer.
 
                 # print("Code safety review:", delta["content"])
@@ -278,7 +310,6 @@ def run_tool_calling_llm(llm, request_params):
 
                     if re.search("</.*>$", accumulated_review):
                         buffer += delta["content"]
-                        continue
                     elif buffer:
                         yield {
                             "type": "review",
