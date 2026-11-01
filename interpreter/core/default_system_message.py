@@ -49,14 +49,15 @@ _cli_lang = "cmd" if platform.system() == "Windows" else "bash"
 # models to emit fenced code instead of calling execute. The sentence is chosen
 # from the active mechanism; the examples stay as shorthand.
 _TOOL_CALLING_SENTENCE = (
-    "Steps below use `[code: language]` as shorthand for an execute tool call. "
-    "Submit each step as a tool call — the harness already displays the command to "
-    "the user, so never also restate it in your message text. Don't just describe "
-    "the step."
+    "Steps below use `[execute: language]` as shorthand for a call to the execute "
+    "tool. These lines are not a format to emit: put code you only want the user "
+    "to read in your message, and call `execute` when it should run. Don't just "
+    "describe the step."
 )
 _CODE_BLOCK_SENTENCE = (
-    "Steps below use `[code: language]` as shorthand for running code. Submit each "
-    "step as a markdown code block. Don't just describe the step."
+    "Steps below use `[code: language]` as shorthand for a fenced code block. "
+    "Submit each step as a fenced block; a fence always runs. Put code you only "
+    "want the user to read inline, not in a fence. Don't just describe the step."
 )
 _EXECUTION_MECHANISM = "__OI_EXECUTION_MECHANISM__"
 
@@ -200,7 +201,11 @@ def build_default_system_message(supports_functions=False):
     the appendix that follows it only covers one of them.
     """
     sentence = _TOOL_CALLING_SENTENCE if supports_functions else _CODE_BLOCK_SENTENCE
-    return _SYSTEM_MESSAGE_TEMPLATE.replace(_EXECUTION_MECHANISM, sentence)
+    message = _SYSTEM_MESSAGE_TEMPLATE.replace(_EXECUTION_MECHANISM, sentence)
+    if supports_functions:
+        # The walkthroughs use code lines; in tool mode they are calls.
+        message = message.replace("[code:", "[execute:")
+    return message
 
 
 default_system_message = build_default_system_message(False)

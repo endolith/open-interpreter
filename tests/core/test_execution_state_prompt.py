@@ -35,14 +35,29 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("complete display source", description)
 
     def test_system_message_describes_only_the_active_execution_mode(self):
-        """Tool mode must not mention markdown blocks, and text mode must not mention tool calls."""
+        """Tool mode must not mention fences, and fence mode must not mention tool calls."""
         tool = assemble_system_message(_prompt_interpreter(True))
-        self.assertIn("execute tool call", tool)
-        self.assertNotIn("markdown code block", tool)
+        self.assertIn("call to the execute tool", tool)
+        self.assertIn("[execute:", tool)
+        self.assertNotIn("[code:", tool)
+        self.assertNotIn("fenced code block", tool)
 
         fence = assemble_system_message(_prompt_interpreter(False))
-        self.assertIn("markdown code block", fence)
-        self.assertNotIn("execute tool call", fence)
+        self.assertIn("fenced code block", fence)
+        self.assertIn("[code:", fence)
+        self.assertNotIn("[execute:", fence)
+        self.assertNotIn("call to the execute tool", fence)
+
+    def test_tool_instructions_show_a_positive_call_example(self):
+        """Tool mode gets a concrete call, not just prohibitions about message code."""
+        from interpreter.core.llm.llm import _TOOL_CALLING_INSTRUCTIONS
+
+        self.assertIn("call `execute`", _TOOL_CALLING_INSTRUCTIONS)
+        self.assertIn(
+            'execute({"language": "python", "code": "print(1)"})',
+            _TOOL_CALLING_INSTRUCTIONS,
+        )
+        self.assertIn("never executed", _TOOL_CALLING_INSTRUCTIONS)
 
     def test_custom_system_message_is_not_replaced(self):
         """A profile's own system_message stays exactly as written."""
