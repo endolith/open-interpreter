@@ -1404,15 +1404,14 @@ def test_strict_deepseek_route_uses_modern_tool_calls():
             assert str(m.get("content", "") or "").strip()
 
 
-def test_strict_route_unpaired_code_falls_back_to_text():
-    """A strict-route code turn with no following output must not become a bare call.
+def test_strict_route_unpaired_code_stays_a_call_with_a_result():
+    """An unexecuted call stays a call and gets an explicit result.
 
     History routinely holds code that never executed (interrupted loops,
-    invalidated calls, code superseded by a user edit before running). Emitting
-    it as tool_calls would leave a call id with no later matching tool output,
-    which strict validators reject ("must be followed by tool messages ...").
-    Such code falls back to a plain text block, exactly like text mode, so the
-    request stays valid while keeping the code visible to the model.
+    invalidated calls, code superseded by a user edit). The old fallback turned
+    it into a fenced text block, which taught the model that fences are how
+    code runs. A synthetic "not executed" result keeps the call shape while
+    still satisfying strict validators (one id, one adjacent result).
     """
     messages = [
         {"role": "user", "type": "message", "content": "run it"},
@@ -1427,19 +1426,74 @@ def test_strict_route_unpaired_code_falls_back_to_text():
         vision=False,
         interpreter=_FakeStrictDeepSeekInterpreter(),
     )
+
     calls = [m for m in out if m.get("tool_calls")]
-    assert len(calls) == 1
-    call_ids = [tc["id"] for m in calls for tc in m["tool_calls"]]
     outputs = [m for m in out if m.get("role") == "tool"]
-    assert len(outputs) == 1
-    assert outputs[0]["tool_call_id"] in call_ids
-    texts = [
-        m
+    assert len(calls) == 2
+    assert len(outputs) == 2, "every call keeps a result"
+    for index, message in enumerate(out):
+        if not message.get("tool_calls"):
+            continue
+        call_id = message["tool_calls"][0]["id"]
+        assert out[index + 1]["role"] == "tool"
+        assert out[index + 1]["tool_call_id"] == call_id
+    assert outputs[1]["content"] == "This call was not executed."
+    assert not any(
+        "```python" in str(m.get("content", ""))
         for m in out
-        if m.get("role") == "assistant" and not m.get("tool_calls") and "print('B')" in str(m.get("content", ""))
+        if m.get("role") == "assistant"
+    )
+
+
+def test_declined_call_becomes_a_tool_result_not_a_fence():
+    """A decline is the call's result, so the model never sees a fence for it."""
+    messages = [
+        {"role": "user", "type": "message", "content": "do it"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
+        {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "User declined to run this code.",
+            "recipient": "assistant",
+            "source": "terminal",
+        },
     ]
-    assert len(texts) == 1
-    assert "```python" in texts[0]["content"]
+    out = convert_to_openai_messages(
+        messages,
+        function_calling=True,
+        vision=False,
+        interpreter=_FakeGoDeepSeekInterpreter(),
+    )
+
+    calls = [m for m in out if m.get("tool_calls")]
+    outputs = [m for m in out if m.get("role") == "tool"]
+    assert len(calls) == 1
+    assert len(outputs) == 1
+    assert outputs[0]["content"] == "User declined to run this code."
+    assert not any(
+        "```python" in str(m.get("content", ""))
+        for m in out
+        if m.get("role") == "assistant"
+    )
+
+
+def test_legacy_unpaired_call_gets_a_function_result():
+    """The legacy function shape also keeps its call instead of becoming text."""
+    messages = [
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
+        {"role": "user", "type": "message", "content": "never mind"},
+    ]
+    out = convert_to_openai_messages(
+        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
+    )
+
+    assert out[0]["function_call"]["name"] == "execute"
+    assert out[1] == {
+        "role": "function",
+        "name": "execute",
+        "content": "This call was not executed.",
+    }
 
 
 def test_non_deepseek_route_keeps_legacy_function_call():

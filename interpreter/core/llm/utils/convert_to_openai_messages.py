@@ -128,6 +128,65 @@ def _use_modern_tool_calls(interpreter) -> bool:
     )
 
 
+def _pair_unanswered_calls(messages):
+    """Give every emitted call a result, so no call is re-rendered as text.
+
+    Strict providers reject a ``tool_call_id`` with no matching result. The old
+    fallback turned an unexecuted call into a fenced text block, which taught
+    the model that fences are how it runs code — the opposite of the tool
+    schema. Insert an explicit "not executed" result instead; a decline has a
+    specific result recorded by the terminal.
+
+    Results already present stay untouched; only missing ids get a synthetic
+    one, and only adjacent results count as an answer.
+    """
+    paired = []
+    for index, message in enumerate(messages):
+        paired.append(message)
+        if message.get("role") != "assistant":
+            continue
+
+        calls = message.get("tool_calls") or []
+        if calls:
+            answered = set()
+            following = index + 1
+            while (
+                following < len(messages)
+                and messages[following].get("role") == "tool"
+            ):
+                answered.add(messages[following].get("tool_call_id"))
+                following += 1
+            for call in calls:
+                call_id = call.get("id")
+                if call_id not in answered:
+                    paired.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": "This call was not executed.",
+                        }
+                    )
+            continue
+
+        function_call = message.get("function_call")
+        if function_call:
+            name = function_call.get("name")
+            following = messages[index + 1] if index + 1 < len(messages) else None
+            if not (
+                following
+                and following.get("role") == "function"
+                and following.get("name") == name
+            ):
+                paired.append(
+                    {
+                        "role": "function",
+                        "name": name,
+                        "content": "This call was not executed.",
+                    }
+                )
+    return paired
+
+
 def _merge_adjacent_tool_results(messages):
     """Collapse consecutive results that answer the same tool call.
 
@@ -221,36 +280,6 @@ def convert_to_openai_messages(
     # (deterministic per-request so prefix caching stays effective).
     _modern_tools = _use_modern_tool_calls(interpreter)
     last_tool_call_id = _resume.get("last_tool_call_id")
-    # A synthetic tool call must actually be followed by its tool output:
-    # strict validators reject a call id with no later matching output, and
-    # history routinely contains code that never executed (interrupted loops,
-    # invalidated calls, code superseded by a user edit). Precompute which
-    # code/edit messages have a console output following them (mirroring the
-    # recipient filter of the main loop); unpaired ones fall back to plain
-    # text blocks, exactly like text mode.
-    _paired_call_idx = set()
-    if _modern_tools and function_calling:
-        for _pi, _pm in enumerate(messages, start=stored_offset):
-            if (
-                _pm.get('type') in ('code', 'edit')
-                and _pm.get('role') == 'assistant'
-                and not (
-                    "recipient" in _pm and _pm["recipient"] != "assistant"
-                )
-            ):
-                # _pi is an absolute stored index (see stored_offset) while
-                # messages is the (possibly suffix-only) list actually passed.
-                for _pj in range(_pi + 1 - stored_offset, len(messages)):
-                    _nx = messages[_pj]
-                    if "recipient" in _nx and _nx["recipient"] != "assistant":
-                        continue
-                    if (
-                        _nx.get('type') == 'console'
-                        and _nx.get('format') == 'output'
-                    ):
-                        _paired_call_idx.add(_pi)
-                    break
-
     # if function_calling == False:
     #     prev_message = None
     #     for message in messages:
@@ -325,7 +354,7 @@ def convert_to_openai_messages(
             last_tool_name = "execute"
             new_message["role"] = "assistant"
             if function_calling:
-                if _modern_tools and _mi in _paired_call_idx:
+                if _modern_tools:
                     last_tool_call_id = f"oi-call-{_mi}"
                     new_message["tool_calls"] = [
                         {
@@ -346,14 +375,6 @@ def convert_to_openai_messages(
                     # real model turns already have); strict providers only
                     # reject messages with NEITHER content NOR tool_calls.
                     new_message["content"] = ""
-                elif _modern_tools:
-                    # No console output follows this code (interrupted loop,
-                    # invalidated call, superseded edit): a bare tool_calls
-                    # would have no matching output, so send it as text like
-                    # text mode does.
-                    new_message[
-                        "content"
-                    ] = f"""```{message["format"]}\n{message["content"]}\n```"""
                 else:
                     new_message["function_call"] = {
                         "name": "execute",
@@ -379,7 +400,7 @@ def convert_to_openai_messages(
             last_tool_name = "edit"
             new_message["role"] = "assistant"
             if function_calling:
-                if _modern_tools and _mi in _paired_call_idx:
+                if _modern_tools:
                     last_tool_call_id = f"oi-call-{_mi}"
                     new_message["tool_calls"] = [
                         {
@@ -396,11 +417,6 @@ def convert_to_openai_messages(
                         }
                     ]
                     new_message["content"] = ""
-                elif _modern_tools:
-                    new_message["content"] = (
-                        f"edit({message['format']}, {message['target']!r}):\n"
-                        f"```{message['format']}\n{message['content']}\n```"
-                    )
                 else:
                     new_message["function_call"] = {
                         "name": "edit",
@@ -769,6 +785,7 @@ def convert_to_openai_messages(
         new_messages = combined_messages
 
     if function_calling:
+        new_messages = _pair_unanswered_calls(new_messages)
         new_messages = _merge_adjacent_tool_results(new_messages)
 
     if end_state is not None:
