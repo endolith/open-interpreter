@@ -82,6 +82,22 @@ class SubprocessLanguage(BaseLanguage):
         terminator = "} " if code.endswith("\n") else "; } "
         return "{ " + code + terminator + "< " + self.null_device_path
 
+    def _process_is_dead(self):
+        """Whether the child has exited. False when there is no process or no poll().
+
+        A missing ``poll`` means a test double (or a custom language) that does
+        not model process state; treat it as alive rather than restarting it.
+        """
+        if self.process is None:
+            return True
+        poll = getattr(self.process, "poll", None)
+        if not callable(poll):
+            return False
+        try:
+            return poll() is not None
+        except Exception:
+            return False
+
     def write_block_to_stdin(self, code):
         """Send a processed code block to the language subprocess."""
         if self.command_stdin_from_null_device:
@@ -95,13 +111,26 @@ class SubprocessLanguage(BaseLanguage):
 
     def terminate(self):
         if self.process:
-            self.process.terminate()
-            self.process.stdin.close()
-            self.process.stdout.close()
+            try:
+                self.process.terminate()
+            except Exception:
+                pass
+            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                try:
+                    if stream:
+                        stream.close()
+                except Exception:
+                    pass
 
     def start_process(self):
         if self.process:
             self.terminate()
+
+        # A new queue/event belongs to the new process. Reader threads from a
+        # previous process keep a reference to the old pair, so their late EOF
+        # cannot end this run or inject stale output into it.
+        self.output_queue = queue.Queue()
+        self.done = threading.Event()
 
         my_env = os.environ.copy()
         my_env["PYTHONIOENCODING"] = "utf-8"
@@ -123,14 +152,15 @@ class SubprocessLanguage(BaseLanguage):
                 errors="replace",
                 **popen_kwargs,
             )
+        output_queue, done = self.output_queue, self.done
         threading.Thread(
             target=self.handle_stream_output,
-            args=(self.process.stdout, False),
+            args=(self.process.stdout, False, output_queue, done),
             daemon=True,
         ).start()
         threading.Thread(
             target=self.handle_stream_output,
-            args=(self.process.stderr, True),
+            args=(self.process.stderr, True, output_queue, done),
             daemon=True,
         ).start()
 
@@ -141,7 +171,10 @@ class SubprocessLanguage(BaseLanguage):
         # Setup
         try:
             code = self.preprocess_code(code)
-            if not self.process:
+            if self._process_is_dead():
+                # A hard exit (node process.exit, ruby syntax error killing
+                # irb, os._exit) leaves a Popen object behind. Restart instead
+                # of writing to a dead pipe and waiting for a marker forever.
                 self.start_process()
         except:
             yield {
@@ -191,7 +224,7 @@ class SubprocessLanguage(BaseLanguage):
                 output = self.output_queue.get(timeout=0.3)  # Waits for 0.3 seconds
                 yield output
             except queue.Empty:
-                if self.done.is_set():
+                if self.done.is_set() or self._process_is_dead():
                     # Try to yank 3 more times from it... maybe there's something in there...
                     # (I don't know if this actually helps. Maybe we just need to yank 1 more time)
                     for _ in range(3):
@@ -209,7 +242,11 @@ class SubprocessLanguage(BaseLanguage):
             if line:
                 yield {"type": "console", "format": "output", "content": line}
 
-    def handle_stream_output(self, stream, is_error_stream):
+    def handle_stream_output(
+        self, stream, is_error_stream, output_queue=None, done=None
+    ):
+        output_queue = self.output_queue if output_queue is None else output_queue
+        done = self.done if done is None else done
         try:
             eof = b"" if self.binary_stdio else ""
             for raw_line in iter(stream.readline, eof):
@@ -235,7 +272,7 @@ class SubprocessLanguage(BaseLanguage):
                         == "true"
                     )
                     if active_line_enabled:
-                        self.output_queue.put(
+                        output_queue.put(
                             {
                                 "type": "console",
                                 "format": "active_line",
@@ -247,7 +284,7 @@ class SubprocessLanguage(BaseLanguage):
                     # terminated it. A whitespace-only remainder carries no
                     # output and would show up as a stray blank line.
                     if line.strip():
-                        self.output_queue.put(
+                        output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
                 elif self.detect_end_of_execution(line):
@@ -257,12 +294,12 @@ class SubprocessLanguage(BaseLanguage):
                     line = _END_OF_EXECUTION_RE.sub("", line)
                     line = _EXECUTION_ERROR_RE.sub("", line).strip()
                     if line:
-                        self.output_queue.put(
+                        output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
-                    self.done.set()
+                    done.set()
                 elif is_error_stream and "KeyboardInterrupt" in line:
-                    self.output_queue.put(
+                    output_queue.put(
                         {
                             "type": "console",
                             "format": "output",
@@ -270,9 +307,9 @@ class SubprocessLanguage(BaseLanguage):
                         }
                     )
                     time.sleep(0.1)
-                    self.done.set()
+                    done.set()
                 else:
-                    self.output_queue.put(
+                    output_queue.put(
                         {"type": "console", "format": "output", "content": line}
                     )
         except ValueError as e:
@@ -283,6 +320,10 @@ class SubprocessLanguage(BaseLanguage):
                 self._abort_stream(e)
         except Exception as e:
             self._abort_stream(e)
+        finally:
+            # EOF (process died) or a reader failure: without this, run()
+            # waits forever for a completion marker that cannot arrive.
+            done.set()
 
     def _abort_stream(self, error):
         """End the turn after an unexpected reader failure, and report it.

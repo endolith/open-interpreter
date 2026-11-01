@@ -199,3 +199,36 @@ def test_none_from_postprocessor_discards_the_line():
     lang.handle_stream_output(stream, is_error_stream=False)
 
     assert lang.output_queue.empty()
+
+
+def test_handle_stream_output_signals_done_when_the_stream_ends_without_a_marker():
+    """EOF means the process is gone; run() must not wait for a marker that can never come.
+
+    A hard exit (node process.exit, R q(), a crashed REPL) closes stdout with no
+    end marker. Without this signal the consumer loop waits forever.
+    """
+    lang = EchoLanguage()
+    stream = StringIO("partial output\n")
+
+    lang.handle_stream_output(stream, is_error_stream=False)
+
+    assert lang.output_queue.get()["content"] == "partial output\n"
+    assert lang.done.is_set()
+
+
+def test_process_is_dead_treats_fakes_as_alive():
+    """Only a real Popen poll() decides; a double without poll() must not be restarted."""
+    from types import SimpleNamespace
+
+    lang = EchoLanguage()
+    lang.process = None
+    assert lang._process_is_dead() is True
+
+    lang.process = SimpleNamespace(poll=lambda: None)
+    assert lang._process_is_dead() is False
+
+    lang.process = SimpleNamespace(poll=lambda: 0)
+    assert lang._process_is_dead() is True
+
+    lang.process = SimpleNamespace()  # no poll(): a test double
+    assert lang._process_is_dead() is False
