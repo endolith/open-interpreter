@@ -238,6 +238,41 @@ def test_terminal_interface_declined_code_is_recorded_as_a_tool_result():
     assert message["source"] == "terminal"
 
 
+def test_view_image_approval_is_automatic_in_auto_run(monkeypatch):
+    """YOLO shows a requested image without prompting (small images stay full).
+    """
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.chat = lambda message, display=False, stream=True: iter(
+        [{"role": "computer", "type": "view_image_approval", "paths": ["/tmp/a.png"]}]
+    )
+    monkeypatch.setattr(ti, "image_path_exceeds_shrink_threshold", lambda path: False)
+
+    with mock.patch.object(ti, "prompt_choice") as choose:
+        list(terminal_interface(interpreter, "show it"))
+
+    choose.assert_not_called()
+    assert interpreter._view_image_approval == "y"
+
+
+def test_view_image_approval_resizes_large_images_in_auto_run(monkeypatch):
+    """YOLO resizes a large image instead of uploading it at full resolution."""
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.chat = lambda message, display=False, stream=True: iter(
+        [{"role": "computer", "type": "view_image_approval", "paths": ["/tmp/big.png"]}]
+    )
+    monkeypatch.setattr(ti, "image_path_exceeds_shrink_threshold", lambda path: True)
+
+    with mock.patch.object(ti, "prompt_choice") as choose:
+        list(terminal_interface(interpreter, "show it"))
+
+    choose.assert_not_called()
+    assert interpreter._view_image_approval == "r"
+
+
 def test_terminal_interface_os_mode_notifies_on_message_end():
     """In OS mode, the end of an assistant message triggers an OS notification."""
     import interpreter.terminal_interface.terminal_interface as ti

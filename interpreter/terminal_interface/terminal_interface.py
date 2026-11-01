@@ -308,7 +308,19 @@ def terminal_interface(interpreter, message):
                 # view_image_approval: AI wants to show image(s); prompt and store result for run_tool_calling_llm
                 if chunk.get("type") == "view_image_approval":
                     paths = chunk.get("paths") or []
-                    if paths:
+                    if not paths:
+                        interpreter._view_image_approval = "n"
+                    elif interpreter.auto_run:
+                        # YOLO: show it without a prompt. Resize large images
+                        # instead of uploading full resolution.
+                        interpreter._view_image_approval = (
+                            "r"
+                            if any(
+                                image_path_exceeds_shrink_threshold(p) for p in paths
+                            )
+                            else "y"
+                        )
+                    else:
                         max_len = 72
                         def _truncate(p):
                             return p if len(p) <= max_len else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
@@ -337,8 +349,6 @@ def terminal_interface(interpreter, message):
                             _console.print(RichPadding(_panel, PADDING_PANEL))
                             response = prompt_choice("  ", ("y", "n"))
                         interpreter._view_image_approval = response
-                    else:
-                        interpreter._view_image_approval = "n"
 
                 # Execution notice
                 if chunk["type"] == "confirmation":

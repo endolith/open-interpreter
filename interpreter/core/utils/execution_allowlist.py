@@ -154,10 +154,12 @@ def _execution_target_from_confirmation_chunk(chunk):
 def should_require_execution_confirmation(interpreter, chunk):
     if chunk.get("type") != "confirmation":
         return True
+    if interpreter.auto_run_mode == "all":
+        # YOLO covers every gated action, not only code execution: edits are
+        # just another mutating action the user already opted into.
+        return False
     if chunk.get("format") == "edit":
         return True
-    if interpreter.auto_run_mode == "all":
-        return False
     language, code = _execution_target_from_confirmation_chunk(chunk)
     if language is None:
         return True
