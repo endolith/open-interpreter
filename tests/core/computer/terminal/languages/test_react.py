@@ -63,4 +63,4 @@ def test_react_run_falls_back_to_source_when_screenshot_fails():
 
     assert all(chunk["type"] != "image" for chunk in chunks)
     assert any("headless browser failed" in c.get("content", "") for c in chunks)
-    assert any("React/HTML source shown" in c.get("content", "") for c in chunks)
+    assert any("function App(){return <div/>}" in c.get("content", "") for c in chunks)
