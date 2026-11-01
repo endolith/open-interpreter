@@ -1586,3 +1586,120 @@ def test_openrouter_routes_without_deepseek_use_modern_tool_calls():
     outputs = [m for m in out if m.get("role") == "tool"]
     assert len(calls) == 1 and len(outputs) == 1
     assert outputs[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
+
+
+
+def test_repeated_outputs_become_one_tool_result():
+    """Three console results for one html call collapse into one tool message.
+
+    HTML/React yield "displayed", a failure note, and the source; the model saw
+    three results for one call, which shifted the next call's result and made a
+    stray python `pass` look like it produced the HTML source. Providers also
+    reject duplicate tool_call_ids.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "do html"},
+        {"role": "assistant", "type": "code", "format": "html", "content": "<h1>hi</h1>"},
+        {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "HTML is being displayed on the user's machine...",
+            "recipient": "assistant",
+        },
+        {
+            "role": "computer",
+            "type": "code",
+            "format": "html",
+            "content": "<h1>hi</h1>",
+            "recipient": "user",
+        },
+        {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "Could not render a preview (the headless browser failed).",
+            "recipient": "assistant",
+        },
+        {
+            "role": "computer",
+            "type": "console",
+            "format": "output",
+            "content": "HTML source shown to the user: ```html <h1>hi</h1>```",
+            "recipient": "assistant",
+        },
+        {"role": "assistant", "type": "code", "format": "python", "content": "pass"},
+        {"role": "computer", "type": "console", "format": "output", "content": ""},
+    ]
+
+    out = convert_to_openai_messages(
+        messages,
+        function_calling=True,
+        vision=False,
+        interpreter=_FakeGoDeepSeekInterpreter(),
+    )
+
+    calls = [m for m in out if m.get("tool_calls")]
+    results = [m for m in out if m.get("role") == "tool"]
+    assert len(calls) == 2
+    assert len(results) == 2, "one result per tool call"
+    assert results[0]["tool_call_id"] == calls[0]["tool_calls"][0]["id"]
+    assert results[1]["tool_call_id"] == calls[1]["tool_calls"][0]["id"]
+    assert "HTML is being displayed" in results[0]["content"]
+    assert "Could not render a preview" in results[0]["content"]
+    assert "HTML source shown" in results[0]["content"]
+    assert results[1]["content"] == "No output"
+
+
+def test_repeated_legacy_function_results_are_merged():
+    """The legacy function/message shape gets the same one-result guarantee."""
+    messages = [
+        {"role": "assistant", "type": "code", "format": "html", "content": "<h1>hi</h1>"},
+        {"role": "computer", "type": "console", "format": "output", "content": "displayed"},
+        {"role": "computer", "type": "console", "format": "output", "content": "source"},
+    ]
+
+    out = convert_to_openai_messages(
+        messages, function_calling=True, vision=False, interpreter=None
+    )
+
+    results = [m for m in out if m.get("role") == "function"]
+    assert len(results) == 1
+    assert results[0]["content"] == "displayed\nsource"
+
+
+def test_empty_outputs_collapse_and_do_not_hide_real_output():
+    """Multiple empty outputs become one "No output" and never mask real content."""
+    from interpreter.core.llm.utils.convert_to_openai_messages import (
+        _merge_adjacent_tool_results,
+    )
+
+    assert _merge_adjacent_tool_results(
+        [
+            {"role": "tool", "tool_call_id": "a", "content": "No output"},
+            {"role": "tool", "tool_call_id": "a", "content": "No output"},
+        ]
+    ) == [{"role": "tool", "tool_call_id": "a", "content": "No output"}]
+
+    assert _merge_adjacent_tool_results(
+        [
+            {"role": "tool", "tool_call_id": "a", "content": "No output"},
+            {"role": "tool", "tool_call_id": "a", "content": "real"},
+        ]
+    ) == [{"role": "tool", "tool_call_id": "a", "content": "real"}]
+
+
+def test_different_tool_call_ids_are_not_merged():
+    """Parallel calls keep their own results."""
+    from interpreter.core.llm.utils.convert_to_openai_messages import (
+        _merge_adjacent_tool_results,
+    )
+
+    merged = _merge_adjacent_tool_results(
+        [
+            {"role": "tool", "tool_call_id": "a", "content": "one"},
+            {"role": "tool", "tool_call_id": "b", "content": "two"},
+        ]
+    )
+
+    assert len(merged) == 2

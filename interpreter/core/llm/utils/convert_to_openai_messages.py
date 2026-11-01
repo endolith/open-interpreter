@@ -128,6 +128,53 @@ def _use_modern_tool_calls(interpreter) -> bool:
     )
 
 
+def _merge_adjacent_tool_results(messages):
+    """Collapse consecutive results that answer the same tool call.
+
+    One call must have exactly one result: strict providers reject duplicate
+    ``tool_call_id``s, and even tolerant ones let the extra result shift the
+    model's reading of which output belongs to which call. Display-only
+    languages (html/react) can emit several console chunks for one block, and
+    the user-only code chunk between them defeats core's own consecutive-output
+    merge.
+
+    Only adjacent messages are merged: an assistant/user message in between
+    means a different turn, and a different id/name means a different call.
+    """
+    merged = []
+    for message in messages:
+        role = message.get("role")
+        key = (
+            message.get("tool_call_id")
+            if role == "tool"
+            else message.get("name")
+            if role == "function"
+            else None
+        )
+        previous = merged[-1] if merged else None
+        same_call = (
+            previous is not None
+            and key is not None
+            and previous.get("role") == role
+            and (
+                previous.get("tool_call_id") == key
+                if role == "tool"
+                else previous.get("name") == key
+            )
+        )
+        if not same_call:
+            merged.append(message)
+            continue
+        parts = [previous.get("content"), message.get("content")]
+        real = [
+            part
+            for part in parts
+            if isinstance(part, str) and part.strip() and part != "No output"
+        ]
+        previous["content"] = "\n".join(real) if real else "No output"
+    return merged
+
+
 def convert_to_openai_messages(
     messages,
     function_calling=True,
@@ -720,6 +767,9 @@ def convert_to_openai_messages(
             combined_messages.append(msg)
 
         new_messages = combined_messages
+
+    if function_calling:
+        new_messages = _merge_adjacent_tool_results(new_messages)
 
     if end_state is not None:
         end_state.update(
