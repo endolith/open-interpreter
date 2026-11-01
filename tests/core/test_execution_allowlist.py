@@ -133,6 +133,12 @@ def test_should_require_execution_confirmation_chunk():
     assert should_require_execution_confirmation(interpreter, blocked) is True
     assert should_require_execution_confirmation(interpreter, edit) is True
 
+    interpreter.auto_run_mode = "all"
+    assert should_require_execution_confirmation(interpreter, edit) is False
+
+    interpreter.auto_run_mode = "prompt"
+    assert should_require_execution_confirmation(interpreter, edit) is True
+
 
 def test_persist_allowlist_rule(tmp_path):
     allowlist_file = tmp_path / "allowlist.yaml"
