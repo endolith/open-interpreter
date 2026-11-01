@@ -17,8 +17,8 @@ def test_html_run_yields_console_code_and_image():
     ):
         chunks = list(html.run("<html><body>Hi</body></html>"))
 
-    assert chunks[0]["type"] == "console"
-    assert chunks[1]["type"] == "code"
+    assert chunks[0]["type"] == "code"
+    assert chunks[1]["type"] == "console"
     assert chunks[2]["type"] == "image"
     assert chunks[2]["format"] == "base64.png"
     assert chunks[2]["content"] == "base64data"
@@ -41,13 +41,13 @@ def test_html_run_chunk_dicts_are_exact():
         chunks = list(html.run(code))
 
     assert chunks == [
+        {"type": "code", "format": "html", "content": code, "recipient": "user"},
         {
             "type": "console",
             "format": "output",
-            "content": "HTML being displayed on the user's machine...",
+            "content": "HTML is being displayed on the user's machine...",
             "recipient": "assistant",
         },
-        {"type": "code", "format": "html", "content": code, "recipient": "user"},
         {
             "type": "image",
             "format": "base64.png",
@@ -68,8 +68,8 @@ def test_html_run_non_vision_yields_source_console_chunk():
         return_value="base64data",
     ) as to_png:
         chunks = list(html.run(code))
-    assert chunks[2]["type"] == "console"
-    assert code in chunks[2]["content"]
+    assert chunks[1]["type"] == "console"
+    assert code in chunks[1]["content"]
     to_png.assert_not_called()
 
 

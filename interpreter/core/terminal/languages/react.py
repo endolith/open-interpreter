@@ -68,19 +68,20 @@ class React(BaseLanguage):
 
         code = template.replace("{insert_react_code}", code)
 
-        yield {
-            "type": "console",
-            "format": "output",
-            "content": "React is being displayed on the user's machine...",
-            "recipient": "assistant",
-        }
-
         # User sees interactive HTML
         yield {"type": "code", "format": "html", "content": code, "recipient": "user"}
 
+        # Exactly one assistant-facing result (see HTML.run): image when the
+        # browser renders, otherwise the source.
         if self._assistant_sees_rendered_image():
             base64 = html_to_png_base64(code)
             if base64:
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": "React is being displayed on the user's machine...",
+                    "recipient": "assistant",
+                }
                 yield {
                     "type": "image",
                     "format": "base64.png",
@@ -91,9 +92,14 @@ class React(BaseLanguage):
             yield {
                 "type": "console",
                 "format": "output",
-                "content": "Could not render a preview (the headless browser failed); showing the source instead.",
+                "content": (
+                    "Could not render a preview (the headless browser failed); "
+                    "showing the source instead.\n\n```html\n" + code + "\n```"
+                ),
                 "recipient": "assistant",
             }
+            return
+
         yield {
             "type": "console",
             "format": "output",
