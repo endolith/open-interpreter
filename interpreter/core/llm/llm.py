@@ -52,10 +52,12 @@ def _supports_vision(model: str) -> bool | None:
 _TOOL_CALLING_INSTRUCTIONS = (
     "Use only the tools in this request (`execute`, `edit`, and `view_image` when present). "
     "Read each tool's JSON schema for parameters and languages.\n\n"
-    "(What appears in the conversation log as {\"role\": \"assistant\", \"type\": \"code\", ...} "
-    "or {\"type\": \"edit\", ...} is our internal storage derived from your tool call; "
-    "you do not output that structure.) "
-    "Code in message content is only shown and is not run. "
+    "(OI's internal storage shows your call as a code message; you do not output "
+    "that structure.) "
+    "If you want the user to read code, put it in your message: it is shown and "
+    "never run. If you want it to run, call `execute` with `language` and `code`, "
+    "for example execute({\"language\": \"python\", \"code\": \"print(1)\"}). "
+    "A fenced code block in message content is never executed. "
     "Do not call any other name as a tool (e.g. toolbox.web.answer). "
     "Those are Python APIs: use them inside the \"code\" string you pass to execute."
 )
@@ -345,7 +347,12 @@ class Llm:
         )  # Will only use if supports_vision is False
 
         self.supports_functions = None  # Will try to auto-detect
-        self.execution_instructions = "To execute code on the user's machine, write a markdown code block. Specify the language after the ```. You will receive the output. Use any programming language."  # If supports_functions is False, this will be added to the system message
+        self.execution_instructions = (
+            "To execute code on the user's machine, write a fenced code block "
+            "with the language after the opening fence. A fenced block always "
+            "runs and you will receive its output. To show code without running "
+            "it, use inline code (single backticks); do not put it in a fence."
+        )  # If supports_functions is False, this will be added to the system message
         # Appended to the system message only when supports_functions is True (tool-calling mode).
         # Mirrors execution_instructions: profiles/local models can set this to False to suppress it.
         self.tool_calling_instructions = _TOOL_CALLING_INSTRUCTIONS

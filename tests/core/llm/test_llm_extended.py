@@ -262,9 +262,10 @@ def test_llm_api_key_defaults_none():
 
 
 def test_llm_execution_instructions_set():
-    """execution_instructions contains guidance for code execution."""
+    """execution_instructions explains that a fence runs and inline code does not."""
     llm = _make_llm()
-    assert "markdown code block" in llm.execution_instructions
+    assert "fenced code block" in llm.execution_instructions
+    assert "inline code" in llm.execution_instructions
 
 
 def test_fixed_litellm_completions_adds_stop_for_local():
