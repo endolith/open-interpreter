@@ -897,3 +897,31 @@ def test_code_message_carries_reasoning(interpreter):
     result = convert_to_openai_messages(messages, interpreter=interpreter)
 
     assert result[0]["reasoning_content"] == "thinking"
+
+
+def test_console_output_does_not_mutate_the_caller(interpreter):
+    """Conversion must not add or coerce content on the caller's message."""
+    message = {"role": "computer", "type": "console", "format": "output"}
+    messages = [message]
+
+    convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+
+    assert message == {
+        "role": "computer",
+        "type": "console",
+        "format": "output",
+    }
+
+
+def test_console_output_non_string_content_is_coerced_without_function_calling(interpreter):
+    """Plain conversion also coerces non-string output, without mutating history."""
+    messages = [
+        {"role": "computer", "type": "console", "format": "output", "content": 42}
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[0]["content"] == "Output:\n42"
+    assert messages[0]["content"] == 42
