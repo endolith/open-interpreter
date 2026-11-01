@@ -156,34 +156,12 @@ def test_wrong_credential_reports_failure_then_can_retry(ws_pair, monkeypatch):
         assert ws.receive_json() == {"auth": True}
 
 
-def test_payload_before_authentication_is_discarded_not_processed(ws_pair):
-    """LMC chunks sent pre-auth are swallowed (no input()), answered auth:False.
-
-    KNOWN BUG-ish: payloads silently disappear instead of being queued until
-    auth completes; clients unaware of the handshake lose their first message.
-    Documenting current behavior.
-    """
-    client, _, inp = ws_pair
-    with client.websocket_connect("/") as ws:
-        ws.send_text(json.dumps({"role": "user", "start": True}))
-        assert ws.receive_json() == {"auth": False}
-    assert inp.await_count == 0
-
-
-@pytest.mark.xfail(
-    reason="#249: pre-auth payloads are dropped instead of queued",
-    strict=True,
-    raises=AssertionError,
-)
 def test_payload_before_authentication_is_queued_then_delivered(ws_pair):
-    """xfail for #249: a pre-auth payload must reach input() after the handshake.
+    """A pre-auth payload reaches input() once the handshake completes (#249).
 
-    Today the frame is answered {"auth": False} and then silently lost (see the
-    discard pin above), so the client loses its first message whenever it races
-    the handshake. The intended behavior is to hold the raw frame and deliver
-    it once authentication completes.
-
-    Pinned as xfail: it passes the day #249 is fixed.
+    The frame is answered {"auth": False} while unauthenticated, held in the
+    server's pending queue, and delivered after a successful handshake instead
+    of being silently lost.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
@@ -196,9 +174,9 @@ def test_payload_before_authentication_is_queued_then_delivered(ws_pair):
 def test_payload_before_authentication_never_delivered_without_auth(ws_pair):
     """Queued pre-auth payloads die with the connection if auth never completes.
 
-    No handshake means no delivery, under either behavior: today the frame is
-    dropped outright, and after #249 it is held but the queue is discarded on
-    disconnect. Either way input() is never reached.
+    The pending queue exists only for the handshake: if the client disconnects
+    without authenticating, held frames are discarded with it and input() is
+    never reached.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
@@ -207,19 +185,12 @@ def test_payload_before_authentication_never_delivered_without_auth(ws_pair):
     assert inp.await_count == 0
 
 
-@pytest.mark.xfail(
-    reason="#249: pre-auth binary frames are dropped instead of queued",
-    strict=True,
-    raises=AssertionError,
-)
 def test_binary_payload_before_authentication_is_queued_then_delivered(ws_pair):
-    """xfail for #249: a pre-auth binary frame must reach input() raw post-auth.
+    """A pre-auth binary frame reaches input() raw once the handshake completes (#249).
 
     Same queue-then-deliver contract as the text payload above, except bytes
     frames bypass JSON parsing and arrive unchanged — mirroring how
     authenticated binary frames are already handled.
-
-    Pinned as xfail: it passes the day #249 is fixed.
     """
     client, _, inp = ws_pair
     with client.websocket_connect("/") as ws:
@@ -229,20 +200,12 @@ def test_binary_payload_before_authentication_is_queued_then_delivered(ws_pair):
     inp.assert_awaited_once_with(b"\x00\x01binary")
 
 
-@pytest.mark.xfail(
-    reason="#249: pre-auth frames are dropped, so nothing survives to be filtered",
-    strict=True,
-    raises=AssertionError,
-)
 def test_failed_auth_attempt_is_never_queued(ws_pair, monkeypatch):
-    """xfail for #249: a rejected credential is answered, never queued.
+    """A rejected credential is answered, never queued (#249).
 
     Auth attempts must not enter the pending queue: replaying one post-handshake
     would feed {"auth": ...} to input(). After a later successful handshake only
-    the real payload may arrive. Today nothing survives at all (everything is
-    dropped), so the final assertion fails alongside the queue tests above.
-
-    Pinned as xfail: it passes the day #249 is fixed.
+    the real payload arrives.
     """
     client, _, inp = ws_pair
     monkeypatch.setenv("INTERPRETER_API_KEY", "secret")
@@ -458,3 +421,91 @@ def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
         isinstance(m, dict) and m.get("content") == "unacked"
         for m in interp.unsent_messages
     ), f"expected the unacked output to be retained, got {interp.unsent_messages}"
+
+
+def test_pre_auth_queue_frame_cap_closes_connection(ws_pair, monkeypatch):
+    """An unauthenticated client cannot grow the pending queue without bound.
+
+    Past MAX_PENDING_INPUT_FRAMES the server closes the connection with 1009
+    (message too big); nothing queued is delivered to input().
+    """
+    import interpreter.core.async_core as async_core_mod
+
+    monkeypatch.setattr(async_core_mod, "MAX_PENDING_INPUT_FRAMES", 3)
+    client, _, inp = ws_pair
+    payload = json.dumps({"role": "user", "content": "early"})
+    with client.websocket_connect("/") as ws:
+        for _ in range(3):
+            ws.send_text(payload)
+            assert ws.receive_json() == {"auth": False}
+        ws.send_text(payload)
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            ws.receive_json()
+    assert excinfo.value.code == 1009
+    assert inp.await_count == 0
+
+
+def test_pre_auth_queue_byte_cap_closes_connection(ws_pair, monkeypatch):
+    """One oversized pre-auth frame trips the byte budget and closes the socket.
+
+    The cap counts raw frame bytes, so a single frame larger than
+    MAX_PENDING_INPUT_BYTES is refused with 1009 even as the first frame.
+    """
+    import interpreter.core.async_core as async_core_mod
+
+    monkeypatch.setattr(async_core_mod, "MAX_PENDING_INPUT_BYTES", 64)
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "content": "x" * 128}))
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            ws.receive_json()
+    assert excinfo.value.code == 1009
+    assert inp.await_count == 0
+
+
+def test_binary_chunk_reaches_accumulate(interpreter):
+    """Binary frames append to the open message instead of raising TypeError.
+
+    `"start" in chunk` raises TypeError on bytes rather than returning False,
+    so input() must route bytes to accumulate() first. accumulate() already
+    defines the binary format: bytes append to the current message content.
+    """
+    acc = mock.Mock()
+    interpreter.accumulate = acc
+    asyncio.run(interpreter.input(b"\x00\x01binary"))
+    acc.assert_called_once_with(b"\x00\x01binary")
+
+
+def test_binary_appends_to_open_message_content(interpreter):
+    """Start-then-bytes through the real input() lands in message content.
+
+    End to end of the fixed path: a start chunk opens the message, binary
+    appends to it, with no TypeError at the `"start" in chunk` check.
+    """
+    asyncio.run(interpreter.input({"role": "user", "start": True}))
+    asyncio.run(interpreter.input(b"\x00\x01"))
+    assert interpreter.messages[-1]["content"] == b"\x00\x01"
+
+
+def test_binary_chunk_without_open_message_raises_clear_error(interpreter):
+    """Binary with no open message names the protocol violation.
+
+    accumulate() indexed messages[-1] blindly (IndexError); like the dict
+    path it must demand a 'start' chunk first.
+    """
+    interpreter.messages = []
+    with pytest.raises(Exception, match="start"):
+        asyncio.run(interpreter.input(b"\x00\x01binary"))
+
+
+def test_one_failed_replay_does_not_drop_later_frames(ws_pair):
+    """A failing queued frame is logged; later queued frames still reach input()."""
+    client, _, inp = ws_pair
+    inp.side_effect = [RuntimeError("boom"), None]
+    with client.websocket_connect("/") as ws:
+        ws.send_text(json.dumps({"role": "user", "start": True}))
+        assert ws.receive_json() == {"auth": False}
+        ws.send_text(json.dumps({"role": "user", "type": "message", "content": "hi"}))
+        assert ws.receive_json() == {"auth": False}
+        _handshake(ws)
+    assert inp.await_count == 2
