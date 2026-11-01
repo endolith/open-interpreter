@@ -593,14 +593,22 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         else:
-                            # User declined to run code. source="terminal"
-                            # marks this as UI-injected so %undo skips it
-                            # when finding the last real user message.
+                            # Record the refusal as the execute call's result, not
+                            # as a user message. An unpaired assistant code
+                            # message is re-rendered to the model as a fenced
+                            # text block, which teaches it that fences are how
+                            # code runs; a result keeps the call shape and tells
+                            # it what happened.
+                            # source="terminal" marks this as UI-injected so
+                            # %undo skips it when finding the last real user
+                            # message.
                             interpreter.messages.append(
                                 {
-                                    "role": "user",
-                                    "type": "message",
-                                    "content": "[User declined to run this code.]",
+                                    "role": "computer",
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": "User declined to run this code.",
+                                    "recipient": "assistant",
                                     "sent_at": time.time(),
                                     "source": "terminal",
                                 }

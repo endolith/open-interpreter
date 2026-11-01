@@ -208,8 +208,13 @@ def test_terminal_interface_prints_review_chunk(capsys):
     assert "LGTM" in capsys.readouterr().out
 
 
-def test_terminal_interface_declined_code_is_recorded():
-    """Declining a confirmation records the refusal in the message history."""
+def test_terminal_interface_declined_code_is_recorded_as_a_tool_result():
+    """Declining records the call's result, not a user message.
+
+    A user message leaves the assistant code unpaired, and the converter then
+    re-renders it to the model as a fenced text block — teaching fences as the
+    execution format. The result keeps the call shape and states the outcome.
+    """
     interpreter = _make_interpreter()
     interpreter.auto_run = False
 
@@ -224,7 +229,13 @@ def test_terminal_interface_declined_code_is_recorded():
     with mock.patch("builtins.input", return_value="n"):
         list(terminal_interface(interpreter, "run code"))
 
-    assert interpreter.messages[-1]["content"] == "[User declined to run this code.]"
+    message = interpreter.messages[-1]
+    assert message["role"] == "computer"
+    assert message["type"] == "console"
+    assert message["format"] == "output"
+    assert message["content"] == "User declined to run this code."
+    assert message["recipient"] == "assistant"
+    assert message["source"] == "terminal"
 
 
 def test_terminal_interface_os_mode_notifies_on_message_end():
