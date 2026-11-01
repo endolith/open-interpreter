@@ -51,6 +51,8 @@ class JupyterLanguage(BaseLanguage):
 
         self.listener_thread = None
         self.finish_flag = False
+        # msg_id of the execute_request currently being listened for.
+        self._execution_id = None
 
         # DISABLED because sometimes this bypasses sending it up to us for some reason!
         # Give it our same matplotlib backend
@@ -71,8 +73,15 @@ matplotlib.use('{backend}')
 import matplotlib.pyplot as plt
 """.strip()
 
-        for _ in self.run(code):
-            pass
+        try:
+            for _ in self.run(code):
+                pass
+        except KeyboardInterrupt:
+            # __init__ has not returned, so Terminal cannot clean up this
+            # half-constructed instance. Terminate the kernel before the
+            # interrupt aborts construction and leaks it.
+            self._cleanup_after_interrupted_startup()
+            raise
 
         # DISABLED because it doesn't work??
         # Disable color outputs in the terminal, which don't look good in OI and aren't useful
@@ -85,6 +94,14 @@ import matplotlib.pyplot as plt
     def terminate(self):
         self.kc.stop_channels()
         self.km.shutdown_kernel()
+
+    def _cleanup_after_interrupted_startup(self):
+        """Stop the listener and kernel when Ctrl-C interrupts __init__ warm-up."""
+        self.finish_flag = True
+        listener = getattr(self, "listener_thread", None)
+        if listener is not None and listener.is_alive():
+            listener.join(timeout=10)
+        self.terminate()
 
     def run(self, code):
         while not self.kc.is_alive():
@@ -113,6 +130,7 @@ import matplotlib.pyplot as plt
         #         with open(f"{skill_library_path}/{filename}.py", "w") as file:
         #             file.write(function_code)
 
+        self._retire_listener()
         self.finish_flag = False
         try:
             try:
@@ -126,7 +144,14 @@ import matplotlib.pyplot as plt
             yield from self._capture_output(message_queue)
         except GeneratorExit:
             raise  # gotta pass this up!
-        except:
+        except KeyboardInterrupt:
+            # Ctrl-C is the user stopping this block, not the block failing. The
+            # kernel has its own session, so the terminal's SIGINT never reaches
+            # it — flag the listener to interrupt it, the way stop() does, then
+            # let the interrupt travel up to the terminal's own handler.
+            self.stop()
+            raise
+        except Exception:
             content = traceback.format_exc()
             yield {"type": "console", "format": "output", "content": content}
 
@@ -197,7 +222,6 @@ import matplotlib.pyplot as plt
                                 self.kc.input(user_input)
 
                     msg = self.kc.iopub_channel.get_msg(timeout=0.05)
-                    self.last_output_time = time.time()
                 except queue.Empty:
                     continue
                 except Exception as e:
@@ -206,6 +230,18 @@ import matplotlib.pyplot as plt
                         raise
                     print("Jupyter error, retrying:", str(e))
                     continue
+
+                # An earlier execution's messages can still be in the channel:
+                # interrupt_kernel() returns before the kernel has finished
+                # emitting, and stop() abandons the listener without draining.
+                # parent_header names the request that produced this message,
+                # so anything that is not this execution's is skipped — before
+                # last_output_time, so stale traffic cannot pass for activity.
+                parent_id = (msg.get("parent_header") or {}).get("msg_id")
+                if parent_id and parent_id != self._execution_id:
+                    continue
+
+                self.last_output_time = time.time()
 
                 if DEBUG_MODE:
                     print("-----------" * 10)
@@ -292,6 +328,12 @@ import matplotlib.pyplot as plt
                             }
                         )
 
+        # Send the request first so its message id is known before anything
+        # listens. Every iopub message carries the id of the request that
+        # caused it in parent_header, which is the only way to tell this
+        # execution's output from an earlier one's.
+        self._execution_id = self.kc.execute(code)
+
         self.listener_thread = threading.Thread(target=iopub_message_listener)
         # self.listener_thread.daemon = True
         self.listener_thread.start()
@@ -300,8 +342,6 @@ import matplotlib.pyplot as plt
             print(
                 "thread is on:", self.listener_thread.is_alive(), self.listener_thread
             )
-
-        self.kc.execute(code)
 
     def detect_active_line(self, line):
         if "##active_line" in line:
@@ -349,6 +389,22 @@ import matplotlib.pyplot as plt
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+
+    def _retire_listener(self):
+        """Signal and join the previous run's listener before a new block starts.
+
+        Ctrl-C abandons run() while its listener thread may not yet have
+        observed finish_flag. Resetting the flag for the next block would lose
+        the pending kernel interrupt, and the orphaned listener would keep
+        consuming the shared iopub channel — stealing the new block's messages
+        and tripping its idle detection. Retiring first lets the pending
+        interrupt complete (the listener interrupts the kernel on its way out)
+        and removes the listener before it can cross-talk.
+        """
+        listener = getattr(self, "listener_thread", None)
+        if listener is not None and listener.is_alive():
+            self.finish_flag = True
+            listener.join(timeout=10)
 
     def stop(self):
         self.finish_flag = True
