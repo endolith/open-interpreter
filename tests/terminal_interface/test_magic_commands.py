@@ -506,3 +506,35 @@ def test_jupyter_handles_assistant_markdown_and_default_language(tmp_path):
     cells = captured["nb"]["cells"]
     assert cells[0] == {"cell_type": "markdown", "source": "assistant note"}
     assert cells[1].metadata == {"language": "python"}
+
+
+def test_handle_last_usage_without_recorded_usage():
+    """%usage explains that no request has been made yet."""
+    interpreter = _interpreter(
+        llm=SimpleNamespace(model=TEST_LLM_MODEL, last_completion_usage=None)
+    )
+
+    magic_commands.handle_last_usage(interpreter, "")
+
+    message = interpreter.display_message.call_args[0][0]
+    assert "No usage recorded yet" in message
+
+
+def test_handle_last_usage_formats_recorded_usage():
+    """%usage renders the last streamed token counts."""
+    interpreter = _interpreter(
+        llm=SimpleNamespace(
+            model=TEST_LLM_MODEL,
+            last_completion_usage={
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9,
+            },
+        )
+    )
+
+    magic_commands.handle_last_usage(interpreter, "")
+
+    message = interpreter.display_message.call_args[0][0]
+    assert "Prompt tokens:** 7" in message
+    assert "Total tokens:** 9" in message

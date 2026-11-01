@@ -684,3 +684,31 @@ def test_four_tick_opener_split_across_deltas():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+def test_new_completion_clears_stale_usage():
+    """A new model call must not report the previous completion's usage."""
+    llm = _make_llm([{"choices": [{"delta": {"content": "hi"}}]}])
+    llm.last_completion_usage = {"total_tokens": 1}
+
+    assert _text_of(list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))) == "hi"
+    assert llm.last_completion_usage is None
+
+
+def test_usage_chunk_after_closing_fence_is_recorded():
+    """The final usage-only chunk is drained after the closing code fence."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print(1)\n"}}]},
+            {"choices": [{"delta": {"content": "```\n"}}]},
+            {"choices": [], "usage": {"total_tokens": 9}},
+        ]
+    )
+
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert result == [
+        {"type": "code", "format": "python", "content": "print(1)\n"},
+    ]
+    assert llm.last_completion_usage == {"total_tokens": 9}
