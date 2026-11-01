@@ -60,6 +60,9 @@ end
         # A syntax error is raised by the parser before the wrapper's ensure
         # can run, so the marker never prints and the run would wait forever.
         # irb reports it on its own traceback; treat that as the end too.
+        # An incomplete block (an unterminated `def`) prints nothing at all,
+        # so there is nothing to detect here; that parser-state hang needs the
+        # timeout watchdog in #270.
         return (
             "##end_of_execution##" in line
             or "##execution_error##" in line
