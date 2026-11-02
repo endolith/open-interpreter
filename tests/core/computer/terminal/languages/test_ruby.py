@@ -1,3 +1,5 @@
+from io import StringIO
+
 from interpreter.core.computer.terminal.languages.ruby import Ruby
 
 
@@ -70,3 +72,28 @@ def test_ruby_line_postprocessor_consumes_exactly_the_code_line_count():
 
     ruby.line_postprocessor("second")
     assert ruby.code_line_count == start - 2
+
+
+def test_ruby_preprocess_catches_non_standard_exceptions():
+    """The rescue wrapper catches Exception, not only StandardError."""
+    ruby = Ruby()
+    assert "rescue Exception => e" in ruby.preprocess_code("raise Exception")
+
+
+def test_ruby_detect_end_of_execution_covers_syntax_errors():
+    """A parser error ends the run even when the wrapper never prints a marker."""
+    ruby = Ruby()
+    assert ruby.detect_end_of_execution("(SyntaxError)") is False
+    assert ruby.detect_error_end_of_execution("(SyntaxError)") is True
+    assert ruby.detect_error_end_of_execution("the program printed syntax error") is False
+
+
+def test_ruby_syntax_error_only_ends_on_the_error_stream():
+    """Ordinary stdout containing '(SyntaxError)' must not end the run."""
+    stdout_ruby = Ruby()
+    stdout_ruby.handle_stream_output(StringIO("(SyntaxError)\n"), is_error_stream=False)
+    assert not stdout_ruby.done.is_set()
+
+    stderr_ruby = Ruby()
+    stderr_ruby.handle_stream_output(StringIO("(SyntaxError)\n"), is_error_stream=True)
+    assert stderr_ruby.done.is_set()
