@@ -168,12 +168,12 @@ def test_process_messages_does_not_mutate_its_input():
     )
 
 
-def test_truly_orphaned_function_result_still_synthesizes_a_call():
-    """With no originating call anywhere, a call is synthesized so the request stays valid.
+def test_truly_orphaned_function_result_becomes_a_message():
+    """An orphaned result is surfaced as a message, never a fabricated execute call.
 
-    A role="function" result whose call is genuinely absent (a stored error
-    response for a call we never kept) must still be preceded by an assistant
-    with tool_calls, or providers reject the tool message outright.
+    A synthetic execute(pass) taught the model to emit python calls with no
+    code. With no stored call there is nothing for the provider to pair, so the
+    output becomes a message and the request stays valid.
     """
     processed = process_messages(
         [
@@ -184,16 +184,33 @@ def test_truly_orphaned_function_result_still_synthesizes_a_call():
     )
 
     _assert_well_formed(processed)
-    assert any(m.get("tool_calls") for m in processed), "an orphan still needs a preceding call to attach its result to"
+    assert not any(m.get("tool_calls") for m in processed)
+    assert any("out" in str(m.get("content", "")) for m in processed)
 
 
-def test_synthesized_id_does_not_collide_with_an_existing_call():
-    """A generated id must not reuse one already present in the request.
+def test_orphaned_tool_result_becomes_a_message():
+    """A modern tool result with no stored call must not get a fake execute(pass)."""
+    processed = process_messages(
+        [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "tool",
+                "tool_call_id": "call_x",
+                "content": "Invalid execute call: code is empty",
+            },
+        ],
+        model="opencode_go/deepseek-v4.1-flash",
+    )
 
-    last_tool_id counts only the calls OI converted, so it restarts at 1 and
-    would hand a genuine "toolu_1" to the synthetic call. Duplicate ids make the
-    gateway reject the entire request.
-    """
+    _assert_well_formed(processed)
+    assert not any(m.get("tool_calls") for m in processed)
+    assert any(
+        "Invalid execute call" in str(m.get("content", "")) for m in processed
+    )
+
+
+def test_orphan_after_a_completed_call_becomes_a_message():
+    """An orphan following a finished call must not add a second fabricated call."""
     processed = process_messages(
         [
             {"role": "user", "content": "hi"},
@@ -203,13 +220,15 @@ def test_synthesized_id_does_not_collide_with_an_existing_call():
                 "tool_calls": [_tool_call("toolu_1")],
             },
             {"role": "tool", "tool_call_id": "toolu_1", "content": "answered"},
-            # Orphan follows a completed call, so it must get a fresh id.
             {"role": "function", "name": "execute", "content": "later"},
         ],
         model="openai/deepseek-v4.1-flash",
     )
 
     _assert_well_formed(processed)
+    calls = [call for m in processed for call in (m.get("tool_calls") or [])]
+    assert len(calls) == 1, "only the real call should remain"
+    assert any("later" in str(m.get("content", "")) for m in processed)
 
 
 def test_multiple_out_of_order_results_pair_one_to_one():
