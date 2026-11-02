@@ -248,12 +248,20 @@ def test_terminal_interface_prints_review_chunk(capsys):
 
 
 def test_terminal_interface_declined_code_is_recorded():
-    """Declining a confirmation records the refusal in the message history."""
+    """Declining a confirmation records the refusal as the call result."""
     interpreter = _make_interpreter()
     interpreter.auto_run = False
 
     def chat(message, display=False, stream=True):
-        """Emulate interpreter.chat with a single confirmation chunk."""
+        """Emulate interpreter.chat with a code call and its confirmation chunk."""
+        interpreter.messages.append(
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "print(1)",
+            }
+        )
         yield {
             "type": "confirmation",
             "content": {"format": "python", "content": "print(1)"},
@@ -263,7 +271,17 @@ def test_terminal_interface_declined_code_is_recorded():
     with mock.patch("builtins.input", return_value="n"):
         list(terminal_interface(interpreter, "run code"))
 
-    assert interpreter.messages[-1]["content"] == "I have declined to run this code."
+    call = interpreter.messages[-2]
+    assert call["role"] == "assistant"
+    assert call["type"] == "code"
+
+    refusal = interpreter.messages[-1]
+    assert refusal["role"] == "computer"
+    assert refusal["type"] == "console"
+    assert refusal["format"] == "output"
+    assert refusal["content"] == "User declined to run this code."
+    assert refusal["recipient"] == "assistant"
+    assert refusal["source"] == "terminal"
 
 
 def test_terminal_interface_os_mode_notifies_on_message_end():
