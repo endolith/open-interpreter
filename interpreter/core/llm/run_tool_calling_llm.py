@@ -16,20 +16,6 @@ def _language_names(interpreter):
     ]
 
 
-def _default_shell_language(interpreter):
-    """The shell to assume when a call's `language` is not a language name."""
-    names = _language_names(interpreter)
-    order = (
-        ("cmd", "powershell", "bash", "shell")
-        if os.name == "nt"
-        else ("bash", "shell", "cmd", "powershell")
-    )
-    for name in order:
-        if name in names:
-            return name
-    return "python" if "python" in names else (names[0] if names else "bash")
-
-
 tool_schema = {
     "type": "function",
     "function": {
@@ -40,14 +26,24 @@ tool_schema = {
             "properties": {
                 "language": {
                     "type": "string",
-                    "description": "The programming language (required parameter to the `execute` function)",
+                    "description": (
+                        "The programming language (required parameter to the `execute` function). "
+                        "Use one of the enum values; this is never the command or code."
+                    ),
                     "enum": [
                         # This will be filled dynamically with the languages OI has access to.
                     ],
                 },
                 "code": {
                     "type": "string",
-                    "description": "The code to execute (required). For persistent-session languages, append only the next missing operation to the live session; reuse live imports, variables, functions, directories, or environment state already established. Python is the next cell in the same Jupyter/IPython kernel. For stateless/display-only languages, send a complete block.",
+                    "description": (
+                        "The code to execute (required). Put the command or program here; "
+                        "`language` is only the enum name. For persistent-session languages, "
+                        "append only the next missing operation to the live session; reuse "
+                        "live imports, variables, functions, directories, or environment state "
+                        "already established. Python is the next cell in the same Jupyter/IPython "
+                        "kernel. For stateless/display-only languages, send the complete code."
+                    ),
                 },
             },
             "required": ["language", "code"],
@@ -966,27 +962,23 @@ def run_tool_calling_llm(llm, request_params):
             if isinstance(arguments, dict):
                 valid_languages = set(_language_names(llm.interpreter))
                 raw_language = arguments.get("language")
-                if (
-                    isinstance(raw_language, str)
-                    and raw_language.lower() not in valid_languages
+                forced_error = None
+                if raw_language is not None and (
+                    not isinstance(raw_language, str)
+                    or raw_language.lower() not in valid_languages
                 ):
-                    # Some gateways/models put the command or program in
-                    # `language` and omit `code` (observed with
-                    # opencode_go/deepseek-v4.1-flash). Recover the intent
-                    # instead of bouncing an unhelpful error back forever.
-                    fallback = _default_shell_language(llm.interpreter)
-                    code_value = arguments.get("code")
-                    if isinstance(code_value, str) and code_value.strip():
-                        arguments = {**arguments, "language": fallback}
-                    else:
-                        arguments = {"language": fallback, "code": raw_language}
-                    language = fallback
-                    if verbose:
-                        print(
-                            f"[INFO] Moved a non-language value from `language` "
-                            f"to `code` and used {fallback!r}.",
-                            flush=True,
-                        )
+                    # Never guess the language. A command or program in
+                    # `language` (observed on opencode_go/deepseek-v4.1-flash)
+                    # could behave differently under a guessed one; reject it
+                    # and let the model send the fields the schema asks for.
+                    forced_error = (
+                        f"Invalid execute call: `language` must be one of "
+                        f"{', '.join(sorted(valid_languages))}, but got "
+                        f"{raw_language!r}. The command or program belongs in "
+                        "`code`."
+                    )
+                    arguments = {}
+                    language = None
                 if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
                     language = arguments["language"]
 
@@ -1031,7 +1023,7 @@ def run_tool_calling_llm(llm, request_params):
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
                     # Missing language or code - yield error as tool response
-                    error_msg = (
+                    error_msg = forced_error or (
                         "Invalid execute call: expected both `language` and `code`. "
                         f"Got keys: {list(arguments.keys())}. "
                         f"`language` must be one of: "

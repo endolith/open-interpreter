@@ -38,15 +38,16 @@ class TestExecutionStatePrompt(unittest.TestCase):
         """Tool mode must not mention fences, and fence mode must not mention tool calls."""
         tool = assemble_system_message(_prompt_interpreter(True))
         self.assertIn("call to the execute tool", tool)
-        self.assertIn("[execute:", tool)
+        self.assertIn('execute({"language":', tool)
         self.assertIn("command or program goes in `code`", tool)
         self.assertNotIn("[code:", tool)
+        self.assertNotIn("[execute:", tool)
         self.assertNotIn("fenced code block", tool)
 
         fence = assemble_system_message(_prompt_interpreter(False))
         self.assertIn("fenced code block", fence)
         self.assertIn("[code:", fence)
-        self.assertNotIn("[execute:", fence)
+        self.assertNotIn('execute({"language":', fence)
         self.assertNotIn("call to the execute tool", fence)
 
     def test_tool_instructions_show_a_positive_call_example(self):

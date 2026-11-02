@@ -243,17 +243,12 @@ def test_invalid_view_image_call_is_stored_before_the_error():
     assert "must be absolute" in result[1]["content"]
 
 
-def test_execute_call_with_code_in_language_is_corrected():
-    """A command in `language` is moved to `code` and run as the default shell.
+def test_execute_call_with_command_in_language_is_rejected():
+    """A command in `language` is rejected, not guessed into a shell.
 
-    opencode_go/deepseek-v4.1-flash emits {"language": "cd … && find …"} with no
-    `code`. Every turn bounced an "expected both" error and the model looped;
-    recovering the intent lets the command run.
+    Running it under an assumed language could change what the code does, so OI
+    refuses and tells the model where the command belongs.
     """
-
-    class BashLang:
-        name = "Bash"
-
     llm = _make_llm(
         [
             _chunk(
@@ -265,14 +260,13 @@ def test_execute_call_with_code_in_language_is_corrected():
             )
         ]
     )
-    llm.interpreter.terminal.languages = [Lang(), BashLang()]
-    llm.interpreter.toolbox.terminal.languages = [Lang(), BashLang()]
 
     result = list(run_tool_calling_llm(llm, {"messages": []}))
 
-    assert result[0]["type"] == "code"
-    assert result[0]["format"] == "bash"
-    assert result[0]["content"] == "cd /tmp && ls"
+    assert result[0]["role"] == "tool"
+    assert "`language` must be one of" in result[0]["content"]
+    assert "The command or program belongs in `code`." in result[0]["content"]
+    assert not any(chunk.get("type") == "code" for chunk in result)
 
 
 def test_execute_call_without_code_names_the_two_fields():
