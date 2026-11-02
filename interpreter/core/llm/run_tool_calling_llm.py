@@ -7,6 +7,29 @@ from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 from .utils.stream_usage import record_stream_chunk_usage
 
+def _language_names(interpreter):
+    """Lower-case names of the terminal's supported languages."""
+    return [
+        getattr(lang, "name", "").lower()
+        for lang in getattr(interpreter.terminal, "languages", [])
+        if getattr(lang, "name", None)
+    ]
+
+
+def _default_shell_language(interpreter):
+    """The shell to assume when a call's `language` is not a language name."""
+    names = _language_names(interpreter)
+    order = (
+        ("cmd", "powershell", "bash", "shell")
+        if os.name == "nt"
+        else ("bash", "shell", "cmd", "powershell")
+    )
+    for name in order:
+        if name in names:
+            return name
+    return "python" if "python" in names else (names[0] if names else "bash")
+
+
 tool_schema = {
     "type": "function",
     "function": {
@@ -941,6 +964,29 @@ def run_tool_calling_llm(llm, request_params):
 
             # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):
+                valid_languages = set(_language_names(llm.interpreter))
+                raw_language = arguments.get("language")
+                if (
+                    isinstance(raw_language, str)
+                    and raw_language.lower() not in valid_languages
+                ):
+                    # Some gateways/models put the command or program in
+                    # `language` and omit `code` (observed with
+                    # opencode_go/deepseek-v4.1-flash). Recover the intent
+                    # instead of bouncing an unhelpful error back forever.
+                    fallback = _default_shell_language(llm.interpreter)
+                    code_value = arguments.get("code")
+                    if isinstance(code_value, str) and code_value.strip():
+                        arguments = {**arguments, "language": fallback}
+                    else:
+                        arguments = {"language": fallback, "code": raw_language}
+                    language = fallback
+                    if verbose:
+                        print(
+                            f"[INFO] Moved a non-language value from `language` "
+                            f"to `code` and used {fallback!r}.",
+                            flush=True,
+                        )
                 if language is None and "language" in arguments and "code" in arguments and arguments["language"]:
                     language = arguments["language"]
 
@@ -985,7 +1031,13 @@ def run_tool_calling_llm(llm, request_params):
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
                     # Missing language or code - yield error as tool response
-                    error_msg = f"Invalid execute call: missing required fields. Got: {list(arguments.keys())}"
+                    error_msg = (
+                        "Invalid execute call: expected both `language` and `code`. "
+                        f"Got keys: {list(arguments.keys())}. "
+                        f"`language` must be one of: "
+                        f"{', '.join(sorted(valid_languages))}; put the command or "
+                        "program in `code`, not in `language`."
+                    )
                     if verbose:
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                         print(f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}", flush=True)

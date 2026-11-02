@@ -217,6 +217,77 @@ def test_review_content_in_single_chunk_is_buffered_not_yielded():
     ]
 
 
+def test_invalid_view_image_call_is_stored_before_the_error():
+    """A failed view_image still records the model's call.
+
+    Without it the tool result is orphaned, and process_messages used to invent
+    an execute(pass) call that the model then imitated.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call("view_image", '{"path": "relative.png"}')
+                    ]
+                }
+            )
+        ]
+    )
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert result[0]["type"] == "view_image_call"
+    assert result[0]["tool_call_id"] == "toolu_1"
+    assert result[0]["path"] == "relative.png"
+    assert result[1]["role"] == "tool"
+    assert "must be absolute" in result[1]["content"]
+
+
+def test_execute_call_with_code_in_language_is_corrected():
+    """A command in `language` is moved to `code` and run as the default shell.
+
+    opencode_go/deepseek-v4.1-flash emits {"language": "cd … && find …"} with no
+    `code`. Every turn bounced an "expected both" error and the model looped;
+    recovering the intent lets the command run.
+    """
+
+    class BashLang:
+        name = "Bash"
+
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call("execute", '{"language": "cd /tmp && ls"}')
+                    ]
+                }
+            )
+        ]
+    )
+    llm.interpreter.terminal.languages = [Lang(), BashLang()]
+    llm.interpreter.toolbox.terminal.languages = [Lang(), BashLang()]
+
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert result[0]["type"] == "code"
+    assert result[0]["format"] == "bash"
+    assert result[0]["content"] == "cd /tmp && ls"
+
+
+def test_execute_call_without_code_names_the_two_fields():
+    """A valid language with no code gets an error that says where the code goes."""
+    llm = _make_llm(
+        [_chunk({"tool_calls": [_tool_call("execute", '{"language": "python"}')]})]
+    )
+
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert result[0]["role"] == "tool"
+    assert "put the command or program in `code`" in result[0]["content"]
+    assert "`language` must be one of" in result[0]["content"]
+
+
 def test_unparseable_arguments_are_skipped():
     """When tool arguments are not valid JSON, nothing is emitted and the stream continues."""
     llm = _make_llm([_chunk({"tool_calls": [_tool_call("execute", "not json")]})])
