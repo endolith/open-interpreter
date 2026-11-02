@@ -474,6 +474,7 @@ class OpenInterpreter:
         # just dropped. Drop it with them, or the next turn overwrites the old
         # conversation's file with the new conversation.
         self.conversation_filename = None
+        self.llm.last_completion_usage = None
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.
