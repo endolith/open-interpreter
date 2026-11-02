@@ -385,75 +385,37 @@ def process_messages(messages, model=None):
                 i += 1
                 continue
 
-            last_tool_id += 1
-            tool_id = generate_tool_id(last_tool_id, model)
-            # The generated id must not collide with one already present in this
-            # request. last_tool_id only counts calls we converted, so it restarts
-            # from 1 for the first orphan and can reproduce an id the model itself
-            # issued (typically "toolu_1"). Ids must be unique or the gateway
-            # rejects the whole request. Bump until free.
-            taken = {
-                call.get("id")
-                for entry in processed_messages
-                for call in (entry.get("tool_calls") or [])
-            }
-            while tool_id in taken:
-                last_tool_id += 1
-                tool_id = generate_tool_id(last_tool_id, model)
-
-            # Genuinely orphaned: nothing in the request made this call, so
-            # synthesize one. Providers like Alibaba require function.arguments
-            # to be valid JSON; use an execute-shaped payload to avoid API errors.
+            # Genuinely orphaned: nothing in the request made this call. Do not
+            # invent an execute(pass) call — the model sees fake calls in its
+            # history and imitates them. With no tool role there is nothing for
+            # the provider to pair, so surface the output as a message instead.
             processed_messages.append(
                 {
                     "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": tool_id,
-                            "type": "function",
-                            "function": {
-                                "name": "execute",
-                                "arguments": json.dumps({
-                                    "language": "python",
-                                    "code": "# Automated tool call to fetch more output, triggered by the user.",
-                                }),
-                            },
-                        }
-                    ],
+                    "content": "[tool output without a matching call] "
+                    + str(message.get("content", "")),
                 }
             )
-
-            # Process the function response
-            message["role"] = "tool"
-            message["tool_call_id"] = tool_id
-            processed_messages.append(message)
+            i += 1
+            continue
 
         elif message.get("role") == "tool":
-            # Tool message must follow an assistant message with tool_calls (OpenRouter/Alibaba etc.).
-            # Unsupported/invalid tool calls yield a tool response but we never store an assistant
-            # with tool_calls for that call, so we can get assistant (content) then tool (error).
-            # Insert a synthetic assistant with tool_calls using this message's tool_call_id.
+            # Tool messages must follow an assistant message with tool_calls.
+            # A result whose call was never stored (an unsupported or malformed
+            # call) used to get a synthetic execute(pass) in front of it; the
+            # model then saw and imitated that fake call. Surface the output as
+            # a message instead — no tool role means nothing to pair.
             prev = processed_messages[-1] if processed_messages else None
             if not prev or "tool_calls" not in prev or not prev.get("tool_calls"):
-                tool_id = message.get("tool_call_id") or generate_tool_id(last_tool_id + 1, model)
                 processed_messages.append(
                     {
                         "role": "assistant",
-                        "tool_calls": [
-                            {
-                                "id": tool_id,
-                                "type": "function",
-                                "function": {
-                                    "name": "execute",
-                                    "arguments": json.dumps({
-                                        "language": "python",
-                                        "code": "pass  # (synthetic; do not run)",
-                                    }),
-                                },
-                            }
-                        ],
+                        "content": "[tool output without a matching call] "
+                        + str(message.get("content", "")),
                     }
                 )
+                i += 1
+                continue
             processed_messages.append(message)
 
         else:
@@ -1068,6 +1030,16 @@ def run_tool_calling_llm(llm, request_params):
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
             path = isinstance(arguments, dict) and arguments.get("path")
+            if tool_call_id_for_error:
+                # Store the model's call for every outcome. Validation errors used
+                # to leave a tool result with no call, and the request-level
+                # fallback then invented an execute(python, pass) call the model
+                # never made — which it went on to imitate.
+                yield {
+                    "type": "view_image_call",
+                    "tool_call_id": tool_call_id_for_error,
+                    "path": path if isinstance(path, str) else "",
+                }
             if not path or not isinstance(path, str):
                 content = "view_image: path is required and must be a string."
             elif not os.path.isabs(path):
@@ -1083,15 +1055,6 @@ def run_tool_calling_llm(llm, request_params):
                         "PDF and other document formats are not supported."
                     )
                 else:
-                    # Store the assistant's view_image call before the approval prompt.
-                    # Without this, interpreter.messages has an orphaned role:tool response
-                    # with no preceding assistant+tool_calls, causing process_messages to
-                    # insert a synthetic execute call that the LLM echoes on the next turn.
-                    yield {
-                        "type": "view_image_call",
-                        "tool_call_id": tool_call_id_for_error,
-                        "path": path,
-                    }
                     yield {
                         "type": "view_image_approval",
                         "paths": [path],
