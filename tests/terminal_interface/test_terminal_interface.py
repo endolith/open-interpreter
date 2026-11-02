@@ -641,3 +641,82 @@ def test_terminal_interface_message_content_without_start_crashes():
     interpreter.chat = chat
     with pytest.raises(AttributeError):
         list(terminal_interface(interpreter, "hi"))
+
+
+def test_api_connection_error_returns_to_the_prompt(monkeypatch):
+    """An exhausted provider retry is shown without ending the interactive session."""
+    import litellm
+
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        raise litellm.exceptions.APIConnectionError(
+            message="no response", model="gpt-4o", llm_provider="openai"
+        )
+
+    interpreter.chat = chat
+    prompts = iter(["first"])
+
+    def fake_input(prompt=""):
+        try:
+            return next(prompts)
+        except StopIteration:
+            raise SystemExit
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    with pytest.raises(SystemExit):
+        list(terminal_interface(interpreter, None))
+
+    assert any("Provider error" in str(call) for call in interpreter.display_message.call_args_list)
+
+
+def test_api_connection_error_closes_an_open_code_block(monkeypatch):
+    """A provider error mid-stream must end the open code block before returning to the prompt."""
+    import litellm
+
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        """Start a code block, then fail the way an exhausted retry surfaces."""
+        yield {"type": "code", "role": "assistant", "start": True, "format": "python"}
+        raise litellm.exceptions.APIConnectionError(
+            message="no response", model="gpt-4o", llm_provider="openai"
+        )
+
+    interpreter.chat = chat
+    prompts = iter(["first"])
+
+    def fake_input(prompt=""):
+        try:
+            return next(prompts)
+        except StopIteration:
+            raise SystemExit
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    with mock.patch.object(ti, "CodeBlock") as block:
+        with pytest.raises(SystemExit):
+            list(terminal_interface(interpreter, None))
+
+    block.return_value.end.assert_called()
+
+
+def test_api_connection_error_propagates_when_not_interactive():
+    """With a message argument, a provider error is re-raised for the caller instead of prompting."""
+    import litellm
+
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        """Fail as if every retry was exhausted."""
+        raise litellm.exceptions.APIConnectionError(
+            message="no response", model="gpt-4o", llm_provider="openai"
+        )
+
+    interpreter.chat = chat
+
+    with pytest.raises(litellm.exceptions.APIConnectionError, match="no response"):
+        list(terminal_interface(interpreter, "hi"))
