@@ -641,3 +641,31 @@ def test_terminal_interface_message_content_without_start_crashes():
     interpreter.chat = chat
     with pytest.raises(AttributeError):
         list(terminal_interface(interpreter, "hi"))
+
+
+def test_api_connection_error_returns_to_the_prompt(monkeypatch):
+    """An exhausted provider retry is shown without ending the interactive session."""
+    import litellm
+
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        raise litellm.exceptions.APIConnectionError(
+            message="no response", model="gpt-4o", llm_provider="openai"
+        )
+
+    interpreter.chat = chat
+    prompts = iter(["first"])
+
+    def fake_input(prompt=""):
+        try:
+            return next(prompts)
+        except StopIteration:
+            raise SystemExit
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    with pytest.raises(SystemExit):
+        list(terminal_interface(interpreter, None))
+
+    assert any("Provider error" in str(call) for call in interpreter.display_message.call_args_list)
