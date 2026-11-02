@@ -283,12 +283,18 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         else:
-                            # User declined to run code.
+                            # Record the refusal as the execute call's result,
+                            # not as an unpaired user message. source="terminal"
+                            # keeps %undo from treating it as real user input.
                             interpreter.messages.append(
                                 {
-                                    "role": "user",
-                                    "type": "message",
-                                    "content": "I have declined to run this code.",
+                                    "role": "computer",
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": "User declined to run this code.",
+                                    "recipient": "assistant",
+                                    "sent_at": time.time(),
+                                    "source": "terminal",
                                 }
                             )
                             break
