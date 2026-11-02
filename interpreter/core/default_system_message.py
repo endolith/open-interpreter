@@ -59,20 +59,31 @@ _TOOL_CALLING_SENTENCE = (
     "should run. Don't just describe the step."
 )
 _CODE_BLOCK_SENTENCE = (
-    "Steps below use `[code: language]` as shorthand for a fenced code block. "
-    "Submit each step as a fenced block; a fence always runs. Put code you only "
-    "want the user to read inline, not in a fence. Don't just describe the step."
+    "Steps below show each execution as a fenced code block with the language "
+    "after the opening fence. A fenced block always runs; put code you only want "
+    "the user to read inline, not in a fence. Don't just describe the step."
 )
 _EXECUTION_MECHANISM = "__OI_EXECUTION_MECHANISM__"
-_TOOL_STEP_RE = re.compile(r"^- \[code: ([A-Za-z0-9_+-]+)\] (.*)$", re.MULTILINE)
+_STEP_RE = re.compile(r"^- \[code: ([A-Za-z0-9_+-]+)\] (.*)$", re.MULTILINE)
+
+
+def _step_parts(match):
+    language, code = match.group(1), match.group(2).strip()
+    if len(code) >= 2 and code.startswith("`") and code.endswith("`"):
+        code = code[1:-1]
+    return language, code
 
 
 def _render_tool_step(match):
     """Turn a `[code: lang] code` walkthrough line into an explicit call."""
-    language, code = match.group(1), match.group(2).strip()
-    if len(code) >= 2 and code.startswith("`") and code.endswith("`"):
-        code = code[1:-1]
+    language, code = _step_parts(match)
     return f'- execute({{"language": "{language}", "code": {json.dumps(code)}}})'
+
+
+def _render_fence_step(match):
+    """Turn a `[code: lang] code` walkthrough line into a real fenced block."""
+    language, code = _step_parts(match)
+    return f'- ```{language}\n  {code}\n  ```'
 
 _SYSTEM_MESSAGE_TEMPLATE = f"""
 ## General Instructions
@@ -218,7 +229,11 @@ def build_default_system_message(supports_functions=False):
     if supports_functions:
         # The walkthroughs' code lines are calls in tool mode; show the real
         # field names so a command is never imitated into `language`.
-        message = _TOOL_STEP_RE.sub(_render_tool_step, message)
+        message = _STEP_RE.sub(_render_tool_step, message)
+    else:
+        # Fence mode executes fenced blocks, so show actual fences rather than
+        # a shorthand the model would have to translate.
+        message = _STEP_RE.sub(_render_fence_step, message)
     return message
 
 
