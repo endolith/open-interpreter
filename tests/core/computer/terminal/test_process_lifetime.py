@@ -1,0 +1,148 @@
+"""Language runtimes must not outlive the interpreter's process.
+
+Terminal.stop() only interrupts running code; only Terminal.terminate() kills
+the Jupyter kernel and shell subprocesses, and nothing called it at exit, so
+every CLI session and every test run left an ipykernel_launcher behind, each
+holding its ZMQ sockets.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+import psutil
+import pytest
+
+# Writes the spawned child PIDs to the path in argv[1]. Output goes to a file,
+# not a pipe: a leaked child would hold a pipe open and hang the test instead
+# of failing it.
+SCRIPT = """
+import json, sys
+import psutil
+from interpreter import OpenInterpreter
+i = OpenInterpreter()
+i.offline = True
+i.disable_telemetry = True
+i.computer.run("python", "print(1)")
+children = [p.pid for p in psutil.Process().children(recursive=True)]
+open(sys.argv[1], "w").write(json.dumps(children))
+sys.exit(0)
+"""
+
+
+def _alive(pid):
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+def test_runtimes_are_terminated_at_interpreter_exit(tmp_path):
+    """After a normal exit, every child the terminal spawned is gone within five seconds."""
+    out = tmp_path / "children.json"
+    log = tmp_path / "log.txt"
+    with open(log, "w") as logfile:
+        result = subprocess.run(
+            [sys.executable, "-c", SCRIPT, str(out)],
+            stdin=subprocess.DEVNULL,
+            stdout=logfile,
+            stderr=subprocess.STDOUT,
+            timeout=180,
+        )
+
+    assert result.returncode == 0, log.read_text()
+    children = json.loads(out.read_text())
+    assert children, "the script should have spawned a kernel"
+
+    deadline = time.time() + 5
+    while time.time() < deadline and any(_alive(pid) for pid in children):
+        time.sleep(0.2)
+
+    survivors = [pid for pid in children if _alive(pid)]
+    for pid in survivors:  # never leave them behind, even when the test fails
+        try:
+            psutil.Process(pid).kill()
+        except psutil.NoSuchProcess:
+            pass
+    assert not survivors, f"runtimes outlived the interpreter: {survivors}"
+
+
+def test_terminate_is_idempotent():
+    """Calling terminate() twice does not raise.
+
+    The atexit hook runs after any explicit terminate() a caller made, so the
+    second call must be harmless or exit would fail with a traceback.
+    """
+    from interpreter import OpenInterpreter
+
+    interpreter = OpenInterpreter()
+    interpreter.offline = True
+    interpreter.disable_telemetry = True
+    interpreter.computer.run("python", "print(1)")
+
+    interpreter.computer.terminal.terminate()
+    interpreter.computer.terminal.terminate()
+
+
+def test_terminate_live_terminals_survives_dead_runtime():
+    """The atexit hook terminates every live terminal and never raises.
+
+    A runtime that is already gone (terminate() raises) must not fail exit,
+    and the remaining terminals must still get their terminate() call.
+    """
+    from interpreter.core.computer.terminal.terminal import (
+        _LIVE_TERMINALS,
+        _terminate_live_terminals,
+    )
+
+    class DeadRuntime:
+        def terminate(self):
+            raise RuntimeError("already gone")
+
+    class LiveRuntime:
+        def __init__(self):
+            self.terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+    dead, live = DeadRuntime(), LiveRuntime()
+    _LIVE_TERMINALS.add(dead)
+    _LIVE_TERMINALS.add(live)
+    try:
+        _terminate_live_terminals()  # must not raise
+    finally:
+        _LIVE_TERMINALS.discard(dead)
+        _LIVE_TERMINALS.discard(live)
+    assert live.terminated is True
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "register_at_fork"),
+    reason="os.register_at_fork is unavailable on this platform",
+)
+def test_forked_child_does_not_inherit_live_terminals():
+    """A fork child must not run the parent's exit hook on inherited terminals.
+
+    The child gets a copy of the registry, so without clearing it a normal child
+    exit would terminate Jupyter kernels owned by the parent process.
+    """
+    from interpreter.core.computer.terminal.terminal import _LIVE_TERMINALS
+
+    class Marker:
+        pass
+
+    marker = Marker()
+    _LIVE_TERMINALS.add(marker)
+    try:
+        pid = os.fork()
+        if pid == 0:
+            os._exit(0 if marker not in _LIVE_TERMINALS else 1)
+        _, status = os.waitpid(pid, 0)
+        assert os.WIFEXITED(status)
+        assert os.WEXITSTATUS(status) == 0
+        assert marker in _LIVE_TERMINALS
+    finally:
+        _LIVE_TERMINALS.discard(marker)
