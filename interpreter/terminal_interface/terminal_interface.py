@@ -539,7 +539,25 @@ def terminal_interface(interpreter, message):
                 continue
             else:
                 break
-        except:
+        except Exception as e:
+            # A provider error mid-turn should return to the prompt, not kill
+            # the CLI. Mirror the KeyboardInterrupt branch: close any active
+            # block, continue when interactive, re-raise otherwise.
+            if "active_block" in locals() and active_block:
+                active_block.end()
+                active_block = None
+
+            # respond() already showed provider errors in their panel. Any
+            # other failure (render/display/etc.) would otherwise return the
+            # user to a prompt with no explanation.
+            if not getattr(e, "_oi_provider_error_displayed", False):
+                interpreter.display_message(
+                    f"> **Error:** {type(e).__name__}: {e}"
+                )
+
             if interpreter.debug:
                 system_info(interpreter)
+
+            if interactive:
+                continue
             raise
