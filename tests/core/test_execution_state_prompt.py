@@ -39,6 +39,7 @@ class TestExecutionStatePrompt(unittest.TestCase):
         tool = assemble_system_message(_prompt_interpreter(True))
         self.assertIn("call to the execute tool", tool)
         self.assertIn("[execute:", tool)
+        self.assertIn("command or program goes in `code`", tool)
         self.assertNotIn("[code:", tool)
         self.assertNotIn("fenced code block", tool)
 

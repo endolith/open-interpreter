@@ -50,9 +50,11 @@ _cli_lang = "cmd" if platform.system() == "Windows" else "bash"
 # from the active mechanism; the examples stay as shorthand.
 _TOOL_CALLING_SENTENCE = (
     "Steps below use `[execute: language]` as shorthand for a call to the execute "
-    "tool. These lines are not a format to emit: put code you only want the user "
-    "to read in your message, and call `execute` when it should run. Don't just "
-    "describe the step."
+    "tool. A real call has two fields: `language` is a name from the tool's enum "
+    "(bash, python, …), and the command or program goes in `code` — never put a "
+    "command in `language`. These lines are not a format to emit: put code you "
+    "only want the user to read in your message, and call `execute` when it should "
+    "run. Don't just describe the step."
 )
 _CODE_BLOCK_SENTENCE = (
     "Steps below use `[code: language]` as shorthand for a fenced code block. "
