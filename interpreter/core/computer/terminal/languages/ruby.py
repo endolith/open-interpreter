@@ -32,7 +32,9 @@ class Ruby(SubprocessLanguage):
         processed_code = f"""
 begin
   {processed_code}
-rescue => e
+rescue SignalException, SystemExit
+  raise
+rescue Exception => e
   puts "##execution_error##\\n" + e.message
 ensure
   puts "##end_of_execution##\\n"
@@ -57,4 +59,12 @@ end
         return None
 
     def detect_end_of_execution(self, line):
-        return "##end_of_execution##" in line or "##execution_error##" in line
+        # Syntax errors are raised by the parser before the wrapper's ensure
+        # can print the end marker; irb reports the class on its own traceback.
+        return (
+            "##end_of_execution##" in line or "##execution_error##" in line
+        )
+
+    def detect_error_end_of_execution(self, line):
+        """An irb parser error on stderr ends a run that cannot print a marker."""
+        return "(SyntaxError)" in line

@@ -29,6 +29,10 @@ class SubprocessLanguage(BaseLanguage):
     def detect_end_of_execution(self, line):
         return None
 
+    def detect_error_end_of_execution(self, line):
+        """Whether an error-stream line proves the run ended."""
+        return False
+
     def line_postprocessor(self, line):
         return line
 
@@ -240,7 +244,9 @@ class SubprocessLanguage(BaseLanguage):
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
-                elif self.detect_end_of_execution(line):
+                elif self.detect_end_of_execution(
+                    line
+                ) or self.detect_error_end_of_execution(line):
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = line.replace("##end_of_execution##", "").strip()
                     if line:
