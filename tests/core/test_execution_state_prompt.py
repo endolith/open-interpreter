@@ -46,7 +46,8 @@ class TestExecutionStatePrompt(unittest.TestCase):
 
         fence = assemble_system_message(_prompt_interpreter(False))
         self.assertIn("fenced code block", fence)
-        self.assertIn("[code:", fence)
+        self.assertIn("```bash", fence)
+        self.assertNotIn("[code:", fence)
         self.assertNotIn('execute({"language":', fence)
         self.assertNotIn("call to the execute tool", fence)
 
