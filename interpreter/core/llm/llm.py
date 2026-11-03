@@ -1135,6 +1135,19 @@ Continuing...
                 self.api_base = _dashscope_default_base
             if self.api_key is None:
                 self.api_key = os.environ.get("DASHSCOPE_API_KEY")
+            # These routes are sent with custom_llm_provider="openai" (see
+            # wire_provider), and LiteLLM's openai provider fills an unset
+            # api_key from OPENAI_API_KEY. Without
+            # this check a missing DASHSCOPE_API_KEY would send the user's
+            # OpenAI credential to aliyuncs.com -- the same leak opencode_go/
+            # guards against. Fail loudly instead.
+            if not self.api_key:
+                raise ValueError(
+                    "The dashscope-us/ and dashscope-intl/ model prefixes require a "
+                    "DashScope API key. Set DASHSCOPE_API_KEY, or set llm.api_key in "
+                    "your profile. (OPENAI_API_KEY is never used for DashScope -- it "
+                    "is a different credential and would be sent to Alibaba Cloud.)"
+                )
             # Qwen3.5 is a unified vision-language architecture — there are no separate
             # VL variants because every model in the family natively supports image input.
             # Keep this explicit: it also covers variants the registry has not listed.
