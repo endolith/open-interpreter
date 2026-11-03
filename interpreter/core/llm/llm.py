@@ -60,7 +60,7 @@ _TOOL_CALLING_INSTRUCTIONS = (
     '(for example `{"code": "print(1)", "language": "python"}`). '
     "A fenced code block in message content is never executed. "
     "Do not call any other name as a tool (e.g. toolbox.web.answer). "
-    "Those are Python APIs: use them inside the \"code\" string you pass to execute."
+    "Those are Python APIs: call them from inside the `code` value."
 )
 
 # from .run_function_calling_llm import run_function_calling_llm

@@ -6,6 +6,7 @@ from interpreter.core.utils.assemble_system_message import assemble_system_messa
 from interpreter.core.llm.run_tool_calling_llm import tool_schema
 from interpreter.core.terminal.base_language import (
     format_execute_language_description,
+    format_language_selector_description,
 )
 from interpreter.core.terminal.languages.bash import Bash
 from interpreter.core.terminal.languages.html import HTML
@@ -32,8 +33,8 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertEqual(list(parameters["properties"]), ["code", "language"])
         self.assertEqual(parameters["required"], ["code", "language"])
 
-    def test_language_description_covers_all_execution_modes(self):
-        """Verify the dynamic language list distinguishes persistent, stateless, and display-only execution."""
+    def test_execution_notes_cover_all_execution_modes(self):
+        """Verify the tool-level notes distinguish persistent, stateless, and display-only execution."""
         description = format_execute_language_description(
             [Python, Bash, Java, HTML]
         )
@@ -42,6 +43,48 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("Jupyter/IPython kernel", description)
         self.assertIn("complete, self-contained block", description)
         self.assertIn("complete display source", description)
+
+    def test_language_selector_has_no_code_examples(self):
+        """The enum selector must read as a selector, not a code recipe.
+
+        Code fragments and "send/append" wording next to the `language` enum
+        prime the model to put the program in that field.
+        """
+        description = format_language_selector_description(
+            [Python, Bash, Java, HTML]
+        )
+        self.assertIn("Must be one of the enum values", description)
+        for token in (
+            "export VAR",
+            "set VAR",
+            "perl -pi",
+            "$var",
+            "send only",
+            "append only",
+            "persistent REPL",
+        ):
+            self.assertNotIn(token, description)
+
+    def test_request_tools_move_execution_notes_to_the_tool_description(self):
+        """Per-language code examples must not sit next to the `language` enum."""
+        from types import SimpleNamespace
+
+        from interpreter.core.llm.run_tool_calling_llm import build_request_tools
+
+        interpreter = SimpleNamespace(
+            terminal=SimpleNamespace(languages=[Python, Bash, Java, HTML]),
+            llm=SimpleNamespace(supports_vision=False),
+        )
+
+        execute = build_request_tools(interpreter, messages=[])[0]
+        language = execute["function"]["parameters"]["properties"]["language"][
+            "description"
+        ]
+
+        self.assertIn("Must be one of the enum values", language)
+        self.assertNotIn("persistent REPL", language)
+        self.assertNotIn("export VAR", language)
+        self.assertIn("persistent REPL", execute["function"]["description"])
 
     def test_system_message_describes_only_the_active_execution_mode(self):
         """Tool mode must not mention fences, and fence mode must not mention tool calls."""

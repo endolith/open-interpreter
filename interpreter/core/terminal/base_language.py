@@ -6,20 +6,38 @@ EXECUTION_MODE_LABELS = {
 }
 
 
+def format_language_selector_description(languages):
+    """Build the clean selector description for the execute tool's `language` field.
+
+    This text sits next to the enum value the model is about to emit, so it must
+    not contain code fragments, per-language recipes, or "send/append" wording;
+    that guidance belongs in the tool description, away from the selector.
+    """
+    return (
+        "The programming language to execute. Must be one of the enum values; "
+        "this is the language name, never the command or code."
+    )
+
+
 def format_execute_language_description(languages):
-    """Build the execute tool's language parameter description from terminal language classes."""
+    """Build the per-language execution notes for the execute tool's description.
+
+    These notes used to live on `language`, where their code examples primed the
+    model to put the program in that enum field. They are tool documentation,
+    not a value description.
+    """
     by_mode = {}
     for lang in languages:
         mode = getattr(lang, "execution_mode", "repl")
         by_mode.setdefault(mode, []).append(lang.name.lower())
 
-    lines = ["The programming language to execute (use an enum value). Execution modes:"]
+    lines = ["Execution modes:"]
     for mode in ("repl", "per_block", "display"):
         if mode not in by_mode:
             continue
         label = EXECUTION_MODE_LABELS.get(mode, mode)
         names = ", ".join(sorted(by_mode[mode]))
-        lines.append(f"  - {label}: {names}")
+        lines.append(f"  - {label} ({names})")
     hints = []
     for lang in languages:
         hint = getattr(lang, "execute_tool_hint", None)
