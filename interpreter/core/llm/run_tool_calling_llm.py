@@ -971,11 +971,14 @@ def run_tool_calling_llm(llm, request_params):
                     # `language` (observed on opencode_go/deepseek-v4.1-flash)
                     # could behave differently under a guessed one; reject it
                     # and let the model send the fields the schema asks for.
+                    shown = raw_language
+                    if len(shown) > 120:
+                        # Don't echo a whole program back into context.
+                        shown = shown[:117] + "..."
                     forced_error = (
                         f"Invalid execute call: `language` must be one of "
                         f"{', '.join(sorted(valid_languages))}, but got "
-                        f"{raw_language!r}. The command or program belongs in "
-                        "`code`."
+                        f"{shown!r}. The command or program belongs in `code`."
                     )
                     arguments = {}
                     language = None
