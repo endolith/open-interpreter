@@ -364,8 +364,8 @@ def convert_to_openai_messages(
                                 "name": "execute",
                                 "arguments": json.dumps(
                                     {
-                                        "language": message["format"],
                                         "code": message["content"],
+                                        "language": message["format"],
                                     }
                                 ),
                             },
@@ -379,7 +379,7 @@ def convert_to_openai_messages(
                     new_message["function_call"] = {
                         "name": "execute",
                         "arguments": json.dumps(
-                            {"language": message["format"], "code": message["content"]}
+                            {"code": message["content"], "language": message["format"]}
                         ),
                         # parsed_arguments isn't actually an OpenAI thing, it's an OI thing.
                         # but it's soo useful!
@@ -409,8 +409,8 @@ def convert_to_openai_messages(
                             "function": {
                                 "name": "edit",
                                 "arguments": json.dumps({
-                                    "language": message["format"],
                                     "code": message["content"],
+                                    "language": message["format"],
                                     "target": message["target"],
                                 }),
                             },
@@ -421,8 +421,8 @@ def convert_to_openai_messages(
                     new_message["function_call"] = {
                         "name": "edit",
                         "arguments": json.dumps({
-                            "language": message["format"],
                             "code": message["content"],
+                            "language": message["format"],
                             "target": message["target"],
                         }),
                     }

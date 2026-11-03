@@ -82,8 +82,59 @@ def test_code_with_function_calling(interpreter):
     )
     assert result[0]["role"] == "assistant"
     assert result[0]["function_call"]["name"] == "execute"
-    args = json.loads(result[0]["function_call"]["arguments"])
+    args_text = result[0]["function_call"]["arguments"]
+    args = json.loads(args_text)
     assert args == {"language": "python", "code": "1+1"}
+    assert args_text.index('"code"') < args_text.index('"language"')
+
+
+def test_history_arguments_put_code_before_language_for_opencode_go(interpreter):
+    """Rebuilt history must match the schema order; the model imitates it.
+
+    Every executed block becomes a tool call in the next request. If those are
+    serialized with `language` first, the model sees far more examples of that
+    order than the schema's `required` order can counteract.
+    """
+    interpreter.llm = SimpleNamespace(
+        model="opencode_go/deepseek-v4.1-flash", _is_opencode_go=True
+    )
+    messages = [
+        {"role": "assistant", "type": "code", "format": "python", "content": "1+1"}
+    ]
+
+    result = convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+
+    args_text = result[0]["tool_calls"][0]["function"]["arguments"]
+    assert args_text.index('"code"') < args_text.index('"language"')
+
+
+def test_history_edit_arguments_put_code_and_language_before_target(interpreter):
+    """Rebuilt edit history follows the edit schema: code, language, target."""
+    interpreter.llm = SimpleNamespace(
+        model="opencode_go/deepseek-v4.1-flash", _is_opencode_go=True
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "type": "edit",
+            "format": "write",
+            "content": "x",
+            "target": "/tmp/x",
+        }
+    ]
+
+    result = convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+
+    args_text = result[0]["tool_calls"][0]["function"]["arguments"]
+    assert (
+        args_text.index('"code"')
+        < args_text.index('"language"')
+        < args_text.index('"target"')
+    )
 
 
 def test_code_without_function_calling(interpreter):
