@@ -24,20 +24,10 @@ tool_schema = {
         "parameters": {
             "type": "object",
             "properties": {
-                "language": {
-                    "type": "string",
-                    "description": (
-                        "The programming language (required parameter to the `execute` function). "
-                        "Use one of the enum values; this is never the command or code."
-                    ),
-                    "enum": [
-                        # This will be filled dynamically with the languages OI has access to.
-                    ],
-                },
                 "code": {
                     "type": "string",
                     "description": (
-                        "The code to execute (required). Put the command or program here; "
+                        "The command or program to execute (required). This is the payload; "
                         "`language` is only the enum name. For persistent-session languages, "
                         "append only the next missing operation to the live session; reuse "
                         "live imports, variables, functions, directories, or environment state "
@@ -45,8 +35,19 @@ tool_schema = {
                         "kernel. For stateless/display-only languages, send the complete code."
                     ),
                 },
+                "language": {
+                    "type": "string",
+                    "description": (
+                        "The programming language (required parameter to the `execute` function). "
+                        "Use one of the enum values; this is the enum name, never the "
+                        "command or code."
+                    ),
+                    "enum": [
+                        # This will be filled dynamically with the languages OI has access to.
+                    ],
+                },
             },
-            "required": ["language", "code"],
+            "required": ["code", "language"],
         },
     },
 }
