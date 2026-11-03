@@ -2,7 +2,10 @@ import json
 import os
 import re
 
-from ..terminal.base_language import format_execute_language_description
+from ..terminal.base_language import (
+    format_execute_language_description,
+    format_language_selector_description,
+)
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 from .utils.stream_usage import record_stream_chunk_usage
@@ -38,9 +41,8 @@ tool_schema = {
                 "language": {
                     "type": "string",
                     "description": (
-                        "The programming language (required parameter to the `execute` function). "
-                        "Use one of the enum values; this is the enum name, never the "
-                        "command or code."
+                        "The programming language to execute. Must be one of the enum "
+                        "values; this is the language name, never the command or code."
                     ),
                     "enum": [
                         # This will be filled dynamically with the languages OI has access to.
@@ -515,7 +517,12 @@ def build_request_tools(interpreter, messages=None):
         lang.name.lower() for lang in languages
     ]
     execute_tool["function"]["parameters"]["properties"]["language"]["description"] = (
-        format_execute_language_description(languages)
+        format_language_selector_description(languages)
+    )
+    execute_tool["function"]["description"] = (
+        execute_tool["function"]["description"].rstrip()
+        + "\n\n"
+        + format_execute_language_description(languages)
     )
     tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
     if getattr(interpreter.llm, "supports_vision", None) is True:
