@@ -3,7 +3,7 @@ import unittest
 
 from interpreter.core.default_system_message import default_system_message
 from interpreter.core.utils.assemble_system_message import assemble_system_message
-from interpreter.core.llm.run_tool_calling_llm import tool_schema
+from interpreter.core.llm.run_tool_calling_llm import edit_tool_schema, tool_schema
 from interpreter.core.terminal.base_language import (
     format_execute_language_description,
     format_language_selector_description,
@@ -26,12 +26,34 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("This is the payload", code_description)
         self.assertIn("`language` is only the enum name", code_description)
 
-    def test_tool_schema_puts_the_payload_first(self):
-        """`code` must be the first argument so a model that fills the first slot
-        with the program puts it in `code`, not `language`."""
-        parameters = tool_schema["function"]["parameters"]
-        self.assertEqual(list(parameters["properties"]), ["code", "language"])
-        self.assertEqual(parameters["required"], ["code", "language"])
+    def test_tool_schema_puts_code_before_language(self):
+        """`code` must precede `language` in the required order.
+
+        DeepSeek generates arguments in `required` order. Emitting the payload
+        before the selector lets the code determine the language instead of
+        committing to a language and contorting the code to fit it.
+        """
+        execute_parameters = tool_schema["function"]["parameters"]
+        self.assertEqual(
+            list(execute_parameters["properties"]), ["code", "language"]
+        )
+        self.assertEqual(execute_parameters["required"], ["code", "language"])
+        self.assertIn(
+            "Provide `code` before `language` in the arguments",
+            tool_schema["function"]["description"],
+        )
+
+        edit_parameters = edit_tool_schema["function"]["parameters"]
+        self.assertEqual(
+            list(edit_parameters["properties"]), ["target", "code", "language"]
+        )
+        self.assertEqual(
+            edit_parameters["required"], ["target", "code", "language"]
+        )
+        self.assertIn(
+            "Provide `target`, then `code`, then `language` in the arguments",
+            edit_tool_schema["function"]["description"],
+        )
 
     def test_execution_notes_cover_all_execution_modes(self):
         """Verify the tool-level notes distinguish persistent, stateless, and display-only execution."""
