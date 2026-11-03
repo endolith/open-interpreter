@@ -22,6 +22,15 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("next missing operation", code_description)
         self.assertIn("Jupyter/IPython kernel", code_description)
         self.assertIn("stateless/display-only", code_description)
+        self.assertIn("This is the payload", code_description)
+        self.assertIn("`language` is only the enum name", code_description)
+
+    def test_tool_schema_puts_the_payload_first(self):
+        """`code` must be the first argument so a model that fills the first slot
+        with the program puts it in `code`, not `language`."""
+        parameters = tool_schema["function"]["parameters"]
+        self.assertEqual(list(parameters["properties"]), ["code", "language"])
+        self.assertEqual(parameters["required"], ["code", "language"])
 
     def test_language_description_covers_all_execution_modes(self):
         """Verify the dynamic language list distinguishes persistent, stateless, and display-only execution."""
@@ -38,8 +47,10 @@ class TestExecutionStatePrompt(unittest.TestCase):
         """Tool mode must not mention fences, and fence mode must not mention tool calls."""
         tool = assemble_system_message(_prompt_interpreter(True))
         self.assertIn("call to the execute tool", tool)
-        self.assertIn('execute({"language":', tool)
-        self.assertIn("command or program goes in `code`", tool)
+        self.assertIn('"code":', tool)
+        self.assertIn('"language":', tool)
+        self.assertIn("`code` holds the command or program", tool)
+        self.assertNotIn("execute({", tool)
         self.assertNotIn("[code:", tool)
         self.assertNotIn("[execute:", tool)
         self.assertNotIn("fenced code block", tool)
@@ -48,18 +59,16 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("fenced code block", fence)
         self.assertIn("```bash", fence)
         self.assertNotIn("[code:", fence)
-        self.assertNotIn('execute({"language":', fence)
         self.assertNotIn("call to the execute tool", fence)
 
     def test_tool_instructions_show_a_positive_call_example(self):
         """Tool mode gets a concrete call, not just prohibitions about message code."""
         from interpreter.core.llm.llm import _TOOL_CALLING_INSTRUCTIONS
 
-        self.assertIn("call `execute`", _TOOL_CALLING_INSTRUCTIONS)
-        self.assertIn(
-            'execute({"language": "python", "code": "print(1)"})',
-            _TOOL_CALLING_INSTRUCTIONS,
-        )
+        self.assertIn("call the `execute` tool", _TOOL_CALLING_INSTRUCTIONS)
+        self.assertIn('"code": "print(1)"', _TOOL_CALLING_INSTRUCTIONS)
+        self.assertIn('"language": "python"', _TOOL_CALLING_INSTRUCTIONS)
+        self.assertNotIn("execute({", _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn("never executed", _TOOL_CALLING_INSTRUCTIONS)
 
     def test_custom_system_message_is_not_replaced(self):

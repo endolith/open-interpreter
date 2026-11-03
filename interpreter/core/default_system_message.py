@@ -45,18 +45,20 @@ def get_location_info():
 
 
 _cli_lang = "cmd" if platform.system() == "Windows" else "bash"
+_list_csv_cmd = "dir *.csv /O-D" if _cli_lang == "cmd" else "ls -t *.csv"
 
 # The workflow examples are written as `[code: ...]` lines. In tool mode that
-# shorthand means a tool call, and saying "or a markdown code block" taught
-# models to emit fenced code instead of calling execute. The sentence is chosen
-# from the active mechanism; the examples stay as shorthand.
+# shorthand means a tool call. Show the tool call's arguments object, not an
+# `execute(...)` pseudo-call: the model must emit a tool_calls entry whose
+# arguments are this object, and a pseudo-call invites it to treat the first
+# field as the payload.
 _TOOL_CALLING_SENTENCE = (
-    'Steps below show each execution as a call to the execute tool: '
-    'execute({"language": "bash", "code": "..."}). `language` is a name from the '
-    "tool's enum (bash, python, …) and the command or program goes in `code` — "
-    "never put a command in `language`. These are the fields to emit: put code "
-    "you only want the user to read in your message, and call `execute` when it "
-    "should run. Don't just describe the step."
+    "Steps below show each execution as a call to the execute tool. Its arguments "
+    f'are {{"code": "<the command or program>", "language": "{_cli_lang}"}}. '
+    "`code` holds the command or program; `language` is a name from the tool's "
+    "enum (bash, python, …) and is never the code. These are the fields to emit: "
+    "put code you only want the user to read in your message, and call `execute` "
+    "when it should run. Don't just describe the step."
 )
 _CODE_BLOCK_SENTENCE = (
     "Steps below show each execution as a fenced code block with the language "
@@ -75,9 +77,12 @@ def _step_parts(match):
 
 
 def _render_tool_step(match):
-    """Turn a `[code: lang] code` walkthrough line into an explicit call."""
+    """Turn a `[code: lang] code` walkthrough line into its tool-call arguments."""
     language, code = _step_parts(match)
-    return f'- execute({{"language": "{language}", "code": {json.dumps(code)}}})'
+    return (
+        f'- Tool call `execute` arguments: '
+        f'{{"code": {json.dumps(code)}, "language": "{language}"}}'
+    )
 
 
 def _render_fence_step(match):
@@ -170,7 +175,7 @@ Example: Data analysis from CSV
 
 - User: test normality of latest CSV file
 - Assistant: First I'll find the most recent CSV file
-- [code: {_cli_lang}] dir *.csv /O-D
+- [code: {_cli_lang}] {_list_csv_cmd}
 - Output: data.csv  older.csv
 - Assistant: Let me check the file structure to understand the format
 - [code: python] with open('data.csv', 'r', encoding='utf-8') as f: lines = [f.readline() for _ in range(15)]; lines
