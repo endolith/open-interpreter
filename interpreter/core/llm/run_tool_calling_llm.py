@@ -23,7 +23,10 @@ tool_schema = {
     "type": "function",
     "function": {
         "name": "execute",
-        "description": "Executes code on the user's machine **in the user's local environment** and returns the output",
+        "description": (
+            "Executes code on the user's machine **in the user's local environment** and returns the output. "
+            "Provide `code` before `language` in the arguments."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -85,7 +88,8 @@ edit_tool_schema = {
     "function": {
         "name": "edit",
         "description": (
-            "Edit or create a file at an absolute path.\n"
+            "Edit or create a file at an absolute path. "
+            "Provide `target`, then `code`, then `language` in the arguments.\n"
             "Languages:\n"
             "  write — code is the full file body (UTF-8): creates the file, or REPLACES it if it exists (the user is shown the diff and must approve first).\n"
             "  sed   — one-line s/// substitutions only; several s/// lines are fine, but a/i/c "
@@ -123,21 +127,21 @@ edit_tool_schema = {
         "parameters": {
             "type": "object",
             "properties": {
-                "language": {
+                "target": {
                     "type": "string",
-                    "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | gawk | jq | yq | poke | append | patch",
+                    "description": "Absolute path to the file",
                 },
                 "code": {
                     "type": "string",
                     "description": "File body (write) or language-specific edit code",
                 },
-                "target": {
+                "language": {
                     "type": "string",
-                    "description": "Absolute path to the file",
+                    "enum": EDIT_LANGUAGES_ENUM,
+                    "description": "write | sed | gawk | jq | yq | poke | append | patch",
                 },
             },
-            "required": ["language", "code", "target"],
+            "required": ["target", "code", "language"],
         },
     },
 }
