@@ -325,6 +325,30 @@ def test_value_error_from_system_message_assembly_is_a_panel(
     assert "DASHSCOPE_API_KEY" in output
     assert interpreter._stopped_retrying is True
     assert llm.calls == 0, "the LLM must not be called once setup has failed"
+def test_budget_exceeded_is_reported_not_raised(capsys, panels):
+    """Hitting --max_budget shows the budget message and stops the turn cleanly.
+
+    BudgetExceededError is not a provider exception, so without its own handler
+    it falls through respond()'s generic branch to a bare `raise` and crashes the
+    session with a traceback. It must instead show the spend/budget message and
+    set _stopped_retrying, since the interactive loop would otherwise re-serve
+    the undelivered turn and hit the budget again forever.
+    """
+    messages = []
+    llm = _FakeLlm([litellm.BudgetExceededError(current_cost=1.5, max_budget=1.0)])
+    llm.max_budget = 1.0
+    interpreter = _FakeInterpreter(llm)
+    interpreter.display_message = messages.append
+
+    try:
+        list(respond(interpreter))
+    except litellm.BudgetExceededError:
+        pytest.fail("BudgetExceededError must not escape respond()")
+
+    assert llm.calls == 1, "a budget overrun must not be retried"
+    assert any("Max budget exceeded" in m for m in messages)
+    assert any("1.0" in m for m in messages), "the configured budget should be shown"
+    assert interpreter._stopped_retrying is True
 
 
 def test_respond_resets_stale_stop_flag_at_turn_start(capsys, panels):
