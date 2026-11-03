@@ -392,6 +392,28 @@ def respond(interpreter):
                     len(interpreter.messages),
                     interpreter.messages[-1].get("content"),
                 ) != transcript_before_llm
+            except litellm.exceptions.BudgetExceededError:
+                # --max_budget was hit. This is not a provider failure, so it must
+                # not reach the generic handler below: BudgetExceededError is not
+                # one of the provider exception types, so it fell through to the
+                # final bare `raise` and crashed the session with a traceback.
+                #
+                # Like a config ValueError, no assistant text was produced, so
+                # the interactive loop would re-serve the same turn and hit the
+                # budget again forever; _stopped_retrying tells it to stop.
+                interpreter._stopped_retrying = True
+                clear_temporary_retry_status()
+                max_budget = getattr(interpreter.llm, "max_budget", None)
+                interpreter.display_message(
+                    f"""> Max budget exceeded
+
+                    **Session spend:** ${getattr(litellm, "_current_cost", "unknown")}
+                    **Max budget:** ${max_budget}
+
+                    Run `interpreter --max_budget [higher USD amount]` to proceed.
+                """
+                )
+                return
             except ValueError as e:
                 # Misconfiguration, not an API failure: OI raises ValueError when
                 # a model's required setup is missing (e.g. the opencode_go/
@@ -413,18 +435,6 @@ def respond(interpreter):
                 # the session cannot help.
                 yield from report_configuration_error(e)
                 return
-
-            except litellm.exceptions.BudgetExceededError:
-                interpreter.display_message(
-                    f"""> Max budget exceeded
-
-                    **Session spend:** ${litellm._current_cost}
-                    **Max budget:** ${interpreter.llm.max_budget}
-
-                    Press CTRL-C then run `interpreter --max_budget [higher USD amount]` to proceed.
-                """
-                )
-                break
 
             except Exception as e:
                 # Continue with existing error handling
