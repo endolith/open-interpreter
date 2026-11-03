@@ -255,11 +255,39 @@ def respond(interpreter):
         temporary_provider_error_retries = 0
         last_temporary_provider_error_signature = None
 
+    def report_configuration_error(error):
+        """Render a required-setting ValueError as a panel and stop the turn.
+
+        Yields the stop_live_display chunk, prints the error alone in a red
+        "Configuration error" panel, and sets _stopped_retrying so the
+        interactive loop exits instead of re-serving the undelivered turn.
+        """
+        interpreter._stopped_retrying = True
+        clear_temporary_retry_status()
+        yield {"type": "stop_live_display"}
+        print("")  # Newline so panel top border is not cut off
+        rich_print(
+            Panel(
+                Markdown(str(error)),
+                border_style="red",
+                title="Configuration error",
+                title_align="left",
+            )
+        )
+        print("")  # Add space after error
+
     while True:
         ## RENDER SYSTEM MESSAGE ##
 
         ## Rendering ↓
-        rendered_system_message = assemble_system_message(interpreter)
+        # Assembly loads the model (to pick the tool-calling or text prompt),
+        # so a required-setting ValueError from llm.load() surfaces here,
+        # before the llm.run() handler below exists to catch it.
+        try:
+            rendered_system_message = assemble_system_message(interpreter)
+        except ValueError as e:
+            yield from report_configuration_error(e)
+            return
         ## Rendering ↑
 
         # Store the actual rendered system message for %info command (before converting to dict)
@@ -302,6 +330,29 @@ def respond(interpreter):
                     clear_temporary_retry_status()
                     yield {"role": "assistant", **chunk}
 
+            except litellm.exceptions.BudgetExceededError:
+                # --max_budget was hit. This is not a provider failure, so it must
+                # not reach the generic handler below: BudgetExceededError is not
+                # one of the provider exception types, so it fell through to the
+                # final bare `raise` and crashed the session with a traceback.
+                #
+                # Like a config ValueError, no assistant text was produced, so
+                # the interactive loop would re-serve the same turn and hit the
+                # budget again forever; _stopped_retrying tells it to stop.
+                interpreter._stopped_retrying = True
+                clear_temporary_retry_status()
+                max_budget = getattr(interpreter.llm, "max_budget", None)
+                interpreter.display_message(
+                    f"""> Max budget exceeded
+
+                    **Session spend:** ${getattr(litellm, "_current_cost", "unknown")}
+                    **Max budget:** ${max_budget}
+
+                    Run `interpreter --max_budget [higher USD amount]` to proceed.
+                """
+                )
+                return
+
             except ValueError as e:
                 # Misconfiguration, not an API failure: OI raises ValueError when
                 # a model's required setup is missing (e.g. the opencode_go/
@@ -321,33 +372,8 @@ def respond(interpreter):
                 # pops the undelivered message and exits, which is the right
                 # outcome for a fix-it-outside-of-OI problem -- retrying inside
                 # the session cannot help.
-                interpreter._stopped_retrying = True
-                clear_temporary_retry_status()
-                error_str = str(e)
-                yield {"type": "stop_live_display"}
-                print("")  # Newline so panel top border is not cut off
-                rich_print(
-                    Panel(
-                        Markdown(error_str),
-                        border_style="red",
-                        title="Configuration error",
-                        title_align="left",
-                    )
-                )
-                print("")  # Add space after error
+                yield from report_configuration_error(e)
                 return
-
-            except litellm.exceptions.BudgetExceededError:
-                interpreter.display_message(
-                    f"""> Max budget exceeded
-
-                    **Session spend:** ${litellm._current_cost}
-                    **Max budget:** ${interpreter.llm.max_budget}
-
-                    Press CTRL-C then run `interpreter --max_budget [higher USD amount]` to proceed.
-                """
-                )
-                break
 
             except Exception as e:
                 # Continue with existing error handling
