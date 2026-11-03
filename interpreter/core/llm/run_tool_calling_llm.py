@@ -89,7 +89,7 @@ edit_tool_schema = {
         "name": "edit",
         "description": (
             "Edit or create a file at an absolute path. "
-            "Provide `target`, then `code`, then `language` in the arguments.\n"
+            "Provide `code`, then `language`, then `target` in the arguments.\n"
             "Languages:\n"
             "  write — code is the full file body (UTF-8): creates the file, or REPLACES it if it exists (the user is shown the diff and must approve first).\n"
             "  sed   — one-line s/// substitutions only; several s/// lines are fine, but a/i/c "
@@ -127,10 +127,6 @@ edit_tool_schema = {
         "parameters": {
             "type": "object",
             "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Absolute path to the file",
-                },
                 "code": {
                     "type": "string",
                     "description": "File body (write) or language-specific edit code",
@@ -140,8 +136,12 @@ edit_tool_schema = {
                     "enum": EDIT_LANGUAGES_ENUM,
                     "description": "write | sed | gawk | jq | yq | poke | append | patch",
                 },
+                "target": {
+                    "type": "string",
+                    "description": "Absolute path to the file",
+                },
             },
-            "required": ["target", "code", "language"],
+            "required": ["code", "language", "target"],
         },
     },
 }

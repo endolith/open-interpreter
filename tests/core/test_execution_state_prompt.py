@@ -45,13 +45,13 @@ class TestExecutionStatePrompt(unittest.TestCase):
 
         edit_parameters = edit_tool_schema["function"]["parameters"]
         self.assertEqual(
-            list(edit_parameters["properties"]), ["target", "code", "language"]
+            list(edit_parameters["properties"]), ["code", "language", "target"]
         )
         self.assertEqual(
-            edit_parameters["required"], ["target", "code", "language"]
+            edit_parameters["required"], ["code", "language", "target"]
         )
         self.assertIn(
-            "Provide `target`, then `code`, then `language` in the arguments",
+            "Provide `code`, then `language`, then `target` in the arguments",
             edit_tool_schema["function"]["description"],
         )
 
