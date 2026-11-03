@@ -52,11 +52,12 @@ def _supports_vision(model: str) -> bool | None:
 _TOOL_CALLING_INSTRUCTIONS = (
     "Use only the tools in this request (`execute`, `edit`, and `view_image` when present). "
     "Read each tool's JSON schema for parameters and languages.\n\n"
-    "(OI's internal storage shows your call as a code message; you do not output "
-    "that structure.) "
+    "OI's internal storage shows an `execute` call as a code message; emit the "
+    "tool call itself, not that internal structure. "
     "If you want the user to read code, put it in your message: it is shown and "
-    "never run. If you want it to run, call `execute` with `language` and `code`, "
-    "for example execute({\"language\": \"python\", \"code\": \"print(1)\"}). "
+    "never run. If you want it to run, call the `execute` tool with arguments "
+    '{"code": "<the command or program>", "language": "<enum name>"} '
+    '(for example `{"code": "print(1)", "language": "python"}`). '
     "A fenced code block in message content is never executed. "
     "Do not call any other name as a tool (e.g. toolbox.web.answer). "
     "Those are Python APIs: use them inside the \"code\" string you pass to execute."
