@@ -47,6 +47,8 @@ for chunk in interpreter.chat("What's 34/24?", stream=True, display=False):
 
 **Note:** Setting `display=True` won't change the behavior of the streaming response, it will just render a display in your terminal.
 
+**Note:** `stream` controls whether `chat()` yields chunks (and `display` controls whether they are rendered). Neither changes the provider request. Open Interpreter always asks the model for a streamed response and aggregates the deltas internally, so there is currently no non-streaming request path.
+
 # Anatomy
 
 Each chunk of the streamed response is a dictionary, that has a "role" key that can be either "assistant" or "computer". The "type" key describes what the chunk is. The "content" key contains the actual content of the chunk.
