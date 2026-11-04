@@ -176,18 +176,36 @@ def test_chat_completion_context_mode_off(client, server_pair):
         assert interpreter.context_mode is False
 
 
-def test_chat_completion_auto_run_toggle(client, server_pair):
-    """{AUTO_RUN_ON} / {AUTO_RUN_OFF} flip the auto_run flag."""
+def test_chat_completion_cannot_enable_auto_run(client, server_pair):
+    """{AUTO_RUN_ON} is refused, matching the /settings guard (#304).
+
+    Changing auto_run through /settings is a 403 because it disables the
+    confirmation prompt. The chat endpoint used to flip the same flag with no
+    check, so any client holding the API key could bypass that guard.
+    """
     _, interpreter = server_pair
-    client.post(
+    interpreter.auto_run = False
+
+    response = client.post(
         "/openai/chat/completions",
         json={"messages": [{"role": "user", "content": "{AUTO_RUN_ON}"}]},
     )
-    assert interpreter.auto_run is True
+
+    assert response.status_code == 403
+    assert "auto_run" in response.json()["error"]
+    assert interpreter.auto_run is False
+
+
+def test_chat_completion_can_disable_auto_run(client, server_pair):
+    """{AUTO_RUN_OFF} stays allowed: it can only make the server safer."""
+    _, interpreter = server_pair
+    interpreter.auto_run = True
+
     client.post(
         "/openai/chat/completions",
         json={"messages": [{"role": "user", "content": "{AUTO_RUN_OFF}"}]},
     )
+
     assert interpreter.auto_run is False
 
 
