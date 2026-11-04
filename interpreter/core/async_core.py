@@ -149,11 +149,26 @@ class AsyncInterpreter(OpenInterpreter):
                 and self.respond_thread.is_alive()
                 and chunk.get("type") != "command"
             ):
+                # An untyped start is also the documented envelope for a
+                # control command, so wait for the content chunk to say which
+                # it is before tearing down a paused approval (#305).
+                if chunk.get("type") is not None or self.pending_confirmation is None:
+                    self.stop_event.set()
+                    self._cancel_pending_approval()
+                    self.respond_thread.join()
+            self.accumulate(chunk)
+        elif "content" in chunk:
+            if (
+                self.pending_confirmation is not None
+                and chunk.get("type") != "command"
+                and self.respond_thread is not None
+                and self.respond_thread.is_alive()
+            ):
+                # The content chunk identified this turn as a new message, not
+                # an approval command, so the pending approval is superseded.
                 self.stop_event.set()
                 self._cancel_pending_approval()
                 self.respond_thread.join()
-            self.accumulate(chunk)
-        elif "content" in chunk:
             self.accumulate(chunk)
         elif "end" in chunk:
             # If the user is done talking, the interpreter should respond.
