@@ -1115,8 +1115,15 @@ def create_router(async_interpreter):
             return
 
         if last_message.content == "{AUTO_RUN_ON}":
-            async_interpreter.auto_run = True
-            return
+            # Enabling auto-run here would bypass the /settings guard that
+            # reserves this switch for the operator. Disabling it stays
+            # allowed, since it can only make the server safer.
+            return JSONResponse(
+                status_code=HTTP_403_FORBIDDEN,
+                content={
+                    "error": "auto_run is not modifiable through the server due to security constraints."
+                },
+            )
 
         if last_message.content == "{AUTO_RUN_OFF}":
             async_interpreter.auto_run = False
