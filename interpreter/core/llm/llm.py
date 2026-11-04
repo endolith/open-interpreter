@@ -557,13 +557,21 @@ def fixed_litellm_completions(**params):
     params["num_retries"] = 0
 
     for attempt in range(attempts):
+        yielded = False
         try:
-            yield from litellm.completion(**params)
+            for chunk in litellm.completion(**params):
+                yielded = True
+                yield chunk
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
             print("Exiting...")
             sys.exit(0)
         except Exception as e:
+            if yielded:
+                # The provider failed after delivering part of the stream.
+                # Retrying would replay those chunks into a consumer that
+                # already accumulated them, duplicating the response (#291).
+                raise
             if attempt == 0:
                 # Store the first error
                 first_error = e
