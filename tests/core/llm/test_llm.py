@@ -974,3 +974,17 @@ def test_run_prepends_empty_system_message():
 
     assert captured["params"]["messages"][0]["role"] == "system"
     assert captured["params"]["messages"][0]["content"] == ""
+
+def test_fixed_litellm_completions_reports_a_none_response():
+    """A provider returning None must raise a classified provider error, not TypeError."""
+    import litellm
+
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", return_value=None
+    ):
+        with pytest.raises(
+            litellm.exceptions.APIConnectionError, match="no response"
+        ):
+            list(fixed_litellm_completions(model="gpt-4o", messages=[]))
