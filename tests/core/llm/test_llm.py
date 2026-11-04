@@ -974,3 +974,27 @@ def test_run_prepends_empty_system_message():
 
     assert captured["params"]["messages"][0]["role"] == "system"
     assert captured["params"]["messages"][0]["content"] == ""
+
+def test_fixed_litellm_completions_does_not_retry_after_partial_stream():
+    """A mid-stream failure is not retried after chunks were already yielded (#291).
+
+    Retrying replays the prefix of the response into consumers that already
+    accumulated it, producing duplicated content. The original error must
+    propagate instead.
+    """
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    def broken_stream(**kwargs):
+        yield {"choices": [{"delta": {"content": "partial"}}]}
+        raise RuntimeError("stream broke")
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=broken_stream
+    ) as completion:
+        chunks = []
+        with pytest.raises(RuntimeError, match="stream broke"):
+            for chunk in fixed_litellm_completions(model="gpt-4o", messages=[]):
+                chunks.append(chunk)
+
+    assert chunks == [{"choices": [{"delta": {"content": "partial"}}]}]
+    assert completion.call_count == 1
