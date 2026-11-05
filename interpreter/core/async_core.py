@@ -985,6 +985,7 @@ def create_router(async_interpreter):
                     }
                     yield f"data: {json.dumps(output_chunk)}\n\n"
 
+            async_interpreter._save_conversation()
             return
 
         made_chunk = False
@@ -1059,6 +1060,8 @@ def create_router(async_interpreter):
 
             if made_chunk:
                 break
+
+        async_interpreter._save_conversation()
 
     @router.post("/openai/chat/completions")
     async def chat_completion(request: ChatCompletionRequest):
@@ -1225,6 +1228,9 @@ def create_router(async_interpreter):
                 if close is not None:
                     close()
                 async_interpreter.responding = False
+            # Save after the finally so a turn stopped at an unapproved
+            # confirmation is still persisted.
+            async_interpreter._save_conversation()
             new_messages = async_interpreter.messages[start_len:]
             content = new_messages[-1]["content"] if new_messages else ""
             if awaiting_approval:
