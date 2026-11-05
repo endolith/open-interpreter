@@ -1,3 +1,4 @@
+from .utils.reasoning_lines import FillerLineFilter
 from .utils.stream_usage import record_stream_chunk_usage
 
 
@@ -44,6 +45,7 @@ def run_text_llm(llm, params):
     inside_code_block = False
     accumulated_block = ""
     language = None
+    reasoning_filter = FillerLineFilter()  # Drops filler-only reasoning lines
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
@@ -60,11 +62,21 @@ def run_text_llm(llm, params):
         # alongside reasoning; emit the reasoning first and still process the
         # content (dropping it would lose the visible reply).
         if "reasoning_content" in delta and delta["reasoning_content"]:
-            yield {"role": "assistant", "type": "message", "format": "reasoning", "content": delta["reasoning_content"]}
+            cleaned = reasoning_filter.feed(delta["reasoning_content"])
+            if cleaned:
+                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": cleaned}
 
         content = delta.get("content", "")
         if content is None:
             continue
+
+        # Reasoning must finish printing before the reply starts. Reasoning-only
+        # deltas often omit the content key, which becomes "" here; only a real
+        # reply ends the held line, or a split filler line would be cut short.
+        if content:
+            remainder = reasoning_filter.flush()
+            if remainder:
+                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
 
         accumulated_block += content
 
@@ -79,6 +91,9 @@ def run_text_llm(llm, params):
 
         # Did we just exit a code block?
         if inside_code_block and "```" in accumulated_block:
+            remainder = reasoning_filter.flush()
+            if remainder:
+                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
             return
 
         # If we're in a code block,
@@ -109,3 +124,7 @@ def run_text_llm(llm, params):
         # If we're not in a code block, send the output as a message
         if not inside_code_block:
             yield {"type": "message", "content": content}
+
+    remainder = reasoning_filter.flush()
+    if remainder:
+        yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}

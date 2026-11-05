@@ -4,6 +4,8 @@ import os
 import sys
 from datetime import datetime
 
+from .reasoning_lines import strip_filler_reasoning_lines
+
 
 def data_url_exceeds_shrink_threshold(data_url: str) -> bool:
     """True when base64 data URL string size is over the ~5MB heuristic used before resizing."""
@@ -308,7 +310,7 @@ def convert_to_openai_messages(
             and message.get("role", "assistant") == "assistant"
             and message.get("format") == "reasoning"
         ):
-            reasoning_text = message.get("content")
+            reasoning_text = strip_filler_reasoning_lines(message.get("content"))
             if isinstance(reasoning_text, str):
                 if pending_assistant_reasoning is None or not prev_was_reasoning:
                     pending_assistant_reasoning = reasoning_text
@@ -677,8 +679,11 @@ def convert_to_openai_messages(
 
         if new_message.get("role") == "assistant" and message.get("reasoning_content"):
             # A stored assistant message may carry its reasoning directly; pass
-            # it back verbatim (providers such as DeepSeek require it).
-            new_message["reasoning_content"] = message["reasoning_content"]
+            # it back so providers such as DeepSeek accept the turn, minus the
+            # filler-only lines that teach the model to repeat them.
+            new_message["reasoning_content"] = strip_filler_reasoning_lines(
+                message["reasoning_content"]
+            )
 
         if pending_assistant_reasoning is not None:
             if new_message.get("role") == "assistant":
