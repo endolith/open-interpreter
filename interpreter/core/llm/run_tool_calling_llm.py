@@ -8,6 +8,10 @@ from ..terminal.base_language import (
 )
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
+from .utils.reasoning_lines import (
+    FillerLineFilter,
+    strip_filler_reasoning_lines,
+)
 from .utils.stream_usage import record_stream_chunk_usage
 
 def _language_names(interpreter):
@@ -633,6 +637,7 @@ def run_tool_calling_llm(llm, request_params):
     has_reasoning_content = False  # Track if we have reasoning_content (to delay content output)
     reasoning_streamed = False  # True if we yielded reasoning during the stream (so post-stream only yields remainder)
     reasoning_replace_yielded = False  # True after we yield the replace chunk (must happen before first content chunk)
+    reasoning_filter = FillerLineFilter()  # Drops filler-only reasoning lines from the live stream
 
     for chunk in llm.completions(**request_params):
         record_stream_chunk_usage(llm, chunk)
@@ -667,10 +672,17 @@ def run_tool_calling_llm(llm, request_params):
         if "reasoning_content" in delta and delta["reasoning_content"]:
             new_chunk = delta["reasoning_content"]
             if isinstance(new_chunk, str):
-                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": new_chunk}
                 reasoning_streamed = True
+                cleaned = reasoning_filter.feed(new_chunk)
+                if cleaned:
+                    yield {"role": "assistant", "type": "message", "format": "reasoning", "content": cleaned}
 
         if "content" in delta and delta["content"]:
+            # Reasoning must finish printing before the reply starts.
+            remainder = reasoning_filter.flush()
+            if remainder:
+                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
+
             if function_call_detected:
                 # More content after a code block? This is a code review by a judge layer.
 
@@ -722,7 +734,7 @@ def run_tool_calling_llm(llm, request_params):
                     if not accumulated_deltas.get("tool_calls") and not accumulated_deltas.get("function_call"):
                         # Yield replace chunk before first content so reasoning block is closed with blockquotes before the response.
                         if has_reasoning_content and reasoning_streamed and not reasoning_replace_yielded:
-                            full_raw = accumulated_deltas.get("reasoning_content") or ""
+                            full_raw = strip_filler_reasoning_lines(accumulated_deltas.get("reasoning_content") or "")
                             if isinstance(full_raw, str) and full_raw.strip():
                                 yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
                             reasoning_replace_yielded = True
@@ -734,7 +746,7 @@ def run_tool_calling_llm(llm, request_params):
             else:
                 # Yield replace chunk before first content so reasoning block is closed with blockquotes before the response.
                 if has_reasoning_content and reasoning_streamed and not reasoning_replace_yielded:
-                    full_raw = accumulated_deltas.get("reasoning_content") or ""
+                    full_raw = strip_filler_reasoning_lines(accumulated_deltas.get("reasoning_content") or "")
                     if isinstance(full_raw, str) and full_raw.strip():
                         yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
                     reasoning_replace_yielded = True
@@ -814,6 +826,12 @@ def run_tool_calling_llm(llm, request_params):
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
 
+    # Reasoning may not end with a newline; emit the held remainder before the
+    # post-stream reasoning block replaces the display.
+    remainder = reasoning_filter.flush()
+    if remainder:
+        yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
+
     # After stream completes, convert tool_calls to function_call format if needed
     # Don't try to parse incomplete tool_calls during streaming
 
@@ -854,7 +872,7 @@ def run_tool_calling_llm(llm, request_params):
         if reasoning_streamed:
             # Replace was already yielded before first content chunk; only yield if we never got any content (no content delta in stream).
             if not reasoning_replace_yielded:
-                full_raw = accumulated_deltas.get("reasoning_content") or ""
+                full_raw = strip_filler_reasoning_lines(accumulated_deltas.get("reasoning_content") or "")
                 if isinstance(full_raw, str) and full_raw.strip():
                     yield {"role": "assistant", "type": "message", "format": "reasoning", "content": full_raw.rstrip() + "\n\n", "replace": True}
         else:
