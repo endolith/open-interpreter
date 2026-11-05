@@ -1,5 +1,7 @@
+import json
 import os
 import re
+from types import SimpleNamespace
 
 from .utils.merge_deltas import merge_deltas
 from .utils.parse_partial_json import parse_partial_json
@@ -28,6 +30,123 @@ tool_schema = {
         },
     },
 }
+
+
+def _tool_call_entry_function(entry):
+    """Return the function payload of a tool call entry, object or dict."""
+    if isinstance(entry, dict):
+        return entry.get("function")
+    return getattr(entry, "function", None)
+
+
+def _function_name_and_arguments(function):
+    """Return (name, arguments) of a function payload, object or dict."""
+    if isinstance(function, dict):
+        return function.get("name"), function.get("arguments")
+    return getattr(function, "name", None), getattr(function, "arguments", None)
+
+
+def _tool_call_entry_identity(entry):
+    """Return (id, index) of a tool-call entry, object or dict."""
+    if isinstance(entry, dict):
+        return entry.get("id"), entry.get("index")
+    return getattr(entry, "id", None), getattr(entry, "index", None)
+
+
+def _tool_call_entry_key(entry, position):
+    """Return a stable identity for a tool call entry across chunks.
+
+    Streaming providers attach an index to every chunk of a call but the
+    id only to its first chunk, so the index leads when present. Entries
+    with neither (non-streamed shapes) fall back to their position in the
+    chunk — which preserves today's behavior exactly for single-call flows.
+    """
+    if isinstance(entry, dict):
+        if entry.get("index") is not None:
+            return ("index", entry["index"])
+        return entry.get("id") or ("pos", position)
+    index = getattr(entry, "index", None)
+    if index is not None:
+        return ("index", index)
+    return getattr(entry, "id", None) or ("pos", position)
+
+
+def _queue_extra_tool_call(llm, entry, key):
+    """Stash one extra parallel tool call for a later turn.
+
+    The pipeline below executes a single call per turn, so entries beyond
+    the first of a parallel response wait on the interpreter instead of
+    being silently dropped. Fragments of one queued call are concatenated,
+    so calls split across streamed chunks still arrive whole.
+
+    Identity matches the primary path: an id is authoritative, an index is a
+    fallback, and an index-only fragment whose call opened without an index
+    attaches to the most recent id-only queued call.
+    """
+    queue = getattr(llm.interpreter, "_pending_tool_calls", None)
+    if queue is None:
+        queue = llm.interpreter._pending_tool_calls = []
+    function = _tool_call_entry_function(entry)
+    if not function:
+        return
+    name, arguments = _function_name_and_arguments(function)
+    if name is None and arguments is None:
+        # A present-but-empty function payload carries nothing to queue.
+        return
+
+    entry_id, entry_index = _tool_call_entry_identity(entry)
+    target = None
+    if entry_id is not None:
+        for queued in queue:
+            if entry_id in queued.get("ids", ()):
+                target = queued
+                break
+    if target is None and entry_index is not None:
+        for queued in queue:
+            # An index is not an identity: providers restamp indexes per
+            # chunk, so two calls can share one. Never attach a fragment
+            # carrying a new id to a call that already has a different one.
+            if queued.get("index") == entry_index and (
+                entry_id is None or not queued.get("ids")
+            ):
+                target = queued
+    if target is None and entry_index is not None and entry_id is None:
+        # The call opened with an id but no index; this is its first
+        # index-bearing fragment.
+        for queued in reversed(queue):
+            if queued.get("ids") and queued.get("index") is None:
+                target = queued
+                break
+    if target is None and entry_id is None and entry_index is None and queue:
+        target = queue[-1]
+
+    if target is None:
+        target = {
+            "id": str(key),
+            "ids": [entry_id] if entry_id is not None else [],
+            "index": entry_index,
+            "name": name,
+            "arguments": arguments or "",
+        }
+        queue.append(target)
+        return
+
+    if entry_id is not None and entry_id not in target.setdefault("ids", []):
+        target["ids"].append(entry_id)
+    if entry_index is not None:
+        target["index"] = entry_index
+    if name and not target.get("name"):
+        target["name"] = name
+    target["arguments"] = (target.get("arguments") or "") + (arguments or "")
+
+
+def _queued_tool_call_chunk(queued):
+    """Wrap a queued call as a stream chunk the loop below already handles."""
+    entry = SimpleNamespace(
+        id=queued["id"],
+        function=SimpleNamespace(name=queued["name"], arguments=queued["arguments"]),
+    )
+    return {"choices": [{"delta": {"tool_calls": [entry]}}]}
 
 
 def process_messages(messages):
@@ -171,11 +290,46 @@ def run_tool_calling_llm(llm, request_params):
     language = None
     code = ""
     function_call_detected = False
+    # Identity of the call executed this turn; entries for any other call
+    # in the same response are queued for later turns (see below). The id is
+    # the identity that holds; the index is a fallback and may arrive on a
+    # later fragment, so both are tracked.
+    primary_call_key = None
+    primary_call_ids = set()
+    primary_call_index = None
     accumulated_review = ""
     review_category = None
     buffer = ""
 
-    for chunk in llm.completions(**request_params):
+    pending_calls = getattr(llm.interpreter, "_pending_tool_calls", None)
+    if pending_calls:
+        queued_token = pending_calls[0].get("messages")
+        current = list(request_params["messages"] or [{}])
+        raw_messages = getattr(llm.interpreter, "messages", None) or []
+        raw_last_role = raw_messages[-1].get("role") if raw_messages else None
+        if raw_last_role == "user" and (
+            queued_token is None or current != queued_token
+        ):
+            # A new user turn arrived after these calls were queued (or the
+            # entry predates queue provenance): drop them instead of
+            # replaying stale calls without an LLM request. An unchanged
+            # retry still serves the queue, and continuations whose last
+            # message is assistant/computer output are unaffected.
+            pending_calls.clear()
+    if pending_calls:
+        # A previous turn received more tool calls than the pipeline can
+        # execute at once: serve the next queued call now, without spending
+        # an LLM call, so every call runs in turn order.
+        queued = pending_calls.pop(0)
+        if queued.get("review"):
+            # The original response passed the judge layer; carry its
+            # verdict so the replayed call passes the check below too.
+            accumulated_review = queued["review"]
+        stream = [_queued_tool_call_chunk(queued)]
+    else:
+        stream = llm.completions(**request_params)
+
+    for chunk in stream:
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
@@ -191,47 +345,112 @@ def run_tool_calling_llm(llm, request_params):
         # Convert tool call into function call, which we have great parsing logic for below
         if "tool_calls" in delta and delta["tool_calls"]:
             # import pdb; pdb.set_trace()
-            converted_call = None
-            for tool_call in delta["tool_calls"]:
-                # Entries arrive as objects (with .function) or plain dicts
-                # depending on the provider/litellm version.
-                if isinstance(tool_call, dict):
-                    function = tool_call.get("function")
-                else:
-                    function = getattr(tool_call, "function", None)
-                if not function:
+            entries = delta["tool_calls"]
+            if primary_call_key is None:
+                # The first entry that carries a usable function becomes the
+                # call this turn runs. A leading malformed entry must not hide
+                # a later valid one (#254).
+                chosen = None
+                for i, entry in enumerate(entries):
+                    function = _tool_call_entry_function(entry)
+                    if function is None:
+                        continue
+                    name, arguments = _function_name_and_arguments(function)
+                    if name is None and arguments is None:
+                        continue
+                    chosen = i
+                    break
+                if chosen is None:
+                    chosen = 0
+                primary_call_key = _tool_call_entry_key(entries[chosen], chosen)
+                entry_id, entry_index = _tool_call_entry_identity(entries[chosen])
+                if entry_id is not None:
+                    primary_call_ids.add(entry_id)
+                if entry_index is not None:
+                    primary_call_index = entry_index
+                primary_entries = [(primary_call_key, entries[chosen])]
+                extras = [
+                    (_tool_call_entry_key(entry, i), entry)
+                    for i, entry in enumerate(entries)
+                    if i != chosen
+                ]
+            else:
+                # Match fragments the way merge_deltas does: the id is the
+                # identity that holds, the index is a fallback, and it may
+                # arrive after the call opened. A fresh per-chunk key would
+                # give the opening fragment an id key and its index-only
+                # continuation a different index key, queuing the rest of the
+                # call as a second call with malformed arguments.
+                primary_entries = []
+                extras = []
+                for i, entry in enumerate(entries):
+                    key = _tool_call_entry_key(entry, i)
+                    entry_id, entry_index = _tool_call_entry_identity(entry)
+                    belongs = False
+                    if entry_id is not None:
+                        if entry_id in primary_call_ids:
+                            belongs = True
+                        elif not primary_call_ids and (
+                            entry_index is None
+                            or primary_call_index is None
+                            or entry_index == primary_call_index
+                        ):
+                            # The call opened without an id; it may still
+                            # receive one with a later fragment.
+                            belongs = True
+                    elif entry_index is not None:
+                        belongs = (
+                            primary_call_index is None
+                            or entry_index == primary_call_index
+                        )
+                    else:
+                        # A lone identity-less entry is a continuation, not a
+                        # new call.
+                        belongs = len(entries) == 1
+                    if belongs:
+                        primary_entries.append((key, entry))
+                        if entry_id is not None:
+                            primary_call_ids.add(entry_id)
+                        if entry_index is not None and primary_call_index is None:
+                            primary_call_index = entry_index
+                    else:
+                        extras.append((key, entry))
+            first_function = None
+            for _key, entry in primary_entries:
+                function = _tool_call_entry_function(entry)
+                if function is None:
                     continue
-                # A nameless continuation still belongs to a call in
-                # progress: merge_deltas skips its None name and appends
-                # the arguments to the accumulated call.
-                if isinstance(function, dict):
-                    name = function.get("name")
-                    arguments = function.get("arguments")
-                else:
-                    name = getattr(function, "name", None)
-                    arguments = getattr(function, "arguments", None)
+                name, arguments = _function_name_and_arguments(function)
                 if name is None and arguments is None:
-                    # An entry with neither a name nor arguments carries
-                    # nothing to merge; keep scanning the list for a usable
-                    # entry rather than selecting this one.
                     continue
-                converted_call = {"name": name, "arguments": arguments}
+                first_function = function
                 break
-            if converted_call is not None:
+            if first_function is not None:
                 function_call_detected = True
+                function_name, function_arguments = _function_name_and_arguments(
+                    first_function
+                )
                 delta = {
-                    # "id": delta["tool_calls"][0],
-                    "function_call": converted_call,
+                    # "id": primary_entries[0],
+                    "function_call": {
+                        "name": function_name,
+                        "arguments": function_arguments,
+                    }
                 }
             else:
-                # No entry carried a usable function, and the raw tool_calls
-                # list is nothing the merge step can consume (merge_deltas
-                # cannot dict() it), so drop the key and let the chunk pass
-                # through empty rather than crashing (#254). dict() works on
-                # plain dicts and litellm Delta objects alike; .items() only
-                # works on the former (#267).
-                delta = dict(delta)
-                delta.pop("tool_calls", None)
+                # No entry carried a usable function. The raw tool_calls list is
+                # nothing the merge step can consume (merge_deltas cannot
+                # dict() it), so drop the key and keep any message content,
+                # rather than crashing (#254). dict() works on plain dicts and
+                # litellm Delta objects alike; .items() only works on the
+                # former (#267).
+                content = delta["content"] if "content" in delta else None
+                delta = {"content": content} if content else {}
+            # The pipeline executes one call per turn: queue any entries for
+            # other calls so they run on later turns instead of being
+            # silently dropped.
+            for key, extra_entry in extras:
+                _queue_extra_tool_call(llm, extra_entry, key)
 
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
@@ -370,6 +589,15 @@ def run_tool_calling_llm(llm, request_params):
             "content": buffer,
         }
         buffer = ""
+
+    for queued in getattr(llm.interpreter, "_pending_tool_calls", []) or []:
+        # Stamp this response's judge-layer verdict on the calls it queued,
+        # so replaying them on a later turn carries the original verdict.
+        # Entries left over from an earlier response keep their own. Also
+        # snapshot the messages they were queued for, so a later user turn
+        # is recognized as new input (stale) rather than a retry (serve).
+        queued.setdefault("review", accumulated_review)
+        queued.setdefault("messages", list(request_params["messages"]))
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
