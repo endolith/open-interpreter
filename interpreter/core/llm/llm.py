@@ -79,6 +79,10 @@ class Llm:
         self.completions = fixed_litellm_completions
 
         # Settings
+        # Credentials/base copied from DeepSeek's environment by load();
+        # tracked so a model switch can drop them instead of leaking them.
+        self._deepseek_env_api_key = None
+        self._deepseek_env_api_base = None
         self.model = "gpt-4o"
         self.temperature = 0.0
 
@@ -373,8 +377,25 @@ Continuing...
     @model.setter
     def model(self, value):
         changed = value != getattr(self, "_model", None)
+        previous = getattr(self, "_model", None)
         self._model = value
         self._is_loaded = False
+        # load() mirrors DeepSeek's environment into api_key/api_base. When the
+        # model moves to another provider those credentials must not travel
+        # with it: the next request would send the DeepSeek key to that
+        # provider. Clear only values that still match what the environment
+        # supplied, so an explicit override survives.
+        if changed and previous and not value.lower().startswith("deepseek/"):
+            if hasattr(self, "api_key") and self.api_key == getattr(
+                self, "_deepseek_env_api_key", None
+            ):
+                self.api_key = None
+            if hasattr(self, "api_base") and self.api_base == getattr(
+                self, "_deepseek_env_api_base", None
+            ):
+                self.api_base = None
+            self._deepseek_env_api_key = None
+            self._deepseek_env_api_base = None
         # A cached auto-detection belongs to the old model; drop it so the next
         # run detects the new one. An explicit override is preserved.
         if changed and not getattr(self, "_supports_vision_is_manual", False):
@@ -388,6 +409,17 @@ Continuing...
             self.model = self.model + ":latest"
 
         self._is_loaded = True
+
+        # DeepSeek's OpenAI-compatible endpoint. LiteLLM reads the key itself,
+        # but mirroring it here makes the optional base explicit and keeps the
+        # provider config visible in one place.
+        if self.model.startswith("deepseek/"):
+            if self.api_key is None:
+                self.api_key = os.environ.get("DEEPSEEK_API_KEY")
+                self._deepseek_env_api_key = self.api_key
+            if self.api_base is None:
+                self.api_base = os.environ.get("DEEPSEEK_API_BASE")
+                self._deepseek_env_api_base = self.api_base
 
         if self.model.startswith("ollama/"):
             model_name = self.model.replace("ollama/", "")
