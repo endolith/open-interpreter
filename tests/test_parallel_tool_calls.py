@@ -144,3 +144,98 @@ def test_streamed_fragments_concatenate_before_queueing():
     queued = llm.interpreter._pending_tool_calls
     assert len(queued) == 1
     assert json.loads(queued[0]["arguments"])["code"] == "print('two')"
+
+
+def test_index_only_continuation_merges_into_id_only_opening():
+    """An index arriving on a later fragment must not queue a second call.
+
+    Some providers put the id on the opening delta and only add the index with
+    the first arguments fragment. A per-chunk key sees "call_1" and then
+    ("index", 0), which used to queue the continuation as a nameless call and
+    leave the executed call's arguments truncated.
+    """
+    full = json.dumps({"language": "python", "code": "print('one')"})
+    opening = SimpleNamespace(
+        id="call_1",
+        function=SimpleNamespace(name="execute", arguments=full[:20]),
+    )
+    continuation = SimpleNamespace(
+        index=0,
+        function=SimpleNamespace(name=None, arguments=full[20:]),
+    )
+    llm = _fake_llm(
+        [
+            {"choices": [{"delta": {"tool_calls": [opening]}}]},
+            {"choices": [{"delta": {"tool_calls": [continuation]}}]},
+        ]
+    )
+
+    chunks = list(
+        run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "go"}]})
+    )
+
+    assert getattr(llm.interpreter, "_pending_tool_calls", []) == []
+    assert _code_contents(chunks) == "print('one')"
+
+
+def test_empty_extra_entry_is_not_queued():
+    """A function-less entry before the primary call must not become a queued call."""
+    empty = SimpleNamespace(function=SimpleNamespace(name=None, arguments=None))
+    valid = _tool_entry("call_1", "print('one')")
+    llm = _fake_llm([{"choices": [{"delta": {"tool_calls": [empty, valid]}}]}])
+
+    list(
+        run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "go"}]})
+    )
+
+    assert getattr(llm.interpreter, "_pending_tool_calls", []) == []
+
+
+def test_id_only_queued_call_absorbs_index_only_continuation():
+    """A second call that opens with an id and no index still queues whole."""
+    full = json.dumps({"language": "python", "code": "print('two')"})
+    first = _tool_entry("call_1", "print('one')", index=0)
+    second_open = SimpleNamespace(
+        id="call_2",
+        function=SimpleNamespace(name="execute", arguments=full[:20]),
+    )
+    second_tail = SimpleNamespace(
+        index=1,
+        function=SimpleNamespace(name=None, arguments=full[20:]),
+    )
+    llm = _fake_llm(
+        [
+            {"choices": [{"delta": {"tool_calls": [first, second_open]}}]},
+            {"choices": [{"delta": {"tool_calls": [second_tail]}}]},
+        ]
+    )
+
+    list(
+        run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "go"}]})
+    )
+
+    queued = llm.interpreter._pending_tool_calls
+    assert len(queued) == 1
+    assert queued[0]["name"] == "execute"
+    assert json.loads(queued[0]["arguments"])["code"] == "print('two')"
+
+
+def test_queued_calls_with_distinct_ids_do_not_merge_by_index():
+    """Two extra calls that share a stamped index but have different ids stay separate."""
+    first = _tool_entry("call_1", "print('one')", index=0)
+    second = _tool_entry("call_2", "print('two')", index=0)
+    third = _tool_entry("call_3", "print('three')", index=0)
+    llm = _fake_llm(
+        [{"choices": [{"delta": {"tool_calls": [first, second, third]}}]}]
+    )
+
+    list(
+        run_tool_calling_llm(llm, {"messages": [{"role": "user", "content": "go"}]})
+    )
+
+    queued = llm.interpreter._pending_tool_calls
+    assert len(queued) == 2
+    assert sorted(json.loads(q["arguments"])["code"] for q in queued) == [
+        "print('three')",
+        "print('two')",
+    ]
