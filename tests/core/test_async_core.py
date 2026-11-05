@@ -3135,3 +3135,39 @@ class TestConfirmationDigestValues(TestCase):
             confirmation_digest({"format": "", "content": ""}),
         )
 
+
+
+class TestAsyncInputMessageOpenState(TestCase):
+    """Binary frames require a message opened by "start" and not yet closed by "end"."""
+
+    def test_binary_chunk_appends_while_a_message_is_open(self):
+        """A binary frame during an open message appends its bytes."""
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+
+        async def run():
+            await interpreter.input({"role": "user", "start": True})
+            await interpreter.input(b"\x00\x01")
+
+        asyncio.run(run())
+
+        assert interpreter.messages[0]["content"] == b"\x00\x01"
+
+    def test_binary_chunk_after_end_is_rejected(self):
+        """A binary frame after "end" cannot mutate the completed message."""
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+        interpreter.output_queue = janus.Queue()
+
+        async def run():
+            await interpreter.input({"role": "user", "start": True})
+            await interpreter.input(b"\x00")
+            interpreter.respond = lambda *args, **kwargs: None
+            await interpreter.input({"role": "user", "end": True})
+            with pytest.raises(ValueError, match="open message"):
+                await interpreter.input(b"\x01")
+
+        asyncio.run(run())
+        assert interpreter.messages[0]["content"] == b"\x00"
