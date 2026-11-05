@@ -74,6 +74,26 @@ def test_text_language_converted_to_assistant_message():
     assert "notes here" in interpreter.messages[-1]["content"]
 
 
+def test_py_alias_normalizes_to_python():
+    """A ```py fence runs as python: canonical format stored, run called with 'python' (issue #323)."""
+    interpreter = _code_interpreter(language="py", code="x = 1")
+    seen = []
+    inner_run = interpreter.computer.run
+
+    def recording_run(lang, code_to_run, **run_kwargs):
+        seen.append(lang)
+        return inner_run(lang, code_to_run, **run_kwargs)
+
+    interpreter.computer.run = recording_run
+    interpreter.computer.terminal = SimpleNamespace(
+        languages=[FakeLanguage()],
+        get_language=lambda lang: FakeLanguage() if lang in ("python", "py") else None,
+    )
+    list(itertools.islice(respond(interpreter), 10))
+    assert seen and all(lang == "python" for lang in seen)
+    assert interpreter.messages[-1]["format"] == "python"
+
+
 def test_functions_execute_hallucination_parsed():
     """LLM hallucinations like functions.execute({...}) are parsed into real executable code."""
     code = 'functions.execute({"language": "python", "code": "7*6"})'
@@ -96,6 +116,32 @@ def test_json_code_block_parsed():
     interpreter = _code_interpreter(code='{"language": "python", "code": "8*8"}')
     list(itertools.islice(respond(interpreter), 3))
     assert interpreter.messages[0]["content"] == "8*8"
+
+
+def test_json_code_block_alias_normalizes_to_python():
+    """A JSON-wrapped block saying "py" is normalized after extraction (issue #323).
+
+    The alias normalization used to run before the wrapped-code branches, which
+    replace the language again — so `{"language": "py", ...}` bypassed the
+    python-only fix-ups and stored "py" instead of "python".
+    """
+    interpreter = _code_interpreter(code='{"language": "py", "code": "x = 1"}')
+    seen = []
+    inner_run = interpreter.computer.run
+
+    def recording_run(lang, code_to_run, **run_kwargs):
+        seen.append(lang)
+        return inner_run(lang, code_to_run, **run_kwargs)
+
+    interpreter.computer.run = recording_run
+    interpreter.computer.terminal = SimpleNamespace(
+        languages=[FakeLanguage()],
+        get_language=lambda lang: FakeLanguage() if lang in ("python", "py") else None,
+    )
+    list(itertools.islice(respond(interpreter), 10))
+
+    assert seen and all(lang == "python" for lang in seen)
+    assert interpreter.messages[-1]["format"] == "python"
 
 
 def test_llm_run_when_last_message_not_code():
@@ -475,3 +521,30 @@ def test_loop_mode_terminates_on_empty_completions():
 
     assert calls["n"] == 2
     assert interpreter.messages[-1]["content"].strip() == "Working on it."
+
+
+def test_alias_normalization_updates_the_code_message_not_trailing_reasoning():
+    """A py block followed by a reasoning-only chunk stores python on the code."""
+    code = {
+        "role": "assistant",
+        "type": "code",
+        "format": "py",
+        "content": "x = 1",
+    }
+    reasoning = {
+        "role": "assistant",
+        "type": "message",
+        "content": "",
+        "reasoning_content": "done thinking",
+    }
+    interpreter = _code_interpreter(language="py", code="x = 1")
+    interpreter.messages = [code, reasoning]
+    interpreter.computer.terminal = SimpleNamespace(
+        languages=[FakeLanguage()],
+        get_language=lambda lang: FakeLanguage() if lang in ("python", "py") else None,
+    )
+
+    list(itertools.islice(respond(interpreter), 10))
+
+    assert code["format"] == "python"
+    assert "format" not in reasoning
