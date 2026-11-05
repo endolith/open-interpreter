@@ -53,7 +53,7 @@ interpreter.messages = messages # A list that resembles the one above
 
 <Info>This replaced `interpreter.local` in the New Computer Update (`0.2.0`). The `--local` flag loads the `local.py` profile, which sets `offline = True`.</Info>
 
-When `True`, disables Open Interpreter features that contact the internet (your remote language model is unaffected): PyPI update checks. Local-model setups typically enable this so OI does not phone home while the LLM runs on localhost.
+When `True`, disables Open Interpreter's PyPI update checks (your remote language model is unaffected). It does not set `computer.offline`: computer features that use `computer.api_base` (for example, `computer.display.find_text()` can send a screenshot and query) can still contact the internet. Local-model setups should configure both settings when they require fully offline computer features.
 
 ```python
 interpreter.offline = True  # Disables online features (e.g. update checks)

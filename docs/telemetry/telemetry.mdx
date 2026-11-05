@@ -19,6 +19,9 @@ The Python setting and profile key are no longer read, and leaving them in place
 ```python
 # No longer supported — remove this line
 interpreter.disable_telemetry = True
+
+# Raises TypeError — remove this argument from the constructor
+interpreter = OpenInterpreter(disable_telemetry=True)
 ```
 
 ### Terminal
