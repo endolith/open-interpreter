@@ -8,6 +8,7 @@ Only respond() is faked; it records the history handed to the LLM.
 """
 
 import copy
+import json
 from unittest import mock
 
 import pytest
@@ -307,3 +308,40 @@ def test_non_streaming_confirmation_reports_the_approval_prompt():
     content = response.json()["choices"][0]["message"]["content"]
     assert "print(1)" in content
     assert "Do you want to run this code?" in content
+
+
+def test_non_streaming_turn_saves_conversation_history(tmp_path):
+    """A non-streaming endpoint turn writes the conversation file (#436)."""
+
+    def fake_respond(interp):
+        yield {"role": "assistant", "type": "message", "content": "4"}
+
+    with mock.patch("interpreter.core.core.respond", fake_respond):
+        interpreter, client = _make()
+        interpreter.conversation_history = True
+        interpreter.conversation_history_path = str(tmp_path)
+        assert _post(client, "what is 2+2").status_code == 200
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    saved = json.loads(files[0].read_text(encoding="utf-8"))
+    assert saved[-1]["content"] == "4"
+
+
+def test_streaming_turn_saves_conversation_history(tmp_path):
+    """A streaming endpoint turn writes the conversation file (#436)."""
+
+    def fake_respond(interp):
+        yield {"role": "assistant", "type": "message", "content": "4"}
+
+    with mock.patch("interpreter.core.core.respond", fake_respond):
+        interpreter, client = _make()
+        interpreter.conversation_history = True
+        interpreter.conversation_history_path = str(tmp_path)
+        response = _post(client, "what is 2+2", stream=True)
+        assert response.status_code == 200
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    saved = json.loads(files[0].read_text(encoding="utf-8"))
+    assert saved[-1]["content"] == "4"
