@@ -71,6 +71,9 @@ drive-by fix; give the fix its own commit instead.
   `utils/provider_quirks.py` — the per-route `Quirks` table (stream options,
   thinking parameters) resolved once from the truthful route name. Add a row
   there for a new provider instead of another check on the model string.
+  `utils/reasoning_lines.py` drops reasoning lines that are only a hollow
+  directive ("Run.", "Execute.", "Let's do it.") from both the live stream and
+  the history echoed back on later turns.
 - `interpreter/core/async_core.py` — the async HTTP/WebSocket server
   (`AsyncInterpreter`, `Server`, `create_router`; FastAPI + janus queues + worker
   threads). Owns the approval handshake (`pending_confirmation`, `_approval_event`),
