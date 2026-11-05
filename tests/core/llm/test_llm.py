@@ -466,6 +466,40 @@ def test_load_keeps_explicit_deepseek_config(monkeypatch):
     assert llm.api_base == "https://explicit.example/v1"
 
 
+def test_switching_away_from_deepseek_drops_env_credentials(monkeypatch):
+    """DeepSeek env credentials must not follow the model to another provider."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("DEEPSEEK_API_BASE", "https://deepseek.example/v1")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+    llm.load()
+    assert llm.api_key == "deepseek-key"
+
+    llm.model = "gpt-4o-mini"
+
+    assert llm.api_key is None
+    assert llm.api_base is None
+
+
+def test_switching_away_from_deepseek_keeps_explicit_overrides(monkeypatch):
+    """A key set after load is the user's and survives a model switch."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+    llm.load()
+    llm.api_key = "explicit-key"
+    llm.api_base = "https://proxy.example"
+
+    llm.model = "gpt-4o-mini"
+
+    assert llm.api_key == "explicit-key"
+    assert llm.api_base == "https://proxy.example"
+
+
 def test_load_ollama_downloads_and_pings_model():
     """llm.load for an ollama model pulls it if missing, reads its context
     window, and pings it to force a load."""
