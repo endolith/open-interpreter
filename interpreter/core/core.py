@@ -217,6 +217,54 @@ class OpenInterpreter:
 
             raise
 
+    def _save_conversation(self):
+        """Write the conversation JSON when history is enabled.
+
+        Shared by chat() and the OpenAI-compatible server, which drives
+        _respond_and_store() directly and so cannot rely on chat()'s save.
+        """
+        # Save conversation if we've turned conversation_history on
+        if self.conversation_history:
+            # If it's the first message, set the conversation name
+            if not self.conversation_filename:
+                first_few_words_list = self.messages[0]["content"][:25].split(" ")
+                if (
+                    len(first_few_words_list) >= 2
+                ):  # for languages like English with blank between words
+                    first_few_words = "_".join(first_few_words_list[:-1])
+                else:  # for languages like Chinese without blank between words
+                    first_few_words = self.messages[0]["content"][:15]
+                for char in '<>:"/\\|?*!\n':  # Invalid characters for filenames
+                    first_few_words = first_few_words.replace(char, "")
+
+                date = datetime.now().strftime("%B_%d_%Y_%H-%M-%S")
+                base = "__".join([first_few_words, date])
+                # Reserve a name no other conversation already holds. The
+                # name is only the opening words plus a one-second
+                # timestamp, so two conversations started with the same
+                # words in the same second would collide — and the "w" open
+                # below would silently destroy the earlier one.
+                filename = f"{base}.json"
+                counter = 1
+                while os.path.exists(
+                    os.path.join(self.conversation_history_path, filename)
+                ):
+                    filename = f"{base}_{counter}.json"
+                    counter += 1
+                self.conversation_filename = filename
+
+            # Check if the directory exists, if not, create it
+            if not os.path.exists(self.conversation_history_path):
+                os.makedirs(self.conversation_history_path)
+            # Write or overwrite the file
+            with open(
+                os.path.join(
+                    self.conversation_history_path, self.conversation_filename
+                ),
+                "w",
+            ) as f:
+                json.dump(self.messages, f)
+
     def _streaming_chat(self, message=None, display=True):
         # Sometimes a little more code -> a much better experience!
         # Display mode actually runs interpreter.chat(display=False, stream=True) from within the terminal_interface.
@@ -261,47 +309,7 @@ class OpenInterpreter:
             # This is where it all happens!
             yield from self._respond_and_store()
 
-            # Save conversation if we've turned conversation_history on
-            if self.conversation_history:
-                # If it's the first message, set the conversation name
-                if not self.conversation_filename:
-                    first_few_words_list = self.messages[0]["content"][:25].split(" ")
-                    if (
-                        len(first_few_words_list) >= 2
-                    ):  # for languages like English with blank between words
-                        first_few_words = "_".join(first_few_words_list[:-1])
-                    else:  # for languages like Chinese without blank between words
-                        first_few_words = self.messages[0]["content"][:15]
-                    for char in '<>:"/\\|?*!\n':  # Invalid characters for filenames
-                        first_few_words = first_few_words.replace(char, "")
-
-                    date = datetime.now().strftime("%B_%d_%Y_%H-%M-%S")
-                    base = "__".join([first_few_words, date])
-                    # Reserve a name no other conversation already holds. The
-                    # name is only the opening words plus a one-second
-                    # timestamp, so two conversations started with the same
-                    # words in the same second would collide — and the "w" open
-                    # below would silently destroy the earlier one.
-                    filename = f"{base}.json"
-                    counter = 1
-                    while os.path.exists(
-                        os.path.join(self.conversation_history_path, filename)
-                    ):
-                        filename = f"{base}_{counter}.json"
-                        counter += 1
-                    self.conversation_filename = filename
-
-                # Check if the directory exists, if not, create it
-                if not os.path.exists(self.conversation_history_path):
-                    os.makedirs(self.conversation_history_path)
-                # Write or overwrite the file
-                with open(
-                    os.path.join(
-                        self.conversation_history_path, self.conversation_filename
-                    ),
-                    "w",
-                ) as f:
-                    json.dump(self.messages, f)
+            self._save_conversation()
             return
 
         raise Exception(
