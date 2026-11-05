@@ -1008,3 +1008,21 @@ def test_start_token_is_delivered_to_the_model_as_literal_text():
 
     stored = [m.get("content") for m in interpreter.messages]
     assert "{START}" in stored, "the marker is stored as a user turn, not consumed"
+
+
+def test_post_settings_rejects_a_null_model(client, server_pair):
+    """POST /settings refuses a null model instead of half-applying it.
+
+    The route validated keys but not values, so `{"llm":{"model":null}}`
+    reached the setter, which recorded the new model and then raised — leaving
+    the provider-switch cleanup blind to the previous model and letting a
+    DeepSeek key travel to the next provider.
+    """
+    _, interpreter = server_pair
+    interpreter.llm.model = "deepseek/deepseek-chat"
+
+    response = client.post("/settings", json={"llm": {"model": None}})
+
+    assert response.status_code == 400
+    assert "non-empty string" in response.json()["error"]
+    assert interpreter.llm.model == "deepseek/deepseek-chat"
