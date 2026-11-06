@@ -46,7 +46,7 @@ Set the following environment variables [(click here to learn how)](https://chat
 | Environment Variable | Description | Where to Find |
 | -------------------- | ----------- | ------------- |
 | `DEEPSEEK_API_KEY` | API key for the DeepSeek platform. | [DeepSeek API keys](https://platform.deepseek.com/api_keys) |
-| `DEEPSEEK_API_BASE` | Optional. API base URL (default: `https://api.deepseek.com`). | [DeepSeek API docs](https://api-docs.deepseek.com/) |
+| `DEEPSEEK_API_BASE` | Optional. API base URL (default: `https://api.deepseek.com/beta`). | [DeepSeek API docs](https://api-docs.deepseek.com/) |
 
 # Reasoning / thinking mode
 
@@ -57,8 +57,9 @@ interpreter.llm.reasoning_effort = "high"  # LiteLLM enables thinking; it does n
 ```
 
 ```yaml Profile
+version: 0.2.5
 llm:
   reasoning_effort: "low"   # LiteLLM enables thinking but does not forward low/high/max
 ```
 
-When a request includes tools, DeepSeek requires prior assistant `reasoning_content` to be sent back; Open Interpreter fills it automatically for `deepseek/` requests. Tool-free requests do not use prior reasoning history.
+In thinking mode, DeepSeek requires prior assistant `reasoning_content` in requests with tools. Open Interpreter fills missing fields, but trimming can remove the original reasoning and leave a `.` placeholder on a tool call. The follow-up request can fail with HTTP 400. DeepSeek ignores prior reasoning history in tool-free requests.
