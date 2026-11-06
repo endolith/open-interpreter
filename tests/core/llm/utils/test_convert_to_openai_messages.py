@@ -563,8 +563,8 @@ def test_whitespace_around_text_content_is_stripped(interpreter):
 def test_merge_joins_same_role_messages_with_newline(interpreter):
     """Without function calling, a flushed same-role group joins with newlines.
 
-    Every flush joins the accumulated messages with a newline, so a
-    two-message assistant group becomes one block."""
+    The role-change flush joins accumulated messages with a newline (the final
+    flush uses a space), so a two-message assistant group becomes one block."""
     messages = [
         {"role": "assistant", "type": "message", "content": "part one"},
         {"role": "assistant", "type": "message", "content": "part two"},
@@ -721,11 +721,7 @@ def test_error_message_skipped_but_later_processed(interpreter):
 
 
 def test_function_calling_false_merges_consecutive_messages(interpreter):
-    """With function calling off, consecutive same-role messages merge with newlines.
-
-    Every flush — mid-list and trailing — joins with newlines (fixed in #331;
-    the trailing flush used to join with a space).
-    """
+    """With function calling off, consecutive same-role messages merge with newlines."""
     messages = [
         {"role": "user", "type": "message", "content": "a"},
         {"role": "user", "type": "message", "content": "b"},
@@ -1812,3 +1808,112 @@ def test_different_tool_call_ids_are_not_merged():
     )
 
     assert len(merged) == 2
+
+
+def test_repeated_user_message_templates_only_the_last_occurrence(interpreter):
+    """An earlier user message repeating the last one's text is not templated.
+
+    LMC messages carry no id, so locating the last user message by value
+    matched every earlier repeat of a common reply ("continue", "yes", "ok"),
+    stamping the template onto history on every later turn."""
+    messages = [
+        {"role": "user", "type": "message", "content": "continue"},
+        {"role": "assistant", "type": "message", "content": "ok"},
+        {"role": "user", "type": "message", "content": "continue"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert [m["content"] for m in result] == ["continue", "ok", "User: continue"]
+
+
+def test_user_text_followed_by_image_still_gets_the_template(interpreter):
+    """The template wraps the user's text even when an image follows it.
+
+    The terminal stores a dragged-in image as a text message plus a separate
+    user-role image message, so the image is the last user-role entry. The
+    template must still reach the text the user typed instead of being
+    dropped from exactly the turn that carried an image."""
+    messages = [
+        {"role": "user", "type": "message", "content": "what is this?"},
+        {"role": "user", "type": "image", "format": "description", "content": "a cat"},
+    ]
+    result = convert_to_openai_messages(messages, interpreter=interpreter)
+    assert [m["content"] for m in result] == ["User: what is this?", "a cat"]
+
+
+def test_merge_does_not_emit_empty_message_after_image(interpreter):
+    """A role change across an image does not insert an empty message.
+
+    The merge pass flushes pending text when it reaches an image but kept the
+    flushed role, so the next message with a different role flushed an empty
+    group first. Every screenshot cycle (user output, image, assistant reply)
+    therefore sent a fabricated empty user turn to the model."""
+    import base64
+
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    messages = [
+        {"role": "user", "type": "message", "content": "look"},
+        {"role": "computer", "type": "image", "format": "base64.png", "content": png},
+        {"role": "assistant", "type": "message", "content": "I see a desktop."},
+    ]
+    result = convert_to_openai_messages(
+        messages,
+        function_calling=False,
+        vision=True,
+        shrink_images=False,
+        interpreter=interpreter,
+    )
+    assert [m["role"] for m in result] == ["user", "user", "assistant"]
+    assert [m["content"] for m in result if isinstance(m["content"], str)] == [
+        "User: look",
+        "I see a desktop.",
+    ]
+
+
+def test_final_merged_group_joins_with_newline(interpreter):
+    """The trailing merged group joins with a newline, like every other flush.
+
+    A final assistant text+code group was joined with a space, so the opening
+    code fence no longer started its own line and the history the model reads
+    was no longer valid markdown."""
+    messages = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {"role": "assistant", "type": "message", "content": "Let me run it:"},
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "print(1)",
+        },
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[-1]["content"] == "Let me run it:\n```python\nprint(1)\n```"
+
+
+def test_console_output_does_not_mutate_the_caller(interpreter):
+    """Conversion must not add or coerce content on the caller's message."""
+    message = {"role": "computer", "type": "console", "format": "output"}
+    messages = [message]
+
+    convert_to_openai_messages(
+        messages, function_calling=True, interpreter=interpreter
+    )
+
+    assert message == {
+        "role": "computer",
+        "type": "console",
+        "format": "output",
+    }
+
+
+def test_console_output_non_string_content_is_coerced_without_function_calling(interpreter):
+    """Plain conversion also coerces non-string output, without mutating history."""
+    messages = [
+        {"role": "computer", "type": "console", "format": "output", "content": 42}
+    ]
+    result = convert_to_openai_messages(
+        messages, function_calling=False, interpreter=interpreter
+    )
+    assert result[0]["content"] == "Output:\n42"
+    assert messages[0]["content"] == 42

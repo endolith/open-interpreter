@@ -654,7 +654,26 @@ def run_tool_calling_llm(llm, request_params):
 
         # Mark if we see tool_calls (but don't try to parse incomplete streaming data)
         if "tool_calls" in delta and delta["tool_calls"]:
-            function_call_detected = True
+            # Mark that a usable call is present for the review/auth layer.
+            # Conversion itself happens after the stream completes.
+            for tool_call in delta["tool_calls"]:
+                function = (
+                    tool_call.get("function")
+                    if isinstance(tool_call, dict)
+                    else getattr(tool_call, "function", None)
+                )
+                if not function:
+                    continue
+                if isinstance(function, dict):
+                    name = function.get("name")
+                    arguments = function.get("arguments")
+                else:
+                    name = getattr(function, "name", None)
+                    arguments = getattr(function, "arguments", None)
+                if name is None and arguments is None:
+                    continue
+                function_call_detected = True
+                break
 
         # Accumulate deltas
         # Note: merge_deltas now handles lists (like tool_calls) properly
@@ -908,51 +927,57 @@ def run_tool_calling_llm(llm, request_params):
                 print(f"[DEBUG] Converting tool_calls after stream. tool_calls type: {type(tool_calls)}, value: {json.dumps(tool_calls, default=str)[:500]}", flush=True)
 
             if isinstance(tool_calls, list) and len(tool_calls) > 0:
-                tool_call = tool_calls[0]
-                # Extract tool_call_id for potential error response
-                if isinstance(tool_call, dict) and "id" in tool_call:
-                    tool_call_id_for_error = tool_call["id"]
-                elif hasattr(tool_call, "id"):
-                    tool_call_id_for_error = tool_call.id
-
-                converted = False
-                function_obj = (
-                    tool_call.get("function")
-                    if isinstance(tool_call, dict)
-                    else getattr(tool_call, "function", None)
-                )
-                if function_obj is None:
-                    # A provider can send an empty tool-call entry; there is
-                    # nothing to convert or execute, so skip it silently.
-                    converted = True
-                elif isinstance(tool_call, dict) and "function" in tool_call:
-                    if isinstance(tool_call["function"], dict):
-                        accumulated_deltas["function_call"] = {
-                            "name": tool_call["function"].get("name"),
-                            "arguments": tool_call["function"].get("arguments"),
-                        }
-                        function_call_detected = True
-                        converted = True
-                        if llm.interpreter.verbose:
-                            print(f"[DEBUG] Converted tool_call to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
-                elif hasattr(tool_call, "function"):
-                    accumulated_deltas["function_call"] = {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
-                    }
-                    function_call_detected = True
-                    converted = True
-                    if llm.interpreter.verbose:
-                        print(f"[DEBUG] Converted tool_call (object) to function_call: name={accumulated_deltas['function_call']['name']}", flush=True)
-
-                # If we still couldn't convert, raise an error with details
-                if not converted:
-                    raise Exception(
-                        f"Unsupported tool_call format. Type: {type(tool_call)}, "
-                        f"Has 'function' attr: {hasattr(tool_call, 'function')}, "
-                        f"Is dict: {isinstance(tool_call, dict)}, "
-                        f"Dict keys if dict: {list(tool_call.keys()) if isinstance(tool_call, dict) else 'N/A'}"
+                converted_call = None
+                selected_tool_call = None
+                for tool_call in tool_calls:
+                    # Entries arrive as objects (with .function) or plain dicts
+                    # depending on the provider/litellm version.
+                    function = (
+                        tool_call.get("function")
+                        if isinstance(tool_call, dict)
+                        else getattr(tool_call, "function", None)
                     )
+                    if not function:
+                        continue
+                    if isinstance(function, dict):
+                        name = function.get("name")
+                        arguments = function.get("arguments")
+                    else:
+                        name = getattr(function, "name", None)
+                        arguments = getattr(function, "arguments", None)
+                    if name is None and arguments is None:
+                        # An entry with neither a name nor arguments carries
+                        # nothing to merge; keep scanning for a usable entry.
+                        continue
+                    if name is not None:
+                        # Only the first named call is executed; later named
+                        # entries are separate parallel calls.
+                        if converted_call is None:
+                            converted_call = {"name": name, "arguments": arguments}
+                            selected_tool_call = tool_call
+                    elif converted_call is not None:
+                        # Arguments-only continuation of the selected call.
+                        if isinstance(
+                            converted_call.get("arguments"), str
+                        ) and isinstance(arguments, str):
+                            converted_call["arguments"] += arguments
+
+                if converted_call is not None:
+                    accumulated_deltas["function_call"] = converted_call
+                    function_call_detected = True
+                    if isinstance(selected_tool_call, dict) and "id" in selected_tool_call:
+                        tool_call_id_for_error = selected_tool_call["id"]
+                    elif hasattr(selected_tool_call, "id"):
+                        tool_call_id_for_error = selected_tool_call.id
+                    if llm.interpreter.verbose:
+                        print(
+                            f"[DEBUG] Converted tool_call to function_call: name={converted_call['name']}",
+                            flush=True,
+                        )
+                else:
+                    # No entry carried a usable function, and the raw tool_calls
+                    # list is nothing the merge step can consume.
+                    accumulated_deltas.pop("tool_calls", None)
 
     # Process the converted function_call (if any) to yield code
     if accumulated_deltas.get("function_call"):
@@ -1247,6 +1272,16 @@ def run_tool_calling_llm(llm, request_params):
                 print(f"[ERROR] Function call details: {json.dumps(function_call, default=str)}", flush=True)
                 if tool_call_id_for_error:
                     print(f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}", flush=True)
+    if buffer and review_category is not None:
+        # A verdict that arrived whole in one chunk was buffered waiting for a
+        # following chunk that never comes; flush it instead of dropping it
+        # (#219).
+        yield {
+            "type": "review",
+            "format": review_category,
+            "content": buffer,
+        }
+        buffer = ""
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)

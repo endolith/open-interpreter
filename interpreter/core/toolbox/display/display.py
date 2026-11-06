@@ -154,7 +154,7 @@ class Display:
         # We should probably remove self.toolbox.emit_images for this reason.
 
         # if not self.toolbox.emit_images and force_image == False:
-        #     screenshot = self.screenshot(show=False, force_image=True)
+        #     screenshot = self.screenshot(show=False)
 
         #     description = self.toolbox.vision.query(pil_image=screenshot)
         #     print("A DESCRIPTION OF WHAT'S ON THE SCREEN: " + description)

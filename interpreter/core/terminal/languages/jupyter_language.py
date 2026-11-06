@@ -74,6 +74,14 @@ class JupyterLanguage(BaseLanguage):
     # Defaults for instances created without __init__ (e.g. in tests that skip
     # kernel startup). __init__ overrides them.
     interpreter = None
+    # msg_id of the execute_request currently being listened for, and a counter
+    # that fences a lingering listener off once a newer request starts: a
+    # listener only consumes the channel while its generation is current, so one
+    # left over from an abandoned run exits instead of stealing a newer run's
+    # messages. Class-level so a freshly built language is in a known state.
+    _execution_id = None
+    _listener_generation = 0
+
     imported_modules = set()
     function_fingerprints = {}
     variable_fingerprints = {}
@@ -115,6 +123,7 @@ class JupyterLanguage(BaseLanguage):
 
     def __init__(self, interpreter):
         self.interpreter = interpreter
+
 
         self.km = KernelManager(kernel_name="python3")
         self._start_kernel()
@@ -417,6 +426,10 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             # overwrites self._execution_id.
             max_retries = 100
             while True:
+                if generation != self._listener_generation:
+                    # A newer request started: stop consuming the channel so
+                    # the current listener gets this run's messages.
+                    return
                 # A hard exit (os._exit, OOM, segfault) closes the channels
                 # without sending idle; stop waiting and report it.
                 if not self._kernel_is_alive():
@@ -428,6 +441,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         }
                     )
                     self.finish_flag = True
+
                     return
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
                 if self.finish_flag == True:
@@ -595,8 +609,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                 "thread is on:", self.listener_thread.is_alive(), self.listener_thread
             )
 
-        self.kc.execute(code)
-
     def _maybe_send_input(self):
         """Ask the LLM whether a long-running program needs stdin, and send it.
 
@@ -679,6 +691,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             # CTRL-C is a signal, not text: never type it into the process.
             if user_input.upper() != "CTRL-C":
                 self.kc.input(user_input)
+
 
     def detect_active_line(self, line):
         if "##active_line" in line:

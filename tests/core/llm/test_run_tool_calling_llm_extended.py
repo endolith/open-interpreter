@@ -219,6 +219,7 @@ def test_review_content_in_single_chunk_is_buffered_not_yielded():
     )
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
+        {"type": "review", "format": "safe", "content": "This is safe"},
     ]
 
 

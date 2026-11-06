@@ -12,6 +12,9 @@ def _make_llm():
     llm = mock.MagicMock()
     llm.model = "gpt-4o"
     llm.supports_functions = True
+    # The fake models a Python-capable terminal so execute(language="python")
+    # passes the language gate.
+    llm.interpreter.terminal.languages = [SimpleNamespace(name="Python")]
     return llm
 
 
@@ -82,7 +85,7 @@ def test_tool_calls_later_valid_entry_converted():
     llm.completions = chat
 
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "print(1)"}
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
     ]
 
 
@@ -117,7 +120,7 @@ def test_tool_calls_dict_shaped_entries():
     llm.completions = chat
 
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "print(1)"}
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
     ]
 
 
@@ -152,9 +155,10 @@ def test_tool_calls_nameless_continuation_merges():
 
     llm.completions = chat
 
+    # Classic converts the fully merged call after the stream, so the code is
+    # yielded once rather than in per-delta fragments.
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "pri"},
-        {"type": "code", "format": "python", "content": "nt(1)"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
     ]
 
 
@@ -313,7 +317,7 @@ def test_judge_verdict_single_chunk_is_not_dropped():
     llm.completions = chat
 
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "print(1)"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
         {"type": "review", "format": "safe", "content": "Looks fine"},
     ]
 
@@ -353,5 +357,5 @@ def test_tool_calls_nameless_argumentless_entry_skipped():
     llm.completions = chat
 
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "print(1)"}
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
     ]
