@@ -6,9 +6,10 @@ def cli_input(prompt: str = "") -> str:
     end_marker = '"""'
     try:
         # Pasted tabs are otherwise eaten by readline's Tab-completion binding
-        # (notably when pasting spreadsheet TSV data). Bracketed paste makes
-        # the terminal deliver pastes literally, preserving tabs. Terminals
-        # without support simply ignore it and pastes behave as before.
+        # (notably when pasting spreadsheet TSV data). GNU Readline's bracketed
+        # paste makes the terminal deliver pastes literally, preserving tabs.
+        # libedit (often the macOS backend) ignores this GNU setting; its pasted
+        # tabs are tracked in #535.
         import readline
 
         readline.parse_and_bind("set enable-bracketed-paste on")

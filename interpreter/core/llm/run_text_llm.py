@@ -1,6 +1,8 @@
 from .utils.reasoning_lines import FillerLineFilter
 from .utils.stream_usage import record_stream_chunk_usage
 
+FENCE = "```"
+
 
 def _withheld_fence_chars(text):
     """How many trailing backticks to hold back because they may still grow into a fence.
@@ -117,7 +119,25 @@ def run_text_llm(llm, params):
 
     inside_code_block = False
     language = None
-    reasoning_filter = FillerLineFilter()  # Drops filler-only reasoning lines
+    # Where the opening fence began, so that a stream cut off before the
+    # language line completes can still emit the fence and the partial label it
+    # already consumed, rather than dropping them.
+    block_open_at = 0
+    # The opening run can be longer than FENCE (e.g. ```` for Markdown that
+    # contains a bare ``` line). The closing run must be at least as long.
+    opener_len = len(FENCE)
+    reasoning_filter = FillerLineFilter()
+
+    def flush_reasoning():
+        remainder = reasoning_filter.flush()
+        if remainder:
+            return {
+                "role": "assistant",
+                "type": "message",
+                "format": "reasoning",
+                "content": remainder,
+            }
+        return None
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
@@ -128,15 +148,21 @@ def run_text_llm(llm, params):
         if "choices" not in chunk or len(chunk["choices"]) == 0:
             # This happens sometimes
             continue
+
         delta = chunk["choices"][0]["delta"]
 
         # Stream reasoning_content as it arrives. A delta may carry content
         # alongside reasoning; emit the reasoning first and still process the
         # content (dropping it would lose the visible reply).
-        if "reasoning_content" in delta and delta["reasoning_content"]:
+        if delta.get("reasoning_content"):
             cleaned = reasoning_filter.feed(delta["reasoning_content"])
             if cleaned:
-                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": cleaned}
+                yield {
+                    "role": "assistant",
+                    "type": "message",
+                    "format": "reasoning",
+                    "content": cleaned,
+                }
 
         content = delta.get("content", "")
         if content is None:
@@ -146,43 +172,67 @@ def run_text_llm(llm, params):
         # deltas often omit the content key, which becomes "" here; only a real
         # reply ends the held line, or a split filler line would be cut short.
         if content:
-            remainder = reasoning_filter.flush()
+            remainder = flush_reasoning()
             if remainder:
-                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
+                yield remainder
 
-        accumulated_block += content
+        accumulated += content
 
-        if accumulated_block.endswith("`"):
-            # We might be writing "```" one token at a time.
-            continue
+        # One chunk can cross a boundary — prose, then a fence, then code — so
+        # keep consuming the buffer until it needs more input.
+        while True:
+            if not inside_code_block:
+                fence_at = accumulated.find(FENCE, cursor)
 
                 if fence_at == -1:
                     # No fence yet: emit the prose that cannot be part of one.
                     safe_end = len(accumulated) - _withheld_fence_chars(accumulated)
                     if safe_end > cursor:
-                        message = {
+                        yield {
                             "type": "message",
                             "content": accumulated[cursor:safe_end],
                         }
-                        if pending_reasoning:
-                            message["reasoning_content"] = pending_reasoning
-                            pending_reasoning = ""
-                        yield message
                         cursor = safe_end
                     break
 
-        # Did we just exit a code block?
-        if inside_code_block and "```" in accumulated_block:
-            remainder = reasoning_filter.flush()
-            if remainder:
-                yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
-            return
+                # Emit any prose preceding the fence, then enter the block.
+                if fence_at > cursor:
+                    yield {
+                        "type": "message",
+                        "content": accumulated[cursor:fence_at],
+                    }
+                block_open_at = fence_at
+                opener_end = fence_at
+                while opener_end < len(accumulated) and accumulated[opener_end] == "`":
+                    opener_end += 1
+                opener_len = opener_end - fence_at
+                cursor = opener_end
+                inside_code_block = True
+                continue
 
-        # If we're in a code block,
-        if inside_code_block:
-            # If we don't have a `language`, find it
-            if language is None and "\n" in accumulated_block:
-                language = accumulated_block.split("\n")[0]
+            # Inside a code block. The language label occupies the rest of the
+            # line after the opening fence and is structural, not code, so it is
+            # consumed by advancing the cursor past it rather than by stripping
+            # the label out of the emitted text.
+            if language is None:
+                newline_at = accumulated.find("\n", cursor)
+                if newline_at == -1:
+                    break  # the language line is still arriving
+
+                # A run split across deltas leaves extra backticks at the start
+                # of the info line. Count them toward the opener so a shorter
+                # inner run cannot close the block.
+                label = accumulated[cursor:newline_at]
+                extra = len(label) - len(label.lstrip("`"))
+                if extra:
+                    opener_len += extra
+                    cursor += extra
+                    label = label[extra:]
+
+                # Assigned before being refined so that an unlabelled fence in
+                # OS mode settles on "" rather than staying None, which would
+                # make the next line be parsed as a label.
+                language = label.strip()
 
                 # Default to python if not specified
                 if language == "":
@@ -204,9 +254,6 @@ def run_text_llm(llm, params):
 
             if fence_at is None:
                 if safe_end > cursor:
-                    if pending_reasoning:
-                        yield _reasoning_chunk(pending_reasoning)
-                        pending_reasoning = ""
                     if language:
                         yield {
                             "type": "code",
@@ -217,9 +264,6 @@ def run_text_llm(llm, params):
                 break
 
             # Closing fence: emit the remaining body and stop.
-            if pending_reasoning:
-                yield _reasoning_chunk(pending_reasoning)
-                pending_reasoning = ""
             if fence_at > cursor and language:
                 yield {
                     "type": "code",
@@ -227,9 +271,6 @@ def run_text_llm(llm, params):
                     "content": accumulated[cursor:fence_at],
                 }
             return
-
-        if pending_reasoning:
-            yield _reasoning_chunk(pending_reasoning)
 
     # A closing fence may be complete only because the stream ended (no
     # trailing newline); resolve it before flushing the tail as code.
@@ -246,6 +287,12 @@ def run_text_llm(llm, params):
                 }
             return
 
+    # Reasoning held back at end of stream (an unterminated filler line is
+    # dropped; a real partial line is emitted).
+    remainder = flush_reasoning()
+    if remainder:
+        yield remainder
+
     # The stream ended with something still unemitted.
     if inside_code_block and language is None:
         # The fence opened but its language line never finished, so this was
@@ -258,8 +305,6 @@ def run_text_llm(llm, params):
     # text rather than the start of a fence. Emit them instead of dropping them.
     elif cursor < len(accumulated):
         if not inside_code_block:
-            yield {"type": "message", "content": content}
-
-    remainder = reasoning_filter.flush()
-    if remainder:
-        yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
+            yield {"type": "message", "content": accumulated[cursor:]}
+        elif language:
+            yield {"type": "code", "format": language, "content": accumulated[cursor:]}

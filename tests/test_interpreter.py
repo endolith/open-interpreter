@@ -144,6 +144,7 @@ async def _wait_for_websocket_complete(
     acknowledge=False,
     phase="unknown",
     server_process=None,
+    prose_only=False,
 ):
     """Read WebSocket chunks until the server sends a 'complete' status.
 
@@ -154,6 +155,10 @@ async def _wait_for_websocket_complete(
     that crashes mid-turn (including a port-race socket bind failure from issue
     #165) aborts with its exit code instead of blocking until the recv timeout
     expires.
+
+    With ``prose_only``, accumulate only assistant message text and fail on an
+    assistant code block or its confirmation; this keeps a code answer from
+    satisfying a prose assertion and leaving a pending confirmation behind.
     """
 
     import asyncio
@@ -204,7 +209,29 @@ async def _wait_for_websocket_complete(
             raise Exception(message_data["content"])
         print("Received from WebSocket:", message_data)
         content = message_data.get("content")
-        if type(content) == str:
+        if prose_only:
+            # A secret-word answer must be assistant prose. A code block that
+            # happens to contain the word is not an answer, and its pending
+            # confirmation would swallow the next turn.
+            if (
+                message_data.get("role") == "assistant"
+                and message_data.get("type") == "code"
+            ):
+                raise AssertionError(f"expected prose, got code: {content!r}")
+            if (
+                message_data.get("role") == "computer"
+                and message_data.get("type") == "confirmation"
+            ):
+                raise AssertionError(
+                    f"expected prose, got code confirmation: {content!r}"
+                )
+            if (
+                message_data.get("role") == "assistant"
+                and message_data.get("type") == "message"
+            ):
+                if isinstance(content, str):
+                    accumulated_content += content
+        elif type(content) == str:
             accumulated_content += content
         elif content:
             accumulated_content += str(content)
@@ -723,7 +750,10 @@ def test_server():
 
             # Wait for a specific response
             accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="secret_word_crunk", server_process=process
+                websocket,
+                phase="secret_word_crunk",
+                server_process=process,
+                prose_only=True,
             )
 
             assert "crunk" in accumulated_content
@@ -766,7 +796,10 @@ def test_server():
 
             # Wait for a specific response
             accumulated_content = await _wait_for_websocket_complete(
-                websocket, phase="secret_word_barloney", server_process=process
+                websocket,
+                phase="secret_word_barloney",
+                server_process=process,
+                prose_only=True,
             )
 
             assert "barloney" in accumulated_content
@@ -891,7 +924,9 @@ def test_server():
             assert last_assistant, "expected assistant response after file turn"
             response = interpreter.toolbox.ai.chat(
                 last_assistant
-                + "\n\nBased on the assistant response above, does the assistant think the file exists? Yes or no? Only reply with one word— 'yes' or 'no'."
+                + "\n\nBased on the assistant response above, does the assistant think the file exists? "
+                "Answer with exactly one of these two words: 'yes' or 'no'. "
+                "Do not write code, shell commands, explanations, or punctuation."
             )
             answer = response.strip().lower()
             assert answer in {"yes", "no"}, (

@@ -247,7 +247,7 @@ class TestSettingsEndpointGuards(_UnauthenticatedServerTestCase):
         Writing a string over interpreter.llm was accepted with 200 and broke
         every later turn with AttributeError (fixed in #336).
         """
-        for key in ["llm", "computer"]:
+        for key in ["llm", "toolbox"]:
             with self.subTest(key=key):
                 original = getattr(self.interpreter, key)
 
