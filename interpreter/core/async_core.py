@@ -41,7 +41,7 @@ try:
         WebSocketException,
     )
     from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-    from starlette.status import HTTP_403_FORBIDDEN
+    from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 except ImportError:
     janus = None
     uvicorn = None
@@ -49,6 +49,7 @@ except ImportError:
     FastAPI = None
     File = Form = HTTPException = Request = UploadFile = WebSocket = None
     JSONResponse = PlainTextResponse = StreamingResponse = None
+    HTTP_400_BAD_REQUEST = 400
     HTTP_403_FORBIDDEN = 403
 
 
@@ -84,7 +85,7 @@ SENSITIVE_SERVER_SETTINGS = frozenset(
 )
 SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
 # Attributes that hold an object, so POST /settings only writes their sub-keys.
-NESTED_SERVER_SETTINGS = frozenset({"llm", "computer"})
+NESTED_SERVER_SETTINGS = frozenset({"llm", "toolbox"})
 
 
 def confirmation_digest(confirmation_content: Dict[str, Any]) -> str:
@@ -1104,7 +1105,6 @@ def create_router(async_interpreter):
         # Validate the whole payload before applying any of it, so a key that is
         # refused cannot leave the keys in front of it already written.
         for key, value in payload.items():
-            print("Updating settings...")
             if key in SENSITIVE_SERVER_SETTINGS:
                 return JSONResponse(
                     status_code=HTTP_403_FORBIDDEN,
@@ -1112,7 +1112,16 @@ def create_router(async_interpreter):
                         "error": f"The setting {key} is not modifiable through the server due to security constraints."
                     },
                 )
-            if key in ["llm", "toolbox"] and isinstance(value, dict):
+            if key in NESTED_SERVER_SETTINGS:
+                if not isinstance(value, dict):
+                    # Assigning a scalar here would replace the object itself, so
+                    # every later turn would fail on the missing attributes.
+                    return JSONResponse(
+                        status_code=HTTP_400_BAD_REQUEST,
+                        content={
+                            "error": f"The setting {key} must be an object of sub-settings."
+                        },
+                    )
                 if key == "llm":
                     for sub_key in value:
                         if sub_key in SENSITIVE_LLM_SETTINGS:

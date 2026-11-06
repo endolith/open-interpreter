@@ -1,3 +1,10 @@
+"""Multi-line input handling for pasted blocks.
+
+cli_input requests GNU Readline's bracketed-paste setting. On libedit
+(often the macOS backend) that request is a no-op; preserving pasted tabs
+there is tracked in #535. The one-line early return is backend-independent.
+"""
+
 from interpreter.core.utils.prompt_choice import prompt_choice
 from unittest import mock
 
@@ -109,3 +116,41 @@ def test_prompt_choice_tolerates_case_and_padding(monkeypatch):
     """A single letter still answers regardless of case or stray spaces."""
     monkeypatch.setattr("builtins.input", lambda _prompt="": "  Y  ")
     assert prompt_choice("  ", ("y", "n")) == "y"
+
+
+def test_single_line_triple_quoted_paste_returns_immediately(monkeypatch):
+    """Both markers on one input line must not wait for another line."""
+    prompts = []
+
+    def fake_input(prompt=""):
+        prompts.append(prompt)
+        if len(prompts) > 1:
+            raise AssertionError("cli_input waited for a second line")
+        return '"""hello"""'
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    assert cli_input() == '"""hello"""'
+    assert len(prompts) == 1
+
+
+def test_requests_bracketed_paste(monkeypatch):
+    """cli_input asks readline for bracketed paste; the effect is backend-specific."""
+    readline = pytest.importorskip("readline")
+    calls = []
+    monkeypatch.setattr(readline, "parse_and_bind", lambda spec: calls.append(spec))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "hello")
+
+    cli_input()
+
+    assert "set enable-bracketed-paste on" in calls
+
+
+def test_missing_readline_is_ignored(monkeypatch):
+    """Platforms without readline still read input."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "readline", None)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "hello")
+
+    assert cli_input() == "hello"

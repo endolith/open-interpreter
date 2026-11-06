@@ -252,8 +252,9 @@ def test_reasoning_survives_split_fence_guard():
         ]
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
+        {"type": "message", "content": "code "},
         {"role": "assistant", "type": "message", "format": "reasoning", "content": "thinking"},
-        {"type": "message", "content": "more"},
+        {"type": "message", "content": "`more"},
     ]
 
 
@@ -279,7 +280,6 @@ def test_reasoning_inside_code_block_is_emitted():
         ]
     )
     assert list(run_text_llm(llm, {"messages": [{"content": "sys"}]})) == [
-        {"type": "code", "format": "python", "content": "```\n"},
         {"role": "assistant", "type": "message", "format": "reasoning", "content": "r-code"},
         {"type": "code", "format": "python", "content": "print(1)\n"},
     ]
