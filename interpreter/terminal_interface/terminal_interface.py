@@ -16,6 +16,7 @@ import re
 import subprocess
 import tempfile
 import time
+import traceback
 
 from rich.box import ROUNDED
 from rich.console import Console as RichConsole

@@ -29,6 +29,11 @@ class SubprocessLanguage(BaseLanguage):
         # Set by _abort_stream when the reader fails unexpectedly, so the
         # failure can be inspected after the turn rather than only being logged.
         self._stream_error = None
+        # Whether the end-of-execution marker (not just EOF) was seen this run.
+        self._end_marker_seen = False
+        # Kept so run() can wait for them to drain the pipes when the process
+        # dies without printing the end-of-execution marker.
+        self.stream_threads = []
 
     def detect_active_line(self, line):
         """
@@ -152,17 +157,22 @@ class SubprocessLanguage(BaseLanguage):
                 errors="replace",
                 **popen_kwargs,
             )
+        self._end_marker_seen = False
         output_queue, done = self.output_queue, self.done
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stdout, False, output_queue, done),
-            daemon=True,
-        ).start()
-        threading.Thread(
-            target=self.handle_stream_output,
-            args=(self.process.stderr, True, output_queue, done),
-            daemon=True,
-        ).start()
+        self.stream_threads = [
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stdout, False, output_queue, done),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self.handle_stream_output,
+                args=(self.process.stderr, True, output_queue, done),
+                daemon=True,
+            ),
+        ]
+        for thread in self.stream_threads:
+            thread.start()
 
     def run(self, code):
         retry_count = 0
@@ -231,6 +241,32 @@ class SubprocessLanguage(BaseLanguage):
                 yield output
             except queue.Empty:
                 if self.done.is_set() or self._process_is_dead():
+                    # The process can die before printing the end marker (`exit`,
+                    # a fatal syntax error, a crash). Report what happened, then
+                    # drop the dead handle so the next run starts a fresh process.
+                    returncode = self._poll_process()
+                    if returncode is not None:
+                        readers_finished = self._join_stream_threads()
+                        while not self.output_queue.empty():
+                            yield self.output_queue.get()
+                        if not readers_finished:
+                            yield {
+                                "type": "console",
+                                "format": "output",
+                                "content": f"\nThe {self.name} process exited while its output "
+                                "reader was still running, so some output may be missing.",
+                            }
+                        if not self._end_marker_seen:
+                            yield {
+                                "type": "console",
+                                "format": "output",
+                                "content": f"\nThe {self.name} process exited with code {returncode} "
+                                "before the end of this block. Anything after the line that ended it "
+                                "did not run, and the next block starts a new process, so state from "
+                                "this one (working directory, variables) is gone.",
+                            }
+                        self.terminate()
+                        self.process = None
                     # Try to yank 3 more times from it... maybe there's something in there...
                     # (I don't know if this actually helps. Maybe we just need to yank 1 more time)
                     for _ in range(3):
@@ -247,6 +283,30 @@ class SubprocessLanguage(BaseLanguage):
             line = state_line()
             if line:
                 yield {"type": "console", "format": "output", "content": line}
+
+    def _join_stream_threads(self):
+        """Wait for finite reader threads and report whether all of them finished."""
+        for thread in self.stream_threads:
+            thread.join(timeout=5)
+        return all(not thread.is_alive() for thread in self.stream_threads)
+
+    def _poll_process(self):
+        """Return the process exit code, or None while the handle is gone.
+
+        _abort_stream clears self.process when the stdout reader dies, and the
+        consumer can reach its liveness check before done is set. Treat a
+        cleared handle as "not exited yet"; the queued diagnostic and done
+        event finish the turn.
+        """
+        if self.process is None:
+            return None
+        poll = getattr(self.process, "poll", None)
+        if not callable(poll):
+            return None
+        try:
+            return poll()
+        except Exception:
+            return None
 
     def handle_stream_output(
         self, stream, is_error_stream, output_queue=None, done=None
@@ -275,6 +335,10 @@ class SubprocessLanguage(BaseLanguage):
                 # the pipe and run() would wait for a marker that never comes.
                 try:
                     active_line = self.detect_active_line(line)
+                except ValueError:
+                    active_line = None
+
+                if active_line:
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = _ACTIVE_LINE_MARKER_RE.sub("", line)
                     active_line_enabled = (
@@ -307,6 +371,7 @@ class SubprocessLanguage(BaseLanguage):
                         output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
+                    self._end_marker_seen = True
                     done.set()
                 elif is_error_stream and "KeyboardInterrupt" in line:
                     output_queue.put(

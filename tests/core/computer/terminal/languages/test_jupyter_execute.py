@@ -208,7 +208,7 @@ def test_an_abandoned_listener_is_joined_and_cannot_steal_the_next_run(monkeypat
             parked["joined"] = True
 
     monkeypatch.setattr(
-        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        "interpreter.core.terminal.languages.jupyter_language.threading.Thread",
         ParkedThread,
     )
     lang._execute_code("print(1)", queue.Queue())
@@ -247,7 +247,7 @@ def test_an_abandoned_listener_is_joined_and_cannot_steal_the_next_run(monkeypat
             return None
 
     monkeypatch.setattr(
-        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        "interpreter.core.terminal.languages.jupyter_language.threading.Thread",
         InlineThread,
     )
     second_queue = queue.Queue()
@@ -305,7 +305,7 @@ def test_the_extra_joins_stop_as_soon_as_the_stuck_listener_exits(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        "interpreter.core.terminal.languages.jupyter_language.threading.Thread",
         NoopThread,
     )
 
@@ -343,7 +343,7 @@ def test_a_listener_from_a_superseded_generation_stops_consuming(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "interpreter.core.computer.terminal.languages.jupyter_language.threading.Thread",
+        "interpreter.core.terminal.languages.jupyter_language.threading.Thread",
         DeferredThread,
     )
 

@@ -417,6 +417,15 @@ def markdown(self, export_path: str):
 
     # If user doesn't specify the export path, then save under the default Downloads folder
     if not export_path:
+        # There is no conversation file to name the export after until the
+        # autosave has run: conversation_history may be off, or the messages
+        # were just loaded or reset.
+        if not self.conversation_filename:
+            print(
+                "No conversation file to name the export after. "
+                "Pass a path: %markdown path/to/export.md"
+            )
+            return
         export_path = os.path.join(
             get_downloads_path(), self.conversation_filename[:-4] + "md"
         )

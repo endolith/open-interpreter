@@ -527,6 +527,7 @@ def test_terminal_interface_empty_reply_does_not_resend_message():
     returning nothing was billed in a tight loop with nothing shown to the user.
     """
     interpreter = _intro_interpreter()
+    interpreter._stopped_retrying = False
 
     def chat(message, display=False, stream=True):
         """Emulate a turn with an empty completion: the user message is all that is stored."""

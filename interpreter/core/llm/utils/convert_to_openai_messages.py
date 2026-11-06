@@ -295,6 +295,18 @@ def convert_to_openai_messages(
 
     #     messages = [message for message in messages if message.get("type") != "code"]
 
+    # The user message template wraps the last thing the user said, so that
+    # message has to be located by position: LMC messages carry no id, so
+    # comparing them by value also matched every earlier message that happened
+    # to repeat the same text. Only "message" types are candidates, because a
+    # user-role image (the terminal stores a dragged-in image as text plus a
+    # separate image message) is never handled by the branch below, so
+    # selecting it dropped the template from that turn entirely.
+    last_user_message_index = None
+    for index, message in enumerate(messages):
+        if message.get("role") == "user" and message.get("type") == "message":
+            last_user_message_index = index
+
     for _mi, message in enumerate(messages, start=stored_offset):
         # Is this for thine eyes?
         if "recipient" in message and message["recipient"] != "assistant":
@@ -334,7 +346,7 @@ def convert_to_openai_messages(
             new_message["role"] = role
 
             if role == "user" and (
-                message == [m for m in messages if m.get("role") == "user"][-1]
+                _mi - stored_offset == last_user_message_index
                 or interpreter.always_apply_user_message_template
             ):
                 # Only add the template for the last message?
@@ -447,10 +459,8 @@ def convert_to_openai_messages(
                     print("\n\n\nStrange chunk found:", message, "\n\n\n")
                 message["content"] = str(message["content"])
             if function_calling:
-                if type(message["content"]) != str:
-                    if interpreter.debug:
-                        print("\n\n\nStrange chunk found:", message, "\n\n\n")
-                    message["content"] = str(message["content"])
+                new_message["role"] = "function"
+                new_message["name"] = "execute"
                 if message["content"].strip() == "":
                     output_content = "No output"  # I think it's best to be explicit, but we should test this.
                 else:
@@ -785,13 +795,15 @@ def convert_to_openai_messages(
                     _flush(current_role, current_content, current_extra)
                     current_content = []
                     current_extra = {}
+                # A non-string message ends the group, so forget its role too:
+                # keeping it made the next message of a different role flush an
+                # empty group under the stale role first.
+                current_role = None
                 combined_messages.append(message)
 
-        # Add the last message
+        # Add the last message; use the same newline separator as the others.
         if current_content:
-            msg = {"role": current_role, "content": " ".join(current_content)}
-            msg.update(current_extra)
-            combined_messages.append(msg)
+            _flush(current_role, current_content, current_extra)
 
         new_messages = combined_messages
 

@@ -82,8 +82,8 @@ def test_terminate_is_idempotent():
     interpreter.disable_telemetry = True
     interpreter.computer.run("python", "print(1)")
 
-    interpreter.computer.terminal.terminate()
-    interpreter.computer.terminal.terminate()
+    interpreter.terminal.terminate()
+    interpreter.terminal.terminate()
 
 
 def test_terminate_live_terminals_survives_dead_runtime():
@@ -92,7 +92,7 @@ def test_terminate_live_terminals_survives_dead_runtime():
     A runtime that is already gone (terminate() raises) must not fail exit,
     and the remaining terminals must still get their terminate() call.
     """
-    from interpreter.core.computer.terminal.terminal import (
+    from interpreter.core.terminal.terminal import (
         _LIVE_TERMINALS,
         _terminate_live_terminals,
     )
@@ -129,7 +129,7 @@ def test_forked_child_does_not_inherit_live_terminals():
     The child gets a copy of the registry, so without clearing it a normal child
     exit would terminate Jupyter kernels owned by the parent process.
     """
-    from interpreter.core.computer.terminal.terminal import _LIVE_TERMINALS
+    from interpreter.core.terminal.terminal import _LIVE_TERMINALS
 
     class Marker:
         pass
