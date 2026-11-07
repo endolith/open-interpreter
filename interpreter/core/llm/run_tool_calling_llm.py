@@ -2,6 +2,9 @@ import os
 import re
 
 from .utils.merge_deltas import merge_deltas
+from .utils.normalize_double_escaped_arguments import (
+    normalize_double_escaped_arguments,
+)
 from .utils.parse_partial_json import parse_partial_json
 
 tool_schema = {
@@ -333,6 +336,16 @@ def run_tool_calling_llm(llm, request_params):
             if "arguments" in accumulated_deltas["function_call"]:
                 arguments = accumulated_deltas["function_call"]["arguments"]
                 arguments = parse_partial_json(arguments)
+                if isinstance(arguments, dict):
+                    # Some providers escape the JSON a second time; without
+                    # this the `language`/`code` lookups below miss and the
+                    # call is dropped for the cost of a turn (#566).
+                    unescaped = normalize_double_escaped_arguments(arguments)
+                    if unescaped is not arguments and llm.interpreter.verbose:
+                        print(
+                            "Tool-call arguments arrived double-escaped; unescaped one level."
+                        )
+                    arguments = unescaped
 
                 if arguments:
                     if (

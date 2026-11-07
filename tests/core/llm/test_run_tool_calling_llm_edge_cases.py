@@ -355,3 +355,40 @@ def test_tool_calls_nameless_argumentless_entry_skipped():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "code", "format": "python", "content": "print(1)"}
     ]
+
+
+def test_double_escaped_arguments_still_produce_a_code_chunk():
+    """A provider that escapes JSON twice must not lose the call.
+
+    OpenInference-served DeepSeek streams arguments with one escape level too
+    many (#566), so the parsed keys come back quoted (`'"language"'`), every
+    lookup missed, and no code chunk was ever yielded — the turn was wasted
+    and the task could fail. The repaired object yields the same chunk a
+    cleanly-encoded call would.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"code": "echo hi", "\\"language\\"": "\\"bash\\""}',
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "bash", "content": "echo hi"}
+    ]
