@@ -473,8 +473,10 @@ def respond(interpreter):
                             json_end = error_str.rfind("}") + 1
                             error_data = json.loads(error_str[json_start:json_end])
 
-                            # Build text content with nested structure
-                            lines = ["[bold]OpenRouterException:[/bold]"]
+                            # Build text content with nested structure.
+                            # Not every JSON error body comes from OpenRouter;
+                            # DeepSeek's API uses the same shape.
+                            lines = ["[bold]Provider error:[/bold]"]
                             lines.append("")
 
                             def format_value(val, indent=0):
