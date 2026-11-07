@@ -387,6 +387,44 @@ def test_genuinely_transient_failures_are_still_temporary(message):
     assert respond_mod._is_temporary_provider_error(Exception(message)) is True
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        # Observed verbatim from api.deepseek.com during a benchmark run: three
+        # consecutive trials died on the first call with this 500, and OI treated
+        # it as fatal — zero retries, zero model calls, scored as task failures.
+        "Internal Server Error (request_id: 0e03abe8-afca-46b0-8e06-c1c655f25639)",
+        '{"error": {"message": "Internal Server Error", "type": "internal_error", "code": "internal_error"}}',
+        "litellm.InternalServerError.InternalServerError: 500 Server Error: upstream exploded",
+        "502 Bad Gateway from upstream",
+        "upstream returned status code 501",
+    ],
+)
+def test_5xx_and_internal_errors_are_temporary(message):
+    """Provider 5xx and internal-error bodies must retry.
+
+    The leaderboard itself classifies 429/5xx as retriable infra; before this,
+    none of these phrasings matched the temporary markers, so a single
+    transient upstream 500 killed the turn instead of retrying.
+    """
+    assert respond_mod._is_temporary_provider_error(Exception(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "prompt of 1500 tokens exceeds the context window",
+        "quota exceeded after 5000 tokens",
+        "model not found",
+        "invalid api key provided",
+    ],
+)
+def test_status_codes_match_on_word_boundaries_only(message):
+    """Numbers inside messages must not read as status codes, and permanent
+    conditions must keep short-circuiting as non-temporary."""
+    assert respond_mod._is_temporary_provider_error(Exception(message)) is False
+
+
 def test_model_unavailable_is_surfaced_not_retried(capsys, panels):
     """The permanent model error reaches the user after one attempt.
 
