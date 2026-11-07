@@ -112,12 +112,22 @@ class _FakeOpenRouterResponse:
 
 @pytest.fixture
 def stub_openrouter_registry(monkeypatch):
-    """Simulate a stale LiteLLM registry and a stubbed provider call."""
+    """Simulate a stale LiteLLM registry and stub both model runners.
+
+    litellm now knows deepseek-v4-flash supports function calls, so an
+    unstubbed tool-calling runner would fire a real HTTP request and make
+    vision detection pass or fail on network behaviour instead of asserting.
+    """
     monkeypatch.setattr(litellm, "supports_vision", lambda model: False)
     monkeypatch.setattr(
         llm_mod,
         "run_text_llm",
         lambda self, params: iter([("message", {"role": "assistant", "type": "message", "content": "stubbed"})]),
+    )
+    monkeypatch.setattr(
+        llm_mod,
+        "run_tool_calling_llm",
+        lambda self, params: iter([{"role": "assistant", "type": "message", "content": "stubbed"}]),
     )
     return monkeypatch
 
