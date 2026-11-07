@@ -11,6 +11,8 @@ from ...utils.shell_chain import replace_null_redirect_target
 # password, and cost a debugging session chasing a credential that was never
 # exposed. It is a path probe; say so.
 _CWD_MARKER = "##oi_cwd##"
+_EXIT_PREFIX = "##oi_exit:"
+_EXIT_CODE_RE = re.compile(r"(\d+)##")
 
 
 class CwdTrackingMixin:
@@ -89,6 +91,18 @@ class CwdTrackingMixin:
     def _cwd_marker_echo(self):
         raise NotImplementedError
 
+    def _exit_marker_echo(self):
+        """Echo appended after a block to report its exit status, or "" for silence.
+
+        Opt-in per language. bash echoes ``$?``, which POSIX updates after every
+        command, so it is correct for each block. cmd's ``%ERRORLEVEL%`` and
+        PowerShell's ``$LASTEXITCODE`` are only written by some commands and
+        survive across blocks, so echoing them would blame a previous block's
+        failure on the next one; they stay silent until capture-and-reset is
+        wired up.
+        """
+        return ""
+
     def _state_line(self):
         """One-line report of the shell's working directory, for the model.
 
@@ -110,9 +124,15 @@ class CwdTrackingMixin:
         return f"[Shell State: CWD: {self.cwd}]"
 
     def _insert_cwd_marker(self, code, end_marker):
-        """Insert the ``##oi_cwd##`` echo just before the end-of-execution marker."""
+        """Insert the exit-status and ``##oi_cwd##`` echoes before the end marker.
+
+        The exit echo goes first when the language opts in: the cwd echo is
+        itself a command, so a ``$?`` captured after it would read the marker's
+        own success instead of the block's status.
+        """
         if code.endswith(end_marker):
-            return code[: -len(end_marker)] + self._cwd_marker_echo() + end_marker
+            body = code[: -len(end_marker)]
+            return body + self._exit_marker_echo() + self._cwd_marker_echo() + end_marker
         return code
 
     def _filter_pwd_marker(self, line):
@@ -144,10 +164,37 @@ class CwdTrackingMixin:
         before = before.rstrip("\r\n")
         return before or None
 
+    def _filter_exit_marker(self, line):
+        """Turn the ``##oi_exit:<n>##`` echo into a human exit-status line.
+
+        Returns ``Exit code: <n>`` (keeping any output the echo was glued to)
+        when the block failed, None when it succeeded -- the echo is protocol,
+        not output -- and the line unchanged when it carries no marker or a
+        malformed one, so unrelated output is never eaten.
+
+        Same no-anchoring rule as the cwd marker: a command whose output lacks
+        a trailing newline leaves the shell mid-line, so the echo arrives glued
+        to that output.
+        """
+        if _EXIT_PREFIX not in line:
+            return line
+        before, _, after = line.partition(_EXIT_PREFIX)
+        match = _EXIT_CODE_RE.match(after)
+        if not match:
+            return line
+        before = before.rstrip("\r\n")
+        code = int(match.group(1))
+        if code == 0:
+            return before or None
+        return (before + "\n" if before else "") + f"Exit code: {code}\n"
+
     def line_postprocessor(self, line):
         stripped = self._filter_pwd_marker(line)
         if stripped is None:
             return None  # discard the marker from visible output
+        stripped = self._filter_exit_marker(stripped)
+        if stripped is None:
+            return None  # successful block: status echo is protocol, not output
         return self._postprocess_line(stripped)
 
     def strip_boilerplate(self, code):

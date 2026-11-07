@@ -31,5 +31,10 @@ class Bash(CwdTrackingMixin, SubprocessLanguage):
     def _cwd_marker_echo(self):
         return '\necho "##oi_cwd##$PWD"'
 
+    def _exit_marker_echo(self):
+        # $? is the status of the last command, which at this point is the
+        # last line of the user's block; the echo lines below come after it.
+        return '\necho "##oi_exit:$?##"'
+
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line
