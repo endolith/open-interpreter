@@ -59,6 +59,8 @@ _TOOL_CALLING_INSTRUCTIONS = (
     '{"code": "<the command or program>", "language": "<enum name>"} '
     '(for example `{"code": "print(1)", "language": "python"}`). '
     "A fenced code block in message content is never executed. "
+    "Do not call a language name (`bash`, `python`, `javascript`, …) as a tool; "
+    "the tool is `execute`, and the language goes in its `language` field. "
     "Do not call any other name as a tool (e.g. toolbox.web.answer). "
     "Those are Python APIs: call them from inside the `code` value."
 )

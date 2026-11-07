@@ -9,7 +9,13 @@ class Lang:
     name = "Python"
 
 
-def _make_llm(chunks, verbose=False, captured=None):
+def _lang(name):
+    return SimpleNamespace(name=name)
+
+
+def _make_llm(chunks, verbose=False, captured=None, languages=None):
+    languages = languages or [Lang()]
+
     def completions(**params):
         if captured is not None:
             captured.update(params)
@@ -22,9 +28,9 @@ def _make_llm(chunks, verbose=False, captured=None):
         tool_calling_instructions="",
         interpreter=SimpleNamespace(
             llm=SimpleNamespace(supports_vision=False, tool_calling_instructions=""),
-            terminal=SimpleNamespace(languages=[Lang()]),
+            terminal=SimpleNamespace(languages=languages),
             toolbox=SimpleNamespace(
-                terminal=SimpleNamespace(languages=[Lang()])
+                terminal=SimpleNamespace(languages=languages)
             ),
             verbose=verbose,
             debug=False,
@@ -73,8 +79,13 @@ def test_chunks_without_choices_are_skipped():
     ]
 
 
-def test_legacy_python_tool_call_yields_raw_arguments_as_code():
-    """A tool call named 'python' is treated as code in the python language, emitting the raw arguments string."""
+def test_language_named_tool_call_is_rewritten_to_execute():
+    """A tool named python/bash/javascript is treated as execute in that language.
+
+    Models trained on those tool names otherwise lose a turn to the unsupported
+    error; the stored history is rewritten to the execute shape so later turns
+    imitate the correct call.
+    """
     llm = _make_llm(
         [
             _chunk(
@@ -87,12 +98,51 @@ def test_legacy_python_tool_call_yields_raw_arguments_as_code():
         ]
     )
     result = list(run_tool_calling_llm(llm, {"messages": []}))
-    # Classic only accepts execute/edit/view_image as direct tool names; anything
-    # else is reported back to the model instead of being treated as code.
-    assert len(result) == 1
-    assert result[0]["role"] == "tool"
-    assert "Unsupported function call" in result[0]["content"]
-    assert "python" in result[0]["content"]
+    assert result == [
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "tool,raw_arguments,language,code,language_name",
+    [
+        ("bash", '{"code": "ls -la", "language": "bash"}', "bash", "ls -la", "bash"),
+        ("bash", '{"command": "ls -la"}', "bash", "ls -la", "bash"),
+        ("sh", "ls -la", "bash", "ls -la", "bash"),
+        ("javascript", '{"code": "console.log(1)"}', "javascript", "console.log(1)", "JavaScript"),
+    ],
+)
+def test_language_named_tool_call_accepts_common_argument_shapes(
+    tool, raw_arguments, language, code, language_name
+):
+    """bash/python-style tools accept code/language, command, or a raw string."""
+    llm = _make_llm(
+        [_chunk({"tool_calls": [_tool_call(tool, raw_arguments)]})],
+        languages=[_lang(language_name)],
+    )
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert result == [
+        {"role": "assistant", "type": "code", "format": language, "content": code}
+    ]
+
+
+def test_unknown_direct_tool_is_stored_and_paired_with_a_specific_error():
+    """An unknown tool name keeps the model's call and gets a non-Python error.
+
+    The old message told the model to call the tool from Python and gave a
+    toolbox.web.search example, which is wrong for a bash/javascript/etc. call.
+    """
+    llm = _make_llm(
+        [_chunk({"tool_calls": [_tool_call("web.search", '{"q": "x"}')]})]
+    )
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert result[0]["type"] == "tool_call"
+    assert result[0]["name"] == "web.search"
+    assert result[1]["role"] == "tool"
+    assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
+    assert "Unsupported direct tool call" in result[1]["content"]
+    assert "Python code" not in result[1]["content"]
+    assert "toolbox.web.search" not in result[1]["content"]
 
 
 def test_execute_tool_call_parses_arguments_into_code():
@@ -269,7 +319,7 @@ def test_execute_call_with_command_in_language_is_rejected():
 
     result = list(run_tool_calling_llm(llm, {"messages": []}))
 
-    assert result[0]["type"] == "execute_call"
+    assert result[0]["type"] == "tool_call"
     assert result[0]["tool_call_id"] == "toolu_1"
     assert result[1]["role"] == "tool"
     assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
@@ -286,7 +336,7 @@ def test_execute_call_without_code_names_the_two_fields():
 
     result = list(run_tool_calling_llm(llm, {"messages": []}))
 
-    assert result[0]["type"] == "execute_call"
+    assert result[0]["type"] == "tool_call"
     assert result[1]["role"] == "tool"
     assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
     assert "put the command or program in `code`" in result[1]["content"]
@@ -298,7 +348,7 @@ def test_unparseable_arguments_are_stored_and_reported():
     llm = _make_llm([_chunk({"tool_calls": [_tool_call("execute", "not json")]})])
     result = list(run_tool_calling_llm(llm, {"messages": []}))
     assert len(result) == 2
-    assert result[0]["type"] == "execute_call"
+    assert result[0]["type"] == "tool_call"
     assert result[0]["arguments"] == "not json"
     assert result[1]["role"] == "tool"
     assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
@@ -311,7 +361,7 @@ def test_unparseable_arguments_verbose_prints_warning(capsys):
         [_chunk({"tool_calls": [_tool_call("execute", "not json")]})], verbose=True
     )
     result = list(run_tool_calling_llm(llm, {"messages": []}))
-    assert result[0]["type"] == "execute_call"
+    assert result[0]["type"] == "tool_call"
     assert result[1]["role"] == "tool"
     assert "Invalid execute call" in result[1]["content"]
 
@@ -371,7 +421,7 @@ def test_reasoning_preserved_when_delta_has_tool_call():
         "format": "reasoning",
         "content": "r",
     }
-    assert any(m.get("role") == "tool" and "Unsupported function call" in m.get("content", "") for m in result)
+    assert any(m.get("role") == "tool" and "Unsupported direct tool call" in m.get("content", "") for m in result)
 
 
 @pytest.mark.parametrize(
@@ -388,7 +438,7 @@ def test_rejected_execute_call_is_stored_and_paired(arguments):
     """
     llm = _make_llm([_chunk({"tool_calls": [_tool_call("execute", arguments)]})])
     result = list(run_tool_calling_llm(llm, {"messages": []}))
-    call = next(c for c in result if c.get("type") == "execute_call")
+    call = next(c for c in result if c.get("type") == "tool_call")
     error = next(c for c in result if c.get("role") == "tool")
     assert call["tool_call_id"] == "toolu_1"
     assert error["tool_call_id"] == call["tool_call_id"]

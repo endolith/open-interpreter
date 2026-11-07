@@ -664,10 +664,10 @@ def convert_to_openai_messages(
                             0, {"type": "text", "text": f"[{ts}] "}
                         )
 
-        elif message["type"] == "execute_call":
-            # Reconstructs a rejected execute call with its original id and raw
-            # arguments, so process_messages pairs the following tool error with
-            # it instead of turning the error into orphan assistant prose.
+        elif message["type"] == "tool_call":
+            # Reconstructs a rejected direct tool call with its original id and
+            # raw arguments, so process_messages pairs the following tool error
+            # with it instead of turning the error into orphan assistant prose.
             tool_call_id = message.get("tool_call_id") or "execute_0"
             new_message["role"] = "assistant"
             new_message["content"] = ""

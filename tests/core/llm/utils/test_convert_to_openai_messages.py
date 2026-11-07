@@ -1931,7 +1931,7 @@ def test_execute_call_rebuilds_a_paired_rejected_call(interpreter):
     stored = [
         {
             "role": "assistant",
-            "type": "execute_call",
+            "type": "tool_call",
             "tool_call_id": "call_1",
             "name": "execute",
             "arguments": raw,
