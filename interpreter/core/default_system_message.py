@@ -56,7 +56,8 @@ _TOOL_CALLING_SENTENCE = (
     "Steps below show each execution as a call to the execute tool. Its arguments "
     f'are {{"code": "<the command or program>", "language": "{_cli_lang}"}}. '
     "`code` holds the command or program; `language` is a name from the tool's "
-    "enum (bash, python, …) and is never the code. These are the fields to emit: "
+    "enum (bash, python, …) and is never the code. Never call a language name as "
+    "a tool; the tool is always `execute`. These are the fields to emit: "
     "put code you only want the user to read in your message, and call `execute` "
     "when it should run. Don't just describe the step."
 )

@@ -119,6 +119,7 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertNotIn("[code:", tool)
         self.assertNotIn("[execute:", tool)
         self.assertNotIn("fenced code block", tool)
+        self.assertIn("Never call a language name", tool)
 
         fence = assemble_system_message(_prompt_interpreter(False))
         self.assertIn("fenced code block", fence)
@@ -133,6 +134,7 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn("call the `execute` tool", _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn('"code": "print(1)"', _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn('"language": "python"', _TOOL_CALLING_INSTRUCTIONS)
+        self.assertIn("language name", _TOOL_CALLING_INSTRUCTIONS)
         self.assertNotIn("execute({", _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn("never executed", _TOOL_CALLING_INSTRUCTIONS)
 

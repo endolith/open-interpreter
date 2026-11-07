@@ -23,6 +23,108 @@ def _language_names(interpreter):
     ]
 
 
+# Models trained on Claude Code/Codex-style tools often call a language name
+# (`bash`, `python`, `javascript`) directly instead of `execute`. Treat those as
+# execute calls in that language, so the stored history is rewritten to the
+# shape the model should have used.
+_LANGUAGE_TOOL_ALIASES = {
+    "bash": "bash",
+    "sh": "bash",
+    "shell": "bash",
+    "zsh": "bash",
+    "python": "python",
+    "python3": "python",
+    "py": "python",
+    "javascript": "javascript",
+    "js": "javascript",
+    "node": "javascript",
+    "ruby": "ruby",
+    "rb": "ruby",
+    "perl": "perl",
+    "pl": "perl",
+    "r": "r",
+    "java": "java",
+    "powershell": "powershell",
+    "pwsh": "powershell",
+    "html": "html",
+    "react": "react",
+    "applescript": "applescript",
+    "cmd": "cmd",
+    "augeas": "augeas",
+}
+
+
+def _language_tool_alias(function_name, interpreter):
+    """The execute language a language-named tool call stands for, or None."""
+    name = (function_name or "").strip().lower()
+    valid = set(_language_names(interpreter))
+    target = _LANGUAGE_TOOL_ALIASES.get(name)
+    if target and target in valid:
+        return target
+    if name in valid:
+        return name
+    return None
+
+
+def _alias_code_and_language(function_name, interpreter, raw_arguments):
+    """(code, language) for a language-named tool call, or (None, None)."""
+    alias = _language_tool_alias(function_name, interpreter)
+    if alias is None:
+        return None, None
+    arguments = raw_arguments
+    if isinstance(arguments, str):
+        parsed = parse_partial_json(arguments)
+        if parsed is None:
+            return arguments, alias
+        arguments = parsed
+    if isinstance(arguments, str):
+        return arguments, alias
+    if isinstance(arguments, dict):
+        code = None
+        for key in ("code", "command", "cmd", "input", "script", "source"):
+            value = arguments.get(key)
+            if isinstance(value, str) and value:
+                code = value
+                break
+        language = arguments.get("language")
+        if not isinstance(language, str) or language.lower() not in set(
+            _language_names(interpreter)
+        ):
+            language = alias
+        return (code if code is not None else ""), language
+    return "", alias
+
+
+def _stored_call_chunks(name, raw_arguments, tool_call_id, error_msg):
+    """The model's rejected call plus its error, or an assistant error without an id."""
+    if tool_call_id and isinstance(tool_call_id, str) and tool_call_id.strip():
+        yield {
+            "role": "assistant",
+            "type": "tool_call",
+            "tool_call_id": tool_call_id,
+            "name": name,
+            "arguments": (
+                raw_arguments
+                if isinstance(raw_arguments, str)
+                else json.dumps(raw_arguments)
+            ),
+            "content": "",
+        }
+        yield {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "type": "message",
+            "content": error_msg,
+        }
+    else:
+        yield {
+            "role": "assistant",
+            "type": "message",
+            "content": f"**Error:** {error_msg}",
+        }
+
+
+
 tool_schema = {
     "type": "function",
     "function": {
@@ -1015,51 +1117,27 @@ def run_tool_calling_llm(llm, request_params):
         if tool_call_id_for_error == "":
             tool_call_id_for_error = None
 
-        # Only "execute" is supported as a direct tool call
-        # Other functions (like toolbox.web.search) must be called from within Python code
+        # A language-named direct tool call (bash, python, javascript, ...) is a
+        # common model habit; treat it as execute in that language and rewrite
+        # the stored history to that shape.
+        alias_code, alias_language = _alias_code_and_language(
+            function_name, llm.interpreter, function_call.get("arguments")
+        )
+        if alias_language is not None:
+            function_name = "execute"
+            function_call = {
+                "name": "execute",
+                "arguments": json.dumps(
+                    {"code": alias_code or "", "language": alias_language}
+                ),
+            }
+
+        # Only "execute" is supported as a direct tool call.
         if function_name == "execute":
             raw_arguments = function_call.get("arguments")
             arguments = raw_arguments
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
-
-            def _rejected_call(error_msg):
-                """Store the model's call before its error so the history pairs.
-
-                The model made this call; replaying it with the provider's id
-                makes the next request carry assistant(tool_calls) + tool(error)
-                instead of an orphan result that becomes assistant prose.
-                """
-                tool_call_id = tool_call_id_for_error
-                if (
-                    tool_call_id
-                    and isinstance(tool_call_id, str)
-                    and tool_call_id.strip()
-                ):
-                    yield {
-                        "role": "assistant",
-                        "type": "execute_call",
-                        "tool_call_id": tool_call_id,
-                        "name": function_name,
-                        "arguments": (
-                            raw_arguments
-                            if isinstance(raw_arguments, str)
-                            else json.dumps(raw_arguments)
-                        ),
-                        "content": "",
-                    }
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "type": "message",
-                        "content": error_msg,
-                    }
-                else:
-                    yield {
-                        "role": "assistant",
-                        "type": "message",
-                        "content": f"**Error:** {error_msg}",
-                    }
 
             # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):
@@ -1102,13 +1180,13 @@ def run_tool_calling_llm(llm, request_params):
                         else:
                             # Empty code - yield error as tool response
                             error_msg = "Invalid execute call: code is empty"
-                            yield from _rejected_call(error_msg)
+                            yield from _stored_call_chunks(function_name, raw_arguments, tool_call_id_for_error, error_msg)
                             if verbose:
                                 print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                     else:
                         # Code is not a string - yield error as tool response
                         error_msg = f"Invalid execute call: code must be a string, got {type(code_value).__name__}"
-                        yield from _rejected_call(error_msg)
+                        yield from _stored_call_chunks(function_name, raw_arguments, tool_call_id_for_error, error_msg)
                         if verbose:
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
@@ -1124,11 +1202,11 @@ def run_tool_calling_llm(llm, request_params):
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                         print(f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}", flush=True)
 
-                    yield from _rejected_call(error_msg)
+                    yield from _stored_call_chunks(function_name, raw_arguments, tool_call_id_for_error, error_msg)
             else:
                 # Arguments is not a dict - yield error as tool response
                 error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
-                yield from _rejected_call(error_msg)
+                yield from _stored_call_chunks(function_name, raw_arguments, tool_call_id_for_error, error_msg)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
         elif function_name == "view_image":
@@ -1246,30 +1324,21 @@ def run_tool_calling_llm(llm, request_params):
                     yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
 
         elif function_name:
-            # Unsupported function call - yield error as tool response to maintain proper message ordering
-            # The API expects: assistant (with tool_call) → tool (response) → user
+            # Unsupported direct tool (not execute/edit/view_image and not a
+            # language alias). Keep the model's call and pair the error.
             error_msg = (
-                f"Unsupported function call: '{function_name}'. "
-                f"Only 'execute', 'edit', and 'view_image' (vision models only) are supported as direct tool calls. "
-                f"To use '{function_name}', call it from within Python code using the execute function. "
-                f"For example: `toolbox.web.search('your query')`"
+                f"Unsupported direct tool call: '{function_name}'. "
+                "Available direct tools: execute, edit, and view_image "
+                "(vision models only). To run shell, Python, JavaScript, or "
+                "another language, call execute with the command in `code` and "
+                "the language name in `language`."
             )
-
-            # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
-            # Any assistant message content the model sent before this tool call is already yielded above with role "assistant".
-            if tool_call_id_for_error:
-                yield {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id_for_error,
-                    "type": "message",
-                    "content": error_msg
-                }
-            else:
-                yield {
-                    "role": "assistant",
-                    "type": "message",
-                    "content": f"**Error:** {error_msg}"
-                }
+            yield from _stored_call_chunks(
+                function_name,
+                function_call.get("arguments"),
+                tool_call_id_for_error,
+                error_msg,
+            )
 
             if verbose:
                 print(f"[ERROR] {error_msg}", flush=True)
