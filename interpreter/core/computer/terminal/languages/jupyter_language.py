@@ -198,9 +198,12 @@ import matplotlib.pyplot as plt
         try:
             try:
                 preprocessed_code = self.preprocess_code(code)
-            except:
+            except Exception:
                 # Any errors produced here are our fault.
                 # Also, for python, you don't need them! It's just for active_line and stuff. Just looks pretty.
+                # Exception-only: a bare except also catches KeyboardInterrupt,
+                # which would fall through and execute the block the user just
+                # cancelled. The interrupt has to reach the handler below.
                 preprocessed_code = code
             message_queue = queue.Queue()
             self._execute_code(preprocessed_code, message_queue)
@@ -426,7 +429,8 @@ import matplotlib.pyplot as plt
             # Split the last active line by "##" and grab the first element
             try:
                 active_line = int(last_active_line.split("##")[0])
-            except:
+            except Exception:
+                # Not a bare except: Ctrl-C during this parse must propagate.
                 active_line = 0
             # Remove all ##active_line{number}##\n
             line = re.sub(r"##active_line\d+##\n", "", line)
@@ -519,8 +523,10 @@ def add_active_line_prints(code):
     processed_code = "\n".join(code_lines)
     try:
         tree = ast.parse(processed_code)
-    except:
-        # If you can't parse the processed version, try the unprocessed version before giving up
+    except Exception:
+        # If you can't parse the processed version, try the unprocessed version before giving up.
+        # Exception-only so a KeyboardInterrupt raised while parsing is not
+        # swallowed and turned into a normal return.
         tree = ast.parse(code)
     transformer = AddLinePrints()
     new_tree = transformer.visit(tree)
