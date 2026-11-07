@@ -50,7 +50,11 @@ class JupyterLanguage(BaseLanguage):
         self.computer = computer
 
         self.km = KernelManager(kernel_name="python3")
-        self.km.start_kernel()
+        # The kernel is a loopback TCP connection with per-connection HMAC
+        # signing; the "without encryption" warning is about local eavesdropping,
+        # which needs the same user's connection file. Cap the log level so the
+        # warning stays out of the terminal; real kernel errors still show.
+        self.km.start_kernel(extra_arguments=["--log-level=ERROR"])
         self.kc = self.km.client()
         self.kc.start_channels()
         while not self.kc.is_alive():

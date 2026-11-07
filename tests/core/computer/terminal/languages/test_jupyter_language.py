@@ -1,7 +1,10 @@
 import ast
+from types import SimpleNamespace
+from unittest import mock
 
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,
+    JupyterLanguage,
     add_active_line_prints,
     preprocess_python,
     string_to_python,
@@ -87,3 +90,25 @@ def test_add_line_prints_transformer_inserts_prints():
     new_tree = transformer.visit(tree)
     unparsed = ast.unparse(new_tree)
     assert "##active_line" in unparsed
+
+
+def test_start_kernel_mutes_the_loopback_tcp_warning():
+    """The kernel runs with --log-level=ERROR so its TCP warning stays out.
+
+    ipykernel warns on every start that the loopback connection is
+    unencrypted. The kernel is local, messages are HMAC-signed per
+    connection, and the connection file is readable only by the same user,
+    so the warning cannot be acted on here. Only the log level is capped —
+    real kernel errors still pass through.
+    """
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager"
+    ) as manager_cls:
+        manager = manager_cls.return_value
+        manager.client.return_value.is_alive.return_value = True
+        with mock.patch.object(JupyterLanguage, "run", return_value=iter([])):
+            JupyterLanguage(SimpleNamespace())
+
+    manager.start_kernel.assert_called_once_with(
+        extra_arguments=["--log-level=ERROR"]
+    )
