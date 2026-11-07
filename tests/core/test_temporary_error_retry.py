@@ -425,6 +425,37 @@ def test_status_codes_match_on_word_boundaries_only(message):
     assert respond_mod._is_temporary_provider_error(Exception(message)) is False
 
 
+def test_numeric_status_codes_decide_without_string_matching():
+    """Structured errors carry the HTTP status as an integer; prefer it.
+
+    Substring matching was the only path, so an exception that exposes
+    status_code=500 with an unhelpful message was classified from text alone.
+    Integers decide directly; string heuristics stay as the fallback for
+    errors that carry no status at all.
+    """
+
+    def with_status(status):
+        return type("E", (Exception,), {"status_code": status})(f"http {status}")
+
+    assert respond_mod._is_temporary_provider_error(with_status(500)) is True
+    assert respond_mod._is_temporary_provider_error(with_status(503)) is True
+    assert respond_mod._is_temporary_provider_error(with_status(429)) is True
+    assert respond_mod._is_temporary_provider_error(with_status(408)) is True
+    assert respond_mod._is_temporary_provider_error(with_status(401)) is False
+    assert respond_mod._is_temporary_provider_error(with_status(400)) is False
+    assert respond_mod._is_temporary_provider_error(with_status(404)) is False
+    aliased = type("E", (Exception,), {"http_status": 502})("bad gateway")
+    assert respond_mod._is_temporary_provider_error(aliased) is True
+    no_status = Exception("upstream returned status code 502")
+    assert respond_mod._is_temporary_provider_error(no_status) is True
+    # A 429 that means "out of credits" is not a throttle: it must reach the
+    # billing hint at once rather than being retried five times.
+    quota = type("E", (Exception,), {"status_code": 429})(
+        "You exceeded your current quota"
+    )
+    assert respond_mod._is_temporary_provider_error(quota) is False
+
+
 def test_model_unavailable_is_surfaced_not_retried(capsys, panels):
     """The permanent model error reaches the user after one attempt.
 
