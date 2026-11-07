@@ -63,30 +63,28 @@ def process_messages(messages):
                 )
 
         elif message.get("role") == "function":
-            # This handles orphaned function responses
-            last_tool_id += 1
-            tool_id = f"toolu_{last_tool_id}"
+            # An orphaned function response: nothing in this request produced
+            # it, so there is no call to pair it with. Keep it out of the
+            # request entirely. Inventing an `execute` tool call puts a fake
+            # call in the model's history, which it then imitates (#554); an
+            # assistant message makes the model read text it never wrote as its
+            # own words (#567); a user message lends tool output the weight of
+            # an instruction. The stored history is untouched, so the output is
+            # still displayed to the user — it just never reaches the model
+            # without the call that gives it meaning.
+            i += 1
+            continue
 
-            # Add a tool call before this orphaned tool response
-            processed_messages.append(
-                {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": tool_id,
-                            "type": "function",
-                            "function": {
-                                "name": "execute",
-                                "arguments": "# Automated tool call to fetch more output, triggered by the user.",
-                            },
-                        }
-                    ],
-                }
-            )
-
-            # Process the function response
-            message["role"] = "tool"
-            message["tool_call_id"] = tool_id
+        elif message.get("role") == "tool":
+            # Same rule for the tool role: a result whose assistant tool_calls
+            # message is not the one directly before it has no call to pair
+            # with. Forwarding it makes the provider reject the request, and
+            # relabelling it hands unattributed output to the model. Keep it
+            # for display only.
+            prev = processed_messages[-1] if processed_messages else None
+            if not prev or not prev.get("tool_calls"):
+                i += 1
+                continue
             processed_messages.append(message)
 
         else:
