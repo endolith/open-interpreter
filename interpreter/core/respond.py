@@ -144,6 +144,24 @@ MAX_TEMPORARY_PROVIDER_RETRIES = 5
 
 
 def _is_temporary_provider_error(error):
+    # Structured providers expose the HTTP status as an integer — prefer it.
+    # Substring matching stays only as the fallback for errors that carry no
+    # status at all (plain strings, connection failures, bare JSON bodies).
+    for attr in ("status_code", "http_status"):
+        status = getattr(error, attr, None)
+        if isinstance(status, int) and status > 0:
+            # Throttling, timeouts and any 5xx clear on their own; the rest of
+            # the 4xx range (auth, missing model, bad request) never does.
+            if status in (408, 425, 429) or 500 <= status <= 599:
+                # A 429 that is quota/credit exhaustion (OpenAI's
+                # insufficient_quota) never clears on retry — the billing
+                # hint must show immediately instead of after 5 attempts.
+                if status == 429 and "quota" in str(error).lower():
+                    return False
+                return True
+            if 400 <= status <= 499:
+                return False
+            break  # nonsense status: fall through to the string heuristics
     error_message = str(error).lower()
     if any(
         marker in error_message for marker in _PERMANENT_UNAVAILABLE_MARKERS
