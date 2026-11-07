@@ -5,6 +5,8 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,
     JupyterLanguage,
@@ -367,6 +369,39 @@ def test_run_yields_error_content_on_execution_failure():
     assert "RuntimeError: kaboom" in outputs[0]["content"]
 
 
+def test_run_propagates_keyboard_interrupt_and_asks_for_a_kernel_interrupt():
+    """A Ctrl-C during a block escapes run() and flags the listener to interrupt the kernel.
+
+    Ctrl-C is the user stopping the code, not the code failing. The kernel runs in its
+    own session, so only interrupt_kernel() can stop it and only the terminal's own
+    KeyboardInterrupt handler can return to the prompt. Swallowing the interrupt left
+    the kernel running and sent Open Interpreter's internal traceback to the model as
+    if the user's code had crashed.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.computer = SimpleNamespace(
+        interpreter=SimpleNamespace(stop_event=threading.Event())
+    )
+    lang.preprocess_code = lambda code: code
+    lang._execute_code = lambda code, mq: None
+
+    def interrupted(mq):
+        raise KeyboardInterrupt
+        yield  # pragma: no cover - makes this a generator, as _capture_output is
+
+    lang._capture_output = interrupted
+
+    chunks = []
+    with pytest.raises(KeyboardInterrupt):
+        for chunk in lang.run("time.sleep(60)"):
+            chunks.append(chunk)
+
+    assert chunks == []
+    assert lang.finish_flag is True
+
+
 def test_stop_sets_finish_flag():
     """stop() flags the language so the listener thread halts at the next check."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
@@ -533,3 +568,159 @@ def test_execute_code_still_accepts_messages_without_a_parent_header():
     outputs = _drain_listener(lang)
 
     assert "UNPARENTED\n" in [o.get("content") for o in outputs if o.get("type") == "console"]
+
+
+def test_interrupted_startup_cleans_up_listener_and_kernel():
+    """Ctrl-C during __init__ must not leak the kernel or leave its listener running.
+
+    The instance has not escaped __init__, so Terminal cannot terminate it
+    through its normal cleanup path. The startup handler stops the listener and
+    shuts the kernel down before re-raising the interrupt.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+
+    class Listener:
+        def __init__(self):
+            self.timeout = None
+
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            self.timeout = timeout
+
+    listener = Listener()
+    lang.listener_thread = listener
+    lang.terminate = mock.Mock()
+
+    lang._cleanup_after_interrupted_startup()
+
+    assert lang.finish_flag is True
+    assert listener.timeout == 10
+    lang.terminate.assert_called_once_with()
+
+
+def test_ctrl_c_between_execute_and_listener_start_interrupts_kernel():
+    """Ctrl-C after submission but before the listener starts must stop the kernel.
+
+    stop() only sets finish_flag; normally the listener performs the interrupt.
+    In this narrow window there is no listener yet, so run() must interrupt the
+    kernel itself before re-raising.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    lang.finish_flag = False
+    lang._request_submitted = False
+    lang._listener_started = False
+    lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.preprocess_code = lambda code: code
+
+    def execute(code, message_queue):
+        lang._request_submitted = True
+        raise KeyboardInterrupt
+
+    lang._execute_code = execute
+
+    with pytest.raises(KeyboardInterrupt):
+        list(lang.run("x = 1"))
+
+    lang.km.interrupt_kernel.assert_called_once_with()
+
+
+def test_init_sets_startup_flag_during_warmup_and_clears_it():
+    """The warm-up run sees the startup flag, and normal construction clears it."""
+    manager = mock.Mock()
+    client = manager.client.return_value
+    client.is_alive.return_value = True
+    observed = []
+
+    def fake_run(self, code):
+        observed.append(self._startup_warmup)
+        return iter([None])
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with mock.patch.object(JupyterLanguage, "run", fake_run):
+            lang = JupyterLanguage(mock.Mock())
+
+    assert observed == [True]
+    assert lang._startup_warmup is False
+
+
+def test_init_cleans_up_when_warmup_is_interrupted():
+    """Ctrl-C during __init__ warm-up runs startup cleanup before re-raising."""
+    manager = mock.Mock()
+    client = manager.client.return_value
+    client.is_alive.return_value = True
+
+    def interrupted(self, code):
+        raise KeyboardInterrupt
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with mock.patch.object(JupyterLanguage, "run", interrupted):
+            with mock.patch.object(
+                JupyterLanguage, "_cleanup_after_interrupted_startup"
+            ) as cleanup:
+                with pytest.raises(KeyboardInterrupt):
+                    JupyterLanguage(mock.Mock())
+
+    cleanup.assert_called_once_with()
+
+
+def test_ctrl_c_during_preprocessing_is_not_swallowed():
+    """A cancelled block must not run when Ctrl-C lands while preprocessing.
+
+    preprocess_code() can raise KeyboardInterrupt while it parses. A bare
+    `except:` around that call would swallow the interrupt, fall back to the
+    original source and execute the block the user just cancelled. The
+    interrupt has to reach run()'s KeyboardInterrupt handler instead, and no
+    code may be submitted to the kernel.
+    """
+    lang = _make_language()
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
+
+    def interrupting_preprocess(code):
+        raise KeyboardInterrupt
+
+    lang.preprocess_code = interrupting_preprocess
+    submitted = []
+    lang._execute_code = lambda code, message_queue: submitted.append(code)
+
+    with pytest.raises(KeyboardInterrupt):
+        list(lang.run("x = 1"))
+
+    assert submitted == []
+
+
+def test_add_active_line_prints_does_not_swallow_ctrl_c():
+    """The parse-recovery fallback must not catch Ctrl-C.
+
+    add_active_line_prints() retries with the original source when the
+    processed version will not parse. A bare `except:` also catches
+    KeyboardInterrupt raised during the first parse, so the retry would hide
+    the interrupt and return normally. Recovery must apply to Exception only.
+    """
+    real_parse = ast.parse
+    calls = {"count": 0}
+
+    def parse_once_then_recover(source, *args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise KeyboardInterrupt
+        return real_parse(source, *args, **kwargs)
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.ast.parse",
+        side_effect=parse_once_then_recover,
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            add_active_line_prints("x = 1")
+
+    assert calls["count"] == 1

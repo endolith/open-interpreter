@@ -59,6 +59,13 @@ class JupyterLanguage(BaseLanguage):
 
         self.listener_thread = None
         self.finish_flag = False
+        # True only while __init__ runs the matplotlib/display warm-up.
+        # The listener must not start an input-patience model call then.
+        self._startup_warmup = False
+        # Whether the current request has been submitted and whether its
+        # listener has started, for the narrow Ctrl-C window in between.
+        self._request_submitted = False
+        self._listener_started = False
 
         # DISABLED because sometimes this bypasses sending it up to us for some reason!
         # Give it our same matplotlib backend
@@ -79,8 +86,19 @@ matplotlib.use('{backend}')
 import matplotlib.pyplot as plt
 """.strip()
 
-        for _ in self.run(code):
-            pass
+        self._startup_warmup = True
+        try:
+            try:
+                for _ in self.run(code):
+                    pass
+            except KeyboardInterrupt:
+                # __init__ has not returned, so Terminal cannot clean up this
+                # half-constructed instance. Terminate the kernel before the
+                # interrupt aborts construction and leaks it.
+                self._cleanup_after_interrupted_startup()
+                raise
+        finally:
+            self._startup_warmup = False
 
         # DISABLED because it doesn't work??
         # Disable color outputs in the terminal, which don't look good in OI and aren't useful
@@ -93,6 +111,14 @@ import matplotlib.pyplot as plt
     def terminate(self):
         self.kc.stop_channels()
         self.km.shutdown_kernel()
+
+    def _cleanup_after_interrupted_startup(self):
+        """Stop the listener and kernel when Ctrl-C interrupts __init__ warm-up."""
+        self.finish_flag = True
+        listener = getattr(self, "listener_thread", None)
+        if listener is not None and listener.is_alive():
+            listener.join(timeout=10)
+        self.terminate()
 
     def run(self, code):
         while not self.kc.is_alive():
@@ -125,16 +151,33 @@ import matplotlib.pyplot as plt
         try:
             try:
                 preprocessed_code = self.preprocess_code(code)
-            except:
+            except Exception:
                 # Any errors produced here are our fault.
                 # Also, for python, you don't need them! It's just for active_line and stuff. Just looks pretty.
+                # Exception-only: a bare except also catches KeyboardInterrupt,
+                # which would fall through and execute the block the user just
+                # cancelled. The interrupt has to reach the handler below.
                 preprocessed_code = code
             message_queue = queue.Queue()
             self._execute_code(preprocessed_code, message_queue)
             yield from self._capture_output(message_queue)
         except GeneratorExit:
             raise  # gotta pass this up!
-        except:
+        except KeyboardInterrupt:
+            # Ctrl-C is the user stopping this block, not the block failing. The
+            # kernel has its own session, so the terminal's SIGINT never reaches
+            # it — flag the listener to interrupt it, the way stop() does, then
+            # let the interrupt travel up to the terminal's own handler.
+            self.stop()
+            if getattr(self, "_request_submitted", False) and not getattr(
+                self, "_listener_started", False
+            ):
+                # Ctrl-C landed after execute() submitted the block but before
+                # its listener started. stop() only sets finish_flag, so no
+                # listener will send the interrupt; do it here.
+                self.km.interrupt_kernel()
+            raise
+        except Exception:
             content = traceback.format_exc()
             yield {"type": "console", "format": "output", "content": content}
 
@@ -171,12 +214,15 @@ import matplotlib.pyplot as plt
         # starts, a lingering listener exits instead of stealing messages.
         generation = getattr(self, "_listener_generation", 0) + 1
         self._listener_generation = generation
+        self._request_submitted = False
+        self._listener_started = False
 
         # Send the request first so its message id is known before anything
         # listens. Every iopub message carries the id of the request that
         # caused it in parent_header, which is the only way to tell this
         # execution's output from an earlier one's.
         execution_id = self.kc.execute(code)
+        self._request_submitted = True
         self._execution_id = execution_id
 
         def iopub_message_listener(execution_id=execution_id, generation=generation):
@@ -208,7 +254,8 @@ import matplotlib.pyplot as plt
                         os.environ.get("INTERPRETER_TERMINAL_INPUT_PATIENCE", 15)
                     )
                     if (
-                        time.time() - self.last_output_time > input_patience
+                        not getattr(self, "_startup_warmup", False)
+                        and time.time() - self.last_output_time > input_patience
                         and time.time() - self.last_output_message_time > input_patience
                     ):
                         self.last_output_message_time = time.time()
@@ -361,6 +408,7 @@ import matplotlib.pyplot as plt
         self.listener_thread = threading.Thread(target=iopub_message_listener)
         # self.listener_thread.daemon = True
         self.listener_thread.start()
+        self._listener_started = True
 
         if DEBUG_MODE:
             print(
@@ -374,7 +422,8 @@ import matplotlib.pyplot as plt
             # Split the last active line by "##" and grab the first element
             try:
                 active_line = int(last_active_line.split("##")[0])
-            except:
+            except Exception:
+                # Not a bare except: Ctrl-C during this parse must propagate.
                 active_line = 0
             # Remove all ##active_line{number}##\n
             line = re.sub(r"##active_line\d+##\n", "", line)
@@ -467,8 +516,10 @@ def add_active_line_prints(code):
     processed_code = "\n".join(code_lines)
     try:
         tree = ast.parse(processed_code)
-    except:
-        # If you can't parse the processed version, try the unprocessed version before giving up
+    except Exception:
+        # If you can't parse the processed version, try the unprocessed version before giving up.
+        # Exception-only so a KeyboardInterrupt raised while parsing is not
+        # swallowed and turned into a normal return.
         tree = ast.parse(code)
     transformer = AddLinePrints()
     new_tree = transformer.visit(tree)
