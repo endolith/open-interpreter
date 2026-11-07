@@ -33,20 +33,52 @@ def test_function_call_without_response_gets_empty_tool():
                          "content": ""}
 
 
-def test_orphaned_function_response_gets_synthetic_tool_call():
-    """A lone function message is paired with a synthetic assistant tool_call so the API sees a valid pair."""
+def test_orphaned_function_response_is_not_forwarded():
+    """A lone function result stays out of the request and untouched in history.
+
+    Nothing in the request produced it, so there is nothing to pair it with.
+    Inventing an `execute` call teaches the model to echo calls it never made
+    (#554); an assistant role makes it read harness output as its own words
+    (#567); a user role lends unattributed tool output the weight of an
+    instruction. The stored message survives unchanged so it can still be
+    displayed to the user.
+    """
     messages = [{"role": "function",
                  "name": "execute",
                  "content": "late output"}]
-    result = process_messages(messages)
-    assert result[0]["role"] == "assistant"
-    assert result[0]["tool_calls"][0]["id"] == "toolu_1"
-    assert result[1] == {
-        "role": "tool",
-        "name": "execute",
-        "content": "late output",
-        "tool_call_id": "toolu_1",
-    }
+    assert process_messages(messages) == []
+    assert messages == [
+        {"role": "function", "name": "execute", "content": "late output"}
+    ]
+
+
+def test_unpaired_tool_result_is_dropped_but_a_paired_one_is_forwarded():
+    """A tool result reaches the model only when its call directly precedes it.
+
+    An unpaired result has no tool_call_id the provider will accept and no call
+    to give it meaning, so it is kept for display instead of forwarded.
+    """
+    orphan = [
+        {"role": "user", "content": "hi"},
+        {"role": "tool", "tool_call_id": "orphan", "content": "output"},
+    ]
+    assert process_messages(orphan) == [{"role": "user", "content": "hi"}]
+
+    paired = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "toolu_1",
+                    "type": "function",
+                    "function": {"name": "execute", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "output"},
+    ]
+    assert process_messages(paired) == paired
 
 
 def test_passthrough_message_unchanged():
@@ -93,3 +125,66 @@ def test_sequential_function_calls_get_incrementing_tool_ids():
     assert result[1]["tool_call_id"] == "toolu_1"
     assert result[2]["tool_calls"][0]["id"] == "toolu_2"
     assert result[3]["tool_call_id"] == "toolu_2"
+
+
+def test_multiple_results_for_one_assistant_message_are_all_forwarded():
+    """Each distinct call of an assistant message gets its own result forwarded.
+
+    Checking only the immediately previous message would drop every result
+    after the first, because the first result then sits directly before its
+    sibling. Results for distinct call ids all belong to the request.
+    """
+    calls = [
+        {
+            "id": "toolu_1",
+            "type": "function",
+            "function": {"name": "execute", "arguments": "{}"},
+        },
+        {
+            "id": "toolu_2",
+            "type": "function",
+            "function": {"name": "execute", "arguments": "{}"},
+        },
+    ]
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": calls},
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "first"},
+        {"role": "tool", "tool_call_id": "toolu_2", "content": "second"},
+    ]
+    assert process_messages(messages) == messages
+
+
+def test_tool_result_with_unknown_or_repeated_id_is_dropped():
+    """Only an unanswered call's id earns its result a place in the request.
+
+    A mismatched id belongs to no call the model can see, and a repeated id
+    would answer the same call twice; both would be rejected by the provider
+    or hand it unattributed output.
+    """
+    assistant = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "toolu_1",
+                "type": "function",
+                "function": {"name": "execute", "arguments": "{}"},
+            }
+        ],
+    }
+
+    mismatched = [
+        assistant,
+        {"role": "tool", "tool_call_id": "toolu_9", "content": "output"},
+    ]
+    assert process_messages(mismatched) == [assistant]
+
+    repeated = [
+        assistant,
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "first"},
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "second"},
+    ]
+    assert process_messages(repeated) == [
+        assistant,
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "first"},
+    ]
