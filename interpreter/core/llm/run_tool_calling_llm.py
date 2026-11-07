@@ -63,31 +63,21 @@ def process_messages(messages):
                 )
 
         elif message.get("role") == "function":
-            # This handles orphaned function responses
-            last_tool_id += 1
-            tool_id = f"toolu_{last_tool_id}"
-
-            # Add a tool call before this orphaned tool response
+            # An orphaned function response: nothing in this request produced
+            # it, so there is no call to pair it with. Two repairs have been
+            # wrong here. Inventing an `execute` tool call puts a fake call in
+            # the model's history, which it then imitates (#554). Emitting the
+            # result as an assistant message makes the model read text it never
+            # wrote as its own words (#567). A `tool` role is rejected without
+            # a matching tool_call_id, so surface it as a harness-authored user
+            # message carrying an explicit marker instead.
             processed_messages.append(
                 {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": tool_id,
-                            "type": "function",
-                            "function": {
-                                "name": "execute",
-                                "arguments": "# Automated tool call to fetch more output, triggered by the user.",
-                            },
-                        }
-                    ],
+                    "role": "user",
+                    "content": "[tool output without a matching call] "
+                    + str(message.get("content") or ""),
                 }
             )
-
-            # Process the function response
-            message["role"] = "tool"
-            message["tool_call_id"] = tool_id
-            processed_messages.append(message)
 
         else:
             # For non-tool-related messages, just add them as is

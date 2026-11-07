@@ -177,23 +177,26 @@ def test_tool_calls_empty_list():
 
 
 def test_process_messages_orphaned_function_response():
-    """Orphaned function responses get a synthetic tool call prepended.
+    """An orphaned function response is handed to the model as marked user text.
 
     When a conversation starts with a function result (e.g. history was
-    truncated), the message must be paired with a synthetic assistant tool
-    call so the LLM sees a well-formed tool interaction rather than an
-    unanchored result.
+    truncated), there is no call to pair it with. It must not become a
+    synthetic tool call (the model imitates the fake call, #554) or an
+    assistant message (the model reads harness output as its own words,
+    #567); a user message carrying an explicit marker keeps the provider
+    request valid and the provenance unambiguous.
     """
     messages = [
         {"role": "function", "name": "execute", "content": "output"},
     ]
     result = process_messages(messages)
 
-    assert len(result) == 2
-    assert result[0]["role"] == "assistant"
-    assert result[0]["tool_calls"][0]["function"]["name"] == "execute"
-    assert result[1]["role"] == "tool"
-    assert result[1]["tool_call_id"] == result[0]["tool_calls"][0]["id"]
+    assert result == [
+        {
+            "role": "user",
+            "content": "[tool output without a matching call] output",
+        }
+    ]
 
 
 def test_process_messages_function_call_without_response():

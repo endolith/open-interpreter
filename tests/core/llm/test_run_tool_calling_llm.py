@@ -33,20 +33,25 @@ def test_function_call_without_response_gets_empty_tool():
                          "content": ""}
 
 
-def test_orphaned_function_response_gets_synthetic_tool_call():
-    """A lone function message is paired with a synthetic assistant tool_call so the API sees a valid pair."""
+def test_orphaned_function_response_becomes_marked_user_text():
+    """A lone function message is surfaced as marked user text, never a fake call.
+
+    The orphan has no tool_call_id to pair with. Inventing an `execute` call
+    puts a fake call in the model's history that it then imitates (#554), and
+    an assistant role would make it read harness output as its own words
+    (#567). A user message with an explicit marker keeps the request valid
+    and the provenance clear.
+    """
     messages = [{"role": "function",
                  "name": "execute",
                  "content": "late output"}]
     result = process_messages(messages)
-    assert result[0]["role"] == "assistant"
-    assert result[0]["tool_calls"][0]["id"] == "toolu_1"
-    assert result[1] == {
-        "role": "tool",
-        "name": "execute",
-        "content": "late output",
-        "tool_call_id": "toolu_1",
-    }
+    assert result == [
+        {
+            "role": "user",
+            "content": "[tool output without a matching call] late output",
+        }
+    ]
 
 
 def test_passthrough_message_unchanged():
