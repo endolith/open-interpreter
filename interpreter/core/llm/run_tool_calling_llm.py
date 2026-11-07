@@ -6,6 +6,7 @@ from ..terminal.base_language import (
     format_execute_language_description,
     format_language_selector_description,
 )
+from .utils.convert_to_openai_messages import image_path_exceeds_shrink_threshold
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 from .utils.reasoning_lines import (
@@ -1235,7 +1236,21 @@ def run_tool_calling_llm(llm, request_params):
                         "paths": [path],
                     }
                     # f/r/n from terminal (single prompt): full res / resize / decline. "y" = legacy full res.
-                    approval = getattr(llm.interpreter, "_view_image_approval", "n")
+                    # The terminal prompt (or async server) records the decision in
+                    # this attribute before the generator resumes. A headless
+                    # auto_run consumer has nobody to ask, so approve instead of
+                    # silently declining — mirroring the terminal's YOLO behavior,
+                    # which was previously the only place that approved images.
+                    approval = getattr(llm.interpreter, "_view_image_approval", None)
+                    if approval is None:
+                        if getattr(llm.interpreter, "auto_run", False):
+                            approval = (
+                                "r"
+                                if image_path_exceeds_shrink_threshold(path)
+                                else "y"
+                            )
+                        else:
+                            approval = "n"
                     if approval in ("f", "r", "y"):
                         llm.interpreter._pending_view_image_path = path
                         llm.interpreter._pending_view_image_shrink = approval == "r"

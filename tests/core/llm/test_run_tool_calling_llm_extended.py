@@ -1,3 +1,4 @@
+import base64
 from types import SimpleNamespace
 
 import pytest
@@ -77,6 +78,87 @@ def test_chunks_without_choices_are_skipped():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"role": "assistant", "type": "message", "content": "hi"}
     ]
+
+
+_PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlE"
+    "QVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _view_image_llm(path, auto_run, approval=None):
+    llm = _make_llm(
+        [_chunk({"tool_calls": [_tool_call("view_image", '{"path": "%s"}' % path)]})]
+    )
+    llm.interpreter.auto_run = auto_run
+    if approval is not None:
+        llm.interpreter._view_image_approval = approval
+    return llm
+
+
+def test_view_image_auto_approved_in_headless_auto_run(tmp_path):
+    """A headless auto_run session shows the image instead of declining it.
+
+    The approval default used to be 'n' unless the terminal prompt or async
+    server recorded a decision, so library/headless consumers were always told
+    "User declined" and models fell back to installing OCR.
+    """
+    img = tmp_path / "code.png"
+    img.write_bytes(_PNG_1PX)
+    llm = _view_image_llm(img, auto_run=True)
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert any(c.get("type") == "view_image_approval" for c in result)
+    assert any(
+        c.get("role") == "tool" and "Image added" in c.get("content", "")
+        for c in result
+    )
+    assert not any("declined" in str(c.get("content", "")) for c in result)
+    assert llm.interpreter._pending_view_image_path == str(img)
+    assert llm.interpreter._pending_view_image_shrink is False
+
+
+def test_view_image_declines_without_auto_run_or_decision(tmp_path):
+    """Without auto_run and with no recorded decision, the image stays declined."""
+    img = tmp_path / "code.png"
+    img.write_bytes(_PNG_1PX)
+    llm = _view_image_llm(img, auto_run=False)
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert any(
+        c.get("role") == "tool" and "User declined" in c.get("content", "")
+        for c in result
+    )
+
+
+def test_view_image_explicit_approval_honored_without_auto_run(tmp_path):
+    """A decision recorded by the async server is honored even without auto_run."""
+    img = tmp_path / "code.png"
+    img.write_bytes(_PNG_1PX)
+    llm = _view_image_llm(img, auto_run=False, approval="y")
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert any(
+        c.get("role") == "tool" and "Image added" in c.get("content", "")
+        for c in result
+    )
+
+
+def test_view_image_auto_run_resizes_large_images(
+    tmp_path, monkeypatch
+):
+    """auto_run approves large images with a resize, mirroring the terminal."""
+    import interpreter.core.llm.run_tool_calling_llm as rtcl
+
+    img = tmp_path / "big.png"
+    img.write_bytes(_PNG_1PX)
+    monkeypatch.setattr(
+        rtcl, "image_path_exceeds_shrink_threshold", lambda path: True
+    )
+    llm = _view_image_llm(img, auto_run=True)
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert any(
+        c.get("role") == "tool" and "Image added" in c.get("content", "")
+        for c in result
+    )
+    assert llm.interpreter._pending_view_image_shrink is True
 
 
 def test_view_image_schema_steers_away_from_ocr():
