@@ -1018,9 +1018,48 @@ def run_tool_calling_llm(llm, request_params):
         # Only "execute" is supported as a direct tool call
         # Other functions (like toolbox.web.search) must be called from within Python code
         if function_name == "execute":
-            arguments = function_call.get("arguments")
+            raw_arguments = function_call.get("arguments")
+            arguments = raw_arguments
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
+
+            def _rejected_call(error_msg):
+                """Store the model's call before its error so the history pairs.
+
+                The model made this call; replaying it with the provider's id
+                makes the next request carry assistant(tool_calls) + tool(error)
+                instead of an orphan result that becomes assistant prose.
+                """
+                tool_call_id = tool_call_id_for_error
+                if (
+                    tool_call_id
+                    and isinstance(tool_call_id, str)
+                    and tool_call_id.strip()
+                ):
+                    yield {
+                        "role": "assistant",
+                        "type": "execute_call",
+                        "tool_call_id": tool_call_id,
+                        "name": function_name,
+                        "arguments": (
+                            raw_arguments
+                            if isinstance(raw_arguments, str)
+                            else json.dumps(raw_arguments)
+                        ),
+                        "content": "",
+                    }
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "type": "message",
+                        "content": error_msg,
+                    }
+                else:
+                    yield {
+                        "role": "assistant",
+                        "type": "message",
+                        "content": f"**Error:** {error_msg}",
+                    }
 
             # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):
@@ -1063,29 +1102,13 @@ def run_tool_calling_llm(llm, request_params):
                         else:
                             # Empty code - yield error as tool response
                             error_msg = "Invalid execute call: code is empty"
-                            if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
-                                yield {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call_id_for_error,
-                                    "type": "message",
-                                    "content": error_msg
-                                }
-                            elif verbose:
-                                print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                            yield from _rejected_call(error_msg)
                             if verbose:
                                 print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                     else:
                         # Code is not a string - yield error as tool response
                         error_msg = f"Invalid execute call: code must be a string, got {type(code_value).__name__}"
-                        if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
-                            yield {
-                                "role": "tool",
-                                "tool_call_id": tool_call_id_for_error,
-                                "type": "message",
-                                "content": error_msg
-                            }
-                        elif verbose:
-                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                        yield from _rejected_call(error_msg)
                         if verbose:
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
@@ -1101,39 +1124,11 @@ def run_tool_calling_llm(llm, request_params):
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                         print(f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}", flush=True)
 
-                    if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
-                        tool_response = {
-                            "role": "tool",
-                            "tool_call_id": tool_call_id_for_error,
-                            "type": "message",
-                            "content": error_msg
-                        }
-                        if verbose:
-                            print(f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True)
-                        yield tool_response
-                    else:
-                        # No tool_call_id available - this should not happen, but log it
-                        if verbose:
-                            print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
-                            print(f"[ERROR] tool_call_id_for_error value: {repr(tool_call_id_for_error)}", flush=True)
-                        # Still yield as assistant message so user sees the error
-                        yield {
-                            "role": "assistant",
-                            "type": "message",
-                            "content": f"**Error:** {error_msg}"
-                        }
+                    yield from _rejected_call(error_msg)
             else:
                 # Arguments is not a dict - yield error as tool response
                 error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
-                if tool_call_id_for_error and isinstance(tool_call_id_for_error, str) and tool_call_id_for_error.strip():
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id_for_error,
-                        "type": "message",
-                        "content": error_msg
-                    }
-                elif verbose:
-                    print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                yield from _rejected_call(error_msg)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
         elif function_name == "view_image":

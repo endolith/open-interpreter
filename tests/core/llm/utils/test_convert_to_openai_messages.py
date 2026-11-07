@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from interpreter.core.llm.run_tool_calling_llm import process_messages
 from interpreter.core.llm.utils.convert_to_openai_messages import (
     convert_to_openai_messages as _convert_to_openai_messages,
 )
@@ -1917,3 +1918,45 @@ def test_console_output_non_string_content_is_coerced_without_function_calling(i
     )
     assert result[0]["content"] == "Output:\n42"
     assert messages[0]["content"] == 42
+
+
+def test_execute_call_rebuilds_a_paired_rejected_call(interpreter):
+    """A rejected execute call converts to assistant tool_calls and its error pairs.
+
+    The raw arguments are preserved even when malformed, so the provider sees the
+    call the model actually made and process_messages does not turn the tool error
+    into "[tool output without a matching call]" assistant content.
+    """
+    raw = '{"code": "ls", "\\"language\\"": "bash"}'
+    stored = [
+        {
+            "role": "assistant",
+            "type": "execute_call",
+            "tool_call_id": "call_1",
+            "name": "execute",
+            "arguments": raw,
+            "content": "",
+        },
+        {
+            "role": "tool",
+            "type": "message",
+            "tool_call_id": "call_1",
+            "content": "Invalid execute call",
+        },
+    ]
+    converted = convert_to_openai_messages(stored, interpreter=interpreter)
+    assert converted[0]["role"] == "assistant"
+    assert converted[0]["tool_calls"] == [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "execute", "arguments": raw},
+        }
+    ]
+    assert converted[1]["role"] == "tool"
+    assert converted[1]["tool_call_id"] == "call_1"
+    processed = process_messages(converted)
+    assert not any(
+        "without a matching call" in str(message.get("content", ""))
+        for message in processed
+    )

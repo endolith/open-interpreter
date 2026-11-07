@@ -269,9 +269,12 @@ def test_execute_call_with_command_in_language_is_rejected():
 
     result = list(run_tool_calling_llm(llm, {"messages": []}))
 
-    assert result[0]["role"] == "tool"
-    assert "`language` must be one of" in result[0]["content"]
-    assert "The command or program belongs in `code`." in result[0]["content"]
+    assert result[0]["type"] == "execute_call"
+    assert result[0]["tool_call_id"] == "toolu_1"
+    assert result[1]["role"] == "tool"
+    assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
+    assert "`language` must be one of" in result[1]["content"]
+    assert "The command or program belongs in `code`." in result[1]["content"]
     assert not any(chunk.get("type") == "code" for chunk in result)
 
 
@@ -283,18 +286,23 @@ def test_execute_call_without_code_names_the_two_fields():
 
     result = list(run_tool_calling_llm(llm, {"messages": []}))
 
-    assert result[0]["role"] == "tool"
-    assert "put the command or program in `code`" in result[0]["content"]
-    assert "`language` must be one of" in result[0]["content"]
+    assert result[0]["type"] == "execute_call"
+    assert result[1]["role"] == "tool"
+    assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
+    assert "put the command or program in `code`" in result[1]["content"]
+    assert "`language` must be one of" in result[1]["content"]
 
 
-def test_unparseable_arguments_are_skipped():
-    """When tool arguments are not valid JSON, nothing is emitted and the stream continues."""
+def test_unparseable_arguments_are_stored_and_reported():
+    """Unparseable arguments keep the raw call and pair it with the error."""
     llm = _make_llm([_chunk({"tool_calls": [_tool_call("execute", "not json")]})])
     result = list(run_tool_calling_llm(llm, {"messages": []}))
-    assert len(result) == 1
-    assert result[0]["role"] == "tool"
-    assert "Invalid execute call" in result[0]["content"]
+    assert len(result) == 2
+    assert result[0]["type"] == "execute_call"
+    assert result[0]["arguments"] == "not json"
+    assert result[1]["role"] == "tool"
+    assert result[1]["tool_call_id"] == result[0]["tool_call_id"]
+    assert "Invalid execute call" in result[1]["content"]
 
 
 def test_unparseable_arguments_verbose_prints_warning(capsys):
@@ -303,7 +311,9 @@ def test_unparseable_arguments_verbose_prints_warning(capsys):
         [_chunk({"tool_calls": [_tool_call("execute", "not json")]})], verbose=True
     )
     result = list(run_tool_calling_llm(llm, {"messages": []}))
-    assert "Invalid execute call" in result[0]["content"]
+    assert result[0]["type"] == "execute_call"
+    assert result[1]["role"] == "tool"
+    assert "Invalid execute call" in result[1]["content"]
 
 
 def test_auth_requires_review_layer(monkeypatch):
@@ -416,3 +426,25 @@ def test_reasoning_preserved_when_delta_has_tool_call():
         "content": "r",
     }
     assert any(m.get("role") == "tool" and "Unsupported function call" in m.get("content", "") for m in result)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    ['{"code": "ls", "\\"language\\"": "bash"}', None],
+)
+def test_rejected_execute_call_is_stored_and_paired(arguments):
+    """A rejected execute call keeps its raw arguments and pairs with its error.
+
+    The model made the call; replaying it with the provider's id keeps the next
+    request well-formed instead of turning the error into orphan assistant prose.
+    The quoted-key shape is what OpenInference streams; the null shape is a call
+    with no arguments.
+    """
+    llm = _make_llm([_chunk({"tool_calls": [_tool_call("execute", arguments)]})])
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+    call = next(c for c in result if c.get("type") == "execute_call")
+    error = next(c for c in result if c.get("role") == "tool")
+    assert call["tool_call_id"] == "toolu_1"
+    assert error["tool_call_id"] == call["tool_call_id"]
+    assert "Invalid execute call" in error["content"]
+    assert call["arguments"] == ("null" if arguments is None else arguments)
