@@ -74,3 +74,41 @@ def test_preprocess_javascript_multiline_skips_active_line_markers():
     code = preprocess_javascript("function f() {\n  return 1;\n")
     assert "##active_line" not in code
     assert "##end_of_execution##" in code
+
+
+def test_line_postprocessor_strips_node24_multiline_prompt():
+    """Node 24 echoes buffered multi-line input with a run of "| " prompts.
+
+    Node 22 used "... "; Node 24's readline uses kMultilinePrompt "| ", so the
+    prompt leaked onto the result line ("| | | | hello"). A single, double, or
+    triple leading "| " is legitimate output (a markdown table row, `| | empty`),
+    so only runs of four or more are stripped.
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("| | | | hello from node v24") == "hello from node v24"
+    assert js.line_postprocessor("| a | b |") == "| a | b |"
+    assert js.line_postprocessor("| | empty") == "| | empty"
+    assert js.line_postprocessor("| | | three") == "| | | three"
+
+
+def test_line_postprocessor_keeps_output_bars_after_the_frame_marker():
+    """Once the frame marker has printed, leading bars are program output.
+
+    Node 24 puts its continuation prompts in front of the output, so without a
+    frame the rule that strips four prompts also strips bars the program
+    printed: `if (true) { console.log("| | empty"); }` came back as `empty`.
+    The marker separates the echo of our own input from everything the program
+    prints, so only the echo is prompt-stripped.
+    """
+    js = JavaScript()
+
+    processed = js.preprocess_code("console.log(1)")
+    assert "__oi_js_frame__" in processed
+
+    # Before the marker: Node echoing our buffered input.
+    assert js.line_postprocessor("| | | | hello from node v24") == "hello from node v24"
+    # The marker itself is scaffolding, not output.
+    assert js.line_postprocessor("__oi_js_frame__") is None
+    # After the marker: whatever the program printed, bars included.
+    assert js.line_postprocessor("| | empty") == "| | empty"
+    assert js.line_postprocessor("| a | b |") == "| a | b |"

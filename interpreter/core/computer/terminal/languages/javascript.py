@@ -2,6 +2,11 @@ import re
 
 from .subprocess_language import SubprocessLanguage
 
+# Printed by preprocess_javascript as the first thing the program executes, so
+# line_postprocessor can tell Node's echo of our own buffered input (prompts
+# attached) from the program's output (never prompts).
+_JS_FRAME_MARKER = "__oi_js_frame__"
+
 
 class JavaScript(SubprocessLanguage):
     file_extension = "js"
@@ -10,20 +15,47 @@ class JavaScript(SubprocessLanguage):
     def __init__(self):
         super().__init__()
         self.start_cmd = ["node", "-i"]
+        self._js_frame_seen = False
 
     def preprocess_code(self, code):
+        """Reset the output frame for a new run, then apply the JS wrapper.
+
+        The frame marker has not been printed yet, so the next run's echo is
+        prompt-stripped again.
+        """
+        self._js_frame_seen = False
         return preprocess_javascript(code)
 
     def line_postprocessor(self, line):
+        """Drop REPL scaffolding, keep everything the program printed.
+
+        Node's banner lines and undefined results never reach the user, and
+        the continuation prompts of its own echoed input are stripped only
+        before the frame marker; after it, leading bars are output.
+        """
         # Node's interactive REPL outputs a billion things
         # So we clean it up:
         if "Welcome to Node.js" in line:
             return None
         if line.strip() in ["undefined", 'Type ".help" for more information.']:
             return None
+        if line.strip() == _JS_FRAME_MARKER:
+            # Everything before this was Node echoing our own input; everything
+            # after it is program output, which may legitimately start with
+            # bars ("| | empty", a markdown table row).
+            self._js_frame_seen = True
+            return None
         line = line.strip(". \n")
         # Remove trailing ">"s
         line = re.sub(r"^\s*(>\s*)+", "", line)
+        # Node 24 renders a buffered multi-line command's continuation prompt as
+        # "| " (readline's kMultilinePrompt), so the echoed input arrives as
+        # "| | | | ...". Only strip while the frame has not started: once the
+        # marker has printed, a leading "| " belongs to the program, and four
+        # prompts plus two output bars would otherwise become "empty" instead
+        # of "| | empty".
+        if not self._js_frame_seen:
+            line = re.sub(r"^(?:\| ){4,}", "", line)
         return line
 
     def detect_active_line(self, line):
@@ -60,6 +92,7 @@ def preprocess_javascript(code):
     # Wrap in a try-catch and add end of execution marker
     code = f"""
 try {{
+console.log("{_JS_FRAME_MARKER}");
 {code}
 }} catch (e) {{
     console.log(e);
