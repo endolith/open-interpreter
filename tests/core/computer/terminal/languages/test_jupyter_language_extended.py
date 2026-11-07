@@ -671,3 +671,56 @@ def test_init_cleans_up_when_warmup_is_interrupted():
                     JupyterLanguage(mock.Mock())
 
     cleanup.assert_called_once_with()
+
+
+def test_ctrl_c_during_preprocessing_is_not_swallowed():
+    """A cancelled block must not run when Ctrl-C lands while preprocessing.
+
+    preprocess_code() can raise KeyboardInterrupt while it parses. A bare
+    `except:` around that call would swallow the interrupt, fall back to the
+    original source and execute the block the user just cancelled. The
+    interrupt has to reach run()'s KeyboardInterrupt handler instead, and no
+    code may be submitted to the kernel.
+    """
+    lang = _make_language()
+    lang.kc = SimpleNamespace(is_alive=lambda: True)
+    lang.km = SimpleNamespace(interrupt_kernel=mock.Mock())
+
+    def interrupting_preprocess(code):
+        raise KeyboardInterrupt
+
+    lang.preprocess_code = interrupting_preprocess
+    submitted = []
+    lang._execute_code = lambda code, message_queue: submitted.append(code)
+
+    with pytest.raises(KeyboardInterrupt):
+        list(lang.run("x = 1"))
+
+    assert submitted == []
+
+
+def test_add_active_line_prints_does_not_swallow_ctrl_c():
+    """The parse-recovery fallback must not catch Ctrl-C.
+
+    add_active_line_prints() retries with the original source when the
+    processed version will not parse. A bare `except:` also catches
+    KeyboardInterrupt raised during the first parse, so the retry would hide
+    the interrupt and return normally. Recovery must apply to Exception only.
+    """
+    real_parse = ast.parse
+    calls = {"count": 0}
+
+    def parse_once_then_recover(source, *args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise KeyboardInterrupt
+        return real_parse(source, *args, **kwargs)
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.ast.parse",
+        side_effect=parse_once_then_recover,
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            add_active_line_prints("x = 1")
+
+    assert calls["count"] == 1
