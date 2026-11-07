@@ -13,6 +13,7 @@ password and cost a debugging session chasing a credential that was never there.
 """
 
 import os
+import re
 import shutil
 
 import pytest
@@ -44,20 +45,28 @@ def bash():
 
 
 def _output(language, code):
-    """Console output from a run, excluding OI's own state line.
+    """Console output from a run, excluding OI's own state and status lines.
 
-    The state line is added by CwdTrackingMixin after every command, not by the
-    command itself, and these tests are about what the *command's* output looks
-    like once the marker has been consumed. Filtering it here keeps that
-    distinction explicit instead of quietly loosening the assertions.
+    The state line (CWD) and the exit-status line are added by
+    CwdTrackingMixin after every command, not by the command itself, and these
+    tests are about what the *command's* output looks like once the marker has
+    been consumed. Filtering both here keeps that distinction explicit instead
+    of quietly loosening the assertions.
     """
-    return [
-        str(chunk["content"])
-        for chunk in language.run(code)
-        if chunk.get("format") != "active_line"
-        and chunk.get("content")
-        and not str(chunk["content"]).startswith("[Shell State:")
-    ]
+    outputs = []
+    for chunk in language.run(code):
+        if chunk.get("format") == "active_line" or not chunk.get("content"):
+            continue
+        content = str(chunk["content"])
+        if content.startswith("[Shell State:"):
+            continue
+        # Status line, stripped whether it arrived as its own chunk or glued
+        # to newline-less output in the same content string.
+        content = re.sub(r"\n?Exit code: \d+\n$", "", content)
+        if not content or content.startswith("Exit code:"):
+            continue
+        outputs.append(content)
+    return outputs
 
 
 def test_output_without_trailing_newline_does_not_leak_the_marker(bash):

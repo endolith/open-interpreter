@@ -6,9 +6,12 @@ block's exit status. The only status OI ever surfaced was the rare
 times across 454 executions in the Terminal-Bench 10x3 run while models
 repeatedly had to infer from partial output whether a silent command had
 worked (e.g. "Hmm no output? ... odd"). bash now also echoes
-``##oi_exit:$?##`` right after the user's block; a zero status is swallowed
-as protocol and a non-zero one becomes an ``Exit code: N`` line in the
-model's context, before the cwd state line.
+``##oi_exit:$?##`` right after the user's block, and every block -- success
+included -- gets an ``Exit code: N`` line in the model's context ahead of the
+cwd state line. Silence was the ambiguous case: no output plus no status
+leaves the model guessing whether the block ran at all, so zero reports too
+(cf. #401, which asks for the same kind of runtime evidence while a command
+is still running).
 
 cmd and PowerShell stay silent for now: their status variables
 (``%ERRORLEVEL%``/``$LASTEXITCODE``) are only written by some commands and
@@ -77,9 +80,13 @@ def test_cmd_stays_silent_until_errorlevel_is_reliable():
     assert "##oi_exit" not in code
 
 
-def test_successful_status_is_swallowed():
-    """A zero status is protocol, not output: the model sees nothing."""
-    assert Bash().line_postprocessor("##oi_exit:0##\n") is None
+def test_successful_block_reports_exit_code_zero():
+    """A zero status is reported too -- silent success was the ambiguous case.
+
+    An empty output with no status line reads the same as a command that
+    never ran; the explicit zero closes that gap (cf. #401).
+    """
+    assert Bash().line_postprocessor("##oi_exit:0##\n") == "Exit code: 0\n"
 
 
 def test_failing_status_becomes_exit_code_line():
@@ -91,7 +98,8 @@ def test_status_glued_to_newlineless_output_keeps_that_output():
     """printf-style output leaves the shell mid-line, so the echo arrives glued.
 
     The same no-anchoring rule as the cwd marker: keep what the command
-    printed, consume the marker, and only then state the status.
+    printed, consume the marker, and only then state the status -- for a
+    failure and for a success alike.
     """
     language = Bash()
     assert (
@@ -100,7 +108,7 @@ def test_status_glued_to_newlineless_output_keeps_that_output():
     )
     assert (
         language.line_postprocessor("no trailing newline##oi_exit:0##\n")
-        == "no trailing newline"
+        == "no trailing newline\nExit code: 0\n"
     )
 
 
@@ -125,17 +133,33 @@ def test_failing_block_reports_exit_code(bash):
     assert "##oi_exit" not in joined
 
 
-def test_silent_success_reports_no_status_line(bash):
-    """`true` prints nothing and succeeds: no status line, no marker noise."""
-    assert _output(bash, "true") == []
+def test_silent_success_reports_exit_code_zero(bash):
+    """`true` prints nothing: the explicit zero is what tells it worked.
+
+    Without this line the model sees the same nothing it saw when a silent
+    command failed -- the exact confusion the feature removes.
+    """
+    assert _output(bash, "true") == ["Exit code: 0\n"]
 
 
-def test_normal_output_carries_no_status_noise(bash):
-    """Successful blocks with output stay exactly their output."""
+def test_normal_output_reports_success_alongside_output(bash):
+    """Successful blocks keep their output and gain the status line."""
     out = "".join(_output(bash, "echo hi"))
-    assert out.strip() == "hi"
-    assert "Exit code" not in out
+    assert "hi" in out
+    assert "Exit code: 0" in out
     assert "##oi" not in out
+
+
+def test_last_command_status_wins(bash):
+    """Pins bash semantics: $? is the block's last command, not a verdict on every line.
+
+    A failure mid-block that prints nothing is only visible through its own
+    stderr; the status line reports the block's overall outcome. Documented
+    so nobody mistakes it for per-command accounting.
+    """
+    out = "".join(_output(bash, "false; echo done"))
+    assert "done" in out
+    assert "Exit code: 0" in out
 
 
 def test_failed_command_keeps_stderr_and_adds_status(bash):

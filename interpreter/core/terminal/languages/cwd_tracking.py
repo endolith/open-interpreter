@@ -167,9 +167,12 @@ class CwdTrackingMixin:
     def _filter_exit_marker(self, line):
         """Turn the ``##oi_exit:<n>##`` echo into a human exit-status line.
 
-        Returns ``Exit code: <n>`` (keeping any output the echo was glued to)
-        when the block failed, None when it succeeded -- the echo is protocol,
-        not output -- and the line unchanged when it carries no marker or a
+        Always reports, success included: "no output" plus silence leaves the
+        model guessing whether the block worked at all -- the confusion behind
+        the silent-success cases this line exists to end (cf. #401, which asks
+        for the same kind of runtime evidence while a command is still
+        running). Returns ``Exit code: <n>`` (keeping any output the echo was
+        glued to), or the line unchanged when it carries no marker or a
         malformed one, so unrelated output is never eaten.
 
         Same no-anchoring rule as the cwd marker: a command whose output lacks
@@ -184,18 +187,15 @@ class CwdTrackingMixin:
             return line
         before = before.rstrip("\r\n")
         code = int(match.group(1))
-        if code == 0:
-            return before or None
         return (before + "\n" if before else "") + f"Exit code: {code}\n"
 
     def line_postprocessor(self, line):
         stripped = self._filter_pwd_marker(line)
         if stripped is None:
             return None  # discard the marker from visible output
-        stripped = self._filter_exit_marker(stripped)
-        if stripped is None:
-            return None  # successful block: status echo is protocol, not output
-        return self._postprocess_line(stripped)
+        # The exit filter never discards: it reports every status (0 included)
+        # or passes the line through untouched.
+        return self._postprocess_line(self._filter_exit_marker(stripped))
 
     def strip_boilerplate(self, code):
         """Return (stripped_code, notice) after safe shell-code normalization.
