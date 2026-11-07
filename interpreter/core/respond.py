@@ -153,6 +153,11 @@ def _is_temporary_provider_error(error):
         phrase in error_message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES
     ):
         return True
+    # A 5xx from the provider is transient by definition — the leaderboard
+    # classifies 429/5xx as retriable infra too. Match status codes as words
+    # so token counts like "1500" are never mistaken for one.
+    if re.search(r"\b50[0-4]\b", error_message):
+        return True
     temporary_markers = (
         "temporarily",
         "temporary",
@@ -166,6 +171,14 @@ def _is_temporary_provider_error(error):
         "timeout",
         "timed out",
         "overloaded",
+        # Observed on api.deepseek.com: {"type": "internal_error"} with an
+        # "Internal Server Error (request_id: ...)" message — a transient
+        # upstream fault that is invisible to the status-code check above
+        # because str(error) carries the JSON body, not a status line.
+        "internal server error",
+        "internal_error",
+        "internalservererror",
+        "bad gateway",
     )
     return any(marker in error_message for marker in temporary_markers)
 
