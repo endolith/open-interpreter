@@ -74,3 +74,18 @@ def test_preprocess_javascript_multiline_skips_active_line_markers():
     code = preprocess_javascript("function f() {\n  return 1;\n")
     assert "##active_line" not in code
     assert "##end_of_execution##" in code
+
+
+def test_line_postprocessor_strips_node24_multiline_prompt():
+    """Node 24 echoes buffered multi-line input with a run of "| " prompts.
+
+    Node 22 used "... "; Node 24's readline uses kMultilinePrompt "| ", so the
+    prompt leaked onto the result line ("| | | | hello"). A single, double, or
+    triple leading "| " is legitimate output (a markdown table row, `| | empty`),
+    so only runs of four or more are stripped.
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("| | | | hello from node v24") == "hello from node v24"
+    assert js.line_postprocessor("| a | b |") == "| a | b |"
+    assert js.line_postprocessor("| | empty") == "| | empty"
+    assert js.line_postprocessor("| | | three") == "| | | three"

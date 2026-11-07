@@ -24,6 +24,12 @@ class JavaScript(SubprocessLanguage):
         line = line.strip(". \n")
         # Remove trailing ">"s
         line = re.sub(r"^\s*(>\s*)+", "", line)
+        # Node 24 renders a buffered multi-line command's continuation prompt as
+        # "| " (readline's kMultilinePrompt) and emits the run on the result
+        # line. Our try/catch wrapper is at least seven lines, so a real run is
+        # long; requiring four leaves ordinary output such as a markdown table
+        # row ("| a | b |", or "| | empty") untouched.
+        line = re.sub(r"^(?:\| ){4,}", "", line)
         return line
 
     def detect_active_line(self, line):
