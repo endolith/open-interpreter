@@ -2,6 +2,12 @@ import functools
 import os
 import platform
 
+# Intel OpenMP, pulled in with MKL numpy through the interpreter's import
+# chain, aborts forked children with a kmp_affinity SIGABRT in restricted
+# containers — and OI's fork-safety tests must os.fork(). Pick a non-Intel
+# threading layer before numpy is imported anywhere in the session.
+os.environ.setdefault("MKL_THREADING_LAYER", "SEQUENTIAL")
+
 import litellm
 import pytest
 
