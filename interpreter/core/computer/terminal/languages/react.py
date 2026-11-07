@@ -44,8 +44,16 @@ class React(BaseLanguage):
     name = "React"
     file_extension = "html"
 
-    def __init__(self):
+    def __init__(self, computer=None):
         super().__init__()
+        self.computer = computer
+
+    def _assistant_sees_rendered_image(self):
+        if not self.computer:
+            return False
+        return (
+            getattr(self.computer.interpreter.llm, "supports_vision", False) is True
+        )
 
     # system_message is intentionally absent. respond.py appends it to the
     # system prompt when present (hasattr check), but React already tells the
@@ -64,21 +72,42 @@ class React(BaseLanguage):
 
         code = template.replace("{insert_react_code}", code)
 
-        yield {
-            "type": "console",
-            "format": "output",
-            "content": "React is being displayed on the user's machine...",
-            "recipient": "assistant",
-        }
-
         # User sees interactive HTML
         yield {"type": "code", "format": "html", "content": code, "recipient": "user"}
 
-        # Assistant sees image
-        base64 = html_to_png_base64(code)
+        # Exactly one assistant-facing result (see HTML.run): the image when a
+        # vision model can be shown one, otherwise a single console carrying
+        # the source.
+        if self._assistant_sees_rendered_image():
+            base64 = html_to_png_base64(code)
+            if base64:
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": "React is being displayed on the user's machine...",
+                    "recipient": "assistant",
+                }
+                yield {
+                    "type": "image",
+                    "format": "base64.png",
+                    "content": base64,
+                    "recipient": "assistant",
+                }
+                return
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": (
+                    "Could not render a preview (the headless browser failed); "
+                    "showing the source instead.\n\n```html\n" + code + "\n```"
+                ),
+                "recipient": "assistant",
+            }
+            return
+
         yield {
-            "type": "image",
-            "format": "base64.png",
-            "content": base64,
+            "type": "console",
+            "format": "output",
+            "content": f"HTML source shown to the user:\n\n```html\n{code}\n```",
             "recipient": "assistant",
         }
