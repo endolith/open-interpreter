@@ -174,7 +174,7 @@ view_image_tool_schema = {
     "type": "function",
     "function": {
         "name": "view_image",
-        "description": "Load an image from disk so you can see it. Only for files that actually exist on the user's machine at an absolute path they gave you or that code wrote. Do not invent paths (e.g. /mnt/data/, /tmp/placeholder). If the user already attached an image in this chat (inline / base64), describe that attachment directly—do not call view_image. Supported formats: PNG, JPEG, GIF, WebP, BMP. PDF is not supported. Path must be absolute (Windows: r'C:\\Users\\...', Mac/Linux: '/home/...').",
+        "description": "Load an image from disk so you can see it. Your vision is better than OCR: prefer this tool over installing/using OCR (Tesseract, pytesseract) to read image files. Only for files that actually exist on the user's machine at an absolute path they gave you or that code wrote. Do not invent paths (e.g. /mnt/data/, /tmp/placeholder). If the user already attached an image in this chat (inline / base64), describe that attachment directly—do not call view_image. Supported formats: PNG, JPEG, GIF, WebP, BMP. PDF is not supported. Path must be absolute (Windows: r'C:\\Users\\...', Mac/Linux: '/home/...').",
         "parameters": {
             "type": "object",
             "properties": {

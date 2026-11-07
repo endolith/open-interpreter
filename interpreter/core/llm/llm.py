@@ -62,7 +62,9 @@ _TOOL_CALLING_INSTRUCTIONS = (
     "Do not call a language name (`bash`, `python`, `javascript`, …) as a tool; "
     "the tool is `execute`, and the language goes in its `language` field. "
     "Do not call any other name as a tool (e.g. toolbox.web.answer). "
-    "Those are Python APIs: call them from inside the `code` value."
+    "Those are Python APIs: call them from inside the `code` value. "
+    "When the task provides image files, view them with `view_image` — your "
+    "vision is better than OCR — before falling back to Tesseract or similar."
 )
 
 # from .run_function_calling_llm import run_function_calling_llm
