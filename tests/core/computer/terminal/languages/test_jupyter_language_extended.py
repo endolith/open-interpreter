@@ -297,7 +297,9 @@ def test_capture_output_yields_queued_items_then_stops():
     """_capture_output() yields enqueued chunks and breaks once finish_flag is set and the queue empties."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
     lang.finish_flag = True
-    lang.listener_thread = threading.Thread
+    # An instance, not the class: the consumer asks is_alive() to tell a dead
+    # listener from a live one, and the thread was never started.
+    lang.listener_thread = threading.Thread(target=lambda: None)
     lang.computer = SimpleNamespace(
         interpreter=SimpleNamespace(stop_event=threading.Event())
     )

@@ -6,6 +6,7 @@ output chunk. Neither is about the happy path, and neither was covered.
 """
 
 import queue
+import threading
 import time
 from types import SimpleNamespace
 from unittest import mock
@@ -359,3 +360,91 @@ def test_a_listener_from_a_superseded_generation_stops_consuming(monkeypatch):
     # Running the superseded listener returns at the generation check.
     targets[0]()
     lang.kc.iopub_channel.get_msg.assert_not_called()
+
+
+def _collect(generator, timeout=15):
+    """Drain a generator in a thread so a hang fails the test, not the suite."""
+    result = {}
+
+    def worker():
+        try:
+            result["chunks"] = list(generator)
+        except Exception as exc:  # pragma: no cover - surfaced by the assertion
+            result["error"] = exc
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    assert not thread.is_alive(), "generator hung instead of returning"
+    assert "error" not in result, result.get("error")
+    return result["chunks"]
+
+
+def test_kernel_is_alive_uses_the_process_not_the_client():
+    """Liveness must come from the manager: the client stays up after a hard exit."""
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    assert lang._kernel_is_alive() is False
+
+    lang.km = SimpleNamespace(is_alive=lambda: True)
+    assert lang._kernel_is_alive() is True
+
+
+def test_a_dead_kernel_is_restarted_before_the_next_run(monkeypatch):
+    """os._exit(0) must not leave the next run executing against a dead kernel."""
+    lang = _language()
+    lang.kc.stop_channels = mock.Mock()
+    dead_km = SimpleNamespace(is_alive=lambda: False, shutdown_kernel=mock.Mock())
+    lang.km = dead_km
+    restarted = {}
+
+    def fake_init(_self, computer):
+        restarted["computer"] = computer
+        lang.km = SimpleNamespace(is_alive=lambda: True, shutdown_kernel=mock.Mock())
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", fake_init)
+    lang._execute_code = lambda code, message_queue: None
+    lang._capture_output = lambda message_queue: iter(
+        [{"type": "console", "format": "output", "content": "ok"}]
+    )
+
+    chunks = list(lang.run("x = 1"))
+
+    assert restarted["computer"] is lang.computer
+    lang.kc.stop_channels.assert_called_once_with()
+    dead_km.shutdown_kernel.assert_called_once_with(now=True)
+    assert chunks == [{"type": "console", "format": "output", "content": "ok"}]
+
+
+def test_a_listener_reports_a_dead_kernel_and_stops():
+    """A hard exit is reported instead of waiting for an idle that cannot arrive.
+
+    The channels outlive the process, so the iopub reader would otherwise spin
+    until the user interrupts, and the consumer has no exit condition.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False, interrupt_kernel=mock.Mock())
+    lang.kc.execute = mock.Mock(return_value="msg-1")
+    message_queue = queue.Queue()
+
+    lang._execute_code("pass", message_queue)
+
+    lang.listener_thread.join(timeout=5)
+    assert not lang.listener_thread.is_alive()
+    assert lang.finish_flag is True
+    assert "kernel exited" in message_queue.get_nowait()["content"]
+
+
+def test_capture_output_stops_when_the_listener_dies_without_finishing():
+    """A listener that dies without setting finish_flag must not hang the consumer."""
+    lang = _language()
+    listener = threading.Thread(target=lambda: None)
+    listener.start()
+    listener.join()
+    lang.listener_thread = listener
+    lang.finish_flag = False
+
+    chunks = _collect(lang._capture_output(queue.Queue()))
+
+    assert chunks == []
+    assert lang.finish_flag is True
