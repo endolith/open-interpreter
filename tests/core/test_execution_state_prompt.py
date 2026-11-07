@@ -135,6 +135,8 @@ class TestExecutionStatePrompt(unittest.TestCase):
         self.assertIn('"code": "print(1)"', _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn('"language": "python"', _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn("language name", _TOOL_CALLING_INSTRUCTIONS)
+        self.assertIn("view_image", _TOOL_CALLING_INSTRUCTIONS)
+        self.assertIn("vision is better than OCR", _TOOL_CALLING_INSTRUCTIONS)
         self.assertNotIn("execute({", _TOOL_CALLING_INSTRUCTIONS)
         self.assertIn("never executed", _TOOL_CALLING_INSTRUCTIONS)
 

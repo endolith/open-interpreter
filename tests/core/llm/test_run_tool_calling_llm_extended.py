@@ -79,6 +79,15 @@ def test_chunks_without_choices_are_skipped():
     ]
 
 
+def test_view_image_schema_steers_away_from_ocr():
+    """The view_image tool description prefers vision over OCR when images exist."""
+    from interpreter.core.llm.run_tool_calling_llm import view_image_tool_schema
+
+    description = view_image_tool_schema["function"]["description"]
+    assert "vision is better than OCR" in description
+    assert "prefer this tool" in description
+
+
 def test_language_named_tool_call_is_rewritten_to_execute():
     """A tool named python/bash/javascript is treated as execute in that language.
 
