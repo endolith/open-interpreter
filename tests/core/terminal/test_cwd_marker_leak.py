@@ -62,8 +62,8 @@ def _output(language, code):
             continue
         # Status line, stripped whether it arrived as its own chunk or glued
         # to newline-less output in the same content string.
-        content = re.sub(r"\n?Exit code: \d+\n$", "", content)
-        if not content or content.startswith("Exit code:"):
+        content = re.sub(r"\n?\[Exit code: \d+\]\n$", "", content)
+        if not content or content.startswith("[Exit code:"):
             continue
         outputs.append(content)
     return outputs

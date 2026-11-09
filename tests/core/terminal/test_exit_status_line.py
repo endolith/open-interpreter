@@ -7,7 +7,7 @@ times across 454 executions in the Terminal-Bench 10x3 run while models
 repeatedly had to infer from partial output whether a silent command had
 worked (e.g. "Hmm no output? ... odd"). bash now also echoes
 ``##oi_exit:$?##`` right after the user's block, and every block -- success
-included -- gets an ``Exit code: N`` line in the model's context ahead of the
+included -- gets an ``[Exit code: N]`` line in the model's context ahead of the
 cwd state line. Silence was the ambiguous case: no output plus no status
 leaves the model guessing whether the block ran at all, so zero reports too
 (cf. #401, which asks for the same kind of runtime evidence while a command
@@ -86,12 +86,12 @@ def test_successful_block_reports_exit_code_zero():
     An empty output with no status line reads the same as a command that
     never ran; the explicit zero closes that gap (cf. #401).
     """
-    assert Bash().line_postprocessor("##oi_exit:0##\n") == "Exit code: 0\n"
+    assert Bash().line_postprocessor("##oi_exit:0##\n") == "[Exit code: 0]\n"
 
 
 def test_failing_status_becomes_exit_code_line():
     """A non-zero status becomes a plain-language line for the model."""
-    assert Bash().line_postprocessor("##oi_exit:7##\n") == "Exit code: 7\n"
+    assert Bash().line_postprocessor("##oi_exit:7##\n") == "[Exit code: 7]\n"
 
 
 def test_status_glued_to_newlineless_output_keeps_that_output():
@@ -104,11 +104,11 @@ def test_status_glued_to_newlineless_output_keeps_that_output():
     language = Bash()
     assert (
         language.line_postprocessor("no trailing newline##oi_exit:4##\n")
-        == "no trailing newline\nExit code: 4\n"
+        == "no trailing newline\n[Exit code: 4]\n"
     )
     assert (
         language.line_postprocessor("no trailing newline##oi_exit:0##\n")
-        == "no trailing newline\nExit code: 0\n"
+        == "no trailing newline\n[Exit code: 0]\n"
     )
 
 
@@ -129,7 +129,7 @@ def test_failing_block_reports_exit_code(bash):
     """
     out = _output(bash, "false")
     joined = "".join(out)
-    assert "Exit code: 1" in joined
+    assert "[Exit code: 1]" in joined
     assert "##oi_exit" not in joined
 
 
@@ -139,14 +139,14 @@ def test_silent_success_reports_exit_code_zero(bash):
     Without this line the model sees the same nothing it saw when a silent
     command failed -- the exact confusion the feature removes.
     """
-    assert _output(bash, "true") == ["Exit code: 0\n"]
+    assert _output(bash, "true") == ["[Exit code: 0]\n"]
 
 
 def test_normal_output_reports_success_alongside_output(bash):
     """Successful blocks keep their output and gain the status line."""
     out = "".join(_output(bash, "echo hi"))
     assert "hi" in out
-    assert "Exit code: 0" in out
+    assert "[Exit code: 0]" in out
     assert "##oi" not in out
 
 
@@ -159,7 +159,7 @@ def test_last_command_status_wins(bash):
     """
     out = "".join(_output(bash, "false; echo done"))
     assert "done" in out
-    assert "Exit code: 0" in out
+    assert "[Exit code: 0]" in out
 
 
 def test_failed_command_keeps_stderr_and_adds_status(bash):
@@ -170,5 +170,5 @@ def test_failed_command_keeps_stderr_and_adds_status(bash):
     """
     out = "".join(_output(bash, "ls /definitely-not-here-oi-test"))
     assert "No such file or directory" in out
-    assert "Exit code: 2" in out
+    assert "[Exit code: 2]" in out
     assert "##oi_exit" not in out
