@@ -58,6 +58,11 @@ class CwdTrackingMixin:
     null_device = None
     shell_quote_style = "posix"
 
+    # Exit status of the block currently being processed, stashed by
+    # _filter_exit_marker and folded into _state_line so the whole
+    # outcome-and-location summary is one bracketed line, not two.
+    _last_exit_status = None
+
     def __init__(self):
         self.cwd = os.getcwd()
         # Set by _strip_redundant_cd when it removes cd prefixes; run() yields
@@ -121,7 +126,13 @@ class CwdTrackingMixin:
         stable-looking value there would both churn the prompt cache and go
         stale when a conversation is resumed in a different directory.
         """
-        return f"[Shell State: CWD: {self.cwd}]"
+        # Exit status first: "how that ended, and here's where we are now".
+        # One bracketed line, so metadata never reads as two separate stamps
+        # (or as program output).
+        status = getattr(self, "_last_exit_status", None)
+        if status is None:
+            return f"[Shell State: CWD: {self.cwd}]"
+        return f"[Exit code: {status} | Shell State: CWD: {self.cwd}]"
 
     def _insert_cwd_marker(self, code, end_marker):
         """Insert the exit-status and ``##oi_cwd##`` echoes before the end marker.
@@ -165,20 +176,19 @@ class CwdTrackingMixin:
         return before or None
 
     def _filter_exit_marker(self, line):
-        """Turn the ``##oi_exit:<n>##`` echo into a human exit-status line.
+        """Consume the ``##oi_exit:<n>##`` echo into a stash for the state line.
 
-        Always reports, success included: "no output" plus silence leaves the
-        model guessing whether the block worked at all -- the confusion behind
-        the silent-success cases this line exists to end (cf. #401, which asks
-        for the same kind of runtime evidence while a command is still
-        running). Returns ``[Exit code: <n>]`` -- bracketed like the state lines so
-        it never reads as program output -- keeping any output the echo was
-        glued to), or the line unchanged when it carries no marker or a
-        malformed one, so unrelated output is never eaten.
-
-        Same no-anchoring rule as the cwd marker: a command whose output lacks
-        a trailing newline leaves the shell mid-line, so the echo arrives glued
-        to that output.
+        The status is always recorded, success included: "no output" plus
+        silence leaves the model guessing whether the block worked at all --
+        the confusion behind the silent-success cases this exists to end
+        (cf. #401, which asks for the same kind of runtime evidence while a
+        command is still running). The line itself is not re-emitted here: the
+        value rides into ``_state_line`` as ``[Exit code: <n> | Shell State:
+        CWD: ...]``, one bracketed stamp instead of two. The marker line is
+        discarded (or, when glued to newline-less output, only the text before
+        it is kept -- same no-anchoring rule as the cwd marker), and a
+        malformed marker passes through untouched so real output is never
+        eaten.
         """
         if _EXIT_PREFIX not in line:
             return line
@@ -186,17 +196,19 @@ class CwdTrackingMixin:
         match = _EXIT_CODE_RE.match(after)
         if not match:
             return line
-        before = before.rstrip("\r\n")
-        code = int(match.group(1))
-        return (before + "\n" if before else "") + f"[Exit code: {code}]\n"
+        self._last_exit_status = int(match.group(1))
+        return before.rstrip("\r\n") or None
 
     def line_postprocessor(self, line):
         stripped = self._filter_pwd_marker(line)
         if stripped is None:
             return None  # discard the marker from visible output
-        # The exit filter never discards: it reports every status (0 included)
-        # or passes the line through untouched.
-        return self._postprocess_line(self._filter_exit_marker(stripped))
+        # The exit filter consumes its marker: None means "nothing left to
+        # display" (the status is stashed for the state line).
+        stripped = self._filter_exit_marker(stripped)
+        if stripped is None:
+            return None
+        return self._postprocess_line(stripped)
 
     def strip_boilerplate(self, code):
         """Return (stripped_code, notice) after safe shell-code normalization.

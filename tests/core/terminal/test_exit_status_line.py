@@ -1,17 +1,18 @@
-"""Exit-status line: a completed shell block that fails says so.
+"""One bracketed status stamp per shell block: outcome first, then location.
 
-The shell always echoed an end-of-execution marker, but nothing reported the
-block's exit status. The only status OI ever surfaced was the rare
-"process exited before the end of this block" death message, which fired 0
-times across 454 executions in the Terminal-Bench 10x3 run while models
-repeatedly had to infer from partial output whether a silent command had
-worked (e.g. "Hmm no output? ... odd"). bash now also echoes
-``##oi_exit:$?##`` right after the user's block, and every block -- success
-included -- gets an ``[Exit code: N]`` line in the model's context ahead of the
-cwd state line. Silence was the ambiguous case: no output plus no status
-leaves the model guessing whether the block ran at all, so zero reports too
-(cf. #401, which asks for the same kind of runtime evidence while a command
-is still running).
+A completed bash block reports its exit status and working directory as a
+single line -- ``[Exit code: 0 | Shell State: CWD: /app]`` -- because two
+separate bracketed stamps read as two unrelated annotations, and an
+unbracketed status read as program output. Exit status comes first: "how
+that ended, and here's where we are now" (cf. #401, which asks for the same
+kind of runtime evidence while a command is still running).
+
+The ``##oi_exit:$?##`` echo is consumed into a stash by
+``_filter_exit_marker``; the value rides into ``_state_line`` at the end of
+the block. Always reports, success included: silence after a run leaves the
+model guessing whether the block worked at all -- the confusion behind the
+silent-success cases ("Hmm no output? ... odd") in the Terminal-Bench
+transcripts.
 
 cmd and PowerShell stay silent for now: their status variables
 (``%ERRORLEVEL%``/``$LASTEXITCODE``) are only written by some commands and
@@ -39,20 +40,22 @@ def bash():
         language.terminate()
 
 
-def _output(language, code):
-    """Console output from a run, excluding OI's own state line.
+def _contents(language, code, keep_meta=False):
+    """Console contents from a run.
 
-    The state line is added by CwdTrackingMixin after every command, not by
-    the command itself; filtering it here keeps assertions about the
-    command's own output explicit instead of loosening them.
+    OI's own status stamp (and the state line) is excluded unless
+    ``keep_meta``: the purity tests are about what the *command* output.
     """
-    return [
-        str(chunk["content"])
-        for chunk in language.run(code)
-        if chunk.get("format") != "active_line"
-        and chunk.get("content")
-        and not str(chunk["content"]).startswith("[Shell State:")
-    ]
+    out = []
+    for chunk in language.run(code):
+        if chunk.get("format") == "active_line" or not chunk.get("content"):
+            continue
+        content = str(chunk["content"])
+        if keep_meta or not (
+            content.startswith("[Shell State:") or content.startswith("[Exit code:")
+        ):
+            out.append(content)
+    return out
 
 
 def test_bash_emits_exit_echo_before_cwd_and_end_markers():
@@ -80,95 +83,113 @@ def test_cmd_stays_silent_until_errorlevel_is_reliable():
     assert "##oi_exit" not in code
 
 
-def test_successful_block_reports_exit_code_zero():
+def test_successful_block_stamps_exit_zero_on_the_state_line():
     """A zero status is reported too -- silent success was the ambiguous case.
 
-    An empty output with no status line reads the same as a command that
-    never ran; the explicit zero closes that gap (cf. #401).
+    The marker line itself is consumed (not re-emitted); the value appears
+    once, on the state line, so there is exactly one bracketed stamp.
     """
-    assert Bash().line_postprocessor("##oi_exit:0##\n") == "[Exit code: 0]\n"
+    language = Bash()
+    assert language.line_postprocessor("##oi_exit:0##\n") is None
+    assert language._state_line() == (
+        f"[Exit code: 0 | Shell State: CWD: {language.cwd}]"
+    )
 
 
-def test_failing_status_becomes_exit_code_line():
-    """A non-zero status becomes a plain-language line for the model."""
-    assert Bash().line_postprocessor("##oi_exit:7##\n") == "[Exit code: 7]\n"
+def test_failing_status_stamps_exit_code_first_on_the_state_line():
+    """Exit status leads the stamp: how it ended, then where we are."""
+    language = Bash()
+    assert language.line_postprocessor("##oi_exit:7##\n") is None
+    assert language._state_line() == (
+        f"[Exit code: 7 | Shell State: CWD: {language.cwd}]"
+    )
+
+
+def test_state_line_without_a_status_has_no_exit_segment():
+    """A block whose echo never ran (cmd, death path) keeps the plain stamp."""
+    language = Bash()
+    assert language._state_line() == f"[Shell State: CWD: {language.cwd}]"
 
 
 def test_status_glued_to_newlineless_output_keeps_that_output():
     """printf-style output leaves the shell mid-line, so the echo arrives glued.
 
     The same no-anchoring rule as the cwd marker: keep what the command
-    printed, consume the marker, and only then state the status -- for a
-    failure and for a success alike.
+    printed, consume the marker, and stash the status for the state line --
+    for a failure and for a success alike.
     """
     language = Bash()
     assert (
         language.line_postprocessor("no trailing newline##oi_exit:4##\n")
-        == "no trailing newline\n[Exit code: 4]\n"
+        == "no trailing newline"
     )
-    assert (
-        language.line_postprocessor("no trailing newline##oi_exit:0##\n")
-        == "no trailing newline\n[Exit code: 0]\n"
-    )
+    assert language._last_exit_status == 4
+    language.line_postprocessor("##oi_exit:0##\n")
+    assert language._last_exit_status == 0
 
 
 def test_malformed_or_unrelated_lines_pass_through():
-    """Only our own well-formed echo may be rewritten; nothing else is eaten."""
+    """Only our own well-formed echo may be consumed; nothing else is eaten."""
     language = Bash()
     malformed = "prefix ##oi_exit:zero## suffix\n"
     assert language.line_postprocessor(malformed) == malformed
     plain = "program output\n"
     assert language.line_postprocessor(plain) == plain
+    assert language._last_exit_status is None
 
 
-def test_failing_block_reports_exit_code(bash):
-    """A live bash block whose last command fails reports its status.
+def test_failing_block_stamps_combined_line(bash):
+    """A live bash block whose last command fails shows one bracketed stamp.
 
-    This is the whole feature end to end: protocol echo, marker consumed,
-    human line in the stream, and no protocol text left for the model.
+    This is the whole feature end to end: protocol echo consumed, marker
+    gone, outcome and cwd in a single line, and no protocol text left for
+    the model.
     """
-    out = _output(bash, "false")
-    joined = "".join(out)
-    assert "[Exit code: 1]" in joined
-    assert "##oi_exit" not in joined
+    contents = "".join(_contents(bash, "false", keep_meta=True))
+    assert "[Exit code: 1 | Shell State: CWD: " in contents
+    assert "##oi_exit" not in contents
+    # Exactly one stamp, not a second bracketed exit line.
+    assert contents.count("[Exit code:") == 1
 
 
-def test_silent_success_reports_exit_code_zero(bash):
+def test_silent_success_stamps_exit_zero(bash):
     """`true` prints nothing: the explicit zero is what tells it worked.
 
     Without this line the model sees the same nothing it saw when a silent
     command failed -- the exact confusion the feature removes.
     """
-    assert _output(bash, "true") == ["[Exit code: 0]\n"]
+    contents = _contents(bash, "true", keep_meta=True)
+    assert len(contents) == 1
+    assert contents[0].startswith("[Exit code: 0 | Shell State: CWD: ")
 
 
-def test_normal_output_reports_success_alongside_output(bash):
-    """Successful blocks keep their output and gain the status line."""
-    out = "".join(_output(bash, "echo hi"))
-    assert "hi" in out
-    assert "[Exit code: 0]" in out
-    assert "##oi" not in out
+def test_normal_output_keeps_output_and_adds_one_stamp(bash):
+    """Successful blocks keep their output and gain exactly one stamp."""
+    contents = _contents(bash, "echo hi", keep_meta=True)
+    assert any(c.strip() == "hi" for c in contents)
+    assert sum(1 for c in contents if c.startswith("[Exit code:")) == 1
+    assert "##oi" not in "".join(contents)
 
 
 def test_last_command_status_wins(bash):
     """Pins bash semantics: $? is the block's last command, not a verdict on every line.
 
     A failure mid-block that prints nothing is only visible through its own
-    stderr; the status line reports the block's overall outcome. Documented
-    so nobody mistakes it for per-command accounting.
+    stderr; the stamp reports the block's overall outcome. Documented so
+    nobody mistakes it for per-command accounting.
     """
-    out = "".join(_output(bash, "false; echo done"))
-    assert "done" in out
-    assert "[Exit code: 0]" in out
+    contents = "".join(_contents(bash, "false; echo done", keep_meta=True))
+    assert "done" in contents
+    assert "[Exit code: 0 | Shell State: CWD: " in contents
 
 
-def test_failed_command_keeps_stderr_and_adds_status(bash):
-    """A real failure keeps its error text and gains the status line.
+def test_failed_command_keeps_stderr_and_adds_stamp(bash):
+    """A real failure keeps its error text and gains the status stamp.
 
-    Models must see both: the message explains *what* went wrong, the status
+    Models must see both: the message explains *what* went wrong, the stamp
     says the block as a whole did not succeed.
     """
-    out = "".join(_output(bash, "ls /definitely-not-here-oi-test"))
-    assert "No such file or directory" in out
-    assert "[Exit code: 2]" in out
-    assert "##oi_exit" not in out
+    contents = "".join(_contents(bash, "ls /definitely-not-here-oi-test", keep_meta=True))
+    assert "No such file or directory" in contents
+    assert "[Exit code: 2 | Shell State: CWD: " in contents
+    assert "##oi_exit" not in contents

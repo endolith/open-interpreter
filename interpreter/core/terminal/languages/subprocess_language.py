@@ -194,6 +194,10 @@ class SubprocessLanguage(BaseLanguage):
             }
             return
 
+        # Fresh block, fresh status: a stash left over from a previous block
+        # must never appear on this block's state line.
+        self._last_exit_status = None
+
         while retry_count <= max_retries:
             if self.verbose:
                 print(f"(after processing) Running processed code:\n{code}\n---")
