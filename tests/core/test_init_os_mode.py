@@ -22,8 +22,6 @@ import sys
 import textwrap
 from unittest import mock
 
-import pytest
-
 IGNORED = ("__pycache__", ".pytest_cache", "mutants")
 
 
@@ -126,23 +124,6 @@ def test_voice_flag_is_reached_only_after_the_version_check():
     assert result.stdout.strip().startswith("FAIL"), (
         "the --voice branch is downstream of the crash"
     )
-
-
-def test_check_for_update_compares_versions_correctly():
-    """`check_for_update`'s comparison is directionally right, once unshadowed.
-
-    Separates the comparison from the shadowing that #407 reports: the fix is a
-    rename, not a rewrite. Newer published means True; equal or older means False,
-    so an install ahead of PyPI is not nagged.
-    """
-    packaging_version = pytest.importorskip("packaging.version")
-
-    def check_for_update(published, installed="0.0.1"):
-        return packaging_version.parse(published) > packaging_version.parse(installed)
-
-    assert check_for_update("0.0.2") is True, "a newer release should report True"
-    assert check_for_update("0.0.1") is False, "the same version should report False"
-    assert check_for_update("0.0.0") is False, "an older release should report False"
 
 
 # --- the logic itself, tested directly so it is actually covered ---
