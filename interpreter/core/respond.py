@@ -36,30 +36,79 @@ def _pending_code_message(messages):
 
 
 def _error_body(error_str):
-    """Render a provider's error text, unwrapping an HTML body if that is what it is.
+    """Render a provider's error body so the panel shows its own wording readably.
 
-    Returns a Rich-renderable. Gateways (OpenRouter, Cloudflare, nginx) often
-    answer a failed request with an HTML error page rather than JSON, and the
-    useful part is buried under <!DOCTYPE html>...
+    Gateways (OpenRouter, Cloudflare, nginx) often answer a failed request with
+    an HTML error page rather than JSON, and the useful part is buried under
+    <!DOCTYPE html>... Other providers send a JSON body, which as one line
+    hides the fields that make the error actionable. Both are unwrapped here;
+    anything else passes through untouched.
     """
     lower = error_str.lower()
     markers = [i for i in (lower.find("<!doctype"), lower.find("<html")) if i != -1]
-    if not markers:
-        return error_str
+    if markers:
+        try:
+            converter = html2text.HTML2Text()
+            converter.body_width = 0  # Let Rich handle reflowing
+            start = min(markers)
+            # The text before the markup names the exception class and provider,
+            # which is the context this panel exists to show. Keep it.
+            prefix = error_str[:start].strip()
+            body = converter.handle(error_str[start:]).strip()
+            text = f"{prefix}\n\n{body}".strip() if prefix else body
+        except Exception:
+            return error_str
+        return text or error_str
 
+    return _json_error_body(error_str) or error_str
+
+
+def _json_error_body(error_str):
+    """Format a JSON error body as Markdown bullets, or return None.
+
+    OpenRouter and DeepSeek send `{"error": {...}}` as the message. As a string
+    that is a single unreadable line; as bullets the fields (`message`, `type`,
+    `code`, `param`) line up under the provider's own wording. litellm usually
+    renders the body as a Python repr (single quotes), which is not JSON, so
+    this fires only for real JSON bodies and falls back silently otherwise.
+    """
+    start, end = error_str.find("{"), error_str.rfind("}")
+    if start == -1 or end <= start:
+        return None
     try:
-        converter = html2text.HTML2Text()
-        converter.body_width = 0  # Let Rich handle reflowing
-        start = min(markers)
-        # The text before the markup names the exception class and provider,
-        # which is the context this panel exists to show. Keep it.
-        prefix = error_str[:start].strip()
-        body = converter.handle(error_str[start:]).strip()
-        text = f"{prefix}\n\n{body}".strip() if prefix else body
-    except Exception:
-        return error_str
+        data = json.loads(error_str[start : end + 1])
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, (dict, list)):
+        return None
 
-    return text or error_str
+    def bullets(value, depth):
+        pad = "  " * depth
+        if isinstance(value, dict):
+            lines = []
+            for key, item in value.items():
+                if isinstance(item, (dict, list)):
+                    lines.append(f"{pad}- **{key}**:")
+                    lines.extend(bullets(item, depth + 1))
+                else:
+                    lines.append(f"{pad}- **{key}**: {item}")
+            return lines
+        if isinstance(value, list):
+            lines = []
+            for item in value:
+                if isinstance(item, (dict, list)):
+                    lines.append(f"{pad}-")
+                    lines.extend(bullets(item, depth + 1))
+                else:
+                    lines.append(f"{pad}- {item}")
+            return lines
+        return [f"{pad}- {value}"]
+
+    # The text before the JSON names the exception class and provider, which is
+    # the context this panel exists to show. Keep it, as the HTML path does.
+    prefix = error_str[:start].strip()
+    body = "\n".join(bullets(data, 0))
+    return f"{prefix}\n\n{body}".strip() if prefix else body
 
 
 def display_provider_error(error):

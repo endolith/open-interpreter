@@ -411,6 +411,74 @@ def test_display_provider_error_leaves_plain_text_alone():
     assert _error_body(error) == error
 
 
+def test_display_provider_error_formats_a_json_body_as_bullets():
+    """A JSON error body is rendered as bullets, not one minified line.
+
+    OpenRouter and DeepSeek answer a failed request with {"error": {...}}.
+    Left as a string, the fields that make it actionable (message, type, code)
+    run together; as bullets they line up under the provider's own wording.
+    The text before the JSON still names the exception class and provider.
+    """
+    error = (
+        'litellm.BadRequestError: Error code: 400 - {"error": '
+        '{"message": "The model `gpt-4oo` does not exist", '
+        '"type": "invalid_request_error", "code": "model_not_found"}}'
+    )
+    rendered = str(_error_body(error))
+
+    assert "litellm.BadRequestError" in rendered
+    assert "- **message**: The model `gpt-4oo` does not exist" in rendered
+    assert "- **type**: invalid_request_error" in rendered
+    assert "- **code**: model_not_found" in rendered
+    assert '{"error"' not in rendered
+
+
+def test_display_provider_error_formats_nested_json_and_lists():
+    """Nested objects and list items keep their structure as nested bullets."""
+    error = (
+        '{"error": {"message": "bad", '
+        '"details": [{"field": "model"}, {"field": "key"}]}}'
+    )
+    rendered = str(_error_body(error))
+
+    assert "- **error**:" in rendered
+    assert "  - **message**: bad" in rendered
+    assert "  - **details**:" in rendered
+    assert "      - **field**: model" in rendered
+    assert "      - **field**: key" in rendered
+
+
+def test_display_provider_error_leaves_a_python_repr_body_alone():
+    """litellm renders the body as a Python repr, which is not JSON.
+
+    Single-quoted reprs must pass through rather than being half-parsed; the
+    JSON formatter is deliberately strict and silent when parsing fails.
+    """
+    error = "litellm.BadRequestError: Error code: 400 - {'error': {'message': 'bad'}}"
+    assert _error_body(error) == error
+
+
+def test_display_provider_error_keeps_the_fields_when_the_message_is_vague():
+    """A provider's own wording can be vague or wrong; its fields stay visible.
+
+    #467 shows the provider's message instead of substituting our prose, which
+    is right when the message is accurate but not when it is just "Bad
+    Request". Rendering the JSON body as bullets keeps `type`, `param` and
+    `code` in the panel exactly then, so it still says what was objected to.
+    """
+    error = (
+        'litellm.BadRequestError: Error code: 400 - {"error": '
+        '{"message": "Bad Request", "type": "invalid_request_error", '
+        '"param": "reasoning_effort", "code": "invalid_value"}}'
+    )
+    rendered = str(_error_body(error))
+
+    assert "- **message**: Bad Request" in rendered
+    assert "- **type**: invalid_request_error" in rendered
+    assert "- **param**: reasoning_effort" in rendered
+    assert "- **code**: invalid_value" in rendered
+
+
 def test_respond_offline_errors_are_re_raised():
     """Offline sessions re-raise errors rather than swallowing them."""
     interpreter = _message_interpreter()
