@@ -386,6 +386,59 @@ def test_display_provider_error_leaves_plain_text_alone():
     assert _error_body(error) == error
 
 
+# Captured from real providers with a rejected key. Each kept its own wording
+# and formatting (JSON, plain sentence, HTTP body) in the response.
+PROVIDER_ERROR_SAMPLES = {
+    "anthropic": (
+        'litellm.AuthenticationError: AnthropicException - {"type":"error",'
+        '"error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+        "invalid x-api-key",
+    ),
+    "groq": (
+        'litellm.BadRequestError: GroqException - {"error":{"message":"Invalid API Key",'
+        '"type":"invalid_request_error","code":"invalid_api_key"}}',
+        "Invalid API Key",
+    ),
+    "gemini": (
+        'litellm.AuthenticationError: GeminiException - {\n  "error": {\n'
+        '    "code": 400,\n    "message": "API key not valid. Please pass a valid API key.",\n'
+        '    "status": "INVALID_ARGUMENT"\n  }\n}',
+        "API key not valid",
+    ),
+    "openai-rate": (
+        "litellm.RateLimitError: RateLimitError: OpenAIException - Your account is not "
+        "active, please check your billing details on our website.",
+        "Your account is not active",
+    ),
+    "nvidia_nim": (
+        "litellm.NotFoundError: Nvidia_nimException - 404 page not found",
+        "404 page not found",
+    ),
+    "cohere": (
+        'litellm.APIConnectionError: CohereException - {"id":"x",'
+        '"message":"Incorrect API key provided"}',
+        "Incorrect API key provided",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "error,expected", PROVIDER_ERROR_SAMPLES.values(), ids=PROVIDER_ERROR_SAMPLES.keys()
+)
+def test_provider_error_samples_keep_the_providers_words(error, expected):
+    """Captured provider errors keep their message and gain no OpenAI advice.
+
+    The old handler replaced whichever of these arrived with OpenAI key and
+    billing instructions. Each sample must still contain the provider's own
+    wording, and none of that OpenAI-only text.
+    """
+    rendered = str(_error_body(error))
+
+    assert expected in rendered
+    for phrase in ("OPENAI_API_KEY", "platform.openai.com", "purchase credits", "hosted"):
+        assert phrase not in rendered
+
+
 def test_respond_offline_errors_are_re_raised():
     """Offline sessions re-raise errors rather than swallowing them."""
     interpreter = _message_interpreter()
