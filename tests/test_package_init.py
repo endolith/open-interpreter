@@ -37,16 +37,14 @@ def _stub_entrypoint(monkeypatch):
     return loop
 
 
-@pytest.mark.xfail(
-    raises=TypeError,
-    reason="interpreter/__init__.py rebinds `version` via "
-    "`from packaging import version`, so check_for_update() calls the "
-    "module and every --os import dies with TypeError (#407; fix in #430)",
-    strict=False,
-)
 def test_os_flag_checks_for_update_then_runs_main(monkeypatch, capsys):
     """--os import prints an update notice for newer PyPI releases, then
-    runs the async entrypoint and exits instead of building an interpreter."""
+    runs the async entrypoint and exits instead of building an interpreter.
+
+    Regression test for #407: `check_for_update()` used to call the packaging
+    module and die with TypeError before reaching any of this (fixed in #430
+    by aliasing the import).
+    """
     evicted = _evict_interpreter_package()
     try:
         loop = _stub_entrypoint(monkeypatch)
@@ -62,6 +60,41 @@ def test_os_flag_checks_for_update_then_runs_main(monkeypatch, capsys):
 
         loop.run_async_main.assert_called_once_with()
         assert "new version" in capsys.readouterr().out
+    finally:
+        for name in [
+            name
+            for name in sys.modules
+            if name == "interpreter" or name.startswith("interpreter.")
+        ]:
+            del sys.modules[name]
+        sys.modules.update(evicted)
+
+
+def test_update_check_request_sets_a_timeout(monkeypatch):
+    """The update check must not block --os startup on a stalled PyPI.
+
+    A connection that opens but never responds would hang the import, so the
+    request needs a timeout; the existing exception handler can only continue
+    startup once the call returns.
+    """
+    evicted = _evict_interpreter_package()
+    try:
+        _stub_entrypoint(monkeypatch)
+        monkeypatch.setattr(sys, "argv", ["oi", "--os"])
+        calls = {}
+
+        def fake_get(*args, **kwargs):
+            calls.update(kwargs)
+            response = mock.Mock()
+            response.json.return_value = {"info": {"version": "0.0.0"}}
+            return response
+
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        with pytest.raises(SystemExit):
+            importlib.import_module("interpreter")
+
+        assert calls.get("timeout") is not None
     finally:
         for name in [
             name
