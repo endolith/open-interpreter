@@ -16,7 +16,11 @@ if "--os" in sys.argv:
             if line == "":
                 print("")
             elif line == "---":
-                rich_print(Rule(style="white"))
+                try:
+                    rich_print(Rule(style="white"))
+                except UnicodeEncodeError:
+                    # A legacy (non-UTF-8) console cannot render the rule glyph.
+                    print("---")
             else:
                 try:
                     rich_print(Markdown(line))
@@ -30,17 +34,24 @@ if "--os" in sys.argv:
 
     from importlib.metadata import version
     import requests
-    from packaging import version
+    from packaging import version as packaging_version
 
     def check_for_update():
-        # Fetch the latest version from the PyPI API
-        response = requests.get(f"https://pypi.org/pypi/open-interpreter/json")
-        latest_version = response.json()["info"]["version"]
+        # Fetch the latest version from the PyPI API. An unreachable PyPI, or a
+        # package looked up outside an install, is an advisory failure: report
+        # "no update" and let --os start. The notice is not a gate.
+        try:
+            response = requests.get(f"https://pypi.org/pypi/open-interpreter/json")
+            latest_version = response.json()["info"]["version"]
 
-        # Get the current version using importlib.metadata
-        current_version = version("open-interpreter")
+            # Get the current version using importlib.metadata
+            current_version = version("open-interpreter")
+        except Exception:
+            return False
 
-        return version.parse(latest_version) > version.parse(current_version)
+        return packaging_version.parse(latest_version) > packaging_version.parse(
+            current_version
+        )
 
     if check_for_update():
         print_markdown(

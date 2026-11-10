@@ -37,16 +37,14 @@ def _stub_entrypoint(monkeypatch):
     return loop
 
 
-@pytest.mark.xfail(
-    raises=TypeError,
-    reason="interpreter/__init__.py rebinds `version` via "
-    "`from packaging import version`, so check_for_update() calls the "
-    "module and every --os import dies with TypeError (#407; fix in #430)",
-    strict=False,
-)
 def test_os_flag_checks_for_update_then_runs_main(monkeypatch, capsys):
     """--os import prints an update notice for newer PyPI releases, then
-    runs the async entrypoint and exits instead of building an interpreter."""
+    runs the async entrypoint and exits instead of building an interpreter.
+
+    Regression test for #407: `check_for_update()` used to call the packaging
+    module and die with TypeError before reaching any of this (fixed in #430
+    by aliasing the import).
+    """
     evicted = _evict_interpreter_package()
     try:
         loop = _stub_entrypoint(monkeypatch)
