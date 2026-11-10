@@ -518,11 +518,9 @@ def test_search_mirrors_list_results(tmp_path, capsys):
 def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
     """An oversized skills dir raises Warning and leaves save_skills on.
 
-    Once import_skills() restores the flag in a finally path, the guard
-    raise no longer strands the caller's setting: the run is still skipped
-    and save_skills is back to True. Today the restore is skipped, so the
-    flag stays False. Only the restoration assertion is allowed to
-    expect-fail; the guard and no-run expectations stay hard failures.
+    import_skills() restores the flag in a finally path (fixed in #422), so
+    the guard raise no longer strands the caller's setting: the run is
+    still skipped and save_skills is back to True.
     """
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
@@ -534,12 +532,7 @@ def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
         with pytest.raises(Warning, match="can't exceed 100mb"):
             skills.import_skills()
     computer.run.assert_not_called()
-    try:
-        assert computer.save_skills is True
-    except AssertionError:
-        pytest.xfail(
-            reason="import_skills() flips save_skills to False before the 100MB guard with no try/finally (issue #417), so a guard raise strands the caller's setting; fix in #422"
-        )
+    assert computer.save_skills is True
 
 
 def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys):
@@ -558,12 +551,17 @@ def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys)
         assert language == "python"
         return "Traceback: Boom" if "raise Boom" in code else "ok"
 
-    computer = _enabled_computer(run=mock.Mock(side_effect=fake_run))
+    computer = _enabled_computer(
+        run=mock.Mock(side_effect=fake_run),
+        interpreter=SimpleNamespace(debug=True),
+    )
     skills = Skills(computer)
     skills.path = str(skills_dir)
     skills.import_skills()
     assert computer.run.call_count == 3
     out = capsys.readouterr().out
+    assert "IMPORTING SKILLS:" in out, "the combined run is announced in debug mode"
+    assert "IMPORTING SKILL:" in out, "each fallback run is announced in debug mode"
     assert "might be broken" in out
     assert "bad.py" in out
     assert computer.save_skills is True
