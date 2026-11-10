@@ -85,3 +85,5 @@ custom_instructions: |
 
 # Documentation
 # All options: https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx
+
+version: 0.2.5 # Configuration file version (do not modify)
