@@ -7,6 +7,7 @@ from datetime import datetime
 
 from ..core.utils.system_debug_info import system_info
 from .utils.count_tokens import count_messages_tokens
+from .utils.declined_code import is_declined_code_message
 from .utils.export_to_markdown import export_to_markdown
 
 
@@ -295,6 +296,11 @@ def jupyter(self, arguments):
             code_cell = new_code_cell(msg["content"])
             code_cell.metadata.update({"language": language})
             cells.append(code_cell)
+        elif is_declined_code_message(msg):
+            # The declined code is still exported as an executable cell, so keep
+            # the refusal beside it: otherwise a reader (or Run All) would see
+            # code that looks approved and runnable.
+            cells.append(new_markdown_cell(f"> {msg['content']}"))
 
     nb["cells"] = cells
 

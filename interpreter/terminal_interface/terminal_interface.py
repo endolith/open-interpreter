@@ -25,6 +25,7 @@ from .components.message_block import MessageBlock
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
+from .utils.declined_code import DECLINED_CODE_MESSAGE
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 
@@ -292,7 +293,7 @@ def terminal_interface(interpreter, message):
                                     "role": "computer",
                                     "type": "console",
                                     "format": "output",
-                                    "content": "User declined to run this code.",
+                                    "content": DECLINED_CODE_MESSAGE,
                                     "recipient": "assistant",
                                 }
                             )
