@@ -93,8 +93,9 @@ def _queue_extra_tool_call(llm, entry, key):
     if not function:
         return
     name, arguments = _function_name_and_arguments(function)
-    if name is None and arguments is None:
-        # A present-but-empty function payload carries nothing to queue.
+    if not name and not arguments:
+        # A present-but-empty function payload (including empty strings)
+        # carries nothing to queue.
         return
 
     entry_id, entry_index = _tool_call_entry_identity(entry)
@@ -387,7 +388,7 @@ def run_tool_calling_llm(llm, request_params):
                     if function is None:
                         continue
                     name, arguments = _function_name_and_arguments(function)
-                    if name is None and arguments is None:
+                    if not name and not arguments:
                         continue
                     chosen = i
                     break
