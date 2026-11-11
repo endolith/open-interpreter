@@ -3,13 +3,24 @@ import os
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import sys
 
+from ..utils.lazy_import import lazy_import
+
 # Note: litellm in DEV mode will load .env files from the current directory
 # and all parent directories. This can lead to unexpected API keys being loaded
 # if there are .env files in parent folders.
-import litellm
+#
+# Importing it lazily keeps litellm's ~4s import out of interpreter construction.
+# A lazily imported module is safe to read attributes from: the first real use
+# performs the import. The process-wide settings below cannot live at module
+# scope, though, because assigning them is itself a use.
+litellm = lazy_import("litellm", optional=False)
 
-litellm.suppress_debug_info = True
-litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
+
+def _configure_litellm():
+    """Apply OI's process-wide litellm settings before the module is used."""
+    litellm.suppress_debug_info = True
+    litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
+
 
 import json
 import logging
@@ -1090,6 +1101,8 @@ Continuing...
         if self._is_loaded:
             return
 
+        _configure_litellm()
+
         # Route explicit DashScope models to DashScope defaults (OpenAI-compatible).
         # Prefixes avoid ambiguous auto-routing vs other providers (e.g. deepseek/*).
         # Slugs:
@@ -1419,6 +1432,8 @@ def fixed_litellm_completions(**params):
     Just uses a dummy API key, since we use litellm without an API key sometimes.
     Hopefully they will fix this!
     """
+
+    _configure_litellm()
 
     if "local" in params.get("model"):
         # Kinda hacky, but this helps sometimes

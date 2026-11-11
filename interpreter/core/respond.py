@@ -7,24 +7,31 @@ import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import html2text
-import litellm
-import openai
 from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from .utils.assemble_system_message import assemble_system_message
+from .utils.lazy_import import lazy_import
 from .tools.file_edit import dry_run_edit, run_edit
 from .toolbox.web.web import WebToolboxError, ApiKeyError
 from .utils.prompt_choice import prompt_choice
 from .code_evaluation.evaluator import evaluate_code
 
-_LITELLM_OPTIONAL_API_EXCEPTIONS = tuple(
-    getattr(litellm.exceptions, name)
-    for name in ("ServiceUnavailableError", "InternalServerError")
-    if hasattr(litellm.exceptions, name)
-)
+# Deferred so interpreter construction does not pay litellm's ~4s import. Both
+# are hard dependencies of the generation path, never optional ones.
+litellm = lazy_import("litellm", optional=False)
+openai = lazy_import("openai", optional=False)
+
+
+def _litellm_optional_api_exceptions():
+    """litellm exceptions some versions omit; resolved only on the retry path."""
+    return tuple(
+        getattr(litellm.exceptions, name)
+        for name in ("ServiceUnavailableError", "InternalServerError")
+        if hasattr(litellm.exceptions, name)
+    )
 
 
 def _html_error_to_renderable(error_str):
@@ -429,7 +436,7 @@ def respond(interpreter):
                     litellm.exceptions.RateLimitError,
                     litellm.exceptions.AuthenticationError,
                     getattr(litellm.exceptions, "APIConnectionError", Exception),
-                    *_LITELLM_OPTIONAL_API_EXCEPTIONS,
+                    *_litellm_optional_api_exceptions(),
                     # OpenAI Python client variants (defensive, in case they leak through)
                     getattr(openai, "APIError", Exception),
                     getattr(openai, "OpenAIError", Exception),

@@ -1,9 +1,22 @@
 try:
     import tiktoken
-    from litellm import cost_per_token
 except:
     # Non-essential feature
     pass
+
+from ...core.utils.lazy_import import lazy_import
+
+# `magic_commands` imports this module at startup, so importing litellm here
+# (a multi-second import) would be paid by every session just to power the
+# `%tokens` and cost lines.
+litellm = lazy_import("litellm")
+
+
+def cost_per_token(model, prompt_tokens):
+    """
+    Deferred so the litellm import above stays lazy; patched by tests as before.
+    """
+    return litellm.cost_per_token(model=model, prompt_tokens=prompt_tokens)
 
 
 def count_tokens(text="", model="gpt-4"):
