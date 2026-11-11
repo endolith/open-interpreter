@@ -34,7 +34,6 @@ import uuid
 
 import tokentrim as tt
 from rich import print as rich_print
-from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ...terminal_interface.utils.local_storage_path import get_storage_path

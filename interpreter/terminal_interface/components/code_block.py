@@ -3,7 +3,6 @@ from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
 from rich.padding import Padding
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 import shutil
@@ -12,11 +11,10 @@ import os
 from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
 from ..utils.target_file_lexer import syntax_lang_for_target_path
-from ..utils.streaming_markdown import (
-    calculate_window_size,
-    create_sliding_window_display,
-    create_live_display,
-)
+
+# `rich.syntax` pulls in pygments and `streaming_markdown` pulls in markdown-it-py
+# (~40 ms together). Those are only needed once a block is actually rendered, so
+# they are imported inside the methods below to keep that cost off startup.
 
 
 class CodeBlock(BaseBlock):
@@ -26,6 +24,8 @@ class CodeBlock(BaseBlock):
     """
 
     def __init__(self, interpreter=None):
+        from ..utils.streaming_markdown import create_live_display
+
         super().__init__()
 
         # Override the base Live display with our specialized streaming configuration.
@@ -118,6 +118,8 @@ class CodeBlock(BaseBlock):
 
     def _print_permanent_block(self, content, format_type):
         """Helper to render a completed segment and print it directly to console."""
+        from rich.syntax import Syntax
+
         if format_type == "code":
             # Code panels show code verbatim: leading/trailing blank lines are
             # part of the code (e.g. an append block starting with \n\n) and
@@ -182,6 +184,13 @@ class CodeBlock(BaseBlock):
 
     def refresh(self, cursor=True):
         """Process content, pop completed blocks, and update the Live sliding window."""
+        from rich.syntax import Syntax
+        from ..utils.streaming_markdown import (
+            calculate_window_size,
+            create_sliding_window_display,
+            create_live_display,
+        )
+
         # Lazy start: the live display is not started in __init__ so that creating a
         # CodeBlock in plain_text_display mode is side-effect-free.  Rich's start()
         # is idempotent (safe to call again after stop), so this is always safe here.

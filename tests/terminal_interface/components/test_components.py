@@ -8,10 +8,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from interpreter.terminal_interface.components.code_block import CodeBlock
-from interpreter.terminal_interface.components.message_block import (
-    MessageBlock,
-    textify_markdown_code_blocks,
-)
+from interpreter.terminal_interface.components.message_block import MessageBlock
+from interpreter.terminal_interface.utils.streaming_markdown import textify_markdown_code_blocks
 
 
 def _render(renderable):

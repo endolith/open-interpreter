@@ -3,7 +3,6 @@ import re
 import shutil
 
 from rich.box import MINIMAL, ROUNDED
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 from rich.console import Group
@@ -11,17 +10,17 @@ from rich.padding import Padding
 
 from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_MESSAGE, PADDING_PANEL
-from ..utils.streaming_markdown import (
-    detect_complete_block,
-    calculate_window_size,
-    create_sliding_window_display,
-    create_live_display,
-    textify_markdown_code_blocks,
-)
+
+# `rich.markdown` pulls in markdown-it-py and pygments, and `streaming_markdown`
+# builds a markdown-it parser at first import (~40 ms together). Those are only
+# needed once a message is actually rendered, so they are imported inside the
+# methods below to keep that cost off startup.
 
 
 class MessageBlock(BaseBlock):
     def __init__(self):
+        from ..utils.streaming_markdown import create_live_display
+
         super().__init__()
 
         # Override the Live display with our streaming configuration
@@ -44,6 +43,15 @@ class MessageBlock(BaseBlock):
 
     def refresh(self, cursor=True):
         """Process new content and render complete blocks incrementally."""
+        from rich.markdown import Markdown
+        from ..utils.streaming_markdown import (
+            calculate_window_size,
+            create_live_display,
+            create_sliding_window_display,
+            detect_complete_block,
+            textify_markdown_code_blocks,
+        )
+
         # Force re-detection of terminal size to handle window narrowing during streamed output
         self.live.console._width = None
         self.live.console._height = None
@@ -170,6 +178,9 @@ class MessageBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content when the message is complete."""
+        from rich.markdown import Markdown
+        from ..utils.streaming_markdown import textify_markdown_code_blocks
+
         # Clear the live display to remove the streaming raw text
         if self.live.is_started:
             self.live.update("")

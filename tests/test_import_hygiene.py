@@ -252,6 +252,32 @@ def test_core_import_leaves_the_tokenizer_deferred():
     assert result.stdout.strip() == ""
 
 
+def test_core_import_leaves_the_markdown_renderer_deferred():
+    """Importing the core module must not load the markdown/pygments stack.
+
+    `rich.markdown` pulls in markdown-it-py and pygments, and `rich.syntax`
+    (used by the code block) pulls in pygments too; importing them at module
+    scope made every run pay ~40 ms for a renderer it only needs once a block
+    is actually drawn. `CodeBlock` and `MessageBlock` stay real classes so
+    `isinstance` and `mock.patch.object(terminal_interface, "CodeBlock")` keep
+    working; only the heavy imports inside their methods are deferred.
+    """
+    script = _CORE_SCRIPT.format(
+        modules=(
+            "rich.markdown",
+            "rich.syntax",
+            "markdown_it",
+            "pygments",
+            "interpreter.terminal_interface.utils.streaming_markdown",
+        )
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
 def test_core_import_leaves_the_macos_sms_helpers_deferred():
     """Importing the core module must not load sqlite3/plistlib for the SMS tool.
 
