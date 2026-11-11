@@ -220,8 +220,8 @@ async def _wait_for_websocket_complete(
         message_data = json.loads(message)
         if acknowledge and "id" in message_data:
             await websocket.send(json.dumps({"ack": message_data["id"]}))
-        if "error" in message_data:
-            raise Exception(message_data["content"])
+        if "error" in message_data or message_data.get("type") == "error":
+            raise Exception(message_data.get("content") or str(message_data))
         print("Received from WebSocket:", message_data)
         content = message_data.get("content")
         if prose_only:
@@ -379,6 +379,37 @@ def test_wait_for_websocket_complete_message_limit():
             await _wait_for_websocket_complete(
                 websocket, max_messages=1, phase="exhausted_phase"
             )
+
+    asyncio.run(scenario())
+
+
+def test_wait_for_websocket_complete_raises_on_typed_error_frame():
+    """A frame with type "error" fails the wait even without an "error" key.
+
+    Refusals are reported as ``{"role": "server", "type": "error", ...}`` and
+    are followed by the completion marker. Checking only for an ``error`` key
+    let the receiver swallow the following ``complete`` and pass, hiding a
+    turn the server had already refused.
+    """
+
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, Mock
+
+    websocket = Mock()
+    websocket.recv = AsyncMock(
+        side_effect=[
+            json.dumps(
+                {"role": "server", "type": "error", "content": "not approved"}
+            ),
+            json.dumps({"role": "server", "type": "status", "content": "complete"}),
+        ]
+    )
+
+    async def scenario():
+        """Expect the refusal frame itself to raise, before completion is read."""
+        with pytest.raises(Exception, match="not approved"):
+            await _wait_for_websocket_complete(websocket, phase="refused_turn")
 
     asyncio.run(scenario())
 
@@ -634,8 +665,8 @@ def test_authenticated_acknowledging_breaking_server():
                 message_data = json.loads(message)
                 if "id" in message_data:
                     await websocket.send(json.dumps({"ack": message_data["id"]}))
-                if "error" in message_data:
-                    raise Exception(str(message_data))
+                if "error" in message_data or message_data.get("type") == "error":
+                    raise Exception(message_data.get("content") or str(message_data))
                 print("Received from WebSocket:", message_data)
                 if type(message_data.get("content")) == str:
                     poem += message_data.get("content")
