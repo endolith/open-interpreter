@@ -170,3 +170,37 @@ def test_core_import_leaves_network_and_browser_stack_deferred():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+_DISPLAY_SCRIPT = """
+import sys
+
+import interpreter.core.toolbox.display.display  # noqa: F401
+real = []
+for name in {modules!r}:
+    mod = sys.modules.get(name)
+    if mod is not None and type(mod).__name__ != "_LazyPlaceholder":
+        real.append(name)
+print(",".join(real))
+"""
+
+
+def test_display_import_leaves_pyautogui_unimported():
+    """Importing the display toolbox must not import pyautogui or its dependencies.
+
+    pyautogui pulls in mouseinfo, pyscreeze, pymsgbox and Xlib (~70 ms in-tree),
+    and the module used to force that import with a `pyautogui.size()` display
+    probe at import time. That probe is gone, so the name is a deferred
+    placeholder and importing the module (which happens while the Interpreter
+    is constructed) must not load the real package. The headless failure mode
+    stays AttributeError: Display resolves pyautogui through `_pyautogui()`,
+    which returns None when the package cannot load, so `inspect.getmembers()`
+    keeps skipping width/height when it lists the toolbox tools.
+    """
+    script = _DISPLAY_SCRIPT.format(
+        modules=("pyautogui", "pyscreeze", "mouseinfo", "pymsgbox", "Xlib")
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
