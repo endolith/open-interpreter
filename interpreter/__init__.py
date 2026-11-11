@@ -1,3 +1,13 @@
+"""Open Interpreter.
+
+Importing this package sets up environment variables and warning filters but
+otherwise has no side effects. The module-level singleton
+(`from interpreter import interpreter`) and the public classes are created on
+first access via PEP 562, so `import interpreter` stays cheap and never
+constructs an interpreter.
+"""
+
+import importlib
 import os
 import sys
 import warnings
@@ -67,30 +77,57 @@ if "--os" in sys.argv:
     run_async_main()
     exit()
 
-# Skip heavy imports (litellm etc.) for flags that exit immediately — the CLI
-# entry point exits via argparse/sys.exit before it ever needs these names.
-_FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
-if not _FAST_EXIT_FLAGS.intersection(sys.argv):
-    from .core.async_core import AsyncInterpreter
-    from .core.terminal.base_language import BaseLanguage
-    from .core.core import OpenInterpreter
+_CLASSES = {
+    "OpenInterpreter": ("interpreter.core.core", "OpenInterpreter"),
+    "AsyncInterpreter": ("interpreter.core.async_core", "AsyncInterpreter"),
+    "BaseLanguage": ("interpreter.core.terminal.base_language", "BaseLanguage"),
+}
 
-    interpreter = OpenInterpreter()
-    toolbox = interpreter.toolbox
+_singleton = None
+_constructing = False
 
-    class _LazyAi2Proxy:
-        """Expose interpreter.ai2 without constructing Ai2 until first use."""
 
-        def _target(self):
-            return interpreter.toolbox.ai2
+def _get_singleton():
+    global _singleton, _constructing
+    if _singleton is None:
+        if _constructing:
+            # OpenInterpreter.__init__ imports modules that may reach back for
+            # `interpreter`; without this the recursion would build a second
+            # instance and hand out whichever finished last.
+            raise RuntimeError(
+                "interpreter.interpreter was accessed while it was being constructed"
+            )
+        _constructing = True
+        try:
+            module = importlib.import_module("interpreter.core.core")
+            _singleton = module.OpenInterpreter()
+        finally:
+            _constructing = False
+    return _singleton
 
-        def __getattr__(self, name):
-            return getattr(self._target(), name)
 
-        def __repr__(self):
-            return repr(self._target())
+def __getattr__(name):
+    if name == "interpreter":
+        return _get_singleton()
+    if name == "toolbox":
+        return _get_singleton().toolbox
+    # Toolbox.ai2 is itself a lazy property, so this stays cheap until use.
+    if name == "ai2":
+        return _get_singleton().toolbox.ai2
+    if name in _CLASSES:
+        module_name, attr = _CLASSES[name]
+        return getattr(importlib.import_module(module_name), attr)
+    raise AttributeError(f"module 'interpreter' has no attribute {name!r}")
 
-    ai2 = _LazyAi2Proxy()
+
+__all__ = [
+    "interpreter",
+    "toolbox",
+    "ai2",
+    "OpenInterpreter",
+    "AsyncInterpreter",
+    "BaseLanguage",
+]
 
 #     ____                      ____      __                            __
 #    / __ \____  ___  ____     /  _/___  / /____  _________  ________  / /____  _____
