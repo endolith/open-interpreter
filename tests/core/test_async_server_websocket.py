@@ -545,14 +545,18 @@ def test_binary_chunk_reaches_accumulate(interpreter):
 
 
 def test_binary_appends_to_open_message_content(interpreter):
-    """Start-then-bytes through the real input() lands in message content.
+    """Start-then-bytes through the real input() decodes into message content.
 
     End to end of the fixed path: a start chunk opens the message, binary
-    appends to it, with no TypeError at the `"start" in chunk` check.
+    frames are buffered, and closing the message materialises them as text --
+    with no TypeError at the `"start" in chunk` check and no bytes left for
+    the request converter to choke on.
     """
+    interpreter.respond = lambda *args, **kwargs: None
     asyncio.run(interpreter.input({"role": "user", "start": True}))
     asyncio.run(interpreter.input(b"\x00\x01"))
-    assert interpreter.messages[-1]["content"] == b"\x00\x01"
+    asyncio.run(interpreter.input({"end": True}))
+    assert interpreter.messages[-1]["content"] == "\x00\x01"
 
 
 def test_binary_chunk_without_open_message_raises_clear_error(interpreter):

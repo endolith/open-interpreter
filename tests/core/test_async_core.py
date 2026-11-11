@@ -1908,27 +1908,30 @@ class TestAsyncAccumulate(TestCase):
             [{"role": "user", "type": "message", "format": "output", "content": "hi"}],
         )
 
-    def test_bytes_chunk_converts_an_empty_content_placeholder_first(self):
-        """A bytes chunk re-initialises an empty "" placeholder as b"" before adding.
+    def test_bytes_chunk_buffers_instead_of_requiring_a_bytes_placeholder(self):
+        """Binary frames accumulate in a bytearray; the content stays text.
 
-        Adding bytes to the empty string would raise, so the placeholder has to be
-        converted to bytes first or binary output could never be accumulated.
+        The old code converted the "" placeholder to b"" and appended bytes,
+        which left a shape the request converter cannot serialise. Frames now
+        land in _binary_buffer and are materialised once.
         """
         self.interpreter.messages = [{"role": "user", "type": "message", "content": ""}]
 
         self.interpreter.accumulate(b"\x00\x01binary")
 
-        self.assertEqual(
-            self.interpreter.messages[0]["content"], b"\x00\x01binary"
-        )
+        self.assertEqual(self.interpreter.messages[0]["content"], "")
+        self.assertEqual(bytes(self.interpreter._binary_buffer), b"\x00\x01binary")
+        self.interpreter._flush_binary_buffer()
+        self.assertEqual(self.interpreter.messages[0]["content"], "\x00\x01binary")
 
-    def test_bytes_chunk_appends_to_existing_bytes_content(self):
-        """A bytes chunk appends to content that is already bytes."""
-        self.interpreter.messages = [{"role": "user", "type": "message", "content": b"\x00"}]
+    def test_bytes_chunk_flushes_before_a_later_text_chunk(self):
+        """A text chunk flushes buffered binary frames first, preserving wire order."""
+        self.interpreter.messages = [{"role": "user", "type": "message", "content": "one"}]
 
-        self.interpreter.accumulate(b"\x01")
+        self.interpreter.accumulate(b" two")
+        self.interpreter.accumulate({"type": "message", "content": " three"})
 
-        self.assertEqual(self.interpreter.messages[0]["content"], b"\x00\x01")
+        self.assertEqual(self.interpreter.messages[0]["content"], "one two three")
 
 
 class TestServerAuthMiddleware(TestCase):
@@ -3145,19 +3148,21 @@ class TestAsyncInputMessageOpenState(TestCase):
     """Binary frames require a message opened by "start" and not yet closed by "end"."""
 
     def test_binary_chunk_appends_while_a_message_is_open(self):
-        """A binary frame during an open message appends its bytes."""
+        """A binary frame during an open message is decoded when the message closes."""
         import asyncio
 
         interpreter = AsyncInterpreter()
+        interpreter.respond = lambda *args, **kwargs: None
 
         async def run():
-            """Open a message, then send one binary frame into it."""
+            """Open a message, send one binary frame, then close it."""
             await interpreter.input({"role": "user", "start": True})
             await interpreter.input(b"\x00\x01")
+            await interpreter.input({"role": "user", "end": True})
 
         asyncio.run(run())
 
-        assert interpreter.messages[0]["content"] == b"\x00\x01"
+        assert interpreter.messages[0]["content"] == "\x00\x01"
 
     def test_binary_chunk_after_end_is_rejected(self):
         """A binary frame after "end" cannot mutate the completed message."""
@@ -3176,7 +3181,7 @@ class TestAsyncInputMessageOpenState(TestCase):
                 await interpreter.input(b"\x01")
 
         asyncio.run(run())
-        assert interpreter.messages[0]["content"] == b"\x00"
+        assert interpreter.messages[0]["content"] == "\x00"
 
     def test_ignored_start_chunk_does_not_reopen_binary_input(self):
         """An "active_line" start does not reopen the message "end" already closed.
@@ -3201,4 +3206,4 @@ class TestAsyncInputMessageOpenState(TestCase):
                 await interpreter.input(b"\x01")
 
         asyncio.run(run())
-        assert interpreter.messages[0]["content"] == b"\x00"
+        assert interpreter.messages[0]["content"] == "\x00"

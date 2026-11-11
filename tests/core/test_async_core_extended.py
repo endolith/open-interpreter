@@ -79,20 +79,29 @@ def test_input_end_chunk_with_queued_stop_command_joins_response_thread():
     assert async_i.messages == []
 
 
-def test_accumulate_accepts_bytes_content():
-    """accumulate() stores bytes content on the current message as bytes."""
+def test_accumulate_buffers_bytes_until_the_message_closes():
+    """accumulate() holds binary frames in a bytearray instead of copying content.
+
+    Each frame used to concatenate onto content with `+=`, copying the whole
+    payload, so a large upload was quadratic. _flush_binary_buffer() materialises
+    the buffer once, as the text the request converter expects.
+    """
     async_i = AsyncInterpreter()
     async_i.messages = [{"role": "user", "type": "message", "content": ""}]
     async_i.accumulate(b"\x00\x01")
-    assert async_i.messages[-1]["content"] == b"\x00\x01"
+    assert async_i.messages[-1]["content"] == ""
+    assert bytes(async_i._binary_buffer) == b"\x00\x01"
+    async_i._flush_binary_buffer()
+    assert async_i.messages[-1]["content"] == "\x00\x01"
 
 
-def test_accumulate_appends_bytes_to_bytes_content():
-    """accumulate() concatenates bytes onto an existing bytes message."""
+def test_accumulate_flushes_bytes_before_appending_text():
+    """A text chunk after binary frames flushes them first, preserving wire order."""
     async_i = AsyncInterpreter()
-    async_i.messages = [{"role": "user", "type": "message", "content": b"\x00"}]
-    async_i.accumulate(b"\x01")
-    assert async_i.messages[-1]["content"] == b"\x00\x01"
+    async_i.messages = [{"role": "user", "type": "message", "content": "one"}]
+    async_i.accumulate(b" two")
+    async_i.accumulate({"type": "message", "content": " three"})
+    assert async_i.messages[-1]["content"] == "one two three"
 
 
 def test_respond_emits_error_message_when_generator_raises():

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -115,6 +116,10 @@ class AsyncInterpreter(OpenInterpreter):
         # A completed message stays in `messages`, so this cannot be inferred
         # from the list being non-empty.
         self._message_open = False
+        # Binary frames accumulate here and are materialised once, when the
+        # message is closed or text continues it, instead of copying the whole
+        # payload on every frame.
+        self._binary_buffer = bytearray()
         self.id = os.getenv("INTERPRETER_ID", datetime.now().timestamp())
         self.print = False  # Will print output
 
@@ -187,6 +192,7 @@ class AsyncInterpreter(OpenInterpreter):
             self.accumulate(chunk)
         elif "end" in chunk:
             # If the user is done talking, the interpreter should respond.
+            self._flush_binary_buffer()
             self._message_open = False
 
             run_code = None  # Will later default to auto_run unless the user makes a command here
@@ -389,6 +395,37 @@ class AsyncInterpreter(OpenInterpreter):
         self.output_queue.sync_q.put(complete_message)
         raise Exception("No chunks sent or unknown error.")
 
+    def _flush_binary_buffer(self):
+        """Materialise buffered binary frames into the open message's content.
+
+        The representation is chosen once, by message type, so the request
+        converter can serialise it: image payloads become the base64 text its
+        data-URI branch expects, and text messages decode as UTF-8. Frames for
+        any other message type are rejected when they arrive; a payload that
+        is not valid UTF-8 is rejected here, before respond() sees it.
+        """
+        if not self._binary_buffer:
+            return
+        if not self.messages:
+            raise ValueError(
+                "Binary frames arrived without an open message; send a "
+                "'start: True' chunk first."
+            )
+        data = bytes(self._binary_buffer)
+        self._binary_buffer.clear()
+        message = self.messages[-1]
+        message.setdefault("content", "")
+        if message.get("type") == "image":
+            message["content"] += base64.b64encode(data).decode("ascii")
+            return
+        try:
+            message["content"] += data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError(
+                "Binary data for a text message must be UTF-8; send an image "
+                'with "type": "image" and a base64 format instead.'
+            ) from error
+
     def accumulate(self, chunk) -> bool:
         """
         Accumulates LMC chunks onto interpreter.messages.
@@ -402,6 +439,9 @@ class AsyncInterpreter(OpenInterpreter):
             chunk = json.loads(chunk)
 
         if type(chunk) == dict:
+            # Text continues the open message, so any buffered binary frames
+            # must land first to keep the wire order.
+            self._flush_binary_buffer()
             if chunk.get("format") == "active_line":
                 # We don't do anything with these.
                 return False
@@ -463,9 +503,12 @@ class AsyncInterpreter(OpenInterpreter):
                 raise Exception(
                     "You must send a 'start: True' chunk first to create this message."
                 )
-            if self.messages[-1]["content"] == "":  # We initialize as an empty string ^
-                self.messages[-1]["content"] = b""  # But it actually should be bytes
-            self.messages[-1]["content"] += chunk
+            message_type = self.messages[-1].get("type")
+            if message_type not in (None, "message", "image"):
+                raise ValueError(
+                    f"Binary frames are not supported for message type {message_type!r}."
+                )
+            self._binary_buffer.extend(chunk)
 
         return True
 
