@@ -6,7 +6,6 @@ import time
 from datetime import datetime
 
 from ..core.llm.utils.stream_usage import format_last_usage_markdown
-from ..core.utils.system_debug_info import system_info
 from .utils.count_tokens import count_messages_tokens
 from .utils.downloads_path import get_downloads_path
 from .utils.export_to_markdown import export_to_markdown
@@ -192,6 +191,8 @@ def handle_auto_run(self, arguments=None):
 
 
 def handle_info(self, arguments):
+    from ..core.utils.system_debug_info import system_info
+
     system_info(self)
 
 

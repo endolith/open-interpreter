@@ -6,7 +6,6 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import html2text
 from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -57,6 +56,8 @@ def _html_error_to_renderable(error_str):
     html_part = error_str[min(indices):]
 
     try:
+        import html2text
+
         h2t = html2text.HTML2Text()
         h2t.body_width = 0  # Let Rich handle reflowing
         md = h2t.handle(html_part).strip()

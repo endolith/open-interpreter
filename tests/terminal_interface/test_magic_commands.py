@@ -240,7 +240,7 @@ def test_default_handle_shows_help():
 def test_handle_info_delegates_to_system_info():
     """%info delegates to system_info with the interpreter instance."""
     interpreter = _interpreter()
-    with mock.patch("interpreter.terminal_interface.magic_commands.system_info") as info:
+    with mock.patch("interpreter.core.utils.system_debug_info.system_info") as info:
         magic_commands.handle_info(interpreter, "")
     info.assert_called_once_with(interpreter)
 

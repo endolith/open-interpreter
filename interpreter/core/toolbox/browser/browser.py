@@ -1,13 +1,19 @@
 import threading
 import time
 
-import html2text
-import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from webdriver_manager.chrome import ChromeDriverManager
+from ...utils.lazy_import import lazy_import_attribute, lazy_import_deferred
+
+# Selenium, requests and webdriver-manager are only needed once a browser is
+# actually driven. `webdriver` and `html2text` are modules, so they use the
+# spec-free deferred form; the `from selenium... import X` names stay patchable
+# module globals.
+html2text = lazy_import_deferred("html2text")
+requests = lazy_import_deferred("requests")
+webdriver = lazy_import_deferred("selenium.webdriver")
+Service = lazy_import_attribute("selenium.webdriver.chrome.service", "Service")
+By = lazy_import_attribute("selenium.webdriver.common.by", "By")
+Keys = lazy_import_attribute("selenium.webdriver.common.keys", "Keys")
+ChromeDriverManager = lazy_import_attribute("webdriver_manager.chrome", "ChromeDriverManager")
 
 
 class Browser:

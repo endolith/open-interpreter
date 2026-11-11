@@ -3,10 +3,10 @@ import os
 import random
 import string
 
-from html2image import Html2Image
-
 from ....core.utils.lazy_import import lazy_import
 
+# html2image pulls in requests/urllib3 and the browser helper modules; it is
+# only needed when HTML is actually rendered to an image.
 html2image = lazy_import("html2image")
 
 from ....terminal_interface.utils.local_storage_path import get_storage_path
