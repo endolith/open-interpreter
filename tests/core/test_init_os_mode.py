@@ -5,10 +5,11 @@ import and are covered, and an early branch taken when `--os` is on the command
 line that checks PyPI for a newer release and then hands off to the computer-use
 loop. The `--os` path had no coverage because pytest never puts `--os` on argv.
 
-**The branch cannot currently start.** `from packaging import version` (line 33)
-shadows `from importlib.metadata import version` (line 31), so line 41's
-`version("open-interpreter")` calls a module and raises `TypeError` — before
-`requests.get` is ever reached, and unguarded at import. See #407.
+**The branch can now start.** `from packaging import version as packaging_version`
+no longer shadows `from importlib.metadata import version`, so the version
+check calls a function (fixed in #430 for #407). Past the check the launch
+needs a display, so headless runs still report `KeyError 'DISPLAY'` — an
+environment limit, not the bug.
 
 The launch path is verified in a real subprocess rather than by exec'ing the
 source: `__main__`/package-init code is unusually hostile to in-process import
@@ -34,7 +35,7 @@ def _in_repo():
     return os.path.abspath(os.path.join(here, "..", ".."))
 
 
-def _run_python(argv_extra, timeout=180):
+def _run_python(argv_extra, timeout=180, stub_handoff=False, pypi_fails=False):
     """Run `import interpreter` in a fresh interpreter with the given argv.
 
     A subprocess rather than an in-process import: once `interpreter` is
@@ -42,16 +43,35 @@ def _run_python(argv_extra, timeout=180):
     re-enter the `--os` branch. It is also the only way to observe what a user
     actually sees.
     """
+    handoff = ""
+    if stub_handoff:
+        handoff = textwrap.dedent(
+            """
+            import types
+            # The real branch imports this after the version check and then
+            # needs a display; the stub lets a test observe the handoff.
+            package = types.ModuleType("interpreter.computer_use")
+            package.__path__ = []
+            loop = types.ModuleType("interpreter.computer_use.loop")
+            def run_async_main():
+                print("HANDOFF")
+            loop.run_async_main = run_async_main
+            sys.modules["interpreter.computer_use"] = package
+            sys.modules["interpreter.computer_use.loop"] = loop
+            """
+        ).strip()
+
     code = textwrap.dedent(
         """
         import sys
         from unittest.mock import patch
         sys.argv = ["prog"] + {argv!r}
+        {handoff}
         # The version check must never touch the network from a test, before or
         # after #407 is fixed: today the TypeError precedes it, but once the
         # shadowing is fixed `requests.get` would fire for real.
         with patch("requests.get") as get:
-            get.return_value.json.return_value = {{"info": {{"version": "0"}}}}
+            {get_setup}
             try:
                 import interpreter
             except BaseException as error:
@@ -59,7 +79,15 @@ def _run_python(argv_extra, timeout=180):
             else:
                 print("OK")
         """
-    ).format(argv=list(argv_extra))
+    ).format(
+        argv=list(argv_extra),
+        handoff=handoff,
+        get_setup=(
+            'get.side_effect = RuntimeError("PyPI unreachable")'
+            if pypi_fails
+            else 'get.return_value.json.return_value = {"info": {"version": "0"}}'
+        ),
+    )
     return subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -82,49 +110,74 @@ def test_importing_interpreter_normally_succeeds():
     )
 
 
-def test_os_mode_cannot_start_because_the_version_check_raises():
-    """`--os` dies at import, before the automation loop is reached.
+def test_os_mode_clears_the_version_check_without_a_type_error():
+    """`--os` gets past the version check: the shadowing TypeError is gone.
 
-    The shadowing is deterministic, so this is not an environment quirk — it fails
-    on every machine. Pinned as observed behaviour rather than an xfail, because it
-    *is* the bug: a strict xfail here would be one that cannot pass without #407
-    being fixed.
+    Fixed in #430 for #407 by aliasing the packaging import. The handoff is
+    stubbed: the real one starts the interactive CLI, which on a machine with
+    a display (and `pytest -s`, where the child inherits the terminal) waits
+    at its prompt instead of returning. Reaching the stub proves the check
+    completed, and the `TypeError: 'module' object is not callable` the
+    shadowing produced on every machine can no longer appear. No network
+    error may leak in place of the comparison either.
     """
-    result = _run_python(["--os"])
+    result = _run_python(["--os"], stub_handoff=True)
 
-    assert result.stdout.strip().startswith("FAIL"), (
-        f"expected the crash to be reported; got {result.stdout!r}"
+    assert "HANDOFF" in result.stdout, (
+        f"the --os branch never reached its handoff; got {result.stdout!r}"
     )
-    assert "TypeError" in result.stdout
-    assert "not callable" in result.stdout
+    assert "TypeError" not in result.stdout, (
+        f"the version-check shadowing is back; got {result.stdout!r}"
+    )
+    assert "not callable" not in result.stdout
+    # Match the requests class or urllib3's message rather than a bare
+    # "ConnectionError": X11's DisplayConnectionError contains that substring
+    # and trips the assertion wherever DISPLAY is set but refused.
+    assert "requests.exceptions.ConnectionError" not in result.stdout
+    assert "Max retries exceeded" not in result.stdout
 
 
-def test_the_crash_is_the_shadowing_not_a_network_failure():
-    """The TypeError precedes the request, so this is not a connectivity problem.
+def test_os_mode_reaches_the_computer_use_handoff():
+    """`--os` hands off to run_async_main instead of dying at the version check.
 
-    Guards against the tempting wrong fix: wrapping `check_for_update()` in a
-    try/except would swallow the TypeError and *appear* to work, leaving the
-    upgrade hint permanently dead and the shadowing untouched.
+    The negative assertions above can pass if the branch is skipped entirely;
+    stubbing the entrypoint proves the code after the check actually runs. It
+    also avoids a display, which previously ended the run at `KeyError
+    'DISPLAY'` before the handoff could be observed.
     """
-    result = _run_python(["--os"])
+    result = _run_python(["--os"], stub_handoff=True)
 
-    # No network error leaks, and the TypeError is what surfaces.
-    assert "ConnectionError" not in result.stdout
-    assert "Max retries" not in result.stdout
-    assert "TypeError" in result.stdout
+    assert "HANDOFF" in result.stdout, (
+        f"the --os handoff never ran; got {result.stdout!r} / {result.stderr[-300:]!r}"
+    )
 
 
-def test_voice_flag_is_reached_only_after_the_version_check():
-    """`--voice` is handled after the version check, so it never prints today.
+def test_os_mode_starts_when_the_pypi_check_fails():
+    """An unreachable PyPI does not stop `--os` from handing off.
 
-    Both flags live in the same branch and the crash precedes the `--voice` test,
-    which is the ordering evidence: fixing the shadowing is a precondition for
-    seeing "Coming soon..." at all.
+    The update notice is advisory. A failed request at import time must be
+    treated as "no update", not abort the branch before run_async_main.
     """
-    result = _run_python(["--os", "--voice"])
+    result = _run_python(["--os"], stub_handoff=True, pypi_fails=True)
 
-    assert result.stdout.strip().startswith("FAIL"), (
-        "the --voice branch is downstream of the crash"
+    assert "HANDOFF" in result.stdout, (
+        f"the handoff never ran after a failed PyPI check; got {result.stdout!r} "
+        f"/ {result.stderr[-300:]!r}"
+    )
+
+
+def test_voice_flag_is_reached_after_the_version_check():
+    """`--voice` prints its notice once the version check stops crashing.
+
+    Both flags live in the same branch and the shadowing used to precede the
+    `--voice` test; with the check fixed, "Coming soon..." is reached (fixed
+    in #430 for #407). The handoff is stubbed for the same reason as in the
+    version-check test: the real interactive CLI would wait at its prompt.
+    """
+    result = _run_python(["--os", "--voice"], stub_handoff=True)
+
+    assert "Coming soon..." in result.stdout, (
+        f"expected the --voice notice; got {result.stdout!r}"
     )
 
 
