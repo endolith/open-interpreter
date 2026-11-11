@@ -15,7 +15,6 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-from jupyter_client import KernelManager
 
 from ..base_language import BaseLanguage
 from ...utils.lazy_import import lazy_import
@@ -175,6 +174,12 @@ class JupyterLanguage(BaseLanguage):
     def __init__(self, interpreter):
         self.interpreter = interpreter
 
+
+        # Imported here rather than at module scope: importing jupyter_client
+        # costs ~169 ms, and the Interpreter constructs its Terminal (and so
+        # imports every language module) without starting any kernel. A kernel
+        # is the first thing that needs it.
+        from jupyter_client import KernelManager
 
         self.km = KernelManager(kernel_name="python3")
         self._start_kernel()
