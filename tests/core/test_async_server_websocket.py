@@ -511,6 +511,25 @@ def test_pre_auth_queue_byte_cap_closes_connection(ws_pair, monkeypatch):
     assert inp.await_count == 0
 
 
+def test_binary_pre_auth_queue_cap_closes_connection(ws_pair, monkeypatch):
+    """A binary frame over the byte budget closes the socket with 1009, unqueued.
+
+    The binary pre-auth branch shares hold_for_auth with text frames but bills
+    the bytes payload; hitting the cap must return from receive_input instead
+    of answering {"auth": False} and re-entering the receive loop.
+    """
+    import interpreter.core.async_core as async_core_mod
+
+    monkeypatch.setattr(async_core_mod, "MAX_PENDING_INPUT_BYTES", 16)
+    client, _, inp = ws_pair
+    with client.websocket_connect("/") as ws:
+        ws.send_bytes(b"y" * 64)
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            ws.receive_json()
+    assert excinfo.value.code == 1009
+    assert inp.await_count == 0
+
+
 def test_binary_chunk_reaches_accumulate(interpreter):
     """Binary frames append to the open message instead of raising TypeError.
 
