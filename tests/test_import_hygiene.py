@@ -222,7 +222,7 @@ def test_display_import_leaves_pyautogui_unimported():
     assert result.stdout.strip() == ""
 
 
-_TOKEN_SCRIPT = """
+_PLACEHOLDER_SCRIPT = """
 import sys
 
 import interpreter.core.core  # noqa: F401
@@ -244,7 +244,25 @@ def test_core_import_leaves_the_tokenizer_deferred():
     work. tiktoken is a hard dependency, so deferring it cannot change
     behaviour; it only moves the BPE load from startup to the first count.
     """
-    script = _TOKEN_SCRIPT.format(modules=("tiktoken", "tiktoken._tiktoken"))
+    script = _PLACEHOLDER_SCRIPT.format(modules=("tiktoken", "tiktoken._tiktoken"))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
+def test_core_import_leaves_the_macos_sms_helpers_deferred():
+    """Importing the core module must not load sqlite3/plistlib for the SMS tool.
+
+    The toolbox builds an `SMS` instance on every platform, but `SMS.get()` is
+    macOS-only. Importing `sqlite3` and `plistlib` at module scope made Linux
+    and Windows pay for `sqlite3.dbapi2` and `xml.parsers.expat` on startup.
+    They are lazily imported now, and the module names stay patchable.
+    """
+    script = _PLACEHOLDER_SCRIPT.format(
+        modules=("sqlite3", "sqlite3.dbapi2", "plistlib", "xml.parsers.expat")
+    )
     result = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=False
     )

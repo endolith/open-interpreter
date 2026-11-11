@@ -1,10 +1,17 @@
 import datetime
 import os
-import plistlib
-import sqlite3
 import subprocess
 import sys
 import time
+
+from ...utils.lazy_import import lazy_import
+
+# `sqlite3` and `plistlib` are only used by `get()`, but the toolbox builds an
+# SMS instance on every platform. Deferring them keeps ~16 ms of macOS-only work
+# off startup; the names remain module attributes so `sms.sqlite3` and
+# `sms.plistlib` stay patchable as before.
+sqlite3 = lazy_import("sqlite3")
+plistlib = lazy_import("plistlib")
 
 
 class SMS:
