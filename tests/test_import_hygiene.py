@@ -330,3 +330,20 @@ def test_core_import_leaves_the_macos_sms_helpers_deferred():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_core_import_leaves_difflib_deferred():
+    """Importing the core module must not pull in difflib for the edit diff.
+
+    `tools/file_edit.py` and `toolbox/files/files.py` import difflib only to
+    build a close-match hint or a unified edit diff, both of which run after a
+    tool call. difflib costs ~2 ms of startup on its own (heapq is loaded anyway
+    via `queue`, so its subtree is not the whole 5 ms). It is imported at the
+    point of use so construction does not pay for a path most runs never hit.
+    """
+    script = _CORE_SCRIPT.format(modules=("difflib",))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
