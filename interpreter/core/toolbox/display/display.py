@@ -1,7 +1,6 @@
 import io
 import os
 import platform
-import pprint
 import subprocess
 import time
 import warnings
