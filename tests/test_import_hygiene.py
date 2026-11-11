@@ -347,3 +347,20 @@ def test_core_import_leaves_difflib_deferred():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_core_import_leaves_pprint_and_glob_deferred():
+    """Importing the core module must not load pprint or glob for toolbox helpers.
+
+    `toolbox/display/display.py` imported pprint but only referenced it in a
+    commented-out debug line, so every run paid ~3 ms for it; `toolbox/skills/
+    skills.py` imported glob for `Skills.run()`, which returns immediately unless
+    skill importing is enabled. pprint is removed and glob is resolved inside
+    that method, so neither should appear in sys.modules after construction.
+    """
+    script = _CORE_SCRIPT.format(modules=("pprint", "glob"))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""

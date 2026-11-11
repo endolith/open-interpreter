@@ -1,5 +1,3 @@
-import glob
-import inspect
 import json
 import os
 import re
@@ -101,6 +99,10 @@ class Skills:
         """
         if not self.toolbox.import_skills:
             return
+
+        # glob is only needed here, and this method returns immediately unless
+        # the user has enabled skill importing, so keep it off the startup path.
+        import glob
 
         previous_save_skills_setting = self.toolbox.save_skills
 
