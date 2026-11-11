@@ -438,7 +438,12 @@ def respond(interpreter):
 
             except KeyboardInterrupt:
                 break  # It's fine.
-            except:
+            except Exception:
+                # Only ordinary failures become console output. Control-flow
+                # signals must keep propagating: GeneratorExit when a caller
+                # stops mid-stream, and BaseException subclasses that opt out of
+                # being rendered as text - the test approval guard's refusal,
+                # for one, has to fail the run instead of printing a traceback.
                 yield {
                     "role": "computer",
                     "type": "console",

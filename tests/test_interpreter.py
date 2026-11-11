@@ -675,6 +675,14 @@ def test_authenticated_acknowledging_breaking_server():
 
 def run_server():
     """Run the AsyncInterpreter server inside the spawned test process."""
+    # The child does not inherit the pytest process's approval guard, so install
+    # it here; otherwise the server runs the model's code with no prompt while
+    # the parent test believes it is guarded. CI has no terminal, so it keeps
+    # skipping the prompt there as the other integration runs do.
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        from tests.integration_support import install_process_approval
+
+        install_process_approval("test_server")
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "False"
     if "INTERPRETER_API_KEY" in os.environ:
         del os.environ["INTERPRETER_API_KEY"]
