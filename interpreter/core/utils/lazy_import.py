@@ -101,3 +101,95 @@ def lazy_import(name, optional=True):
     sys.modules[name] = module
 
     return module
+
+
+class _DeferredProxy:
+    """Delegation shared by the deferred stand-ins below.
+
+    Attribute reads, assignments and deletions reach the object the proxy
+    stands in for, so configuration and monkeypatching behave as they would on
+    a real import.
+    """
+
+    __slots__ = ()
+
+    def _resolve(self):
+        raise NotImplementedError
+
+    def __getattr__(self, attr):
+        return getattr(self._resolve(), attr)
+
+    def __setattr__(self, attr, value):
+        setattr(self._resolve(), attr, value)
+
+    def __delattr__(self, attr):
+        delattr(self._resolve(), attr)
+
+
+class _DeferredModule(_DeferredProxy):
+    """Stand-in for a module that imports itself on first real use.
+
+    lazy_import() builds its placeholder from importlib.util.find_spec, and
+    resolving the spec of a dotted name imports its parent package. That makes
+    `lazy_import("matplotlib.pyplot")` pay for the whole matplotlib import just
+    to answer where pyplot lives. This proxy keeps only the name and runs
+    importlib.import_module on first use, so a dotted submodule costs nothing
+    until it is actually needed.
+    """
+
+    __slots__ = ("_name",)
+
+    def __init__(self, name):
+        object.__setattr__(self, "_name", name)
+
+    def __repr__(self):
+        return f"<deferred module {self._name!r}>"
+
+    def _resolve(self):
+        return importlib.import_module(self._name)
+
+
+class _DeferredAttribute(_DeferredProxy):
+    """Stand-in for one attribute of a module, resolved on first real use.
+
+    Used for `from package.module import name` where the module is only needed
+    at call time. Keeps the module-global name patchable without importing
+    anything while the Interpreter is constructed.
+    """
+
+    __slots__ = ("_module_name", "_attribute_name")
+
+    def __init__(self, module_name, attribute_name):
+        object.__setattr__(self, "_module_name", module_name)
+        object.__setattr__(self, "_attribute_name", attribute_name)
+
+    def __repr__(self):
+        return f"<deferred attribute {self._module_name}.{self._attribute_name}>"
+
+    def _resolve(self):
+        return getattr(importlib.import_module(self._module_name), self._attribute_name)
+
+    def __call__(self, *args, **kwargs):
+        return self._resolve()(*args, **kwargs)
+
+
+def lazy_import_deferred(name):
+    """Lazily import module `name` without resolving its import spec now.
+
+    Unlike lazy_import(), this works for dotted names without importing their
+    parent packages while the placeholder is created. The module is imported
+    for real on first use, and a missing module raises its real import error
+    then rather than at creation time.
+    """
+    if name in sys.modules:
+        return sys.modules[name]
+    return _DeferredModule(name)
+
+
+def lazy_import_attribute(module_name, attribute_name):
+    """Lazily provide `attribute_name` from `module_name`, resolved on first use.
+
+    The module-global keeps its normal name and stays patchable, but nothing is
+    imported until the attribute is read or called.
+    """
+    return _DeferredAttribute(module_name, attribute_name)

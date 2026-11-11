@@ -1,3 +1,4 @@
+import importlib
 import os
 import shutil
 import sys
@@ -5,7 +6,11 @@ import tempfile
 import types
 import unittest
 
-from interpreter.core.utils.lazy_import import lazy_import
+from interpreter.core.utils.lazy_import import (
+    lazy_import,
+    lazy_import_attribute,
+    lazy_import_deferred,
+)
 
 
 class TestLazyImport(unittest.TestCase):
@@ -28,6 +33,16 @@ class TestLazyImport(unittest.TestCase):
         with open(os.path.join(self.tmp, name + ".py"), "w") as f:
             f.write(code)
         self._added_modules.append(name)
+
+    def _write_package(self, name, submodule, submodule_code):
+        """Write a package with one submodule into the temp dir and track it."""
+        package_dir = os.path.join(self.tmp, name)
+        os.makedirs(package_dir, exist_ok=True)
+        with open(os.path.join(package_dir, "__init__.py"), "w") as f:
+            f.write("")
+        with open(os.path.join(package_dir, submodule + ".py"), "w") as f:
+            f.write(submodule_code)
+        self._added_modules.extend([name, f"{name}.{submodule}"])
 
     def test_missing_optional_returns_none(self):
         """Verify a nonexistent optional module still returns None without raising."""
@@ -91,6 +106,42 @@ class TestLazyImport(unittest.TestCase):
         real = sys.modules["oi_deletable_mod"]
         self.assertIsNot(real, mod)
         self.assertFalse(hasattr(real, "VALUE"))
+
+    def test_deferred_module_defers_dotted_import_until_use(self):
+        """Verify creating a deferred proxy imports neither the parent nor the submodule.
+
+        find_spec on a dotted name imports its parent package, which is the
+        cost the deferred proxy exists to avoid: the parent must not appear in
+        sys.modules until the proxy is actually used.
+        """
+        self._write_package("oi_deferred_pkg", "sub", "VALUE = 7\n")
+        mod = lazy_import_deferred("oi_deferred_pkg.sub")
+        self.assertNotIn("oi_deferred_pkg", sys.modules)
+        self.assertNotIn("oi_deferred_pkg.sub", sys.modules)
+
+        self.assertEqual(mod.VALUE, 7)
+        self.assertEqual(sys.modules["oi_deferred_pkg.sub"].VALUE, 7)
+
+    def test_deferred_module_returns_already_imported_module(self):
+        """Verify an already-imported module is returned directly, not wrapped."""
+        self._write_module("oi_deferred_loaded", "VALUE = 3\n")
+        real = importlib.import_module("oi_deferred_loaded")
+        self.assertIs(lazy_import_deferred("oi_deferred_loaded"), real)
+
+    def test_deferred_attribute_calls_after_importing(self):
+        """Verify a deferred attribute stays unimported until called, then delegates."""
+        self._write_package("oi_attr_pkg", "sub", "def value():\n    return 5\n")
+        attr = lazy_import_attribute("oi_attr_pkg.sub", "value")
+        self.assertNotIn("oi_attr_pkg", sys.modules)
+
+        self.assertEqual(attr(), 5)
+        self.assertIn("oi_attr_pkg.sub", sys.modules)
+
+    def test_deferred_attribute_forwards_attribute_access(self):
+        """Verify attribute reads on the proxy reach the resolved object."""
+        self._write_package("oi_attr_pkg2", "sub", "class Obj:\n    SIZE = 9\n\nobj = Obj()\n")
+        attr = lazy_import_attribute("oi_attr_pkg2.sub", "obj")
+        self.assertEqual(attr.SIZE, 9)
 
 
 if __name__ == "__main__":
