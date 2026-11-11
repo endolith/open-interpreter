@@ -363,7 +363,7 @@ def test_chat_resets_responding_when_approval_failure_escapes():
     ``except Exception`` handler. Without an explicit reset the flag stays True
     and a later ``wait()`` blocks forever on a turn that already ended.
     """
-    interpreter = OpenInterpreter()
+    interpreter = OpenInterpreter(disable_telemetry=True)
 
     def refuse(*args, **kwargs):
         """Simulate the guard refusing to run the model's code."""
