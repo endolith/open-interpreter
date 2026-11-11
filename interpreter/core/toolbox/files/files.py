@@ -1,4 +1,3 @@
-import difflib
 import os
 import re
 
@@ -213,6 +212,10 @@ def get_close_matches_in_text(original_text, filedata, n=3):
     """
     Returns the closest matches to the original text in the content of the file.
     """
+    # Only the edit-failure hint needs difflib, and importing it at module scope
+    # cost every construction ~5 ms, so resolve it here instead.
+    import difflib
+
     words = filedata.split()
     original_words = original_text.split()
     len_original = len(original_words)

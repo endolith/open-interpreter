@@ -25,7 +25,6 @@ Line-ending policy (CRLF vs LF):
     so LF context lines still match.
 """
 
-import difflib
 import os
 import platform
 import re
@@ -880,6 +879,10 @@ def unified_edit_diff(target, new_text, *, context=3):
     read as every line changed. Both sides get the same universal-newline
     treatment (CRLF -> LF, lone CR -> LF), matching how the file is read.
     """
+    # Only the rendered edit diff needs difflib, and importing it at module
+    # scope cost every construction ~5 ms for a tool path most runs never hit.
+    import difflib
+
     original = _read_text_for_diff(target)
     if original is None:
         return None
