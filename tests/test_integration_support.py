@@ -222,25 +222,61 @@ def test_chat_wrapper_keeps_the_display_default(monkeypatch):
     assert calls == [{"display": True, "stream": False, "blocking": True}]
 
 
-def test_chat_wrapper_delegates_non_blocking_calls(monkeypatch):
-    """blocking=False must reach the original, which starts the worker thread.
+def test_chat_wrapper_runs_non_blocking_calls_in_a_worker_thread(monkeypatch):
+    """blocking=False must start a real worker and return before the turn ends.
 
-    The wrapper's guarded generator is unconsumed for blocking=False, so
-    consuming raw there would break the call the original returns None for.
+    The wrapper owns the thread so a refusal raised inside it can be stored and
+    re-raised by ``wait``; delegating to the original would leave the exception
+    in ``core.py``'s thread, where it only becomes a pytest warning. The
+    wrapper's guarded generator must not be consumed here, so the worker runs
+    the blocking call.
     """
+    import threading
+
     from interpreter import OpenInterpreter
     from interpreter.core import core as core_mod
 
     calls = []
+    release = threading.Event()
 
     def fake_chat(self, message=None, display=True, stream=False, blocking=True):
         calls.append({"display": display, "stream": stream, "blocking": blocking})
+        release.wait(5)
         return None
 
     monkeypatch.setattr(core_mod.OpenInterpreter, "chat", fake_chat)
     support.install_chat_approval(monkeypatch, "demo")
-    OpenInterpreter().chat("hi", display=False, blocking=False)
-    assert calls == [{"display": False, "stream": False, "blocking": False}]
+    interpreter = OpenInterpreter()
+    assert interpreter.chat("hi", display=False, blocking=False) is None
+    release.set()
+    interpreter.wait()
+    assert calls == [{"display": False, "stream": False, "blocking": True}]
+
+
+def test_non_blocking_denial_fails_the_waiting_test(monkeypatch):
+    """A refusal raised in the worker thread must fail ``wait``, not just warn.
+
+    ``chat(blocking=False)`` clears ``responding`` while unwinding, so without
+    the harness storing the worker's exception ``wait`` returns the partial
+    conversation and the denial reaches pytest only as an unhandled-thread
+    warning - a warning, not a failure - and ``test_async`` could pass after the
+    user refused the block. This drives a real worker thread, not a stubbed
+    chat, so the refusal has to travel the same path a live turn would.
+    """
+    from interpreter import OpenInterpreter
+
+    interpreter = OpenInterpreter()
+    support.install_chat_approval(monkeypatch, "non_blocking_denial")
+
+    def refuse(*args, **kwargs):
+        """Simulate the execution guard refusing the model's block."""
+        pytest.fail("LLM-generated code was not approved")
+
+    monkeypatch.setattr(interpreter, "_streaming_chat", refuse)
+    interpreter.chat("hello", display=False, blocking=False)
+    with pytest.raises(pytest.fail.Exception, match="not approved"):
+        interpreter.wait()
+    assert interpreter.responding is False
 
 
 def test_chat_wrapper_pins_auto_run_and_restores_it(monkeypatch):

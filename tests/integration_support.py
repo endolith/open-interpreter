@@ -3,6 +3,7 @@
 import hashlib
 import os
 import sys
+import threading
 
 import pytest
 
@@ -186,6 +187,7 @@ def _install_chat_approval(set_attribute, test_name: str) -> None:
     from interpreter.core.computer.computer import Computer
 
     original_chat = core_mod.OpenInterpreter.chat
+    original_wait = core_mod.OpenInterpreter.wait
     original_run = Computer.run
 
     def guarded_run(self, *args, **kwargs):
@@ -209,20 +211,66 @@ def _install_chat_approval(set_attribute, test_name: str) -> None:
 
     set_attribute(Computer, "run", guarded_run)
 
+    def run_worker(self, message, display, stream):
+        """Run a non-blocking turn in a thread whose failure ``wait`` can raise.
+
+        Delegating ``blocking=False`` to the original starts the thread inside
+        ``core.py``, out of reach: a refusal raises there, ``chat`` clears
+        ``responding`` while unwinding, and ``wait`` then returns normally, so
+        the denial reaches pytest only as an unhandled-thread warning instead of
+        a failure. Owning the thread here lets its exception be stored on the
+        instance for ``checked_wait`` to re-raise.
+        """
+        threads = self.__dict__.setdefault("_integration_worker_threads", [])
+        failures = self.__dict__.setdefault("_integration_worker_failures", [])
+
+        def worker():
+            """Run the turn in this thread, keeping any failure for ``wait``."""
+            try:
+                self.chat(
+                    message=message, display=display, stream=stream, blocking=True
+                )
+            except BaseException as exc:
+                # ``wait`` cannot catch an exception raised in ``core.py``'s
+                # own thread, so record it for ``checked_wait`` to re-raise.
+                failures.append(exc)
+
+        thread = threading.Thread(target=worker)
+        threads.append(thread)
+        thread.start()
+
+    def checked_wait(self):
+        """Join the harness's worker turns, then re-raise a stored failure.
+
+        Joining first also closes the race where ``chat`` clears ``responding``
+        before the worker records the exception: ``wait`` would otherwise return
+        in between and never see the denial.
+        """
+        threads = self.__dict__.get("_integration_worker_threads", [])
+        while threads:
+            threads.pop().join()
+        failures = self.__dict__.get("_integration_worker_failures", [])
+        if failures:
+            raise failures.pop(0)
+        return original_wait(self)
+
+    set_attribute(core_mod.OpenInterpreter, "wait", checked_wait)
+
     def approving_chat(self, message=None, display=True, stream=False, blocking=True):
         """Run the real chat with ``auto_run`` pinned, restoring it afterwards.
 
         The execution guard is the only approval prompt. Under ``display=True``
         the real chat routes through ``terminal_interface``, which prompts on the
         confirmation chunk when ``auto_run`` is False; pinning it True keeps that
-        second prompt from firing. A ``blocking=False`` call returns immediately
-        and its worker thread re-enters this wrapper with ``blocking=True``, which
-        does the pinning for the call that actually streams.
+        second prompt from firing. A ``blocking=False`` call starts a
+        harness-owned worker thread that re-enters this wrapper with
+        ``blocking=True``, which does the pinning for the call that actually
+        streams; owning the thread is what lets ``wait`` re-raise a refusal it
+        hit.
         """
         if not blocking:
-            return original_chat(
-                self, message=message, display=display, stream=stream, blocking=False
-            )
+            run_worker(self, message, display, stream)
+            return
 
         previous = self.auto_run
 
