@@ -7,9 +7,6 @@ import time
 import warnings
 from contextlib import redirect_stdout
 
-from IPython.display import display
-from PIL import Image
-
 from ...utils.lazy_import import lazy_import
 from ...utils.recipient_utils import format_to_recipient
 
@@ -31,15 +28,15 @@ try:
 except:
     pyautogui = None
 
-# numpy is imported for real, not lazily: a lazy placeholder in sys.modules for a
-# package that other libraries import independently (hypothesis, matplotlib,
-# pandas) breaks their import. Any attribute access during numpy's own
-# initialisation re-executes numpy/__init__.py mid-import and numpy's internal
-# circular import then fails with
-# "cannot import name 'busday_count' from partially initialized module
-# 'numpy._core.multiarray'". Startup time is not worth that.
-import numpy as np
-plt = lazy_import("matplotlib.pyplot")
+# numpy, PIL and IPython.display are imported where they are used instead of at
+# module scope: display.py is imported while the Interpreter is constructed, and
+# they pull in hundreds of milliseconds that only the screenshot/drawing paths
+# need. They are imported for real there, not via lazy_import, because a lazy
+# placeholder in sys.modules for a package other libraries import independently
+# (hypothesis, matplotlib, pandas) breaks their import: any attribute access
+# during numpy's own initialisation re-executes numpy/__init__.py mid-import,
+# and numpy's internal circular import then fails with "cannot import name
+# 'busday_count' from partially initialized module 'numpy._core.multiarray'".
 screeninfo = lazy_import("screeninfo")
 pywinctl = lazy_import("pywinctl")
 
@@ -233,6 +230,8 @@ class Display:
 
         if show:
             # Show the image using IPython display
+            from IPython.display import display
+
             if isinstance(screenshot, list):
                 for img in screenshot:
                     display(img)
@@ -328,6 +327,9 @@ class Display:
 
 
 def take_screenshot_to_pil(screen=0, combine_screens=True):
+    import numpy as np
+    from PIL import Image
+
     # Get information about all screens
     monitors = screeninfo.get_monitors()
     if screen == -1:  # All screens

@@ -1,10 +1,7 @@
 import time
 import warnings
 
-from IPython.display import display
-from PIL import Image
-
-from ...utils.lazy_import import lazy_import
+from ...utils.lazy_import import lazy_import, lazy_import_attribute, lazy_import_deferred
 from ...utils.recipient_utils import format_to_recipient
 
 # Lazy import of optional packages
@@ -12,9 +9,14 @@ try:
     cv2 = lazy_import("cv2")
 except:
     cv2 = None  # Fixes colab error
-np = lazy_import("numpy")
+np = lazy_import_deferred("numpy")
 pyautogui = lazy_import("pyautogui")
-plt = lazy_import("matplotlib.pyplot")
+# Deferred rather than lazy_import: resolving the spec of a dotted name imports
+# its parent package, so lazy_import("matplotlib.pyplot") would import all of
+# matplotlib just to build the placeholder.
+plt = lazy_import_deferred("matplotlib.pyplot")
+# Kept as a module-global so it stays patchable, but only imported when used.
+display = lazy_import_attribute("IPython.display", "display")
 
 
 class Mouse:
@@ -51,6 +53,8 @@ class Mouse:
         Returns:
             None
         """
+        from PIL import Image
+
         if len(args) > 1:
             raise ValueError(
                 "Too many positional arguments provided. To move/click specific coordinates, use kwargs (x=x, y=y).\n\nPlease take a screenshot with toolbox.display.view() to find text/icons to click, then use toolbox.mouse.click(text) or toolbox.mouse.click(icon=description_of_icon) if at all possible. This is **significantly** more accurate than using coordinates. Specifying (x=x, y=y) is highly likely to fail. Specifying ('text to click') is highly likely to succeed."

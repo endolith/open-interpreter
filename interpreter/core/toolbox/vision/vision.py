@@ -6,8 +6,6 @@ import io
 import os
 import tempfile
 
-from PIL import Image
-
 from ...utils.lazy_import import lazy_import
 from ..utils.computer_vision import pytesseract_get_text
 
@@ -167,6 +165,7 @@ class Vision:
         Returns:
             str
         """
+        from PIL import Image
 
         if self.model == None and self.tokenizer == None:
             try:

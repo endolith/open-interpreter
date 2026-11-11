@@ -3,14 +3,11 @@ import io
 from ...utils.lazy_import import lazy_import
 
 # Lazy import of optional packages
-# numpy is imported for real, not lazily: a lazy placeholder in sys.modules for a
-# package that other libraries import independently (hypothesis, matplotlib,
-# pandas) breaks their import. Any attribute access during numpy's own
-# initialisation re-executes numpy/__init__.py mid-import and numpy's internal
-# circular import then fails with
-# "cannot import name 'busday_count' from partially initialized module
-# 'numpy._core.multiarray'". Startup time is not worth that.
-import numpy as np
+# numpy is imported inside the functions that use it: computer_vision is
+# imported while the Interpreter is constructed, and only the OCR/drawing paths
+# need numpy. It is imported for real there (not via lazy_import) because a lazy
+# placeholder in sys.modules for numpy breaks libraries that import it
+# independently.
 try:
     cv2 = lazy_import("cv2")
 except:
@@ -30,6 +27,8 @@ def pytesseract_get_text(img):
 
 
 def pytesseract_get_text_bounding_boxes(img):
+    import numpy as np
+
     # Convert PIL Image to NumPy array
     img_array = np.array(img)
 
@@ -59,6 +58,8 @@ def pytesseract_get_text_bounding_boxes(img):
 
 
 def find_text_in_image(img, text, debug=False):
+    import numpy as np
+
     # Convert PIL Image to NumPy array
     img_array = np.array(img)
 
