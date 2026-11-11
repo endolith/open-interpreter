@@ -95,6 +95,11 @@ def confirmation_digest(confirmation_content: Dict[str, Any]) -> str:
 
 class AsyncInterpreter(OpenInterpreter):
     def __init__(self, *args, **kwargs):
+        """Build the async interpreter and the state its server layers share.
+
+        Adds the response thread, approval gate, and message-state flags that
+        the REST and websocket handlers coordinate on to the base interpreter.
+        """
         super().__init__(*args, **kwargs)
 
         self.respond_thread = None
@@ -484,6 +489,7 @@ def authenticate_function(key):
 
 
 def create_router(async_interpreter):
+    """Build the FastAPI router: heartbeat, chat page, REST, and websocket."""
     router = APIRouter()
 
     @router.get("/heartbeat")
@@ -630,6 +636,11 @@ def create_router(async_interpreter):
 
     @router.websocket("/")
     async def websocket_endpoint(websocket: WebSocket):
+        """Serve one chat socket: check the origin, authenticate, then converse.
+
+        Frames sent before the API-key check are buffered within a bounded
+        budget and replayed once authentication succeeds.
+        """
         origin = websocket.headers.get("origin")
         if not is_websocket_origin_allowed(origin):
             raise WebSocketException(code=1008, reason="Origin not allowed")

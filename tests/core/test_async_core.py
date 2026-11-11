@@ -3151,6 +3151,7 @@ class TestAsyncInputMessageOpenState(TestCase):
         interpreter = AsyncInterpreter()
 
         async def run():
+            """Open a message, then send one binary frame into it."""
             await interpreter.input({"role": "user", "start": True})
             await interpreter.input(b"\x00\x01")
 
@@ -3166,6 +3167,7 @@ class TestAsyncInputMessageOpenState(TestCase):
         interpreter.output_queue = janus.Queue()
 
         async def run():
+            """Open a message, close it, then try to append to the closed one."""
             await interpreter.input({"role": "user", "start": True})
             await interpreter.input(b"\x00")
             interpreter.respond = lambda *args, **kwargs: None
@@ -3189,6 +3191,7 @@ class TestAsyncInputMessageOpenState(TestCase):
         interpreter.output_queue = janus.Queue()
 
         async def run():
+            """Close a message, then send a progress-only start and a binary frame."""
             await interpreter.input({"role": "user", "start": True})
             await interpreter.input(b"\x00")
             interpreter.respond = lambda *args, **kwargs: None
