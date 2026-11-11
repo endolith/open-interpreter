@@ -172,8 +172,12 @@ class AsyncInterpreter(OpenInterpreter):
                 self.stop_event.set()
                 self._cancel_pending_approval()
                 self.respond_thread.join()
-            self.accumulate(chunk)
-            self._message_open = True
+            # Only a start chunk accumulation accepted opens a message. An
+            # ignored one (e.g. a progress-only "active_line" start) must leave
+            # a completed message closed, or a later binary frame could append
+            # to it.
+            if self.accumulate(chunk):
+                self._message_open = True
         elif "content" in chunk:
             self.accumulate(chunk)
         elif "end" in chunk:
@@ -380,9 +384,14 @@ class AsyncInterpreter(OpenInterpreter):
         self.output_queue.sync_q.put(complete_message)
         raise Exception("No chunks sent or unknown error.")
 
-    def accumulate(self, chunk):
+    def accumulate(self, chunk) -> bool:
         """
         Accumulates LMC chunks onto interpreter.messages.
+
+        Returns True when the chunk was applied to a message and False when it
+        was ignored, such as a progress-only "active_line" chunk. Callers that
+        track whether a message is open must use this return value rather than
+        assume that every received "start" chunk opened one.
         """
         if type(chunk) == str:
             chunk = json.loads(chunk)
@@ -390,7 +399,7 @@ class AsyncInterpreter(OpenInterpreter):
         if type(chunk) == dict:
             if chunk.get("format") == "active_line":
                 # We don't do anything with these.
-                pass
+                return False
 
             elif "content" in chunk and not (
                 len(self.messages) > 0
@@ -452,6 +461,8 @@ class AsyncInterpreter(OpenInterpreter):
             if self.messages[-1]["content"] == "":  # We initialize as an empty string ^
                 self.messages[-1]["content"] = b""  # But it actually should be bytes
             self.messages[-1]["content"] += chunk
+
+        return True
 
 
 def authenticate_function(key):

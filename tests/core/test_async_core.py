@@ -3175,3 +3175,27 @@ class TestAsyncInputMessageOpenState(TestCase):
 
         asyncio.run(run())
         assert interpreter.messages[0]["content"] == b"\x00"
+
+    def test_ignored_start_chunk_does_not_reopen_binary_input(self):
+        """An "active_line" start does not reopen the message "end" already closed.
+
+        accumulate() drops progress-only chunks, so their "start" flag must not
+        put the interpreter back into an open-message state: a later binary
+        frame would otherwise append to a completed message.
+        """
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+        interpreter.output_queue = janus.Queue()
+
+        async def run():
+            await interpreter.input({"role": "user", "start": True})
+            await interpreter.input(b"\x00")
+            interpreter.respond = lambda *args, **kwargs: None
+            await interpreter.input({"role": "user", "end": True})
+            await interpreter.input({"role": "user", "start": True, "format": "active_line"})
+            with pytest.raises(ValueError, match="open message"):
+                await interpreter.input(b"\x01")
+
+        asyncio.run(run())
+        assert interpreter.messages[0]["content"] == b"\x00"
