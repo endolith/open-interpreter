@@ -95,3 +95,26 @@ def test_version_flag_exits_cleanly_without_third_party_modules():
     assert result.returncode == 0, result.stderr
     assert "EXIT=0 LOADED=" in result.stdout
     assert "Open Interpreter" in result.stdout
+
+
+_JUPYTER_SCRIPT = """
+import sys
+
+import interpreter.core.terminal.languages.jupyter_language  # noqa: F401
+print("jupyter_client" in sys.modules)
+"""
+
+
+def test_jupyter_language_import_leaves_kernel_manager_deferred():
+    """Importing the language module must not import jupyter_client.
+
+    jupyter_client costs ~169 ms to import and is only needed once a kernel is
+    actually started, which happens in JupyterLanguage.__init__, not while the
+    Terminal merely records which languages exist. It must therefore stay out
+    of sys.modules until that point.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _JUPYTER_SCRIPT], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
