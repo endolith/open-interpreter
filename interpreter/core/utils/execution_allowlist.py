@@ -1,7 +1,5 @@
 import os
 
-import yaml
-
 from ...terminal_interface.utils.oi_dir import oi_dir
 
 AUTO_RUN_MODES = ("prompt", "all", "allowlist")
@@ -74,6 +72,11 @@ def _validate_rule(rule, source="allowlist"):
 
 
 def _load_rules_from_file(path):
+    # Imported here rather than at module scope: PyYAML costs ~11 ms to import
+    # and is only needed when a rules file is actually read. Most runs never do
+    # (auto-run stays at the default "prompt" mode, which never loads rules).
+    import yaml
+
     path = _expand_path(path)
     if not os.path.isfile(path):
         return []
@@ -195,6 +198,10 @@ def persist_allowlist_rule(interpreter, language, code):
         return rule, False
 
     file_rules.append(dict(rule))
+    # Local import mirrors `_load_rules_from_file`: only persisting a rule needs
+    # the YAML emitter, so the common startup path stays free of PyYAML.
+    import yaml
+
     with open(allowlist_file, "w", encoding="utf-8") as file:
         yaml.safe_dump(
             {

@@ -64,6 +64,22 @@ def test_core_import_leaves_the_local_setup_wizard_deferred():
     assert result.stdout.strip() == ""
 
 
+def test_core_import_leaves_pyyaml_deferred():
+    """Importing the core module must not pull in PyYAML.
+
+    `execution_allowlist.py` only needs YAML when a rules file is read or
+    written, which happens solely in auto-run "allowlist" mode. The default
+    "prompt" mode never loads rules, so importing PyYAML at module scope makes
+    every run pay ~11 ms for a file it will not open.
+    """
+    script = _CORE_SCRIPT.format(modules=("yaml", "yaml._yaml"))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
 _VERSION_SCRIPT = """
 import sys
 
