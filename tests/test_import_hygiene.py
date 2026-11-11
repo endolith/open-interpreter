@@ -278,6 +278,42 @@ def test_core_import_leaves_the_markdown_renderer_deferred():
     assert result.stdout.strip() == ""
 
 
+def test_core_import_leaves_the_rich_console_stack_deferred():
+    """Importing the core module must not load rich.console and its dependents.
+
+    rich.console costs ~42 ms in-tree: it pulls in rich.themes, rich.text,
+    rich.style and rich._log_render, and every `rich.panel`/`rich.padding`/
+    `rich.table`/`rich.syntax` import drags it in transitively. None of that is
+    needed to construct an Interpreter -- only to draw a live block. The block
+    classes stay real module attributes (so `isinstance` checks and
+    `mock.patch.object(terminal_interface, "CodeBlock")` keep working); only
+    their rendering methods import the Rich stack. The `rich` package itself
+    stays because `from rich import print` is cheap and used as a patch point.
+    """
+    script = _CORE_SCRIPT.format(
+        modules=(
+            "rich.console",
+            "rich.live",
+            "rich.table",
+            "rich.markup",
+            "rich.syntax",
+            "rich.markdown",
+            "rich.panel",
+            "rich.padding",
+            "rich.box",
+            "rich.text",
+            "rich.style",
+            "rich.themes",
+            "rich._log_render",
+        )
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
 def test_core_import_leaves_the_macos_sms_helpers_deferred():
     """Importing the core module must not load sqlite3/plistlib for the SMS tool.
 

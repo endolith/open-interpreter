@@ -34,7 +34,6 @@ import uuid
 
 import tokentrim as tt
 from rich import print as rich_print
-from rich.panel import Panel
 
 from ...terminal_interface.utils.local_storage_path import get_storage_path
 from .providers import OpenRouterCatalogError, openrouter_model_entry
@@ -971,6 +970,10 @@ Continuing...
                 yield from run_tool_calling_llm(self, params)
             except FunctionCallingNotSupportedError as e:
                 # Model doesn't support function calling, fall back to text mode
+                # Imported here so rich.panel (and with it rich.text/rich.box) stays
+                # off startup; this warning is only reachable inside a run.
+                from rich.panel import Panel
+
                 message = (
                     "Model doesn't support function calling, falling back to text mode.\n\n"
                     "Tip: Use `--no-llm_supports_functions` to skip function calling and avoid this message."

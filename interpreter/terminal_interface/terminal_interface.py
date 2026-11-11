@@ -18,12 +18,6 @@ import tempfile
 import time
 import traceback
 
-from rich.box import ROUNDED
-from rich.console import Console as RichConsole
-from rich.padding import Padding as RichPadding
-from rich.panel import Panel
-from rich.text import Text as RichText
-
 from ..core.llm.utils.convert_to_openai_messages import (
     image_path_exceeds_shrink_threshold,
 )
@@ -103,6 +97,15 @@ def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True
 
 
 def terminal_interface(interpreter, message):
+    # Imported here, not at module scope: these pull in rich.console (~40 ms of
+    # startup) and are only used when an image or view-image prompt is shown,
+    # which cannot happen before the interface starts.
+    from rich.box import ROUNDED
+    from rich.console import Console as RichConsole
+    from rich.padding import Padding as RichPadding
+    from rich.panel import Panel
+    from rich.text import Text as RichText
+
     # Avoid stale environment variables locking terminal width on Windows.
     # shutil (and some of Rich) prioritize these, which prevents auto-detection
     # after a window resize.
