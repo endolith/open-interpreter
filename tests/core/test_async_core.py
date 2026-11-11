@@ -584,6 +584,38 @@ class TestAsyncInputLifecycle(TestCase):
         self.interpreter.respond_thread.join(timeout=5)
         self.interpreter.respond.assert_called_once()
 
+    def test_end_chunk_creates_the_output_queue_before_the_worker_starts(self):
+        """A turn that fails before output() is awaited still reports to the client.
+
+        The respond thread can raise before any consumer has called output(),
+        so input() has to create the queue first. Without it the error path
+        dereferences None, and the client gets neither the error nor the
+        completion frame and waits out its recv timeout.
+        """
+
+        def exploding_store():
+            """Raise as soon as the stream is pulled, as a refused turn would."""
+            raise ValueError("turn exploded before output()")
+            yield  # pragma: no cover - makes this a generator
+
+        # No consumer has run yet, so this is the reported starting state.
+        self.interpreter.output_queue = None
+        with mock.patch.object(self.interpreter, "_respond_and_store", exploding_store):
+            self._feed({"role": "user", "type": "message", "start": True})
+            self._feed({"type": "message", "end": True})
+            self.interpreter.respond_thread.join(timeout=5)
+
+        self.assertFalse(self.interpreter.respond_thread.is_alive())
+        self.assertIsNotNone(self.interpreter.output_queue)
+        chunks = []
+        while not self.interpreter.output_queue.sync_q.empty():
+            chunks.append(self.interpreter.output_queue.sync_q.get_nowait())
+
+        errors = [chunk for chunk in chunks if chunk.get("type") == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("turn exploded before output()", errors[0]["content"])
+        self.assertEqual(chunks[-1], complete_message)
+
     def test_end_chunk_clears_a_leftover_stop_event(self):
         """A new turn clears a stop flag left set by the previous one.
 

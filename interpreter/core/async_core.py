@@ -206,6 +206,12 @@ class AsyncInterpreter(OpenInterpreter):
 
             self.stop_event.clear()
             self._reset_respond_iterator()
+            # The worker can fail before any consumer has awaited output(), so
+            # the queue has to exist before it starts. Otherwise the error path
+            # dereferences None and the client gets neither the error nor the
+            # completion frame, and waits out its recv timeout.
+            if self.output_queue is None:
+                self.output_queue = janus.Queue()
             self.respond_thread = threading.Thread(
                 target=self.respond, args=(run_code,)
             )
