@@ -2,14 +2,12 @@ import os
 import re
 import shutil
 
-from rich.box import MINIMAL, ROUNDED
-from rich.panel import Panel
-from rich.text import Text
-from rich.console import Group
-from rich.padding import Padding
-
 from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_MESSAGE, PADDING_PANEL
+
+# Rich's rendering stack is imported inside refresh()/finalize() instead of at
+# module scope: `rich.console` alone costs ~40 ms of startup, and MessageBlock
+# must stay a real module-level class (terminal_interface.py patches it).
 
 # `rich.markdown` pulls in markdown-it-py and pygments, and `streaming_markdown`
 # builds a markdown-it parser at first import (~40 ms together). Those are only
@@ -43,7 +41,12 @@ class MessageBlock(BaseBlock):
 
     def refresh(self, cursor=True):
         """Process new content and render complete blocks incrementally."""
+        from rich.box import ROUNDED
+        from rich.console import Group
         from rich.markdown import Markdown
+        from rich.padding import Padding
+        from rich.panel import Panel
+        from rich.text import Text
         from ..utils.streaming_markdown import (
             calculate_window_size,
             create_live_display,
@@ -178,7 +181,10 @@ class MessageBlock(BaseBlock):
 
     def finalize(self):
         """Render any remaining content when the message is complete."""
+        from rich.box import ROUNDED
         from rich.markdown import Markdown
+        from rich.padding import Padding
+        from rich.panel import Panel
         from ..utils.streaming_markdown import textify_markdown_code_blocks
 
         # Clear the live display to remove the streaming raw text

@@ -1,10 +1,3 @@
-from rich.box import MINIMAL
-from rich.console import Group
-from rich.markup import escape
-from rich.panel import Panel
-from rich.padding import Padding
-from rich.table import Table
-from rich.text import Text
 import shutil
 import os
 
@@ -12,9 +5,12 @@ from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
 from ..utils.target_file_lexer import syntax_lang_for_target_path
 
-# `rich.syntax` pulls in pygments and `streaming_markdown` pulls in markdown-it-py
-# (~40 ms together). Those are only needed once a block is actually rendered, so
-# they are imported inside the methods below to keep that cost off startup.
+# The whole Rich rendering stack — `rich.console` alone drags in rich.themes,
+# rich._log_render and rich.text (~40 ms) — plus `rich.syntax` (pygments) and
+# `streaming_markdown` (markdown-it-py) is only needed once a block is actually
+# rendered. The component classes stay module-level and real, because
+# terminal_interface.py patches and isinstance-checks them, so the imports live
+# inside the methods that render instead of at module scope.
 
 
 class CodeBlock(BaseBlock):
@@ -118,7 +114,14 @@ class CodeBlock(BaseBlock):
 
     def _print_permanent_block(self, content, format_type):
         """Helper to render a completed segment and print it directly to console."""
+        from rich.box import MINIMAL
+        from rich.console import Group
+        from rich.markup import escape
+        from rich.panel import Panel
+        from rich.padding import Padding
         from rich.syntax import Syntax
+        from rich.table import Table
+        from rich.text import Text
 
         if format_type == "code":
             # Code panels show code verbatim: leading/trailing blank lines are
@@ -184,7 +187,13 @@ class CodeBlock(BaseBlock):
 
     def refresh(self, cursor=True):
         """Process content, pop completed blocks, and update the Live sliding window."""
+        from rich.box import MINIMAL
+        from rich.console import Group
+        from rich.panel import Panel
+        from rich.padding import Padding
         from rich.syntax import Syntax
+        from rich.table import Table
+        from rich.text import Text
         from ..utils.streaming_markdown import (
             calculate_window_size,
             create_sliding_window_display,
