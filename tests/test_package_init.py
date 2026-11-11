@@ -6,7 +6,9 @@ these tests evict the package from ``sys.modules`` and re-import it.
 """
 
 import importlib
+import subprocess
 import sys
+import textwrap
 from types import ModuleType
 from unittest import mock
 
@@ -35,6 +37,105 @@ def _stub_entrypoint(monkeypatch):
     monkeypatch.setitem(sys.modules, "interpreter.computer_use", package)
     monkeypatch.setitem(sys.modules, "interpreter.computer_use.loop", loop)
     return loop
+
+
+def _run_python(code):
+    """Run a snippet in a fresh interpreter and return the finished process."""
+    return subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(code)],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_plain_import_defers_singleton_and_heavy_imports():
+    """`import interpreter` must not build the interpreter or import litellm.
+
+    The CLI imports this package on every invocation, so constructing the
+    singleton here would put litellm and the whole toolbox on the startup path
+    of `--help` and `--version`. A fresh subprocess is used because the test
+    session itself has long since imported everything.
+    """
+    proc = _run_python(
+        """
+        import sys
+        import interpreter
+
+        assert "interpreter.core.core" not in sys.modules
+        assert "litellm" not in sys.modules
+        assert interpreter._singleton is None
+        print("ok")
+        """
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"
+
+
+def test_singleton_access_builds_one_cached_interpreter():
+    """PEP 562 access to `interpreter` builds an OpenInterpreter once and reuses it."""
+    proc = _run_python(
+        """
+        from interpreter import OpenInterpreter
+        from interpreter import interpreter as first
+        from interpreter import interpreter as second
+
+        assert isinstance(first, OpenInterpreter)
+        assert first is second
+        assert first is __import__("interpreter")._singleton
+        print("ok")
+        """
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"
+
+
+def test_toolbox_and_ai2_are_singleton_owned():
+    """`toolbox` and `ai2` resolve to the objects the singleton already holds."""
+    proc = _run_python(
+        """
+        from interpreter import ai2, interpreter, toolbox
+
+        assert toolbox is interpreter.toolbox
+        assert ai2 is interpreter.toolbox.ai2
+        print("ok")
+        """
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"
+
+
+def test_public_classes_resolve_through_the_module():
+    """The public classes remain importable from the package after the split."""
+    proc = _run_python(
+        """
+        from interpreter import AsyncInterpreter, BaseLanguage, OpenInterpreter
+
+        assert issubclass(AsyncInterpreter, OpenInterpreter)
+        assert BaseLanguage.__name__ == "BaseLanguage"
+        print("ok")
+        """
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"
+
+
+def test_unknown_attribute_raises_attribute_error():
+    """An unknown package attribute fails loudly instead of returning a stale name."""
+    proc = _run_python(
+        """
+        import interpreter
+
+        try:
+            interpreter.definitely_not_a_public_name
+        except AttributeError as error:
+            assert "has no attribute" in str(error)
+        else:
+            raise AssertionError("expected AttributeError")
+        print("ok")
+        """
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"
 
 
 @pytest.mark.xfail(
