@@ -272,41 +272,17 @@ class Display:
                 )
 
                 return result
-            except:
+            except Exception as e:
                 if self.toolbox.debug:
                     # We want to know these bugs lmao
                     raise
-                if self.toolbox.offline:
-                    raise
-                message = format_to_recipient(
-                    "Locating this icon will take ~30 seconds. We're working on speeding this up.",
-                    recipient="user",
+                raise Exception(
+                    f"{e}\n\nUnable to locate that icon on screen. Locating icons "
+                    f"needs `opencv-python`, `pytesseract`, `sentence-transformers` "
+                    f"and `nltk` (`pip install open-interpreter[os]`), plus the "
+                    f"Tesseract binary. Otherwise, pass coordinates directly with "
+                    f"computer.mouse.move(x=..., y=...)."
                 )
-                print(message)
-
-                # Take a screenshot
-                if screenshot == None:
-                    screenshot = self.screenshot(show=False)
-
-                # Downscale the screenshot to 1920x1080
-                screenshot = screenshot.resize((1920, 1080))
-
-                # Convert the screenshot to base64
-                buffered = BytesIO()
-                screenshot.save(buffered, format="PNG")
-                screenshot_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-                try:
-                    response = requests.post(
-                        f'{self.toolbox.api_base.strip("/")}/point/',
-                        json={"query": description, "base64": screenshot_base64},
-                    )
-                    return response.json()
-                except Exception as e:
-                    raise Exception(
-                        str(e)
-                        + "\n\nIcon locating API not available, or we were unable to find the icon. Please try another method to find this icon."
-                    )
 
     def find_text(self, text, screenshot=None):
         """
@@ -318,23 +294,8 @@ class Display:
         if screenshot == None:
             screenshot = self.screenshot(show=False)
 
-        if not self.toolbox.offline:
-            # Convert the screenshot to base64
-            buffered = BytesIO()
-            screenshot.save(buffered, format="PNG")
-            screenshot_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-            try:
-                response = requests.post(
-                    f'{self.toolbox.api_base.strip("/")}/point/text/',
-                    json={"query": text, "base64": screenshot_base64},
-                )
-                response = response.json()
-                return response
-            except:
-                print("Attempting to find the text locally.")
-
-        # We'll only get here if 1) self.toolbox.offline = True, or the API failed
+        # Found locally. This used to POST the screenshot to a hosted endpoint
+        # first, and only fall back to here when that failed.
 
         # Find the text in the screenshot
         centers = find_text_in_image(screenshot, text, self.toolbox.debug)
@@ -353,23 +314,10 @@ class Display:
         if screenshot == None:
             screenshot = self.screenshot(show=False)
 
-        if not self.toolbox.offline:
-            # Convert the screenshot to base64
-            buffered = BytesIO()
-            screenshot.save(buffered, format="PNG")
-            screenshot_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-            try:
-                response = requests.post(
-                    f'{self.toolbox.api_base.strip("/")}/text/',
-                    json={"base64": screenshot_base64},
-                )
-                response = response.json()
-                return response
-            except:
-                print("Attempting to get the text locally.")
-
-        # We'll only get here if 1) self.toolbox.offline = True, or the API failed
+        # Read locally. This used to POST the screenshot to a hosted endpoint
+        # first, and only fall back to here when that failed; keeping the
+        # screenshot on the user's machine is the point, so `offline` no
+        # longer changes this path.
 
         try:
             return pytesseract_get_text(screenshot)

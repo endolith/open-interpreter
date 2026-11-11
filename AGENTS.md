@@ -212,7 +212,16 @@ When changing code, update **all** relevant documentation:
 
 ### PRs and Issues
 
-- In the develop branch, don't create PRs.  Features will be merged into `main` as PRs eventually.
+- In the develop branch, don't create PRs. Features will be merged into `main` as PRs eventually.
+- **When a feature does go to `main`, open a PR for it.** All changes must be submitted as PRs so they can be revised independently.
+- **Rework an existing PR in place.** When asked to rebase or fix a PR, modify the PR's actual head branch and force-push with `--force-with-lease`—don't create a new parallel branch and point people at it. First push a backup of the head branch to the remote (e.g. `git push origin <head-branch>:backup/<head-branch>`) and confirm the backup ref exists, so the original is recoverable even if the local environment is lost; only then rewrite the branch. If anything goes wrong, restore from the backup.
+- **Rebase on main.** When editing an existing remote branch you should typically rebase on `main`, so it runs against the latest test suite and the merge history is less messy.
+- **Prefer small, reviewable PRs.** Split large efforts into stacked PRs with a clear merge order. Each PR should have one scope that is easy to review and merge.
+- **Don't expand a PR's scope because a reviewer pointed something out.** Reviewer comments may flag pre-existing or out-of-scope issues; if a comment isn't about code this PR changed, fix it in its own PR and rebase on top of that, rather than scope-creeping the PR under review.
+- Check if there are any Issues related to the change you are making, and if so, mention it in the PR and write `Fixes #…` in the relevant commit message, so that the Issue will be auto-closed on merge.
+- **PR descriptions** should stand alone for a reviewer who has not read the issue or agent chat. Use short sections: **Background** (what should work), **Problem** (what is wrong), **Visible symptoms** (what users or CI observe), **What this PR changes** (scope and non-goals), **Why you might not want to merge this**, **Tests** (what was added or updated). Add **Related work** only when stacked PRs or merge order matter. Split unrelated fixes into separate PRs; cross-link siblings when you do.
+- **Say why the user might not want to merge it.** Every PR description must include a plain-English **Why you might not want to merge this** section, written for the person deciding whether to merge rather than for someone auditing the diff. State the tradeoffs the change accepts (a new dependency, a behavior or public-API change, extra latency, migration cost, new failure modes), what it deliberately does not handle, and any simpler or alternative ways to get the same result that were considered and why they were not chosen. If there is genuinely no meaningful downside, say so in one line rather than leaving the section out. This is the case against taking the change, not a restatement of it.
+- **Agents never merge or delete or close PRs, or delete branches that would close PRs.** Leave a comment with your recommended action and let a maintainer handle it.
 
 #### CodeRabbit review workflow
 

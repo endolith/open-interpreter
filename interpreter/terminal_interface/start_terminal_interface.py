@@ -206,8 +206,8 @@ def start_terminal_interface(interpreter):
             "nickname": "dt",
             "help_text": "disables sending of basic anonymous usage stats",
             "type": bool,
-            # default must be None (not False) so set_attributes does not overwrite
-            # disable_telemetry: true from the user's profile when the flag is omitted.
+            # No default: an attribute-bound argument must stay None when it
+            # isn't passed, or set_attributes would apply it over the profile.
             "attribute": {"object": interpreter, "attr_name": "disable_telemetry"},
         },
         {
@@ -536,11 +536,10 @@ Use """ to write multi-line messages.
     ### Set attributes on interpreter, because the arguments passed in via the CLI should override profile
 
     set_attributes(args, arguments)
-    interpreter.disable_telemetry = (
-        interpreter.disable_telemetry
-        or os.getenv("DISABLE_TELEMETRY", "false").lower() == "true"
-        or bool(args.disable_telemetry)
-    )
+
+    # The environment variable can only turn telemetry off, never back on
+    if os.getenv("DISABLE_TELEMETRY", "false").lower() == "true":
+        interpreter.disable_telemetry = True
 
     ### Set some helpful settings we know are likely to be true
 

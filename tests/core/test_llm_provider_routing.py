@@ -5,6 +5,7 @@ import pytest
 import litellm
 import requests
 import interpreter.core.llm.llm as llm_mod
+import interpreter.core.llm.providers as providers
 from interpreter.core.core import OpenInterpreter
 
 
@@ -118,6 +119,9 @@ def stub_openrouter_registry(monkeypatch):
     unstubbed tool-calling runner would fire a real HTTP request and make
     vision detection pass or fail on network behaviour instead of asserting.
     """
+    # The catalog cache is process-global, so a catalog fetched by an earlier
+    # test would shadow this test's stub and hide its slug.
+    monkeypatch.setattr(providers, "_openrouter_models", None)
     monkeypatch.setattr(litellm, "supports_vision", lambda model: False)
     monkeypatch.setattr(
         llm_mod,

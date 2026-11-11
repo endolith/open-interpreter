@@ -533,12 +533,7 @@ def test_import_skills_size_guard_raises_and_restores_save_skills(tmp_path):
         with pytest.raises(Warning, match="can't exceed 100mb"):
             skills.import_skills()
     computer.interpreter.terminal.run.assert_not_called()
-    try:
-        assert computer.save_skills is True
-    except AssertionError:
-        pytest.xfail(
-            reason="import_skills() flips save_skills to False before the 100MB guard with no try/finally (issue #417), so a guard raise strands the caller's setting; fix in #422"
-        )
+    assert computer.save_skills is True
 
 
 def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys):
@@ -559,7 +554,7 @@ def test_import_skills_retries_files_individually_on_traceback(tmp_path, capsys)
 
     computer = _enabled_computer(
         interpreter=SimpleNamespace(
-            debug=False, terminal=SimpleNamespace(run=mock.Mock(side_effect=fake_run))
+            debug=True, terminal=SimpleNamespace(run=mock.Mock(side_effect=fake_run))
         )
     )
     skills = Skills(computer)

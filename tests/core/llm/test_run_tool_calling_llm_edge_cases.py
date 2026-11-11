@@ -12,9 +12,12 @@ def _make_llm():
     llm = mock.MagicMock()
     llm.model = "gpt-4o"
     llm.supports_functions = True
-    # The fake models a Python-capable terminal so execute(language="python")
-    # passes the language gate.
-    llm.interpreter.terminal.languages = [SimpleNamespace(name="Python")]
+    # The fake models a Python- and Bash-capable terminal so execute() calls
+    # in either language pass the language gate.
+    llm.interpreter.terminal.languages = [
+        SimpleNamespace(name="Python"),
+        SimpleNamespace(name="Bash"),
+    ]
     return llm
 
 
@@ -394,5 +397,5 @@ def test_double_escaped_arguments_still_produce_a_code_chunk():
     llm.completions = chat
 
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "bash", "content": "echo hi"}
+        {"role": "assistant", "type": "code", "format": "bash", "content": "echo hi"}
     ]

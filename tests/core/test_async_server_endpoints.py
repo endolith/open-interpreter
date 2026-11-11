@@ -490,7 +490,7 @@ def test_insecure_download_route_rejects_non_regular_file(insecure_pair, tmp_pat
 
 
 def _deltas(body):
-    """Extract the streamed delta content strings, skipping the [DONE] sentinel."""
+    """Extract the streamed delta content strings from an SSE response body."""
     deltas = []
     for line in body.splitlines():
         if not line.startswith("data: "):
@@ -506,7 +506,7 @@ def _deltas(body):
 
 
 def _frames(body):
-    """Extract every decoded SSE frame from a response body, skipping [DONE]."""
+    """Extract every decoded SSE frame from a response body."""
     frames = []
     for line in body.splitlines():
         if line.startswith("data: "):
@@ -682,8 +682,8 @@ def test_stream_frame_ids_increase_with_each_chunk(client, server_pair):
     assert len({frame["id"] for frame in _frames(response.text)}) == 1
 
 
-def test_stream_is_served_as_event_stream(client, server_pair):
-    """The streaming response is typed text/event-stream (issue #366)."""
+def test_stream_is_served_as_ndjson(client, server_pair):
+    """The streaming response is typed application/x-ndjson."""
     _code_stream_pair(
         server_pair,
         [{"role": "assistant", "type": "message", "content": "hi"}],

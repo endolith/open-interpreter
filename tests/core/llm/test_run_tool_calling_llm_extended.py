@@ -487,8 +487,8 @@ def test_content_sharing_a_delta_with_the_tool_call_is_yielded_as_a_message():
         ]
     )
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "message", "content": "I'll print one for you."},
-        {"type": "code", "format": "python", "content": "print(1)"},
+        {"role": "assistant", "type": "message", "content": "I'll print one for you."},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
     ]
 
 
@@ -514,7 +514,7 @@ def test_review_verdict_sharing_a_delta_with_the_tool_call_counts_as_a_review(mo
         ]
     )
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "code", "format": "python", "content": "print(1)"},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
         {"type": "review", "format": "safe", "content": "fine"},
     ]
 
@@ -589,3 +589,101 @@ def test_rejected_execute_call_is_stored_and_paired(arguments):
     assert error["tool_call_id"] == call["tool_call_id"]
     assert "Invalid execute call" in error["content"]
     assert call["arguments"] == ("null" if arguments is None else arguments)
+def test_narration_sharing_a_later_delta_with_a_tool_call_is_a_message():
+    """Narration packed with a tool-call continuation is streamed as a message, not a review.
+
+    The verdict-tag classification must run for every delta carrying both
+    content and tool calls: untagged narration in a later mixed delta must not
+    inherit review status from the earlier tool call that set
+    function_call_detected.
+    """
+    llm = _make_llm(
+        [
+            _chunk({"tool_calls": [_tool_call("execute", '{"language": "python", "code": "pri')]}),
+            _chunk(
+                {
+                    "content": "And here's why.",
+                    "tool_calls": [
+                        SimpleNamespace(
+                            id="toolu_1",
+                            function=SimpleNamespace(arguments='nt(1)"}'),
+                        )
+                    ],
+                }
+            ),
+        ]
+    )
+    # The code arguments are converted after the stream completes (the language
+    # is only known then), so the narration arrives first and the fully merged
+    # call follows.
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"role": "assistant", "type": "message", "content": "And here's why."},
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
+    ]
+
+
+def test_tool_calls_empty_function_fields_skipped():
+    """An entry with empty name and arguments does not hide a later valid one."""
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        SimpleNamespace(
+                            function=SimpleNamespace(name="", arguments="")
+                        ),
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": "print(1)"}',
+                        ),
+                    ]
+                }
+            )
+        ]
+    )
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+def test_open_review_body_in_later_mixed_delta_stays_a_review():
+    """A review opened earlier stays a review when its body shares a mixed delta."""
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": "print(1)"}',
+                        )
+                    ]
+                }
+            ),
+            _chunk({"content": "<safe>Looks "}),
+            _chunk(
+                {
+                    "content": "good</safe>",
+                    "tool_calls": [_tool_call("execute", '{"language": "python", "code": "print(2)"}')],
+                }
+            ),
+        ]
+    )
+
+    result = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert any(
+        chunk.get("type") == "review" and chunk.get("content") == "Looks "
+        for chunk in result
+    )
+    assert any(
+        chunk.get("type") == "review" and chunk.get("content") == "good"
+        for chunk in result
+    )
+    assert not any(
+        chunk.get("type") == "message" and "good" in str(chunk.get("content"))
+        for chunk in result
+    )
+
+

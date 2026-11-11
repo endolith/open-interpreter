@@ -91,8 +91,7 @@ def test_shell_bash_echo_smoke(interpreter):
 def test_shell_bash_nested_loop_quoting(interpreter):
     """Nested bash loops with variable interpolation pass through subprocess unchanged.
 
-    Regression for #91 (fish $SHELL mismatch). Shell now invokes bash directly;
-    require_bash_compatible_shell() still guards the developer environment.
+    Regression for fish/non-bash $SHELL hangs (require_bash_compatible_shell).
     macOS CI runs the same snippet under darwin_ci in test_platform_ci.py.
     Windows cmd.exe variant is in test_platform_ci.py (windows_ci).
     """

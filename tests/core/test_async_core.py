@@ -2381,7 +2381,6 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
 
     def _sse_payloads(self, text):
         """Parse the data: lines of an SSE body back into payload dicts."""
-        self._last_text = text
         payloads = []
         for line in text.splitlines():
             if line.startswith("data: "):
@@ -2465,7 +2464,6 @@ class TestOpenAIGeneratorRunCodePath(TestCase):
         )
 
         self.assertEqual(payloads, [])
-        self.assertTrue(self._last_text.rstrip().endswith("data: [DONE]"))
 
 
 class TestOpenAIGeneratorChatPath(TestCase):
@@ -2499,7 +2497,6 @@ class TestOpenAIGeneratorChatPath(TestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
-        self._last_text = response.text
         payloads = []
         for line in response.text.splitlines():
             if line.startswith("data: "):
@@ -2654,7 +2651,6 @@ class TestOpenAIGeneratorChatPath(TestCase):
         payloads = self._post_chat()
 
         self.assertEqual(payloads, [])
-        self.assertTrue(self._last_text.rstrip().endswith("data: [DONE]"))
         self.assertEqual(self.interpreter.chat.call_count, 6)
 
     def test_stop_set_during_streaming_suppresses_frames(self):

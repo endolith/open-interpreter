@@ -6,7 +6,7 @@ dropped everything else without a trace. Unknown types now leave an
 output; the named mappings are unchanged.
 """
 
-from interpreter.core.computer.terminal.languages.jupyter_language import (
+from interpreter.core.terminal.languages.jupyter_language import (
     _display_data_chunk,
 )
 

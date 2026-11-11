@@ -675,6 +675,7 @@ def _openai_sse_chunk(
     finish_reason=None,
     *,
     role=None,
+    model=None,
 ):
     delta = {}
     if role is not None:
@@ -691,7 +692,7 @@ def _openai_sse_chunk(
                 "id": completion_id,
                 "object": "chat.completion.chunk",
                 "created": created,
-                "model": "open-interpreter",
+                "model": model if model is not None else "open-interpreter",
                 "choices": [choice],
             }
         )
@@ -1284,13 +1285,15 @@ def create_router(async_interpreter):
         temperature: Optional[float] = None
         stream: Optional[bool] = False
 
-    async def _stream_openai_assistant_text(text):
+    async def _stream_openai_assistant_text(text, model=None):
         completion_id = _new_openai_completion_id()
         created = int(time.time())
         yield _openai_sse_chunk(
-            completion_id, created, delta_content=text, role="assistant"
+            completion_id, created, delta_content=text, role="assistant", model=model
         )
-        yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
+        yield _openai_sse_chunk(
+            completion_id, created, finish_reason="stop", model=model
+        )
         yield "data: [DONE]\n\n"
 
     def _openai_assistant_text_response(text, model):
@@ -1304,7 +1307,7 @@ def create_router(async_interpreter):
             ],
         }
 
-    async def _stream_openai_title(content_str):
+    async def _stream_openai_title(content_str, model=None):
         completion_id = _new_openai_completion_id()
         created = int(time.time())
         title_messages = [
@@ -1326,12 +1329,14 @@ def create_router(async_interpreter):
             if chunk.get("type") == "message" and chunk.get("content"):
                 await asyncio.sleep(0)
                 yield _openai_sse_chunk(
-                    completion_id, created, delta_content=chunk["content"]
+                    completion_id, created, delta_content=chunk["content"], model=model
                 )
-        yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
+        yield _openai_sse_chunk(
+            completion_id, created, finish_reason="stop", model=model
+        )
         yield "data: [DONE]\n\n"
 
-    async def openai_compatible_generator(run_code):
+    async def openai_compatible_generator(run_code, model=None):
         completion_id = _new_openai_completion_id()
         created = int(time.time())
         sent_role = False
@@ -1343,7 +1348,7 @@ def create_router(async_interpreter):
                 sent_role = True
             await asyncio.sleep(0)
             return _openai_sse_chunk(
-                completion_id, created, delta_content=text, role=role
+                completion_id, created, delta_content=text, role=role, model=model
             )
 
         pending_lang = _pending_code_language(async_interpreter)
@@ -1378,7 +1383,9 @@ def create_router(async_interpreter):
                         break
                 if made_chunk:
                     break
-            yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
+            yield _openai_sse_chunk(
+            completion_id, created, finish_reason="stop", model=model
+        )
             yield "data: [DONE]\n\n"
             return
         else:
@@ -1425,7 +1432,9 @@ def create_router(async_interpreter):
         if not _openai_server_has_pending_code(async_interpreter):
             _clear_openai_code_approval_wait(async_interpreter)
 
-        yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
+        yield _openai_sse_chunk(
+            completion_id, created, finish_reason="stop", model=model
+        )
         yield "data: [DONE]\n\n"
 
     @router.post("/openai/chat/completions")
@@ -1470,7 +1479,7 @@ def create_router(async_interpreter):
         if content_str and _is_openai_auxiliary_title_request(content_str):
             if request.stream:
                 return StreamingResponse(
-                    _stream_openai_title(content_str),
+                    _stream_openai_title(content_str, request.model),
                     media_type="text/event-stream",
                 )
             title_messages = [
@@ -1524,7 +1533,7 @@ def create_router(async_interpreter):
                 print(">", content_str, "(decline code)")
                 if request.stream:
                     return StreamingResponse(
-                        _stream_openai_assistant_text(OPENAI_CODE_APPROVAL_DECLINED),
+                        _stream_openai_assistant_text(OPENAI_CODE_APPROVAL_DECLINED, request.model),
                         media_type="text/event-stream",
                     )
                 return _openai_assistant_text_response(
@@ -1537,7 +1546,7 @@ def create_router(async_interpreter):
                 print(">", content_str, "(invalid approval reply)")
                 if request.stream:
                     return StreamingResponse(
-                        _stream_openai_assistant_text(retry_text),
+                        _stream_openai_assistant_text(retry_text, request.model),
                         media_type="text/event-stream",
                     )
                 return _openai_assistant_text_response(retry_text, request.model)
@@ -1569,7 +1578,7 @@ def create_router(async_interpreter):
 
         if request.stream:
             return StreamingResponse(
-                openai_compatible_generator(run_code),
+                openai_compatible_generator(run_code, request.model),
                 media_type="text/event-stream",
             )
         else:

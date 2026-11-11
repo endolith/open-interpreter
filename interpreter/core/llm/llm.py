@@ -36,8 +36,13 @@ def _supports_vision(model: str) -> bool | None:
     try:
         if litellm.supports_vision(model):
             return True
-        entry = openrouter_model_entry(model)
-        if entry is not None:
+        if model.lower().startswith("openrouter/"):
+            entry = openrouter_model_entry(model)
+            if entry is None:
+                # The catalog is reachable but does not list this slug, so its
+                # capability is unknown, not text-only. Fail the request
+                # instead of silently dropping images.
+                return None
             modalities = (entry.get("architecture") or {}).get("input_modalities") or []
             return "image" in modalities
     except OpenRouterCatalogError:
@@ -510,9 +515,10 @@ class Llm:
             if detected is None:
                 raise OpenRouterCatalogError(
                     f"Could not determine whether {_metadata_model} accepts images: "
-                    "the OpenRouter model catalog could not be fetched. Retry, or "
-                    "set `supports_vision` explicitly (e.g. "
-                    "`interpreter.llm.supports_vision = True`) to proceed."
+                    "the OpenRouter model catalog could not be fetched, or the model "
+                    "is not listed in it. Retry, or set `supports_vision` "
+                    "explicitly (e.g. `interpreter.llm.supports_vision = True`) "
+                    "to proceed."
                 )
             self._supports_vision = detected
             self._supports_vision_is_manual = False
@@ -1659,6 +1665,7 @@ def fixed_litellm_completions(**params):
         params["model"] = _wire_model.replace(":latest", "")
 
     while True:
+        started = False
         try:
             completion = litellm.completion(**params)
             if completion is None:
@@ -1681,18 +1688,30 @@ def fixed_litellm_completions(**params):
                 _chunks = []
                 for _chunk in completion:
                     _chunks.append(_chunk)
+                    started = True
                     yield _chunk
                 _dump_litellm_response(
                     debug_request_id, params.get("model"), _chunks
                 )
                 return
-            yield from completion
+            for _chunk in completion:
+                started = True
+                yield _chunk
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
             # Re-raise so terminal_interface.py's outer handler can cancel the
             # current response and return to the prompt, rather than exiting.
             raise
         except Exception as e:
+            if started:
+                # The stream already delivered chunks to the consumer before it
+                # failed (a dropped connection, a mid-stream error event).
+                # Retrying restarts litellm.completion from the beginning, so
+                # those chunks are replayed: the consumer duplicates prose, or
+                # concatenates the partial tool-call arguments with the restart
+                # into a string that never parses and executes only the prefix.
+                # A mid-stream failure cannot be retried safely, so surface it.
+                raise
             # Diagnostic: DeepSeek's "reasoning_content must be passed back" 400 is hard to
             # reproduce without the exact request, so when it fires, dump a compact view of
             # the outgoing messages (reasoning status per message) to a file for debugging.
@@ -1747,6 +1766,7 @@ def fixed_litellm_completions(**params):
                 isinstance(e, litellm.exceptions.AuthenticationError)
                 and "api_key" not in params
                 and not tried_dummy_key
+                and not started
             ):
                 print(
                     "LiteLLM requires an API key. Trying again with a dummy API key. In the future, if this fixes it, please set a dummy API key to prevent this message. (e.g `interpreter --api_key x` or `self.api_key = 'x'`)"

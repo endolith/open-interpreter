@@ -67,6 +67,53 @@ if "ipykernel_launcher" in sys.argv:
 _QUIET_KERNEL_ARGUMENTS = ["--log-level=ERROR"]
 
 
+def _display_data_chunk(data):
+    """Map a display_data/execute_result data dict onto one output chunk.
+
+    Every representation leaves a record: unknown types report themselves
+    instead of vanishing, so dropped output never looks like no output.
+    """
+    if "image/png" in data:
+        return {
+            "type": "image",
+            "format": "base64.png",
+            "content": data["image/png"],
+        }
+    elif "image/jpeg" in data:
+        return {
+            "type": "image",
+            "format": "base64.jpeg",
+            "content": data["image/jpeg"],
+        }
+    elif "text/html" in data:
+        return {
+            "type": "code",
+            "format": "html",
+            "content": data["text/html"],
+        }
+    elif "text/plain" in data:
+        return {
+            "type": "console",
+            "format": "output",
+            "content": data["text/plain"],
+        }
+    elif "application/javascript" in data:
+        return {
+            "type": "code",
+            "format": "javascript",
+            "content": data["application/javascript"],
+        }
+    return {
+        "type": "console",
+        "format": "output",
+        "content": (
+            "(unrendered " + ", ".join(data) + " output)"
+            if data
+            else "(unrendered empty output)"
+        ),
+    }
+
+
 class JupyterLanguage(BaseLanguage):
     file_extension = "py"
     name = "python"

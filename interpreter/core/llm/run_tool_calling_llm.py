@@ -8,6 +8,9 @@ from ..terminal.base_language import (
 )
 from .utils.convert_to_openai_messages import image_path_exceeds_shrink_threshold
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
+from .utils.normalize_double_escaped_arguments import (
+    normalize_double_escaped_arguments,
+)
 from .utils.parse_partial_json import parse_partial_json
 from .utils.reasoning_lines import (
     FillerLineFilter,
@@ -755,10 +758,31 @@ def run_tool_calling_llm(llm, request_params):
         # This ensures all code paths work with plain dicts consistently
         delta = normalize_delta_to_dict(raw_delta)
 
+        # Content in a delta of its own after a tool call is a judge layer's
+        # review of the code (see below). Content packed into the *same* delta
+        # as the tool call carries no such ordering: providers that collapse a
+        # turn into a single message (litellm's ollama_chat and Gemini
+        # builders) put the assistant's own text there. Position cannot tell
+        # the two apart once the message is collapsed, so the review tags do.
+        content_is_review = function_call_detected
+
         # Mark if we see tool_calls (but don't try to parse incomplete streaming data)
         if "tool_calls" in delta and delta["tool_calls"]:
             # Mark that a usable call is present for the review/auth layer.
-            # Conversion itself happens after the stream completes.
+            # Conversion itself happens after the stream completes. Content
+            # packed into the *same* delta as a tool call carries no ordering,
+            # so the verdict tags classify it — independently for every such
+            # delta, not just the first. A later delta mixing the assistant's
+            # narration with a tool-call continuation must not inherit review
+            # status from the earlier call.
+            content = delta.get("content")
+            if content:
+                # A review already opened by an earlier content-only delta must
+                # stay a review even when the body arrives with a later
+                # tool-call fragment and contains no opening tag itself.
+                content_is_review = review_category is not None or any(
+                    tag in content for tag in ["<safe>", "<warning>", "<unsafe>"]
+                )
             for tool_call in delta["tool_calls"]:
                 function = (
                     tool_call.get("function")
@@ -773,7 +797,11 @@ def run_tool_calling_llm(llm, request_params):
                 else:
                     name = getattr(function, "name", None)
                     arguments = getattr(function, "arguments", None)
-                if name is None and arguments is None:
+                if not name and not arguments:
+                    # An entry with neither a name nor arguments (including
+                    # empty strings) carries nothing to merge; keep scanning
+                    # the list for a usable entry rather than selecting this
+                    # one.
                     continue
                 function_call_detected = True
                 break
@@ -805,7 +833,7 @@ def run_tool_calling_llm(llm, request_params):
             if remainder:
                 yield {"role": "assistant", "type": "message", "format": "reasoning", "content": remainder}
 
-            if function_call_detected:
+            if content_is_review:
                 # More content after a code block? This is a code review by a judge layer.
 
                 # print("Code safety review:", delta["content"])
@@ -1057,9 +1085,10 @@ def run_tool_calling_llm(llm, request_params):
                     else:
                         name = getattr(function, "name", None)
                         arguments = getattr(function, "arguments", None)
-                    if name is None and arguments is None:
-                        # An entry with neither a name nor arguments carries
-                        # nothing to merge; keep scanning for a usable entry.
+                    if not name and not arguments:
+                        # An entry with neither a name nor arguments (including
+                        # empty strings) carries nothing to merge; keep scanning
+                        # for a usable entry.
                         continue
                     if name is not None:
                         # Only the first named call is executed; later named
@@ -1139,6 +1168,16 @@ def run_tool_calling_llm(llm, request_params):
             arguments = raw_arguments
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
+            if isinstance(arguments, dict):
+                # Some providers escape the JSON a second time; without this
+                # the `language`/`code` lookups below miss and the call is
+                # dropped for the cost of a turn (#566).
+                unescaped = normalize_double_escaped_arguments(arguments)
+                if unescaped is not arguments and llm.interpreter.verbose:
+                    print(
+                        "Tool-call arguments arrived double-escaped; unescaped one level."
+                    )
+                arguments = unescaped
 
             # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):

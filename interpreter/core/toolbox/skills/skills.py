@@ -105,7 +105,6 @@ class Skills:
         previous_save_skills_setting = self.toolbox.save_skills
 
         self.toolbox.save_skills = False
-
         try:
             # Make sure it's not over 100mb
             total_size = 0
@@ -119,27 +118,15 @@ class Skills:
                     f"Skills at path {self.path} can't exceed 100mb. Try deleting some."
                 )
 
-        code_to_run = ""
-        for file in glob.glob(os.path.join(self.path, "*.py")):
-            with open(file, "r") as f:
-                code_to_run += f.read() + "\n"
-
-        if self.toolbox.interpreter.debug:
-            print("IMPORTING SKILLS:\n", code_to_run)
-
-        output = self.toolbox.interpreter.terminal.run("python", code_to_run)
-
-        if "traceback" in str(output).lower():
-            # Import them individually
+            code_to_run = ""
             for file in glob.glob(os.path.join(self.path, "*.py")):
                 with open(file, "r") as f:
                     code_to_run += f.read() + "\n"
 
-                if self.toolbox.interpreter.debug:
-                    print(self.path)
-                    print("IMPORTING SKILL:\n", code_to_run)
+            if self.toolbox.interpreter.debug:
+                print("IMPORTING SKILLS:\n", code_to_run)
 
-                output = self.toolbox.interpreter.terminal.run("python", code_to_run)
+            output = self.toolbox.interpreter.terminal.run("python", code_to_run)
 
             if "traceback" in str(output).lower():
                 # Import them individually
@@ -147,7 +134,19 @@ class Skills:
                     with open(file, "r") as f:
                         code_to_run = f.read() + "\n"
 
-        self.toolbox.save_skills = previous_save_skills_setting
+                    if self.toolbox.interpreter.debug:
+                        print(self.path)
+                        print("IMPORTING SKILL:\n", code_to_run)
+
+                    output = self.toolbox.interpreter.terminal.run("python", code_to_run)
+
+                    if "traceback" in str(output).lower():
+                        print(
+                            f"Skill at {file} might be broken— it produces a traceback when run."
+                        )
+        finally:
+            self.toolbox.save_skills = previous_save_skills_setting
+
 
 
 class NewSkill:

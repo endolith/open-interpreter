@@ -468,6 +468,17 @@ def test_system_info_labels_the_command_and_package_versions_separately(capsys):
     assert "pkg: PKG_VERSION" in report
 
 
+def test_interpreter_info_truncates_oversized_message_inline(capsys):
+    """interpreter_info truncates a >2000-char message to 1000 chars without a handler (issue #385)."""
+    interpreter = _debug_interpreter(
+        messages=[{"role": "user", "content": "x" * 3000}]
+    )
+    info = system_debug_info.interpreter_info(interpreter)
+    assert "x" * 2000 not in info
+    assert "x" * 900 in info
+    assert capsys.readouterr().out == ""
+
+
 class TestSystemDebugInfo(unittest.TestCase):
     def test_info_includes_tools_json_in_tool_calling_mode(self):
         interpreter.llm.supports_functions = True
