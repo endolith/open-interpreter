@@ -38,6 +38,32 @@ def test_version_import_path_loads_no_third_party_packages():
     assert _loaded_third_party("--version") == ""
 
 
+_CORE_SCRIPT = """
+import sys
+
+import interpreter.core.core  # noqa: F401
+print(",".join(name for name in {modules!r} if name in sys.modules))
+"""
+
+
+def test_core_import_leaves_the_local_setup_wizard_deferred():
+    """Importing the core module must not pull in the local-model wizard.
+
+    `local_setup.py` imports inquirer, wget and psutil at module scope; an
+    interpreter that never calls `interpreter.local_setup()` should not pay for
+    them. The name stays a module attribute so `Interpreter.local_setup` and its
+    patch point keep working.
+    """
+    script = _CORE_SCRIPT.format(
+        modules=("interpreter.terminal_interface.local_setup", "inquirer", "wget")
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
 _VERSION_SCRIPT = """
 import sys
 

@@ -11,7 +11,6 @@ import time
 import uuid
 from datetime import datetime
 
-from ..terminal_interface.local_setup import local_setup
 from ..terminal_interface.terminal_interface import terminal_interface
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from ..terminal_interface.utils.local_storage_path import get_storage_path
@@ -31,6 +30,20 @@ from .utils.execution_allowlist import (
 from .utils.telemetry import send_telemetry
 from .utils.sanitize_terminal_input import strip_terminal_state_sequences
 from .utils.truncate_output import truncate_output
+
+
+def local_setup(*args, **kwargs):
+    """Lazy delegate so importing this module does not pull in the wizard.
+
+    `local_setup.py` imports litellm, inquirer, wget and psutil, none of which
+    an interpreter that never opens the local-model wizard needs. The name
+    stays a module attribute because `Interpreter.local_setup` resolves it
+    through this module's globals and tests patch it here.
+    """
+    from ..terminal_interface.local_setup import local_setup as _local_setup
+
+    return _local_setup(*args, **kwargs)
+
 
 # After this many user messages, run one extra completion to rename the JSON once
 # (isolated `llm.run` message list — same pattern as `toolbox.ai.chat`, leaves `interpreter.messages` unchanged).
