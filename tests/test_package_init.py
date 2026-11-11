@@ -48,10 +48,16 @@ def _fresh_os_import(monkeypatch):
     effect to ``run_async_main``, where it is still registered.
     """
     evicted = _evict_interpreter_package()
-    loop = _stub_entrypoint(monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["oi", "--os"])
     try:
-        yield loop
+        # Undo the stubs before restoring the evicted modules below. The
+        # ``monkeypatch`` fixture outlives this context manager, so its undo
+        # would otherwise delete the restored ``interpreter.computer_use``
+        # entries and leave later imports with a different module object than
+        # the one collected tests hold.
+        with monkeypatch.context() as stub_patches:
+            loop = _stub_entrypoint(stub_patches)
+            stub_patches.setattr(sys, "argv", ["oi", "--os"])
+            yield loop
     finally:
         for name in [
             name
@@ -60,6 +66,28 @@ def _fresh_os_import(monkeypatch):
         ]:
             del sys.modules[name]
         sys.modules.update(evicted)
+
+
+def test_fresh_os_import_keeps_an_evicted_module_after_the_outer_undo():
+    """A module evicted before the re-import is still registered once the outer
+    patch is undone.
+
+    Regression test for the teardown order: the stub patches must be undone
+    before the evicted modules are restored. Otherwise the outer
+    ``monkeypatch`` undo, which outlives this context manager, deletes the
+    restored ``interpreter.computer_use`` entries and the next import builds a
+    second module object for the same name.
+    """
+    dummy = ModuleType("interpreter.computer_use")
+    dummy.__path__ = []
+    sys.modules["interpreter.computer_use"] = dummy
+    try:
+        with pytest.MonkeyPatch.context() as outer:
+            with _fresh_os_import(outer):
+                pass
+        assert sys.modules.get("interpreter.computer_use") is dummy
+    finally:
+        sys.modules.pop("interpreter.computer_use", None)
 
 
 def test_os_flag_checks_for_update_then_runs_main(monkeypatch, capsys):
