@@ -1,15 +1,14 @@
-try:
-    import tiktoken
-except:
-    # Non-essential feature
-    pass
-
 from ...core.utils.lazy_import import lazy_import
 
 # `magic_commands` imports this module at startup, so importing litellm here
 # (a multi-second import) would be paid by every session just to power the
 # `%tokens` and cost lines.
 litellm = lazy_import("litellm")
+
+# tiktoken loads BPE vocabulary data at import; counting is a non-essential
+# feature and every caller already degrades to 0, so keep it lazy. The name
+# stays a module attribute because tests patch `count_tokens.tiktoken`.
+tiktoken = lazy_import("tiktoken")
 
 
 def cost_per_token(model, prompt_tokens):

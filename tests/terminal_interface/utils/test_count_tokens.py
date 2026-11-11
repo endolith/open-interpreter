@@ -92,16 +92,33 @@ def test_module_imports_tolerate_missing_optional_deps(monkeypatch):
     or litellm are unavailable."""
     import builtins
     import importlib
+    import importlib.util
+    import sys
 
     real_import = builtins.__import__
+    real_find_spec = importlib.util.find_spec
 
     def fake_import(name, *args, **kwargs):
         if name in ("tiktoken", "litellm"):
             raise ImportError(f"No module named {name}")
         return real_import(name, *args, **kwargs)
 
+    def fake_find_spec(name, *args, **kwargs):
+        # `lazy_import` resolves availability through `find_spec`, which bypasses
+        # `__import__` and goes straight to the meta-path finders. Blocking only
+        # `__import__` would leave the placeholder resolvable, so simulate the
+        # package being absent here as well.
+        if name.split(".")[0] in ("tiktoken", "litellm"):
+            return None
+        return real_find_spec(name, *args, **kwargs)
+
     try:
         monkeypatch.setattr(builtins, "__import__", fake_import)
+        monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
+        # `lazy_import` also short-circuits on `sys.modules`, and an earlier test
+        # in the same session may already have loaded the real package.
+        monkeypatch.delitem(sys.modules, "tiktoken", raising=False)
+        monkeypatch.delitem(sys.modules, "litellm", raising=False)
         monkeypatch.delattr(ct, "tiktoken")
         monkeypatch.delattr(ct, "cost_per_token")
         reloaded = importlib.reload(ct)
@@ -110,9 +127,10 @@ def test_module_imports_tolerate_missing_optional_deps(monkeypatch):
         assert reloaded.token_cost(tokens=10) == 0
         assert reloaded.count_messages_tokens(messages=["hi"]) == (0, 0)
     finally:
-        # Restore the real import hook first so the reload below actually
-        # rebinds the real tiktoken and cost_per_token imports, then reload.
+        # Restore the real hooks first so the reload below actually rebinds the
+        # real lazy handles, then reload.
         builtins.__import__ = real_import
+        importlib.util.find_spec = real_find_spec
         importlib.reload(ct)
 
 

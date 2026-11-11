@@ -1,6 +1,11 @@
 import re
 
-import tiktoken
+from ...utils.lazy_import import lazy_import
+
+# `llm.py` imports this module at module scope, so a top-level tiktoken import
+# here would be paid by every run before any message is trimmed. The tokenizer
+# only loads on the first `_get_encoding` call, i.e. the first real trim.
+tiktoken = lazy_import("tiktoken")
 
 
 _TS_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]")

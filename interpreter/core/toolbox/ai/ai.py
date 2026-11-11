@@ -1,6 +1,13 @@
-from concurrent.futures import ThreadPoolExecutor
+from ...utils.lazy_import import lazy_import
 
-import tiktoken
+# tiktoken loads BPE vocabulary data at import. Both call sites fall back to
+# character-count chunking when tokenization fails, so the import belongs on
+# the path that actually tokenizes rather than on the toolbox import path.
+tiktoken = lazy_import("tiktoken")
+
+# `concurrent.futures` (and the `logging` it pulls in) is only needed by the two
+# chunked-query helpers below. The toolbox imports this module on every run, so
+# the executor is imported at its point of use instead of at module scope.
 
 
 def split_into_chunks(text, tokens, llm, overlap):
@@ -112,6 +119,8 @@ def fast_llm(llm, system_message, user_message):
 
 def query_map_chunks(chunks, llm, query):
     """Query the chunks of text using query_chunk_map."""
+    from concurrent.futures import ThreadPoolExecutor
+
     with ThreadPoolExecutor() as executor:
         responses = list(
             executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks)
@@ -129,6 +138,8 @@ def query_reduce_chunks(responses, llm, chunk_size, query):
         chunks = chunk_responses(responses, chunk_size, llm)
 
         # Use multithreading to summarize each chunk simultaneously
+        from concurrent.futures import ThreadPoolExecutor
+
         with ThreadPoolExecutor() as executor:
             summaries = list(
                 executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks)

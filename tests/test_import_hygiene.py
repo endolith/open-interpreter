@@ -220,3 +220,33 @@ def test_display_import_leaves_pyautogui_unimported():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+_TOKEN_SCRIPT = """
+import sys
+
+import interpreter.core.core  # noqa: F401
+real = []
+for name in {modules!r}:
+    mod = sys.modules.get(name)
+    if mod is not None and type(mod).__name__ != "_LazyPlaceholder":
+        real.append(name)
+print(",".join(real))
+"""
+
+
+def test_core_import_leaves_the_tokenizer_deferred():
+    """Importing the core module must not load tiktoken's vocabulary data.
+
+    `count_tokens`, `toolbox/ai` and `llm/utils/cache_aware_trim` all used
+    `encoding_for_model`, but each caller falls back to a character estimate
+    when tokenization fails, so `%tokens`/`%cost` output and chunking still
+    work. tiktoken is a hard dependency, so deferring it cannot change
+    behaviour; it only moves the BPE load from startup to the first count.
+    """
+    script = _TOKEN_SCRIPT.format(modules=("tiktoken", "tiktoken._tiktoken"))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
