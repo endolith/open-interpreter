@@ -3,7 +3,6 @@ import json
 import platform
 
 from .ai.ai import Ai
-from .ai2 import Ai2
 from .browser.browser import Browser
 from .calendar.calendar import Calendar
 from .clipboard.clipboard import Clipboard
@@ -70,6 +69,10 @@ class Toolbox:
     def ai2(self):
         """Lazily initialize ai2 so LiteLLM setup only happens on first real use."""
         if self._ai2 is None:
+            # Imported here, not at module scope: ai2 pulls in litellm and the
+            # OpenAI SDK, which are only needed once an ai2 helper is called.
+            from .ai2 import Ai2
+
             self._ai2 = Ai2(self)
         return self._ai2
 

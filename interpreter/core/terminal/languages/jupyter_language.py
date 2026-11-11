@@ -15,10 +15,14 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import litellm
 from jupyter_client import KernelManager
 
 from ..base_language import BaseLanguage
+from ...utils.lazy_import import lazy_import
+
+# Deferred so starting a kernel does not import litellm; it is only needed when
+# the kernel asks OI to run an auxiliary completion.
+litellm = lazy_import("litellm", optional=False)
 
 DEBUG_MODE = False
 

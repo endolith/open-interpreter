@@ -11,9 +11,12 @@ import hashlib
 import os
 import time
 
-import litellm
-
 from ..llm.utils.sanitize_secrets import redact_text, should_sanitize_for_model
+from ..utils.lazy_import import lazy_import
+
+# Deferred: evaluation is display-only and may never run, so it must not pull in
+# litellm (and its provider SDKs) during interpreter construction.
+litellm = lazy_import("litellm", optional=False)
 from .ontology import (
     ALLOW_IMPACT,
     CHOICE_FLAG_MAP,
