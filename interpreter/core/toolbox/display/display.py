@@ -19,14 +19,27 @@ try:
 except:
     cv2 = None  # Fixes colab error
 
+# Imported on first use. pyautogui pulls in mouseinfo, pyscreeze, pymsgbox and
+# Xlib (~70 ms), which a session that never touches the screen does not need.
 pyautogui = lazy_import("pyautogui")
 
-# Check if there's a display available
-try:
-    # Attempt to get the screen size
-    pyautogui.size()
-except:
-    pyautogui = None
+
+def _pyautogui():
+    """Return the real pyautogui module, or None when it cannot be imported.
+
+    pyautogui's own import needs a display (it raises KeyError('DISPLAY') from
+    Xlib without one), which is why the module-scope probe this replaced used
+    to set the name to None. Deferring that probe keeps the import off startup,
+    but the None shape has to survive: the toolbox lists methods with
+    inspect.getmembers(), which evaluates properties and only skips those that
+    raise AttributeError, so Display.width/height must keep failing that way
+    instead of leaking the import error.
+    """
+    try:
+        getattr(pyautogui, "size")
+    except Exception:
+        return None
+    return pyautogui
 
 # numpy, PIL and IPython.display are imported where they are used instead of at
 # module scope: display.py is imported while the Interpreter is constructed, and
@@ -62,7 +75,7 @@ class Display:
             int
         """
         if self._width is None:
-            self._width, _ = pyautogui.size()
+            self._width, _ = _pyautogui().size()
         return self._width
 
     @property
@@ -74,7 +87,7 @@ class Display:
             int
         """
         if self._height is None:
-            _, self._height = pyautogui.size()
+            _, self._height = _pyautogui().size()
         return self._height
 
     def size(self):
@@ -84,7 +97,7 @@ class Display:
         Returns:
             tuple: (width, height)
         """
-        return pyautogui.size()
+        return _pyautogui().size()
 
     def center(self):
         """
@@ -172,7 +185,7 @@ class Display:
             if active_app_only:
                 active_window = pywinctl.getActiveWindow()
                 if active_window:
-                    screenshot = pyautogui.screenshot(
+                    screenshot = _pyautogui().screenshot(
                         region=(
                             active_window.left,
                             active_window.top,
@@ -186,7 +199,7 @@ class Display:
                     )
                     print(message)
                 else:
-                    screenshot = pyautogui.screenshot()
+                    screenshot = _pyautogui().screenshot()
 
             else:
                 screenshot = take_screenshot_to_pil(
@@ -199,7 +212,7 @@ class Display:
                 print(message)
 
         else:
-            screen_width, screen_height = pyautogui.size()
+            screen_width, screen_height = _pyautogui().size()
 
             quadrant_width = screen_width // 2
             quadrant_height = screen_height // 2
@@ -213,7 +226,7 @@ class Display:
 
             if quadrant in quadrant_coordinates:
                 x, y = quadrant_coordinates[quadrant]
-                screenshot = pyautogui.screenshot(
+                screenshot = _pyautogui().screenshot(
                     region=(x, y, quadrant_width, quadrant_height)
                 )
             else:
@@ -335,7 +348,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
     if screen == -1:  # All screens
         # Take a screenshot of each screen and save them in a list
         screenshots = [
-            pyautogui.screenshot(
+            _pyautogui().screenshot(
                 region=(monitor.x, monitor.y, monitor.width, monitor.height)
             )
             for monitor in monitors
@@ -407,7 +420,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
             return screenshots
     elif screen > 0:
         # Take a screenshot of the selected screen
-        return pyautogui.screenshot(
+        return _pyautogui().screenshot(
             region=(
                 monitors[screen].x,
                 monitors[screen].y,
@@ -418,7 +431,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
 
     else:
         # Take a screenshot of the primary screen
-        return pyautogui.screenshot(
+        return _pyautogui().screenshot(
             region=(
                 monitors[screen].x,
                 monitors[screen].y,
