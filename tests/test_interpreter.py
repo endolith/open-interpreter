@@ -137,6 +137,21 @@ def _stop_server_subprocess(process):
         process.join()
 
 
+def _install_child_approval_guard(test_name):
+    """Install the process-wide approval guard in a spawned server child.
+
+    A child process does not inherit the pytest process's monkeypatches, so every
+    spawned server installs the guard itself; otherwise it would run the model's
+    code with no prompt while the parent test believes it is guarded. CI has no
+    terminal, so it keeps skipping the prompt there as the other integration
+    runs do.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        from tests.integration_support import install_process_approval
+
+        install_process_approval(test_name)
+
+
 async def _wait_for_websocket_complete(
     websocket,
     max_messages=500,
@@ -521,6 +536,9 @@ def test_server_url_helpers():
 
 
 def run_auth_server():
+    _install_child_approval_guard(
+        "test_authenticated_acknowledging_breaking_server"
+    )
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
@@ -675,14 +693,7 @@ def test_authenticated_acknowledging_breaking_server():
 
 def run_server():
     """Run the AsyncInterpreter server inside the spawned test process."""
-    # The child does not inherit the pytest process's approval guard, so install
-    # it here; otherwise the server runs the model's code with no prompt while
-    # the parent test believes it is guarded. CI has no terminal, so it keeps
-    # skipping the prompt there as the other integration runs do.
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        from tests.integration_support import install_process_approval
-
-        install_process_approval("test_server")
+    _install_child_approval_guard("test_server")
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "False"
     if "INTERPRETER_API_KEY" in os.environ:
         del os.environ["INTERPRETER_API_KEY"]

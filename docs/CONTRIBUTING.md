@@ -94,9 +94,9 @@ OI_RUN_INTEGRATION=1 pytest -m integration --approve-integration
 # or: OI_RUN_INTEGRATION=1 OI_AUTO_APPROVE_INTEGRATION=1 pytest -m integration
 ```
 
-Both are per-command assignments, so they need the opt-in on the same line as
-the bypass; an `OI_RUN_INTEGRATION=1` exported in an earlier shell command does
-not survive a new one.
+These assignments apply to one command. Alternatively, export
+`OI_RUN_INTEGRATION=1` in the current shell before running pytest. An export does
+not change the environment of an independently started shell.
 
 ### CI test layout
 

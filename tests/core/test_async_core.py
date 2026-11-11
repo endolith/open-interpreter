@@ -1062,6 +1062,28 @@ class TestAsyncRespondProgress(TestCase):
 
         self.assertEqual(self._put_chunks()[-1], complete_message)
 
+    def test_base_exception_is_reported_before_it_propagates(self):
+        """A refusal from the approval guard reaches the client as an error frame.
+
+        ``pytest.fail`` raises ``Failed``, a BaseException: without reporting it
+        here the worker thread dies with no error or complete frame and the
+        waiting client hits its recv timeout instead of seeing the refusal.
+        """
+        def refusing_store():
+            """Raise a pytest failure as the spawned server's guard does."""
+            pytest.fail("LLM-generated code was not approved")
+            yield  # pragma: no cover - makes this a generator
+
+        with mock.patch.object(self.interpreter, "_respond_and_store", refusing_store):
+            with self.assertRaises(BaseException) as caught:
+                self.interpreter.respond()
+
+        self.assertIn("was not approved", str(caught.exception))
+        errors = [c for c in self._put_chunks() if c.get("type") == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("was not approved", errors[0]["content"])
+        self.assertEqual(self._put_chunks()[-1], complete_message)
+
     def test_empty_response_is_retried_five_times_then_raises(self):
         """A model that never answers is nudged five times, then gives up loudly.
 
