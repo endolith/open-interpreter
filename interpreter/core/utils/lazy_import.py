@@ -52,6 +52,23 @@ class _LazyPlaceholder(types.ModuleType):
             return object.__getattribute__(self, attr)
         return getattr(object.__getattribute__(self, "_load_real")(), attr)
 
+    def __setattr__(self, attr, value):
+        # Writing through to the real module keeps `lazy_import("litellm")` from
+        # silently configuring a placeholder: `litellm.suppress_debug_info = True`
+        # has to land on the module that is actually used. It also makes
+        # monkeypatching a lazily imported module behave like patching a normal
+        # one, because reads already delegate to the real module.
+        if attr in _LAZY_SAFE_ATTRS:
+            object.__setattr__(self, attr, value)
+        else:
+            setattr(object.__getattribute__(self, "_load_real")(), attr, value)
+
+    def __delattr__(self, attr):
+        if attr in _LAZY_SAFE_ATTRS:
+            object.__delattr__(self, attr)
+        else:
+            delattr(object.__getattribute__(self, "_load_real")(), attr)
+
 
 def lazy_import(name, optional=True):
     """Lazily import a module, specified by the name. Useful for optional packages, to speed up startup times.

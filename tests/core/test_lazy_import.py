@@ -65,6 +65,33 @@ class TestLazyImport(unittest.TestCase):
         self.assertIs(type(real), types.ModuleType)
         self.assertEqual(real.VALUE, 42)
 
+    def test_setattr_writes_through_to_the_real_module(self):
+        """Verify assignments configure the real module, not the placeholder.
+
+        OI sets `litellm.suppress_debug_info` and similar module attributes at
+        call time. If those writes landed on the placeholder, the real module
+        would never see them, and dict-first reads would later mask the real
+        module's value.
+        """
+        self._write_module("oi_settable_mod", "FLAG = False\n")
+        mod = lazy_import("oi_settable_mod")
+        mod.FLAG = True
+        self.assertTrue(mod.FLAG)
+        real = sys.modules["oi_settable_mod"]
+        self.assertIsNot(real, mod)
+        self.assertTrue(real.FLAG)
+
+    def test_delattr_removes_the_attribute_from_the_real_module(self):
+        """Verify monkeypatch.delattr on a lazy module reaches the real module."""
+        self._write_module("oi_deletable_mod", "VALUE = 1\n")
+        mod = lazy_import("oi_deletable_mod")
+        self.assertEqual(mod.VALUE, 1)
+        del mod.VALUE
+        self.assertFalse(hasattr(mod, "VALUE"))
+        real = sys.modules["oi_deletable_mod"]
+        self.assertIsNot(real, mod)
+        self.assertFalse(hasattr(real, "VALUE"))
+
 
 if __name__ == "__main__":
     unittest.main()
