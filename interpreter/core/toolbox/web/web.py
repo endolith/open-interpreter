@@ -21,11 +21,15 @@ from __future__ import annotations
 import re
 import os
 import json
-import requests
 from typing import Optional, Dict, Any
 
+from ...utils.lazy_import import lazy_import_deferred
 from babel import Locale
 from babel.core import UnknownLocaleError
+
+# requests is only needed when one of the network backends is actually used.
+# Keeping it deferred means constructing the toolbox never imports urllib3.
+requests = lazy_import_deferred("requests")
 
 
 def _default_locale_from_environment() -> Locale:

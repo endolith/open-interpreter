@@ -2,7 +2,11 @@
 
 import os
 
-import requests
+from ..utils.lazy_import import lazy_import_deferred
+
+# Only the OpenRouter catalog fetch needs requests; importing this module must
+# not pull in requests/urllib3 for a run that never asks for an unknown model.
+requests = lazy_import_deferred("requests")
 
 # Parsed OpenRouter /api/v1/models list, fetched at most once per process.
 # None means "not fetched yet"; a failed fetch leaves it None so a transient

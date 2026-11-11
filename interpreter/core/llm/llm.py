@@ -3,7 +3,7 @@ import os
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import sys
 
-from ..utils.lazy_import import lazy_import
+from ..utils.lazy_import import lazy_import, lazy_import_deferred
 
 # Note: litellm in DEV mode will load .env files from the current directory
 # and all parent directories. This can lead to unexpected API keys being loaded
@@ -14,6 +14,11 @@ from ..utils.lazy_import import lazy_import
 # performs the import. The process-wide settings below cannot live at module
 # scope, though, because assigning them is itself a use.
 litellm = lazy_import("litellm", optional=False)
+
+# requests is only used by the local-provider helpers (Ollama model listing and
+# pulls). Keeping it deferred means a run that talks to a hosted provider never
+# imports requests/urllib3.
+requests = lazy_import_deferred("requests")
 
 
 def _configure_litellm():
@@ -27,7 +32,6 @@ import logging
 import re
 import uuid
 
-import requests
 import tokentrim as tt
 from rich import print as rich_print
 from rich.markdown import Markdown

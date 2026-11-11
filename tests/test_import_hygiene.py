@@ -118,3 +118,55 @@ def test_jupyter_language_import_leaves_kernel_manager_deferred():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "False"
+
+
+def test_core_import_leaves_telemetry_and_debug_info_deferred():
+    """Importing the core module must not pull in telemetry or debug-info helpers.
+
+    Both modules import `importlib.metadata` at module scope and telemetry also
+    imports `requests`; system_debug_info adds psutil. They are only needed when
+    a chat request is actually sent or debug output is requested, so importing
+    the core module must not pay for them. The names stay patchable module
+    attributes (`send_telemetry` in core, `system_info` in the debug-info
+    module) so their call sites keep working.
+    """
+    script = _CORE_SCRIPT.format(
+        modules=(
+            "interpreter.core.utils.telemetry",
+            "interpreter.core.utils.system_debug_info",
+            "psutil",
+        )
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
+def test_core_import_leaves_network_and_browser_stack_deferred():
+    """Importing the core module must not pull in the HTTP and browser stacks.
+
+    `requests` costs ~84 ms in-tree and drags in urllib3, which in turn imports
+    `importlib.metadata`. Selenium, webdriver-manager and html2text are only
+    needed when browser automation or error rendering actually runs. Constructing
+    an interpreter pays for none of them, so importing the core module must
+    leave them out of sys.modules. Their module attributes stay available (as
+    deferred proxies) so existing patch points such as `providers.requests` and
+    `web.requests` keep working.
+    """
+    script = _CORE_SCRIPT.format(
+        modules=(
+            "requests",
+            "urllib3",
+            "importlib.metadata",
+            "selenium",
+            "webdriver_manager",
+            "html2text",
+        )
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""

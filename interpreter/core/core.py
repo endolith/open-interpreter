@@ -27,7 +27,6 @@ from .utils.execution_allowlist import (
     normalize_auto_run_mode,
     should_require_execution_confirmation,
 )
-from .utils.telemetry import send_telemetry
 from .utils.sanitize_terminal_input import strip_terminal_state_sequences
 from .utils.truncate_output import truncate_output
 
@@ -43,6 +42,19 @@ def local_setup(*args, **kwargs):
     from ..terminal_interface.local_setup import local_setup as _local_setup
 
     return _local_setup(*args, **kwargs)
+
+
+def send_telemetry(*args, **kwargs):
+    """Lazy delegate so importing this module does not pull in telemetry.
+
+    `telemetry.py` imports `importlib.metadata` and `requests` at module scope;
+    together they cost ~97 ms and are only needed once a chat request is
+    actually made. The name stays a module attribute because `Interpreter.chat`
+    resolves it through this module's globals and tests patch it here.
+    """
+    from .utils.telemetry import send_telemetry as _send_telemetry
+
+    return _send_telemetry(*args, **kwargs)
 
 
 # After this many user messages, run one extra completion to rename the JSON once

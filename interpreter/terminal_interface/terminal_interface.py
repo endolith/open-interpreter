@@ -34,7 +34,6 @@ from ..core.utils.execution_allowlist import (
 from ..core.code_evaluation.render import print_evaluation
 from ..core.utils.prompt_choice import prompt_choice
 from ..core.utils.sanitize_terminal_input import sanitize_terminal_input
-from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
 from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
@@ -1032,5 +1031,7 @@ def terminal_interface(interpreter, message):
         except Exception as e:
             # For errors, show debug info if enabled and re-raise
             if interpreter.debug:
+                from ..core.utils.system_debug_info import system_info
+
                 system_info(interpreter)
             raise
