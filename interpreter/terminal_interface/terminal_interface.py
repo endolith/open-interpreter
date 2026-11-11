@@ -3,10 +3,7 @@ The terminal interface is just a view. Just handles the very top layer.
 If you were to build a frontend this would be a way to do it.
 """
 
-try:
-    import readline
-except ImportError:
-    pass
+from functools import lru_cache
 
 import os
 import platform
@@ -39,6 +36,21 @@ from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 from .utils.target_file_lexer import syntax_lang_for_dry_run
 
+
+@lru_cache(maxsize=None)
+def _readline():
+    """`readline`, or None on platforms without one (e.g. Windows).
+
+    Imported on first use: readline costs ~5 ms of startup and is only needed
+    to seed or recall history once the interface has actually started.
+    """
+    try:
+        import readline
+    except ImportError:
+        return None
+    return readline
+
+
 # Add examples to the readline history
 examples = [
     "How many files are on my desktop?",
@@ -47,13 +59,22 @@ examples = [
     "Open Chrome and go to YouTube.",
     "Can you set my system to light mode?",
 ]
-random.shuffle(examples)
-try:
+
+
+@lru_cache(maxsize=None)
+def _seed_readline_history():
+    """Put the example prompts in readline's history for up-arrow recall.
+
+    Cached so the examples are seeded once per process, as they were when this
+    ran at import time; `terminal_interface()` runs once per chat turn.
+    """
+    readline = _readline()
+    if readline is None:
+        # If they don't have readline, that's fine
+        return
+    random.shuffle(examples)
     for example in examples:
         readline.add_history(example)
-except:
-    # If they don't have readline, that's fine
-    pass
 
 
 def _looks_like_unified_diff(output):
@@ -97,6 +118,9 @@ def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True
 
 
 def terminal_interface(interpreter, message):
+    # Seed history before the first prompt so the examples are recallable.
+    _seed_readline_history()
+
     # Imported here, not at module scope: these pull in rich.console (~40 ms of
     # startup) and are only used when an image or view-image prompt is shown,
     # which cannot happen before the interface starts.
@@ -192,7 +216,7 @@ def terminal_interface(interpreter, message):
                 # Skip blank strings (e.g. a prompt that held only leaked
                 # report bytes) so they never pollute readline history.
                 if not (isinstance(message, str) and not message.strip()):
-                    readline.add_history(message)
+                    _readline().add_history(message)
             except:
                 # If the user doesn't have readline (may be the case on windows), that's fine
                 pass

@@ -381,3 +381,19 @@ def test_core_import_leaves_babel_deferred():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_core_import_leaves_readline_deferred():
+    """Importing the CLI entry module must not import readline.
+
+    `terminal_interface.py` imported readline at module scope purely to seed
+    example prompts into history. That costs ~5 ms of startup, and the history
+    is only useful once the interface actually prompts — which is after the
+    first `terminal_interface()` call. Defer it and seed there instead.
+    """
+    script = _SCRIPT.format(flag="--help", modules=("readline",))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
