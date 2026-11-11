@@ -364,3 +364,20 @@ def test_core_import_leaves_pprint_and_glob_deferred():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_core_import_leaves_babel_deferred():
+    """Importing the core module must not load Babel or its pickle/decimal payload.
+
+    `toolbox/web/web.py` resolves the system locale with Babel, which drags in
+    `pickle` and `decimal` — about 11 ms of startup — but only a search that
+    builds locale tags needs it. Resolving it lazily keeps the eagerly-constructed
+    `Web` object from paying that cost during `import interpreter`, and nothing
+    else in the package imports Babel.
+    """
+    script = _CORE_SCRIPT.format(modules=("babel", "babel.core", "pickle", "decimal"))
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""

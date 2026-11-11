@@ -21,11 +21,12 @@ from __future__ import annotations
 import re
 import os
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
 from ...utils.lazy_import import lazy_import_deferred
-from babel import Locale
-from babel.core import UnknownLocaleError
+
+if TYPE_CHECKING:
+    from babel import Locale
 
 # requests is only needed when one of the network backends is actually used.
 # Keeping it deferred means constructing the toolbox never imports urllib3.
@@ -34,6 +35,9 @@ requests = lazy_import_deferred("requests")
 
 def _default_locale_from_environment() -> Locale:
     """System locale via Babel (LANG/LC_*); search APIs need ISO language + territory codes."""
+    from babel import Locale
+    from babel.core import UnknownLocaleError
+
     try:
         return Locale.default("LC_CTYPE")
     except (UnknownLocaleError, TypeError, ValueError, OSError):
@@ -165,6 +169,9 @@ def _reject_empty_query(query, method="search"):
 
 def _normalize_locale_language_for_hl(lang: str) -> str:
     """ISO 639-1 for hl= / search_lang."""
+    from babel import Locale
+    from babel.core import UnknownLocaleError
+
     if not lang:
         return "en"
     s = lang.strip()
@@ -179,6 +186,9 @@ def _normalize_locale_language_for_hl(lang: str) -> str:
 
 def _normalize_locale_country_for_gl(country: str) -> str:
     """ISO 3166-1 alpha-2 (uppercase) for gl= / country."""
+    from babel import Locale
+    from babel.core import UnknownLocaleError
+
     if not country:
         return "US"
     s = " ".join(country.replace("\u00a0", " ").split()).strip()
@@ -856,12 +866,27 @@ def _normalize_structured_schema(schema):
 class Web:
     def __init__(self, toolbox):
         self.toolbox = toolbox
-        _loc = _default_locale_from_environment()
-        self._default_lang = (_loc.language or "en").lower()
-        self._default_country = (_loc.territory or "US").upper()
+        # Babel pulls in `pickle` and `decimal`, which cost ~11 ms at startup and
+        # are only needed once a search actually builds locale tags. Resolve the
+        # system locale on first use instead of while the toolbox is constructed.
+        self._locale = None
         # Session-scoped cache: keyed by URL. Web page content doesn't change
         # mid-session, so re-fetching the same URL is always wasteful.
         self._fetch_cache: Dict[str, "FetchResult"] = {}
+
+    def _default_locale(self):
+        """Cached system locale; importing Babel here keeps `import interpreter` fast."""
+        if self._locale is None:
+            self._locale = _default_locale_from_environment()
+        return self._locale
+
+    @property
+    def _default_lang(self):
+        return (self._default_locale().language or "en").lower()
+
+    @property
+    def _default_country(self):
+        return (self._default_locale().territory or "US").upper()
 
     def _web_timeout(self, kind="web"):
         """Per-backend wait in seconds, from profile settings (never model-facing).

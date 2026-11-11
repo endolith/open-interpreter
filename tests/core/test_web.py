@@ -3,7 +3,15 @@ import unittest
 import json
 from unittest.mock import MagicMock, patch
 
-from interpreter.core.toolbox.web.web import Web, ResultItem, StructuredOutputResult, WebToolboxError
+from interpreter.core.toolbox.web.web import (
+    Web,
+    ResultItem,
+    StructuredOutputResult,
+    WebToolboxError,
+    _default_locale_from_environment,
+    _normalize_locale_country_for_gl,
+    _normalize_locale_language_for_hl,
+)
 
 
 class TestWebToolbox(unittest.TestCase):
@@ -930,6 +938,66 @@ class TestWebToolbox(unittest.TestCase):
         redirect = _no_page_method_error("SearchResult", "find", "result.fetch(i)")
         self.assertIsInstance(redirect, AttributeError)
         self.assertEqual(len(redirect._render_traceback_()), 1)
+
+
+class TestWebLocale(unittest.TestCase):
+    def setUp(self):
+        self.web = Web(MagicMock())
+
+    def test_default_locale_is_resolved_lazily_and_cached(self):
+        """The system locale must be resolved on first use, not in `Web.__init__`.
+
+        `Web` is constructed eagerly by the toolbox during `import interpreter`,
+        and resolving the locale imports Babel plus `pickle` and `decimal` (~11 ms
+        of startup) for a value only a search with locale tags reads. The lookup
+        is deferred and cached for the session, so repeated reads stay cheap.
+        """
+        self.assertIsNone(self.web._locale)
+
+        lang = self.web._default_lang
+        country = self.web._default_country
+        locale = _default_locale_from_environment()
+        self.assertEqual(lang, (locale.language or "en").lower())
+        self.assertEqual(country, (locale.territory or "US").upper())
+
+        resolved = self.web._default_locale()
+        self.assertIs(self.web._default_locale(), resolved)
+        self.assertEqual(
+            self.web._get_locale_defaults(),
+            (country.lower(), lang),
+        )
+
+    def test_locale_normalization(self):
+        """Caller-supplied hl/gl values must still normalize to ISO codes.
+
+        `_normalize_locale_language_for_hl` and `_normalize_locale_country_for_gl`
+        parse full locale tags with Babel and fall back to en/US on anything
+        unknown. Moving the two imports into the functions changed where `Locale`
+        comes from, so this pins the observable results.
+        """
+        for value, expected in [
+            ("", "en"),
+            ("en", "en"),
+            ("EN", "en"),
+            ("en_US", "en"),
+            ("pt-BR", "pt"),
+            ("zz_ZZ", "en"),
+            ("not a locale", "en"),
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(_normalize_locale_language_for_hl(value), expected)
+
+        for value, expected in [
+            ("", "US"),
+            ("us", "US"),
+            ("US", "US"),
+            ("en_US", "US"),
+            ("pt-BR", "BR"),
+            ("zz_ZZ", "US"),
+            ("not a locale", "US"),
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(_normalize_locale_country_for_gl(value), expected)
 
 
 if __name__ == "__main__":
