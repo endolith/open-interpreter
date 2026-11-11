@@ -63,7 +63,7 @@ Prefer conda? Create an env with `conda create -n open-interpreter python=3.12` 
 
 ### Integration tests locally
 
-**Integration tests** (`pytest -m integration`) call an LLM and auto-run generated code. They are skipped unless **both** conditions are met:
+**Integration tests** (`pytest -m integration`) call an LLM and execute whatever code it returns. Locally you are **prompted before each generated code block** (`y` / `n` / `a`pprove all); CI sets `GITHUB_ACTIONS=true` and runs without prompts. The prompt reads the controlling terminal directly (`/dev/tty`, or `CON` on Windows), so it works under pytest's default output capture without `-s`; a session with no terminal (CI, piped output) cannot prompt and fails with a message pointing at `OI_AUTO_APPROVE_INTEGRATION=1`. They are skipped unless **both** conditions are met:
 
 1. `OI_RUN_INTEGRATION=1` — explicit opt-in (skipped by default even when a provider key is set)
 2. The provider key for the model under test is set. With `OI_INTEGRATION_MODEL` unset the tests use their historical OpenAI default, so that is `OPENAI_API_KEY`. Set `OI_INTEGRATION_MODEL` to use another provider: `openrouter/...` needs `OPENROUTER_API_KEY`, `anthropic/...` needs `ANTHROPIC_API_KEY`. Skipped when the matching key is unset, even with `OI_RUN_INTEGRATION=1`.
@@ -85,6 +85,13 @@ set OI_INTEGRATION_MODEL=openrouter/~deepseek/deepseek-flash-latest
 set OPENROUTER_API_KEY=...
 set OI_RUN_INTEGRATION=1
 pytest -m integration
+```
+
+To skip the approval prompts after you accept the risk:
+
+```bash
+pytest -m integration --approve-integration
+# or: OI_AUTO_APPROVE_INTEGRATION=1 pytest -m integration
 ```
 
 ### CI test layout
