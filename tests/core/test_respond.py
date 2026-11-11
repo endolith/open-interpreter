@@ -434,10 +434,15 @@ def test_display_provider_error_formats_a_json_body_as_bullets():
 
 
 def test_display_provider_error_formats_nested_json_and_lists():
-    """Nested objects and list items keep their structure as nested bullets."""
+    """Nested objects and list items keep their structure as nested bullets.
+
+    A list can mix objects and plain values; plain values become plain bullets
+    at the list's own indent instead of being dropped or stringified with
+    their surrounding JSON.
+    """
     error = (
         '{"error": {"message": "bad", '
-        '"details": [{"field": "model"}, {"field": "key"}]}}'
+        '"details": [{"field": "model"}, {"field": "key"}, "missing_api_key"]}}'
     )
     rendered = str(_error_body(error))
 
@@ -446,6 +451,7 @@ def test_display_provider_error_formats_nested_json_and_lists():
     assert "  - **details**:" in rendered
     assert "      - **field**: model" in rendered
     assert "      - **field**: key" in rendered
+    assert "    - missing_api_key" in rendered
 
 
 def test_display_provider_error_leaves_a_python_repr_body_alone():
