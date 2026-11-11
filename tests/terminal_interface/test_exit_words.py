@@ -77,3 +77,61 @@ def test_the_guard_runs_before_the_message_reaches_the_model():
     source = inspect.getsource(module.terminal_interface)
     assert source.index("is_exit_command(") < source.index('message.startswith("%")')
     assert source.index("is_exit_command(") < source.index("interpreter.chat(")
+
+
+def _fake_interpreter():
+    """Build the minimal interpreter stand-in the interactive loop touches."""
+    from unittest import mock
+
+    fake = mock.Mock()
+    fake.messages = []
+    fake.auto_run = True  # skip the intro message so only loop messages are recorded
+    fake.multi_line = False
+    fake.display_message = mock.Mock()
+    fake.verbose = False
+    fake.os = False
+    # The loop iterates chat's chunks; an empty stream lets it return to input.
+    fake.chat.side_effect = lambda *args, **kwargs: iter(())
+    return fake
+
+
+def test_terminal_interface_exits_when_a_typed_line_is_an_exit_word(monkeypatch):
+    """The interactive loop turns a typed %exit into KeyboardInterrupt.
+
+    The predicate tests above cover the decision; this covers the wiring that
+    actually ends the session and the "Exiting..." message the user sees, which
+    is the half of the feature a unit test of the predicate cannot reach.
+    """
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    fake = _fake_interpreter()
+    monkeypatch.setattr("builtins.input", lambda prompt="": "%exit")
+
+    # terminal_interface is a generator (it yields chat chunks), so driving it
+    # one step runs the loop up to the first yield. The exit branch raises
+    # before that yield, which is the behavior under test.
+    generator = ti.terminal_interface(fake, None)
+    with pytest.raises(KeyboardInterrupt):
+        next(generator)
+
+    fake.display_message.assert_called_once_with("\n\n`Exiting...`")
+
+
+def test_terminal_interface_sends_a_non_exit_word_to_chat(monkeypatch):
+    """A non-exit word falls through the exit check to the model.
+
+    The loop's exit predicate has two branches: an exit word ends the session,
+    and any other word continues it. This drives the continuing branch, which
+    an exit-only test leaves untested, then confirms the next word still exits.
+    """
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    fake = _fake_interpreter()
+    answers = iter(["hello", "%exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    with pytest.raises(KeyboardInterrupt):
+        next(ti.terminal_interface(fake, None))
+
+    assert fake.chat.call_args.args[0] == "hello"
+    fake.display_message.assert_called_once_with("\n\n`Exiting...`")
