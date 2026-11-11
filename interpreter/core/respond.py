@@ -7,7 +7,6 @@ import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 from rich import print as rich_print
-from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
@@ -66,6 +65,10 @@ def _html_error_to_renderable(error_str):
 
     if not md:
         return None
+
+    # Deferred so a normal run never pays for markdown-it-py/pygments; only a
+    # provider error with an HTML body needs the Rich Markdown renderable.
+    from rich.markdown import Markdown
 
     # Leading newline so the first line of content is not clipped by the panel title bar
     return Markdown("\n" + md)
@@ -376,6 +379,8 @@ def respond(interpreter):
                 interpreter._stopped_retrying = True
                 clear_temporary_retry_status()
                 error_str = str(e)
+                from rich.markdown import Markdown
+
                 yield {"type": "stop_live_display"}
                 print("")  # Newline so panel top border is not cut off
                 rich_print(
