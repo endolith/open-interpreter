@@ -248,7 +248,12 @@ def test_terminal_interface_prints_review_chunk(capsys):
 
 
 def test_terminal_interface_declined_code_is_recorded():
-    """Declining a confirmation records the refusal as the call result."""
+    """Declining a confirmation records the refusal as the call result.
+
+    The refusal must carry only LMC fields: extra keys such as ``sent_at`` or
+    ``source`` are not part of the schema and would be saved into conversation
+    JSONs, while ``role="computer"`` is what keeps ``%undo`` from popping it.
+    """
     interpreter = _make_interpreter()
     interpreter.auto_run = False
 
@@ -276,12 +281,13 @@ def test_terminal_interface_declined_code_is_recorded():
     assert call["type"] == "code"
 
     refusal = interpreter.messages[-1]
-    assert refusal["role"] == "computer"
-    assert refusal["type"] == "console"
-    assert refusal["format"] == "output"
-    assert refusal["content"] == "User declined to run this code."
-    assert refusal["recipient"] == "assistant"
-    assert refusal["source"] == "terminal"
+    assert refusal == {
+        "role": "computer",
+        "type": "console",
+        "format": "output",
+        "content": "User declined to run this code.",
+        "recipient": "assistant",
+    }
 
 
 def test_terminal_interface_os_mode_notifies_on_message_end():
