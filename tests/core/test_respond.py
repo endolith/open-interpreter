@@ -270,6 +270,31 @@ def test_respond_reports_a_mistyped_model_as_a_mistyped_model():
     assert "Check the model name" in _hint_text(interpreter)
 
 
+def test_respond_reraises_an_error_that_rejects_the_displayed_marker():
+    """An exception type that rejects new attributes still reaches the caller.
+
+    respond() marks the error it has already shown so the interactive loop does
+    not print it a second time. That marker is best-effort: when the exception's
+    type forbids new attributes, the provider's error must still propagate
+    rather than being replaced by the marker's AttributeError.
+    """
+
+    class ReadOnlyError(Exception):
+        def __setattr__(self, name, value):
+            raise AttributeError(f"{name} is read-only")
+
+    interpreter = _message_interpreter()
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise ReadOnlyError("provider refused")
+
+    interpreter.llm.run = run
+    with mock.patch("interpreter.core.respond.rich_print"):
+        with pytest.raises(ReadOnlyError, match="provider refused"):
+            list(respond(interpreter))
+
+
 def test_respond_error_does_not_prompt_or_change_the_model():
     """An access error shows the provider's message and re-raises, with no prompt.
 
