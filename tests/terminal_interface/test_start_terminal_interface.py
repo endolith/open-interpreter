@@ -1,5 +1,8 @@
+import importlib
 import sys
 from unittest import mock
+
+import pytest
 
 from interpreter.terminal_interface.start_terminal_interface import (
     get_argument_dictionary,
@@ -515,3 +518,36 @@ def test_start_terminal_interface_disable_telemetry_flag_overrides_profile(monke
     assert interpreter.disable_telemetry is True
 
 
+
+
+@pytest.mark.parametrize(
+    ("name", "module_path"),
+    [
+        ("open_storage_dir", "interpreter.terminal_interface.profiles.profiles"),
+        ("profile", "interpreter.terminal_interface.profiles.profiles"),
+        ("reset_profile", "interpreter.terminal_interface.profiles.profiles"),
+        ("check_for_update", "interpreter.terminal_interface.utils.check_for_update"),
+        (
+            "conversation_navigator",
+            "interpreter.terminal_interface.conversation_navigator",
+        ),
+    ],
+)
+def test_startup_delegates_forward_to_the_real_function(name, module_path, monkeypatch):
+    """Each startup delegate calls through to the function it replaces.
+
+    The delegates exist only to defer an import, so a wrong target module would
+    break --profiles / --reset_profile / --conversations in real runs while the
+    mocked dispatch tests above, which patch the delegate itself, still pass.
+    """
+    sti = importlib.import_module(
+        "interpreter.terminal_interface.start_terminal_interface"
+    )
+    real_module = importlib.import_module(module_path)
+    delegate = getattr(sti, name)
+    sentinel = mock.Mock(return_value=object())
+    monkeypatch.setattr(real_module, name, sentinel)
+
+    target = object()
+    assert delegate(target, "arg") is sentinel.return_value
+    sentinel.assert_called_once_with(target, "arg")

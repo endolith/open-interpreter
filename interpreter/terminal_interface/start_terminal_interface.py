@@ -12,13 +12,47 @@ import traceback
 
 from importlib.metadata import version, PackageNotFoundError
 
-from .conversation_navigator import conversation_navigator
-from .profiles.profiles import open_storage_dir, profile, reset_profile
-from .utils.check_for_update import check_for_update
+# These modules pull in third-party packages (inquirer, requests, yaml,
+# platformdirs, send2trash, ...) that most invocations never use. They are
+# imported inside the delegates below so that merely importing this module — and
+# therefore `--help` / `--version`, which exit inside argparse — stays on the
+# standard library. The names stay module attributes because tests patch them.
 
-# validate_llm_settings and conversation_navigator
-# import litellm (directly or transitively) and are deferred to after
-# argparse parses args, so --help / --version exit before they load.
+
+def open_storage_dir(*args, **kwargs):
+    """Lazily import and call profiles.open_storage_dir."""
+    from .profiles.profiles import open_storage_dir as _open_storage_dir
+
+    return _open_storage_dir(*args, **kwargs)
+
+
+def profile(*args, **kwargs):
+    """Lazily import and call profiles.profile."""
+    from .profiles.profiles import profile as _profile
+
+    return _profile(*args, **kwargs)
+
+
+def reset_profile(*args, **kwargs):
+    """Lazily import and call profiles.reset_profile."""
+    from .profiles.profiles import reset_profile as _reset_profile
+
+    return _reset_profile(*args, **kwargs)
+
+
+def check_for_update(*args, **kwargs):
+    """Lazily import and call check_for_update."""
+    from .utils.check_for_update import check_for_update as _check_for_update
+
+    return _check_for_update(*args, **kwargs)
+
+
+def conversation_navigator(*args, **kwargs):
+    """Lazily import and call conversation_navigator."""
+    from .conversation_navigator import conversation_navigator as _conversation_navigator
+
+    return _conversation_navigator(*args, **kwargs)
+
 
 # =============================================================================
 # DEVELOP BRANCH ONLY — DO NOT MERGE TO main / classic/main
@@ -688,6 +722,10 @@ def main():
             pass
         _stub = _Stub()
         _stub.llm = _Stub()
+        # The argument definitions bind --code_evaluation_* to these objects
+        # before argparse runs, so the stub needs them even though no flag
+        # handling is reached.
+        _stub.decision_model = _Stub()
         start_terminal_interface(_stub)
         return  # unreachable; already exited
 
