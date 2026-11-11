@@ -79,30 +79,29 @@ def _json_error_body(error_str):
         data = json.loads(error_str[start : end + 1])
     except (TypeError, ValueError):
         return None
-    if not isinstance(data, (dict, list)):
-        return None
 
-    def bullets(value, depth):
+    # The slice starts at the first "{" and ends at the last "}", so anything
+    # that parses here is an object: only its values can be arrays or scalars.
+    def bullets(mapping, depth):
         pad = "  " * depth
-        if isinstance(value, dict):
+        if isinstance(mapping, dict):
             lines = []
-            for key, item in value.items():
+            for key, item in mapping.items():
                 if isinstance(item, (dict, list)):
                     lines.append(f"{pad}- **{key}**:")
                     lines.extend(bullets(item, depth + 1))
                 else:
                     lines.append(f"{pad}- **{key}**: {item}")
             return lines
-        if isinstance(value, list):
-            lines = []
-            for item in value:
-                if isinstance(item, (dict, list)):
-                    lines.append(f"{pad}-")
-                    lines.extend(bullets(item, depth + 1))
-                else:
-                    lines.append(f"{pad}- {item}")
-            return lines
-        return [f"{pad}- {value}"]
+
+        lines = []
+        for item in mapping:
+            if isinstance(item, (dict, list)):
+                lines.append(f"{pad}-")
+                lines.extend(bullets(item, depth + 1))
+            else:
+                lines.append(f"{pad}- {item}")
+        return lines
 
     # The text before the JSON names the exception class and provider, which is
     # the context this panel exists to show. Keep it, as the HTML path does.
