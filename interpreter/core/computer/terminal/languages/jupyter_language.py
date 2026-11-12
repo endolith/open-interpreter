@@ -1,164 +1,3 @@
-"""
-This is NOT jupyter language, this is just python. 
-Gotta split this out, generalize it, and move all the python additions to python.py, which imports this
-"""
-
-import ast
-import logging
-import os
-import queue
-import re
-import sys
-import threading
-import time
-import traceback
-
-os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import litellm
-from jupyter_client import KernelManager
-
-from ..base_language import BaseLanguage
-
-DEBUG_MODE = False
-
-# When running from an executable, ipykernel calls itself infinitely
-# This is a workaround to detect it and launch it manually
-if "ipykernel_launcher" in sys.argv:
-    if sys.path[0] == "":
-        del sys.path[0]
-
-    from ipykernel import kernelapp as app
-
-    app.launch_new_instance()
-    sys.exit(0)
-
-
-def _display_data_chunk(data):
-    """Map a display_data/execute_result data dict onto one output chunk.
-
-    Every representation leaves a record: unknown types report themselves
-    instead of vanishing, so dropped output never looks like no output.
-    """
-    if "image/png" in data:
-        return {
-            "type": "image",
-            "format": "base64.png",
-            "content": data["image/png"],
-        }
-    elif "image/jpeg" in data:
-        return {
-            "type": "image",
-            "format": "base64.jpeg",
-            "content": data["image/jpeg"],
-        }
-    elif "text/html" in data:
-        return {
-            "type": "code",
-            "format": "html",
-            "content": data["text/html"],
-        }
-    elif "text/plain" in data:
-        return {
-            "type": "console",
-            "format": "output",
-            "content": data["text/plain"],
-        }
-    elif "application/javascript" in data:
-        return {
-            "type": "code",
-            "format": "javascript",
-            "content": data["application/javascript"],
-        }
-    return {
-        "type": "console",
-        "format": "output",
-        "content": (
-            "(unrendered " + ", ".join(data) + " output)"
-            if data
-            else "(unrendered empty output)"
-        ),
-    }
-
-
-class JupyterLanguage(BaseLanguage):
-    file_extension = "py"
-    name = "Python"
-    aliases = ["py"]
-
-    # msg_id of the execute_request currently being listened for, and a counter
-    # that fences a lingering listener off once a newer request starts: a
-    # listener only consumes the channel while its generation is current, so one
-    # left over from an abandoned run exits instead of stealing a newer run's
-    # messages. Class-level so a freshly built language is in a known state.
-    _execution_id = None
-    _listener_generation = 0
-
-    def __init__(self, computer):
-        self.computer = computer
-
-        self.km = KernelManager(kernel_name="python3")
-        self.km.start_kernel()
-        self.kc = self.km.client()
-        self.kc.start_channels()
-        while not self.kc.is_alive():
-            time.sleep(0.1)
-        time.sleep(0.5)
-
-        self.listener_thread = None
-        self.finish_flag = False
-        # True only while __init__ runs the matplotlib/display warm-up.
-        # The listener must not start an input-patience model call then.
-        self._startup_warmup = False
-        # Whether the current request has been submitted and whether its
-        # listener has started, for the narrow Ctrl-C window in between.
-        self._request_submitted = False
-        self._listener_started = False
-
-        # DISABLED because sometimes this bypasses sending it up to us for some reason!
-        # Give it our same matplotlib backend
-        # backend = matplotlib.get_backend()
-
-        # Use Agg, which bubbles everything up as an image.
-        # Not perfect (I want interactive!) but it works.
-        backend = "Agg"
-
-        code = f"""
-import matplotlib
-matplotlib.use('{backend}')
-        """.strip()
-
-        # Use Inline actually, it's better I think
-        code = """
-%matplotlib inline
-import matplotlib.pyplot as plt
-""".strip()
-
-        self._startup_warmup = True
-        try:
-            try:
-                for _ in self.run(code):
-                    pass
-            except KeyboardInterrupt:
-                # __init__ has not returned, so Terminal cannot clean up this
-                # half-constructed instance. Terminate the kernel before the
-                # interrupt aborts construction and leaks it.
-                self._cleanup_after_interrupted_startup()
-                raise
-        finally:
-            self._startup_warmup = False
-
-        # DISABLED because it doesn't work??
-        # Disable color outputs in the terminal, which don't look good in OI and aren't useful
-        # code = """
-        # from IPython.core.getipython import get_ipython
-        # get_ipython().colors = 'NoColor'
-        # """
-        # self.run(code)
-
-    def terminate(self):
-        self.kc.stop_channels()
-        self.km.shutdown_kernel()
-
     def _cleanup_after_interrupted_startup(self):
         """Stop the listener and kernel when Ctrl-C interrupts __init__ warm-up."""
         self.finish_flag = True
@@ -167,9 +6,58 @@ import matplotlib.pyplot as plt
             listener.join(timeout=10)
         self.terminate()
 
-    def run(self, code):
-        while not self.kc.is_alive():
+    def _kernel_is_alive(self):
+        """Whether the kernel process is still running.
+
+        Client channels can stay open after the process exits, so checking
+        `kc.is_alive()` is not enough: `os._exit(0)` leaves them open and the
+        run waits forever for an idle message that cannot arrive.
+        """
+        km = getattr(self, "km", None)
+        if km is None:
+            return True
+        try:
+            return bool(km.is_alive())
+        except Exception:
+            return True
+
+    def _ensure_kernel(self):
+        """Recreate the kernel after a hard exit, with OI's setup applied.
+
+        Re-running __init__ is deliberate: a bare restart would leave the new
+        kernel without the matplotlib backend and the display formatter, and
+        the model depends on both.
+        """
+        if self._kernel_is_alive():
+            return
+        self.finish_flag = True
+        try:
+            if getattr(self, "kc", None):
+                self.kc.stop_channels()
+        except Exception:
+            pass
+        try:
+            self.km.shutdown_kernel(now=True)
+        except Exception:
+            pass
+        self.__init__(self.computer)
+
+    def _wait_for_client(self, timeout=10):
+        """Wait for the client channels to come up, but never forever."""
+        deadline = time.time() + timeout
+        while not self.kc.is_alive() and time.time() < deadline:
             time.sleep(0.1)
+
+    def run(self, code):
+        self._ensure_kernel()
+        if not self._kernel_is_alive():
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": "The Python kernel could not be restarted.",
+            }
+            return
+        self._wait_for_client()
 
         self.last_output_time = time.time()
         self.last_output_message_time = time.time()
@@ -278,6 +166,18 @@ import matplotlib.pyplot as plt
             # overwrites self._execution_id.
             max_retries = 100
             while True:
+                # A hard exit (os._exit, OOM, segfault) closes the channels
+                # without sending idle; stop waiting and report it.
+                if not self._kernel_is_alive():
+                    message_queue.put(
+                        {
+                            "type": "console",
+                            "format": "output",
+                            "content": "The Python kernel exited. It will restart on the next run.",
+                        }
+                    )
+                    self.finish_flag = True
+                    return
                 if generation != self._listener_generation:
                     # A newer request started: stop consuming the channel so
                     # the current listener gets this run's messages.
@@ -469,6 +369,19 @@ import matplotlib.pyplot as plt
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+                    elif not self._kernel_is_alive():
+                        while not message_queue.empty():
+                            yield message_queue.get()
+                        self.finish_flag = True
+                        break
+                    elif (
+                        not self.listener_thread.is_alive()
+                        and message_queue.empty()
+                    ):
+                        # The listener died without setting finish_flag; the
+                        # run must not wait forever for output that cannot come.
+                        self.finish_flag = True
+                        break
 
     def stop(self):
         self.finish_flag = True

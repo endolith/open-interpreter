@@ -1,5 +1,9 @@
 import ast
+import threading
+from types import SimpleNamespace
+from unittest import mock
 
+import interpreter.core.computer.terminal.languages.jupyter_language as jl
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,
     add_active_line_prints,
@@ -7,6 +11,7 @@ from interpreter.core.computer.terminal.languages.jupyter_language import (
     string_to_python,
     wrap_in_try_except,
 )
+from interpreter.core.computer.terminal.languages.python import Python
 
 
 def test_preprocess_python_adds_active_line_markers():
@@ -87,3 +92,260 @@ def test_add_line_prints_transformer_inserts_prints():
     new_tree = transformer.visit(tree)
     unparsed = ast.unparse(new_tree)
     assert "##active_line" in unparsed
+
+
+def test_kernel_is_alive_uses_the_process_not_the_client():
+    """The client can stay up after the process exits; liveness must use the manager."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    assert lang._kernel_is_alive() is False
+
+    lang.km.is_alive.return_value = True
+    assert lang._kernel_is_alive() is True
+
+
+def test_kernel_is_alive_assumes_life_without_a_manager():
+    """Non-Jupyter setups have no manager; they must not be mistaken for a dead kernel."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.km = None
+    assert lang._kernel_is_alive() is True
+
+
+def test_kernel_is_alive_assumes_life_when_the_check_errors():
+    """A manager that cannot answer must not trigger a destructive restart."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.km = mock.Mock()
+    lang.km.is_alive.side_effect = RuntimeError("broken")
+    assert lang._kernel_is_alive() is True
+
+
+def test_ensure_kernel_restarts_a_dead_kernel_with_its_setup():
+    """A dead kernel is recreated by re-running __init__, so OI's setup comes back."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.computer = object()
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.kc = mock.Mock()
+
+    restarted = []
+
+    def fake_init(_self, computer):
+        restarted.append(computer)
+
+    with mock.patch.object(jl.JupyterLanguage, "__init__", fake_init):
+        lang._ensure_kernel()
+
+    assert lang.finish_flag is True
+    lang.kc.stop_channels.assert_called_once_with()
+    lang.km.shutdown_kernel.assert_called_once_with(now=True)
+    assert restarted == [lang.computer]
+
+
+def test_run_reports_a_kernel_that_cannot_be_restarted():
+    """A failed restart is reported instead of running code against a dead kernel."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.finish_flag = False
+
+    with mock.patch.object(jl.JupyterLanguage, "_ensure_kernel", lambda self: None):
+        chunks = list(lang.run("print(1)"))
+
+    assert chunks == [
+        {
+            "type": "console",
+            "format": "output",
+            "content": "The Python kernel could not be restarted.",
+        }
+    ]
+
+
+def test_wait_for_client_gives_up_after_the_timeout():
+    """A client that never comes up must not block the run forever."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.kc = mock.Mock()
+    lang.kc.is_alive.return_value = False
+
+    clock = iter([0.0, 5.0, 10.0, 99.0])
+    with mock.patch.object(jl.time, "time", lambda: next(clock)), mock.patch.object(
+        jl.time, "sleep"
+    ) as sleep:
+        lang._wait_for_client()
+
+    assert sleep.call_count == 1
+
+
+def test_ensure_kernel_tolerates_failing_channel_and_shutdown_cleanup():
+    """Cleanup errors must not stop the restart; the kernel still comes back."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.computer = object()
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.km.shutdown_kernel.side_effect = RuntimeError("gone")
+    lang.kc = mock.Mock()
+    lang.kc.stop_channels.side_effect = RuntimeError("gone")
+
+    restarted = []
+
+    with mock.patch.object(
+        jl.JupyterLanguage, "__init__", lambda _self, computer: restarted.append(computer)
+    ):
+        lang._ensure_kernel()
+
+    assert restarted == [lang.computer]
+
+
+def test_ensure_kernel_skips_a_missing_client():
+    """A kernel manager without a client still restarts cleanly."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.computer = object()
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.kc = None
+
+    with mock.patch.object(jl.JupyterLanguage, "__init__", lambda _self, computer: None):
+        lang._ensure_kernel()
+
+    lang.km.shutdown_kernel.assert_called_once_with(now=True)
+
+
+def test_capture_output_ends_when_the_kernel_dies():
+    """A dead kernel ends output capture instead of waiting for an idle that cannot come."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.computer = SimpleNamespace(interpreter=SimpleNamespace())
+    lang.listener_thread = mock.Mock()
+    lang.listener_thread.is_alive.return_value = True
+
+    import queue as queue_module
+    message_queue = queue_module.Queue()
+    message_queue.put({"type": "console", "format": "output", "content": "first"})
+    message_queue.put({"type": "console", "format": "output", "content": "second"})
+
+    chunks = list(lang._capture_output(message_queue))
+
+    assert chunks == [
+        {"type": "console", "format": "output", "content": "first"},
+        {"type": "console", "format": "output", "content": "second"},
+    ]
+    assert lang.finish_flag is True
+
+
+def test_capture_output_drains_output_queued_as_the_kernel_died():
+    """Output that lands between the empty check and the liveness check is not lost."""
+    import queue as queue_module
+
+    class RacyQueue:
+        def __init__(self, item):
+            self.item = item
+
+        def get(self, timeout=None):
+            if timeout is not None:
+                raise queue_module.Empty
+            item, self.item = self.item, None
+            return item
+
+        def empty(self):
+            return self.item is None
+
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.computer = SimpleNamespace(interpreter=SimpleNamespace(stop_event=threading.Event()))
+    lang.listener_thread = mock.Mock()
+    lang.listener_thread.is_alive.return_value = True
+
+    pending = {"type": "console", "format": "output", "content": "late"}
+    chunks = list(lang._capture_output(RacyQueue(pending)))
+
+    assert chunks == [pending]
+    assert lang.finish_flag is True
+
+
+def test_capture_output_ends_when_the_kernel_is_dead_and_nothing_is_queued():
+    """With no queued output the dead-kernel branch must still stop the run."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = False
+    lang.computer = SimpleNamespace(interpreter=SimpleNamespace(stop_event=threading.Event()))
+    lang.listener_thread = mock.Mock()
+    lang.listener_thread.is_alive.return_value = True
+
+    import queue as queue_module
+
+    assert list(lang._capture_output(queue_module.Queue())) == []
+    assert lang.finish_flag is True
+
+
+def test_capture_output_ends_when_the_listener_thread_died():
+    """A listener that died without setting finish_flag must not leave the run waiting."""
+    lang = object.__new__(jl.JupyterLanguage)
+    lang.finish_flag = False
+    lang.km = mock.Mock()
+    lang.km.is_alive.return_value = True
+    lang.computer = SimpleNamespace(interpreter=SimpleNamespace())
+    lang.listener_thread = mock.Mock()
+    lang.listener_thread.is_alive.return_value = False
+
+    import queue as queue_module
+    with mock.patch.object(jl, "DEBUG_MODE", True):
+        chunks = list(lang._capture_output(queue_module.Queue()))
+
+    assert chunks == []
+    assert lang.finish_flag is True
+
+
+def test_python_recovers_after_the_kernel_hard_exits():
+    """os._exit(0) must end the run, and the next run must restart the kernel.
+
+    A regression here hangs the REPL: the kernel is dead, the client channels
+    stay open, and the run waits forever for an idle message that cannot arrive.
+    """
+
+    def collect(generator, timeout=30):
+        result = {}
+
+        def worker():
+            try:
+                result["chunks"] = list(generator)
+            except Exception as exc:  # pragma: no cover - surfaced by the assertion
+                result["error"] = exc
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(timeout)
+        assert not thread.is_alive(), "run() hung instead of returning"
+        assert "error" not in result, result.get("error")
+        return result["chunks"]
+
+    computer = SimpleNamespace(
+        interpreter=SimpleNamespace(
+            stop_event=threading.Event(),
+            messages=[],
+            verbose=False,
+            debug=False,
+            max_output=2000,
+            plain_text_display=True,
+        )
+    )
+    language = Python(computer)
+    try:
+        collect(language.run("print(1)"))
+        killed = collect(
+            language.run("import os, sys; sys.stdout.flush(); os._exit(0)")
+        )
+        assert any(
+            "kernel exited" in str(chunk.get("content", "")) for chunk in killed
+        )
+        revived = collect(language.run("print(2)"))
+        assert any("2" in str(chunk.get("content", "")) for chunk in revived)
+    finally:
+        language.terminate()
