@@ -4,6 +4,8 @@ from interpreter.core.llm.utils.cache_aware_trim import (
     _extract_ts,
     _find_safe_cut,
     _get_encoding,
+    _image_token_estimate,
+    _omission_note,
     cache_aware_trim,
 )
 
@@ -199,12 +201,12 @@ def test_placeholder_uses_singular_for_one_message():
     assert "1 message omitted" in _placeholder(out)["content"]
 
 
-def test_image_tokens_charged_fixed_cost_not_base64_size():
+def test_image_tokens_charged_estimate_not_base64_size():
     """A base64 image must not be counted by its payload length, or a single
     screenshot (megabytes of characters when base64-encoded) would look larger
     than the whole context window and trigger a trim that wipes the entire
-    conversation.  Image parts are charged OpenAI's fixed per-image cost, which
-    is what the API actually bills, so the trim ignores the payload size."""
+    conversation.  Image parts are charged a model-aware per-image token
+    estimate instead, so the trim ignores the payload size."""
     tiny = {
         "role": "user",
         "content": [
@@ -230,10 +232,11 @@ def test_image_tokens_charged_fixed_cost_not_base64_size():
         ],
     }
     assert _count_message_tokens([tiny], None) == _count_message_tokens([huge], None)
-    # Low-detail image is a fixed ~85 tokens plus per-message framing, not
+    # The image cost is a bounded estimate plus per-message framing, not
     # proportional to the payload.  (2M base64 chars would otherwise count as
-    # hundreds of thousands of "tokens".)
-    assert _count_message_tokens([huge], None) < 200
+    # hundreds of thousands of "tokens".)  With the model unknown the counter
+    # assumes the conservative low-detail floor (2,833), not the 85 minimum.
+    assert _count_message_tokens([huge], None) < 3000
 
 
 def test_image_in_history_does_not_wreck_the_conversation():
@@ -423,3 +426,114 @@ def test_precomputed_message_costs_match_the_counted_path():
     assert cache_aware_trim(
         messages, SYSTEM, token_limit=500, message_costs=costs
     ) == cache_aware_trim(messages, SYSTEM, token_limit=500)
+
+
+def test_count_text_counts_special_token_literals_as_text():
+    """Literal special-token text must not raise while counting.
+
+    A user message can contain `<|endoftext|>`, which `encoding.encode` treats
+    as markup and rejects with ValueError.  The trim caller would then send
+    the full untrimmed history, so the counter must strip special-token
+    semantics and charge those characters as ordinary text.
+    """
+    encoding = _get_encoding(None)
+    assert _count_text("<|endoftext|>", encoding) > 0
+    assert _count_text("<|endoftext|>", encoding) == len(
+        encoding.encode("<|endoftext|>", disallowed_special=())
+    )
+
+
+def test_image_token_estimate_is_model_aware():
+    """Image cost estimates follow the model instead of a single flat rate.
+
+    `gpt-4o-mini` bills a low-detail image at a much higher base cost than the
+    85-token floor, so charging every low-detail image 85 would let two images
+    look like they fit a small window and still overflow at the provider.
+    With the model unknown, the counter uses the conservative floor rather
+    than the cheapest one.
+    """
+    assert _image_token_estimate("low", None) == 2833
+    assert _image_token_estimate("low", "gpt-4o-mini") == 2833
+    assert _image_token_estimate("low", "openai/gpt-4o-mini") == 2833
+    assert _image_token_estimate("low", "gpt-4o") == 85
+    assert _image_token_estimate("high", "gpt-4o") == 1105
+    assert _image_token_estimate(None, "gpt-4o") == 1105
+
+
+def test_trim_budget_includes_system_prompt():
+    """The system prompt counts against the hard limit, not just the messages.
+
+    `_find_safe_cut` compares only message costs with its target.  A system
+    prompt that costs ~100 tokens can make a conversation that fits on paper
+    (two ~100-token user messages with a 250-token limit) overflow the real
+    request unless the trim subtracts it before choosing the cut.
+    """
+    system = "word " * 90  # ~100 tokens
+    messages = [
+        {"role": "user", "content": "word " * 90},
+        {"role": "user", "content": "word " * 90},
+    ]
+    full = [{"role": "system", "content": system}] + messages
+    assert _count_message_tokens(full, None) > 250
+
+    out = cache_aware_trim(messages, system, token_limit=250, retention_ratio=1.0)
+    assert _placeholder(out) is not None
+    assert _count_message_tokens(out, None) <= 250
+
+
+def test_placeholder_overflow_advances_the_cut_until_the_request_fits():
+    """The omission note is part of the request and can push a fitting cut over.
+
+    A cut sized for the retention target can still exceed the hard limit once
+    the placeholder describing the omitted messages is inserted.  The trim
+    must advance to the next safe boundary and recheck the complete result,
+    while never dropping the newest user message.
+    """
+    system = "s"
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        {"role": "assistant", "content": "answer one"},
+        _big_user("2026-08-11 09:00", "second"),
+        {"role": "assistant", "content": "answer two"},
+        {"role": "user", "content": "[2026-08-12 09:00] current prompt"},
+    ]
+    last_user = len(messages) - 1
+    minimum = _count_message_tokens(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": _omission_note(messages, last_user)},
+        ]
+        + messages[last_user:],
+        None,
+    )
+    for limit in (2300, 2400, 2600, 3200):
+        if limit < minimum:
+            continue
+        out = cache_aware_trim(messages, system, token_limit=limit, retention_ratio=1.0)
+        assert _count_message_tokens(out, None) <= limit
+        assert out[-1] == messages[last_user]
+
+
+def test_reserve_tokens_leaves_room_for_the_runner_additions():
+    """Reserved tokens shrink the effective budget before the cut is chosen.
+
+    The tool-calling runner attaches its schema after trimming, so the trim
+    must leave room for it: a conversation that fits the raw limit can need
+    trimming once the runner's overhead is reserved.
+    """
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "[2026-08-11 09:00] current prompt"},
+    ]
+    # Size the limit from the real conversation so the unreserved budget
+    # genuinely fits; the reserved one then has to trim the same history.
+    full = _count_message_tokens([{"role": "system", "content": SYSTEM}] + messages, None)
+    limit = full + 10
+    assert _placeholder(cache_aware_trim(messages, SYSTEM, token_limit=limit)) is None
+
+    reserved = cache_aware_trim(
+        messages, SYSTEM, token_limit=limit, reserve_tokens=200
+    )
+    assert _placeholder(reserved) is not None
+    assert _count_message_tokens(reserved, None) <= limit - 200
