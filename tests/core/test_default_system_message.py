@@ -5,8 +5,20 @@ import platform
 import pytest
 
 from interpreter import OpenInterpreter
+from interpreter.core import default_system_message as default_system_message_module
 from interpreter.core.default_system_message import build_default_system_message
 from interpreter.core.respond import build_system_message, respond
+
+
+def test_legacy_default_system_message_attribute_still_resolves():
+    """The old import-time constant still resolves for third-party importers.
+
+    The module builds the message per session now, but `default_system_message`
+    remains a public name, so resolving it must not break on upgrade.
+    """
+    message = default_system_message_module.default_system_message
+    assert isinstance(message, str)
+    assert message == build_default_system_message()
 
 
 def test_default_system_message_is_nonempty_string():

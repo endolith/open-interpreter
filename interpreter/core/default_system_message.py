@@ -37,3 +37,16 @@ You are capable of **any** task.
 
 User's Name: {getpass.getuser()}
 User's OS: {platform.system()}{cwd_suffix}""".strip()
+
+
+def __getattr__(name):
+    """Keep the old module-level constant importable without freezing it.
+
+    `default_system_message` used to be a string computed at import time. It is
+    now built per session so the directory is current, but it is still a public
+    module name and third parties import it. Returning a freshly built message
+    keeps those imports working instead of failing on upgrade.
+    """
+    if name == "default_system_message":
+        return build_default_system_message()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
