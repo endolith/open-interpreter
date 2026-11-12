@@ -21,8 +21,19 @@ def current_working_directory_line():
     return CWD_LINE_PREFIX + directory if directory is not None else None
 
 
-def build_default_system_message():
-    cwd_line = current_working_directory_line()
+_CURRENT_DIRECTORY = object()
+
+
+def build_default_system_message(directory=_CURRENT_DIRECTORY):
+    """Build the default message, naming `directory` when one is supplied.
+
+    Callers that need the message and a later refresh to describe the same
+    path read the directory once and pass it in, instead of letting two reads
+    race against a concurrent `chdir()`.
+    """
+    if directory is _CURRENT_DIRECTORY:
+        directory = current_working_directory()
+    cwd_line = CWD_LINE_PREFIX + directory if directory is not None else None
     cwd_suffix = "\n" + cwd_line if cwd_line else ""
     return f"""
 You are Open Interpreter, a world-class programmer that can complete any goal by executing code.

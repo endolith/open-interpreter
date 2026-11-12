@@ -221,6 +221,9 @@ def test_imported_singleton_chat_uses_the_current_directory(monkeypatch, tmp_pat
     old_run = singleton.llm.run
     old_system_message = singleton.system_message
     old_disable_telemetry = singleton.disable_telemetry
+    old_conversation_history = singleton.conversation_history
+    old_conversation_filename = singleton.conversation_filename
+    old_last_messages_count = singleton.last_messages_count
     captured = {}
 
     def fake_run(messages, **kwargs):
@@ -233,6 +236,7 @@ def test_imported_singleton_chat_uses_the_current_directory(monkeypatch, tmp_pat
         ]
         singleton.llm.run = fake_run
         singleton.disable_telemetry = True
+        singleton.conversation_history = False
         monkeypatch.chdir(tmp_path)
 
         singleton.chat("hello", display=False)
@@ -241,5 +245,58 @@ def test_imported_singleton_chat_uses_the_current_directory(monkeypatch, tmp_pat
         singleton.llm.run = old_run
         singleton.system_message = old_system_message
         singleton.disable_telemetry = old_disable_telemetry
+        singleton.conversation_history = old_conversation_history
+        singleton.conversation_filename = old_conversation_filename
+        singleton.last_messages_count = old_last_messages_count
 
     assert str(tmp_path) in captured["system"]
+
+
+
+def test_build_default_system_message_uses_the_supplied_directory(
+    monkeypatch, tmp_path
+):
+    """A caller-supplied directory is named instead of a second cwd read.
+
+    `core` snapshots the directory at construction so the message and the value
+    it tracks for later refreshes cannot disagree if another thread changes the
+    process directory in between.
+    """
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    message = build_default_system_message(str(tmp_path))
+
+    assert str(tmp_path) in message
+    assert str(elsewhere) not in message
+
+
+def test_edited_default_replaces_the_sentinel_when_the_directory_is_unreadable(
+    monkeypatch, tmp_path
+):
+    """An unreadable directory gets a readable label, not the internal marker.
+
+    Editing the generated block makes the turn protect the recorded path with a
+    NUL-containing sentinel before rendering. When the directory cannot be read
+    at that point the sentinel must still be replaced, or the model receives a
+    binary marker instead of directory context.
+    """
+
+    def raise_missing_directory():
+        raise FileNotFoundError("working directory was removed")
+
+    interpreter = OpenInterpreter(offline=True, disable_telemetry=True)
+    interpreter.system_message = interpreter.system_message.replace(
+        "world-class", "excellent"
+    )
+    monkeypatch.setattr(
+        "interpreter.core.default_system_message.os.getcwd",
+        raise_missing_directory,
+    )
+
+    message = build_system_message(interpreter)
+
+    assert "excellent" in message
+    assert "(unavailable)" in message
+    assert "\x00" not in message

@@ -131,17 +131,23 @@ class OpenInterpreter:
         self.llm = Llm(self) if llm is None else llm
 
         # These are LLM related
+        # Read the directory once: the generated text and the value tracked for
+        # later refreshes must describe the same path even if another thread
+        # changes the process directory in between.
+        default_directory = (
+            current_working_directory() if system_message is None else None
+        )
         self.system_message = (
-            build_default_system_message() if system_message is None else system_message
+            build_default_system_message(default_directory)
+            if system_message is None
+            else system_message
         )
         # Keep the generated text so a later turn can tell it apart from a
         # caller-supplied message and rebuild it for the current directory.
         self._default_system_message = (
             self.system_message if system_message is None else None
         )
-        self._default_system_message_directory = (
-            current_working_directory() if system_message is None else None
-        )
+        self._default_system_message_directory = default_directory
         self.custom_instructions = custom_instructions
         self.user_message_template = user_message_template
         self.always_apply_user_message_template = always_apply_user_message_template

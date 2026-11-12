@@ -100,7 +100,9 @@ def build_system_message(interpreter):
             getattr(interpreter, "_default_system_message_directory", None),
         )
         if protected:
-            fresh_directory = current_working_directory()
+            # The sentinel must never reach the model: fall back to a
+            # human-readable marker when the directory is no longer readable.
+            fresh_directory = current_working_directory() or "(unavailable)"
 
     rendered = render_message(interpreter, template_message)
     if fresh_directory is not None:
