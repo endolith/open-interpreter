@@ -1628,22 +1628,70 @@ def test_hello_world():
     assert messages[0]["content"] == hello_world_response
 
 
+def _answer_tokens(reply):
+    """Return standalone numbers found in a model reply.
+
+    The boundaries reject `-4`, `4.5` and `4e-1` when the expected answer is
+    `4`: each is parsed as its own complete token rather than as a bare digit
+    sequence, so scientific notation cannot smuggle a `4` out of `0.4`. A
+    whole-number reply or a short wrapper such as `**4**` still yields `4.0`.
+    """
+    reply = reply.strip()
+    try:
+        return [float(reply)]
+    except ValueError:
+        return [
+            float(number)
+            for number in re.findall(
+                r"(?<![\d.,])[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?(?![\d,])(?!\.\d)",
+                reply,
+            )
+        ]
+
+
+def test_math_answer_tokens_are_standalone_numbers():
+    """The answer matcher accepts a whole number and rejects lookalikes.
+
+    `\\d+` would pull `4` out of `-4` and `4.5`; the token boundaries keep the
+    sign, the decimal part and the exponent so the comparison cannot silently
+    pass on a wrong answer. This runs without calling the model.
+    """
+    assert _answer_tokens("4") == [4.0]
+    assert _answer_tokens(" 4 ") == [4.0]
+    assert _answer_tokens("4.") == [4.0]
+    assert _answer_tokens("**4**") == [4.0]
+    assert _answer_tokens("The answer is 4.") == [4.0]
+    assert _answer_tokens("-4") == [-4.0]
+    assert _answer_tokens("4.5") == [4.5]
+    assert _answer_tokens("The answer is 4e-1.") == [0.4]
+    assert _answer_tokens("0.4") == [0.4]
+    assert _answer_tokens("1,004") == []
+
+
+def test_math_prompt_requires_precedence():
+    """Every operand pair produces an answer that needs operator precedence.
+
+    A strictly left-to-right evaluation gives `(n1 + n2) * n1 - n2`, which
+    always differs from the intended `n1 + n2 * n1 - n2` for operands 2-9, so
+    the prompt has one unambiguous answer. This runs without calling the model.
+    """
+    for n1 in range(2, 10):
+        for n2 in range(2, 10):
+            assert n1 + n2 * n1 - n2 != (n1 + n2) * n1 - n2
+
+
 @pytest.mark.integration
 def test_math():
-    """Integration: the chat loop returns the model's answer to an expression.
+    """Integration: the chat loop relays the model's answer to an expression.
 
-    The expression is small and integral on purpose. This test exists to check
-    that ``chat`` relays a plain text answer; it is not a model-capability
-    test, and multi-step float arithmetic made it fail on a mental-arithmetic
-    slip even when nothing under test had changed (#581). Operands within 2-9
-    keep a correct answer exact, so the comparison can require a number that
-    equals the expected result rather than a substring.
+    The expression and the answer boundaries are asserted deterministically by
+    `test_math_prompt_requires_precedence` and
+    `test_math_answer_tokens_are_standalone_numbers`. This test only checks
+    that ``chat`` returns a reply carrying the expected answer, so it does not
+    depend on the test re-deriving the arithmetic (#581).
     """
     n1 = randint(2, 9)
     n2 = randint(2, 9)
-
-    # Multiplication binds before the additions and subtractions, so a strictly
-    # left-to-right evaluation would land on a different number.
     test_result = n1 + n2 * n1 - n2
 
     order_of_operations_message = f"""
@@ -1654,21 +1702,9 @@ def test_math():
 
     messages = interpreter.chat(order_of_operations_message)
 
-    # Accept the reply as a whole number, or as a standalone signed numeric
-    # token inside a short wrapper.  A loose `\d+` search would also accept
-    # `-4` and `4.5` when the expected answer is `4`, so the token boundaries
-    # exclude digits and decimal points on either side.
-    reply = messages[-1]["content"].strip()
-    try:
-        numbers = [float(reply)]
-    except ValueError:
-        numbers = [
-            float(number)
-            for number in re.findall(
-                r"(?<![\d.,])[-+]?\d+(?![\d,])(?!\.\d)", reply
-            )
-        ]
-    assert any(number == test_result for number in numbers)
+    assert any(
+        number == test_result for number in _answer_tokens(messages[-1]["content"])
+    )
 
 
 @pytest.mark.timeout(120)
