@@ -141,8 +141,53 @@ import matplotlib.pyplot as plt
         self.kc.stop_channels()
         self.km.shutdown_kernel()
 
+    def _kernel_is_alive(self):
+        """Whether the kernel process is still running.
+
+        Client channels can stay open after the process exits, so checking
+        `kc.is_alive()` is not enough: `os._exit(0)` leaves them open and the
+        run waits forever for an idle message that cannot arrive.
+        """
+        km = getattr(self, "km", None)
+        if km is None:
+            return True
+        try:
+            return bool(km.is_alive())
+        except Exception:
+            return True
+
+    def _ensure_kernel(self):
+        """Recreate the kernel after a hard exit, with OI's setup applied.
+
+        Re-running __init__ is deliberate: a bare restart would leave the new
+        kernel without the matplotlib backend and the display formatter, and
+        the model depends on both.
+        """
+        if self._kernel_is_alive():
+            return
+        self.finish_flag = True
+        try:
+            if getattr(self, "kc", None):
+                self.kc.stop_channels()
+        except Exception:
+            pass
+        try:
+            self.km.shutdown_kernel(now=True)
+        except Exception:
+            pass
+        self.__init__(self.computer)
+
     def run(self, code):
-        while not self.kc.is_alive():
+        self._ensure_kernel()
+        if not self._kernel_is_alive():
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": "The Python kernel could not be restarted.",
+            }
+            return
+        deadline = time.time() + 10
+        while not self.kc.is_alive() and time.time() < deadline:
             time.sleep(0.1)
 
         self.last_output_time = time.time()
@@ -232,6 +277,18 @@ import matplotlib.pyplot as plt
             # overwrites self._execution_id.
             max_retries = 100
             while True:
+                # A hard exit (os._exit, OOM, segfault) closes the channels
+                # without sending idle; stop waiting and report it.
+                if not self._kernel_is_alive():
+                    message_queue.put(
+                        {
+                            "type": "console",
+                            "format": "output",
+                            "content": "The Python kernel exited. It will restart on the next run.",
+                        }
+                    )
+                    self.finish_flag = True
+                    return
                 if generation != self._listener_generation:
                     # A newer request started: stop consuming the channel so
                     # the current listener gets this run's messages.
@@ -420,6 +477,20 @@ import matplotlib.pyplot as plt
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+                    elif not self._kernel_is_alive():
+                        while not message_queue.empty():
+                            yield message_queue.get()
+                        self.finish_flag = True
+                        break
+                    elif (
+                        self.listener_thread is not None
+                        and not self.listener_thread.is_alive()
+                        and message_queue.empty()
+                    ):
+                        # The listener died without setting finish_flag; the
+                        # run must not wait forever for output that cannot come.
+                        self.finish_flag = True
+                        break
 
     def stop(self):
         self.finish_flag = True
