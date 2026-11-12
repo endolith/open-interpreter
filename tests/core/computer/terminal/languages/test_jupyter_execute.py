@@ -468,6 +468,29 @@ def test_kernel_is_alive_fails_open_when_the_manager_is_unavailable():
     assert bare._kernel_is_alive() is True
 
 
+def test_kernel_is_alive_reports_a_failing_probe_only_when_verbose(capsys):
+    """A consistently failing liveness probe must be diagnosable under verbose.
+
+    The probe fails open so a transient error cannot throw away a live session,
+    but a silent fail-open makes the original hang indistinguishable from a
+    healthy kernel. Verbose output is the only place that difference is visible.
+    """
+    lang = _language()
+    lang.computer.verbose = False
+
+    def boom():
+        raise RuntimeError("kernel manager is gone")
+
+    lang.km = SimpleNamespace(is_alive=boom)
+
+    assert lang._kernel_is_alive() is True
+    assert capsys.readouterr().out == ""
+
+    lang.computer.verbose = True
+    assert lang._kernel_is_alive() is True
+    assert "kernel manager is gone" in capsys.readouterr().out
+
+
 def test_a_kernel_that_cannot_be_restarted_reports_it(monkeypatch):
     """When the restart fails, the run says so instead of executing anyway."""
     lang = _language()
