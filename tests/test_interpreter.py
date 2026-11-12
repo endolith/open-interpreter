@@ -1654,7 +1654,20 @@ def test_math():
 
     messages = interpreter.chat(order_of_operations_message)
 
-    numbers = [float(number) for number in re.findall(r"\d+", messages[-1]["content"])]
+    # Accept the reply as a whole number, or as a standalone signed numeric
+    # token inside a short wrapper.  A loose `\d+` search would also accept
+    # `-4` and `4.5` when the expected answer is `4`, so the token boundaries
+    # exclude digits and decimal points on either side.
+    reply = messages[-1]["content"].strip()
+    try:
+        numbers = [float(reply)]
+    except ValueError:
+        numbers = [
+            float(number)
+            for number in re.findall(
+                r"(?<![\d.,])[-+]?\d+(?![\d,])(?!\.\d)", reply
+            )
+        ]
     assert any(number == test_result for number in numbers)
 
 
