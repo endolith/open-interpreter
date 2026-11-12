@@ -11,6 +11,7 @@ import litellm
 litellm.suppress_debug_info = True
 litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
 
+import copy
 import json
 import logging
 import subprocess
@@ -22,8 +23,14 @@ import tokentrim as tt
 from .providers import OpenRouterCatalogError, openrouter_model_entry
 
 from .run_text_llm import run_text_llm
-from .run_tool_calling_llm import run_tool_calling_llm
-from .utils.cache_aware_trim import cache_aware_trim
+from .run_tool_calling_llm import (
+    build_tool_schema,
+    process_messages,
+    run_tool_calling_llm,
+    tool_conversion_overhead,
+    tool_schema,
+)
+from .utils.cache_aware_trim import _count_text, _get_encoding, cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 
 # Create or get the logger
@@ -105,6 +112,51 @@ def _image_trim_limit(llm, model):
         if window:
             return window - (llm.max_tokens or 0) - 25
     return None
+
+
+def _runner_request_overhead(llm, model):
+    """Tokens the selected runner adds to the request after trimming.
+
+    `cache_aware_trim` sees only the conversation, but `run_tool_calling_llm`
+    attaches the `execute` tool schema and `run_text_llm` appends
+    `execution_instructions` to the system message.  Both count against the
+    provider's context window, so trimming must leave room for them or a prompt
+    that fits on paper is still rejected.  The schema is measured with the
+    interpreter's real language list: the template's empty enum undercounts the
+    text the provider receives.
+    """
+    if llm.supports_functions:
+        try:
+            payload = [build_tool_schema(llm)]
+        except AttributeError:
+            # An interpreter without a terminal (stub or test wiring) cannot
+            # fill the language enum; measure the template instead of charging
+            # zero.
+            payload = [tool_schema]
+    else:
+        payload = llm.execution_instructions
+    if not payload:
+        return 0
+    return _count_text(json.dumps(payload), _get_encoding(model), model)
+
+
+def _image_trim_reserve(llm, messages, model, known_endpoint=True):
+    """Tokens to reserve when trimming an image-bearing conversation.
+
+    On top of the runner's fixed additions (the tool schema or the text
+    runner's instructions), the tool-calling runner rewrites legacy
+    `function_call` turns into `tool_calls` after trimming.  That rewrite adds
+    ids and wrappers per call, so the budget must leave room for the delta or
+    a history that fits on paper is rejected once it is sent in the modern
+    shape.  The request is also backfilled with copied reasoning text after
+    trimming (see ``_reasoning_backfill_overhead``), so the budget covers that
+    growth as well.  A text-only run has neither.
+    """
+    reserve = _runner_request_overhead(llm, model)
+    if getattr(llm, "supports_functions", False):
+        reserve += tool_conversion_overhead(messages, model, known_endpoint)
+        reserve += _reasoning_backfill_overhead(messages, model, known_endpoint)
+    return reserve
 
 
 class Llm:
@@ -304,12 +356,23 @@ class Llm:
                 # other turn. Count image parts at their fixed provider cost
                 # instead. retention_ratio=1.0 keeps this a plain sliding
                 # window, matching the text branches below.
+                # A custom `api_base` may route `openai/gpt-4o` to a server
+                # with different image accounting, so the model name alone
+                # cannot vouch for the cheap low-detail floor.  The trimmer and
+                # the reserve must agree on that flag: trimming on the cheap
+                # floor while the reserve assumes the conservative one would
+                # still let the request exceed the window.
+                known_endpoint = not self.api_base
                 messages = cache_aware_trim(
                     messages,
                     system_message=system_message,
                     token_limit=_image_trim_limit(self, model) or 8000,
                     retention_ratio=1.0,
                     model=model,
+                    known_endpoint=known_endpoint,
+                    reserve_tokens=_image_trim_reserve(
+                        self, messages, model, known_endpoint=known_endpoint
+                    ),
                 )
             elif self.context_window and self.max_tokens:
                 trim_to_be_this_many_tokens = (
@@ -590,6 +653,42 @@ def _fill_reasoning_content(params):
                 msg["reasoning_content"] = ""
         elif msg.get("role") == "user":
             last_reasoning = None
+
+
+def _reasoning_backfill_overhead(messages, model, known_endpoint=True):
+    """Tokens `_fill_reasoning_content` copies into a tool request after trimming.
+
+    The trimmer counts the history as it exists: an assistant `tool_calls` turn
+    without `reasoning_content` costs just its visible text.  Before the
+    request is sent, `fixed_litellm_completions` copies the latest reasoning
+    text onto every such turn, which can add a large block per call, and legacy
+    `function_call` turns only become `tool_calls` inside `process_messages`,
+    after the trim.  Measure that growth on a converted copy so the trim budget
+    leaves room for it.  Only positive per-message additions are counted: a
+    retained suffix can keep the copied text even when the placeholders it
+    replaced were trimmed away, so the reservation must not subtract them.
+
+    The fill is a no-op without tools or without a DeepSeek model id or real
+    thinking history, in which case this returns 0.
+    """
+    converted = process_messages(copy.deepcopy(messages))
+    backfilled = copy.deepcopy(converted)
+    _fill_reasoning_content(
+        {"model": model, "messages": backfilled, "tools": [tool_schema]}
+    )
+    encoding = _get_encoding(model)
+    growth = 0
+    for before, after in zip(converted, backfilled):
+        previous = before.get("reasoning_content")
+        previous = previous if isinstance(previous, str) else ""
+        current = after.get("reasoning_content")
+        current = current if isinstance(current, str) else ""
+        growth += max(
+            0,
+            _count_text(current, encoding, model, known_endpoint)
+            - _count_text(previous, encoding, model, known_endpoint),
+        )
+    return growth
 
 
 def fixed_litellm_completions(**params):
