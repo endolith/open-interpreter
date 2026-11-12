@@ -164,7 +164,14 @@ class Terminal:
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
                 if chunk["type"] == "console" and chunk.get("format") == "output":
-                    recipient, content = parse_for_recipient(chunk["content"])
+                    # Jupyter streams the output of print() as a single chunk
+                    # that still carries the newline print added. Strip only
+                    # that transport terminator so the envelope still ends with
+                    # @@@END for parse_for_recipient; non-envelope chunks keep
+                    # their content (terminator included) untouched below.
+                    recipient, content = parse_for_recipient(
+                        chunk["content"].rstrip("\r\n")
+                    )
                     if recipient:
                         chunk["recipient"] = recipient
                         chunk["content"] = content
