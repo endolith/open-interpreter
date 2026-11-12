@@ -5,6 +5,31 @@ import tiktoken
 
 _TS_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]")
 
+# Per-image token *estimates* used when the payload itself is not tokenized.
+# They are not provider-contract numbers: OpenAI's low-detail base cost varies
+# by model, and other providers derive image tokens from dimensions.  The
+# conservative floors below avoid underestimating an image when the provider's
+# exact accounting is unknown.
+_IMAGE_TOKENS_LOW_DETAIL = 85
+_IMAGE_TOKENS_LOW_DETAIL_CONSERVATIVE = 2833
+_IMAGE_TOKENS_DEFAULT = 1105
+
+# OpenAI's chat framing: 3 tokens per message for role/structure plus 3 tokens
+# of reply priming for the whole request.
+_REPLY_PRIMING_TOKENS = 3
+_PER_MESSAGE_OVERHEAD_TOKENS = 3
+
+# Model families whose low-detail image cost we know.  Recognising the exact
+# name (or its dated snapshot) is deliberate: an alias that merely contains a
+# family name, e.g. `some-unknown-gpt-4o-compatible`, may bill differently, so
+# it takes the conservative bound instead of the cheap floor.
+_IMAGE_MODEL_FAMILIES = ("gpt-4o-mini", "gpt-4o", "gpt-4-turbo")
+
+# Providers whose model names use OpenAI's vision token accounting.  A name
+# behind any other provider prefix may bill images differently, so it takes the
+# conservative bound rather than the cheap low-detail floor.
+_OPENAI_IMAGE_PROVIDERS = ("openai", "azure")
+
 
 def _get_encoding(model):
     try:
@@ -13,7 +38,62 @@ def _get_encoding(model):
         return tiktoken.get_encoding("cl100k_base")
 
 
-def _count_text(obj, encoding):
+def _model_family(model, known_endpoint=True):
+    """The known family a model name belongs to, or `None` when unrecognised.
+
+    A bare name (`gpt-4o`) and a name behind an OpenAI-owned provider prefix
+    (`openai/gpt-4o`, `azure/gpt-4o`) are recognised, and a numeric version
+    suffix such as `gpt-4o-2024-05-13` stays in the same family.  Any other
+    provider prefix (`some-provider/gpt-4o`) may route the name to a server
+    with a different image accounting scheme, so it is treated as unknown;
+    so is every name when `known_endpoint` is false, i.e. when the caller's
+    `api_base` points at a server that may not be the provider the name
+    implies.  A suffix that is not version-shaped likewise means we cannot
+    assume the family's image accounting.
+    """
+    if model is None:
+        return None
+    name = model.strip()
+    if not known_endpoint:
+        return None
+    provider, separator, rest = name.partition("/")
+    if separator:
+        if provider.lower() not in _OPENAI_IMAGE_PROVIDERS:
+            return None
+        name = rest
+    name = name.lower()
+    for family in _IMAGE_MODEL_FAMILIES:
+        if name == family:
+            return family
+        if name.startswith(family + "-") and name[len(family) + 1 :].replace("-", "").isdigit():
+            return family
+    return None
+
+
+def _image_token_estimate(detail, model, known_endpoint=True):
+    """Estimated tokens a single image part adds to the request.
+
+    Low-detail images are not uniformly cheap: OpenAI's documented base cost
+    for `gpt-4o-mini` is much higher than the 85-token floor that models
+    like `gpt-4o` use.  Only a recognised family gets the cheap floor; when the
+    model is missing or unknown (possibly another provider, or an alias we
+    cannot verify, with a different accounting scheme), assume the
+    conservative bound so the trim can never underestimate image cost.
+    `known_endpoint` is false when a custom `api_base` may serve the model
+    under a name whose image accounting we cannot verify.
+    """
+    if detail != "low":
+        return _IMAGE_TOKENS_DEFAULT
+    if model is not None:
+        family = _model_family(model, known_endpoint)
+        if family == "gpt-4o-mini":
+            return _IMAGE_TOKENS_LOW_DETAIL_CONSERVATIVE
+        if family is not None:
+            return _IMAGE_TOKENS_LOW_DETAIL
+    return _IMAGE_TOKENS_LOW_DETAIL_CONSERVATIVE
+
+
+def _count_text(obj, encoding, model=None, known_endpoint=True):
     """Recursively count the tokens in every string value of an OpenAI message dict.
 
     Walks nested dicts/lists so that `content` (string or multi-part),
@@ -22,40 +102,59 @@ def _count_text(obj, encoding):
     undercounted thinking-model turns: a 20k-character reasoning blob was
     counted as a handful of tokens, so cache-aware trimming never fired.
 
+    Strings are counted as ordinary text (`disallowed_special=()`), not as
+    special-token markup: a user writing `<|endoftext|>` would otherwise make
+    `encoding.encode` raise, and the trim caller would fall back to sending the
+    untrimmed history.
+
     Image parts are NOT counted by their base64 payload: a data URL can be
     megabytes of characters that the tokenizer would inflate into hundreds of
     thousands of "tokens", making a single screenshot look larger than the
     whole context window and wiping every other message from the request.  Each
-    image_url part is instead charged the provider's fixed per-image token
-    cost (OpenAI's documented 85 for low detail, up to the 1105 high-detail
-    cap), which is what the API actually bills.
+    image_url part is instead charged a model-aware per-image token *estimate*
+    (see ``_image_token_estimate``), which is what the API approximately bills.
     """
     if isinstance(obj, str):
-        return len(encoding.encode(obj))
+        return len(encoding.encode(obj, disallowed_special=()))
     if isinstance(obj, dict):
         if obj.get("type") == "image_url":
             detail = (obj.get("image_url") or {}).get("detail")
-            return 85 if detail == "low" else 1105
-        return sum(_count_text(value, encoding) for value in obj.values())
+            return _image_token_estimate(detail, model, known_endpoint)
+        return sum(
+            _count_text(value, encoding, model, known_endpoint)
+            for value in obj.values()
+        )
     if isinstance(obj, list):
-        return sum(_count_text(item, encoding) for item in obj)
+        return sum(
+            _count_text(item, encoding, model, known_endpoint) for item in obj
+        )
     return 0
 
 
-def _count_message_tokens(messages, model):
+def _count_message_tokens(messages, model, known_endpoint=True):
     """Approximate token count for a list of OpenAI-format messages.
 
     Uses the same per-message overhead as OpenAI's cookbook (3 tokens per
     message for role/structure framing, plus 3 tokens for reply priming at
-    the end of the list).  Image parts are charged the provider's fixed
-    per-image cost (see ``_count_text``), not their base64 payload size, so
-    images count as a small bounded amount rather than a huge text blob.
+    the end of the list).  Every result therefore already includes the
+    request's reply priming, even when it counts a single message — callers
+    that aggregate per-message results must charge that priming only once
+    (see ``cache_aware_trim`` and ``_find_safe_cut``).
+
+    Image parts are charged a model-aware per-image estimate (see
+    ``_count_text``), not their base64 payload size, so images count as a
+    bounded amount rather than a huge text blob.
     """
     encoding = _get_encoding(model)
-    total = 3  # reply priming tokens added by the API
+    total = _REPLY_PRIMING_TOKENS  # added once by the API for the whole request
     for msg in messages:
-        total += 3  # per-message role/structure overhead
-        total += _count_text({k: v for k, v in msg.items() if k != "role"}, encoding)
+        total += _PER_MESSAGE_OVERHEAD_TOKENS
+        total += _count_text(
+            {k: v for k, v in msg.items() if k != "role"},
+            encoding,
+            model,
+            known_endpoint,
+        )
     return total
 
 
@@ -78,7 +177,31 @@ def _is_safe_cut(message):
     return False
 
 
-def _find_safe_cut(messages, target_tokens, model, costs=None):
+def _last_user_index(messages):
+    """Index of the newest user message, or -1 when the history has none.
+
+    The newest user message is the current prompt: trimming must never drop it,
+    even when it alone exceeds the budget.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            return i
+    return -1
+
+
+def _next_safe_cut(messages, cut, last_user):
+    """Next safe boundary after `cut`, never past the current prompt.
+
+    Returns None when there is no later boundary to advance to, which means the
+    retained tail cannot be made smaller without dropping the current turn.
+    """
+    for i in range(cut + 1, last_user + 1):
+        if _is_safe_cut(messages[i]):
+            return i
+    return None
+
+
+def _find_safe_cut(messages, target_tokens, model, costs=None, known_endpoint=True):
     """Index of the oldest message to *keep* after dropping the prefix.
 
     Returns `cut` such that dropping `messages[:cut]` brings the retained tail
@@ -101,17 +224,26 @@ def _find_safe_cut(messages, target_tokens, model, costs=None):
 
     `costs` optionally supplies precomputed per-message token counts (one per
     message, same order) so callers that already counted — e.g. an incremental
-    conversion cache — are not charged a second full pass.
+    conversion cache — are not charged a second full pass.  Each value is what
+    ``_count_message_tokens([message], model)`` returns, so it includes the
+    request's reply-priming tokens; this function strips one priming per
+    message because the request only pays it once.
+
+    `target_tokens` is a budget for the *messages* only; callers must subtract
+    the system prompt and any placeholder they add from the hard limit before
+    passing it here (``cache_aware_trim`` does, and then rechecks the complete
+    result because the placeholder can push a fitting cut back over the limit).
     """
     if costs is None:
-        costs = [_count_message_tokens([m], model) for m in messages]
-    retained = sum(costs)
+        costs = [
+            _count_message_tokens([m], model, known_endpoint) for m in messages
+        ]
+    # Per-message costs each carry the request's reply priming; the caller
+    # already charges it once with the system prompt, so the tail must not
+    # multiply it by the number of retained messages.
+    retained = sum(costs) - _REPLY_PRIMING_TOKENS * len(costs)
 
-    last_user = -1
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "user":
-            last_user = i
-            break
+    last_user = _last_user_index(messages)
     if last_user < 0:
         # No user boundary anywhere: leave the history untouched rather than
         # risk orphaning a tool result.
@@ -124,7 +256,7 @@ def _find_safe_cut(messages, target_tokens, model, costs=None):
             and i <= last_user
         ):
             return i
-        retained -= cost
+        retained -= cost - _REPLY_PRIMING_TOKENS
     # Even dropping everything up to the current turn can't reach the target:
     # keep the current turn and nothing else.
     return last_user
@@ -172,7 +304,16 @@ def _omission_note(messages, cut):
     return f"[… {count} {noun} omitted to fit context window …]"
 
 
-def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8, model=None, message_costs=None):
+def cache_aware_trim(
+    messages,
+    system_message,
+    token_limit,
+    retention_ratio=0.8,
+    model=None,
+    message_costs=None,
+    reserve_tokens=0,
+    known_endpoint=True,
+):
     """Cache-aware truncation (Character.AI / prompt-poet algorithm).
 
     Instead of dropping the oldest single turn each call — which moves the
@@ -211,7 +352,21 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
     `message_costs` optionally supplies precomputed per-message token counts
     for `messages` (same order), avoiding a second full counting pass for
     callers that already counted — e.g. an incremental conversion cache that
-    stashed costs from the previous turn.
+    stashed costs from the previous turn.  Each value is what
+    ``_count_message_tokens([message], model)`` returns; the request's
+    reply-priming tokens it contains are charged once, not once per message.
+
+    `known_endpoint` is passed to the image estimator.  Callers set it to
+    ``False`` when a custom `api_base` may route the model name to a server
+    whose per-image token accounting differs from the provider the name
+    implies; unrecognised models then take the conservative bound instead of
+    the cheap low-detail floor.
+
+    `reserve_tokens` is room to leave for content the caller's runner adds to
+    the request *after* trimming — the `execute` tool schema in the
+    tool-calling path, or `execution_instructions` appended to the system
+    message in the text path.  It is subtracted from `token_limit`, so the
+    returned prompt plus those additions still fits the provider's window.
 
     References:
     - https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
@@ -223,19 +378,46 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
         retention_ratio = 0.8
     retention_ratio = min(max(retention_ratio, 0.0), 1.0)
 
+    effective_limit = max(token_limit - max(reserve_tokens, 0), 0)
     system_dict = {"role": "system", "content": system_message}
-    system_tokens = _count_message_tokens([system_dict], model)
+    system_tokens = _count_message_tokens([system_dict], model, known_endpoint)
     if message_costs is None:
-        message_costs = [_count_message_tokens([m], model) for m in messages]
-    total = system_tokens + sum(message_costs)
+        message_costs = [
+            _count_message_tokens([m], model, known_endpoint) for m in messages
+        ]
+    # `message_costs` values each include the request's reply priming, which
+    # `system_tokens` already accounts for: charge it once, not N times.
+    message_tokens = sum(message_costs) - _REPLY_PRIMING_TOKENS * len(message_costs)
+    total = system_tokens + message_tokens
 
-    if total <= token_limit:
+    if total <= effective_limit:
         return [system_dict] + messages
 
-    target_tokens = token_limit * retention_ratio
+    # Size the message cut for the retention target, after accounting for the
+    # system prompt that `_find_safe_cut` does not see.
+    target_tokens = max(effective_limit * retention_ratio - system_tokens, 0)
     cut = _find_safe_cut(messages, target_tokens, model, costs=message_costs)
 
     trimmed = [system_dict] + messages[cut:]
     if cut > 0:
         trimmed.insert(1, {"role": "user", "content": _omission_note(messages, cut)})
+
+    # The cut above was sized for `target_tokens`, which excludes the system
+    # prompt and the omission note added just now.  Recheck the complete
+    # request and advance to the next safe boundary until it fits the hard
+    # limit — except when only the current prompt is left, which is always
+    # kept even if it alone overflows.
+    if cut > 0:
+        last_user = _last_user_index(messages)
+        while (
+            _count_message_tokens(trimmed, model, known_endpoint) > effective_limit
+        ):
+            next_cut = _next_safe_cut(messages, cut, last_user)
+            if next_cut is None:
+                break
+            cut = next_cut
+            trimmed = [system_dict] + messages[cut:]
+            trimmed.insert(
+                1, {"role": "user", "content": _omission_note(messages, cut)}
+            )
     return trimmed
