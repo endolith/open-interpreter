@@ -4,6 +4,7 @@ from unittest import mock
 import pytest
 
 from interpreter.core.computer.terminal.terminal import Terminal
+from interpreter.core.computer.utils.recipient_utils import format_to_recipient
 
 
 def test_get_language_by_name():
@@ -127,6 +128,60 @@ def test_streaming_run_parses_recipient_markers():
     chunks = list(terminal._streaming_run("fake", "x", display=False))
     assert chunks[0]["recipient"] == "user"
     assert chunks[0]["content"] == "hello"
+
+
+@pytest.mark.parametrize("terminator", ["\n", "\r\n"])
+def test_streaming_run_routes_envelope_after_print_newline(terminator):
+    """A print()-emitted envelope still routes after its transport newline.
+
+    Jupyter queues the output of print() as a stream chunk that includes the
+    newline print appended, so the chunk ends with "@@@END\n" instead of
+    "@@@END". Without stripping that terminator the whole envelope is shown as
+    raw console text and the intended recipient never gets the payload.
+    """
+    terminal = Terminal(computer=_bare_computer())
+    terminal._active_languages["fake"] = SimpleNamespace(
+        run=lambda code: iter(
+            [
+                {
+                    "type": "console",
+                    "format": "output",
+                    "content": format_to_recipient("hello", "user") + terminator,
+                }
+            ]
+        )
+    )
+
+    chunks = list(terminal._streaming_run("fake", "x", display=False))
+
+    assert chunks[0]["recipient"] == "user"
+    assert chunks[0]["content"] == "hello"
+
+
+def test_streaming_run_keeps_newline_on_plain_output():
+    """Non-envelope console output keeps its trailing newline.
+
+    Only the argument handed to the envelope parser is stripped, so plain
+    printed output still carries the line break it was produced with and the
+    transcript does not lose line boundaries.
+    """
+    terminal = Terminal(computer=_bare_computer())
+    terminal._active_languages["fake"] = SimpleNamespace(
+        run=lambda code: iter(
+            [
+                {
+                    "type": "console",
+                    "format": "output",
+                    "content": "plain output\n",
+                }
+            ]
+        )
+    )
+
+    chunks = list(terminal._streaming_run("fake", "x", display=False))
+
+    assert "recipient" not in chunks[0]
+    assert chunks[0]["content"] == "plain output\n"
 
 
 def test_streaming_run_strips_hide_traceback_marker():
