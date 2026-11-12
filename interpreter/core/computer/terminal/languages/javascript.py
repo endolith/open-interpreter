@@ -22,8 +22,17 @@ class JavaScript(SubprocessLanguage):
         if line.strip() in ["undefined", 'Type ".help" for more information.']:
             return None
         line = line.strip(". \n")
-        # Remove trailing ">"s
-        line = re.sub(r"^\s*(>\s*)+", "", line)
+        # Strip the REPL prompt sequence, including the continuation prompts
+        # for multi-line input: "> ", "> > ", "... ... ". Without the "..." arm
+        # Node echoes a buffered multi-line command as "... ... ... " glued to
+        # the result line, which the model then reads as output.
+        line = re.sub(r"^\s*(?:(?:>\s*)|(?:\.\.\.\s*))+", "", line)
+        # Node 24 renders a buffered multi-line command's continuation prompt as
+        # "| " (readline's kMultilinePrompt) and emits the run on the result
+        # line. Our try/catch wrapper is at least seven lines, so a real run is
+        # long; requiring four leaves ordinary output such as a markdown table
+        # row ("| a | b |", or "| | empty") untouched.
+        line = re.sub(r"^(?:\| ){4,}", "", line)
         return line
 
     def detect_active_line(self, line):

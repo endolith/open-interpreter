@@ -54,6 +54,36 @@ def test_line_postprocessor_strips_leading_prompt_arrows():
     assert js.line_postprocessor("> > 42") == "42"
 
 
+def test_line_postprocessor_strips_continuation_prompts():
+    """Node's multi-line continuation prompts are removed from result lines.
+
+    Node echoes a buffered multi-line command with repeated "... " prompts.
+    Stripping only the ">" runs left those dots glued to the first real output
+    line (e.g. "... ... ... ##active_line1##"), so the model saw prompt noise
+    as part of the program's output.
+    """
+    js = JavaScript()
+    assert (
+        js.line_postprocessor("> > ... ... ... ... ... ##active_line1##\n")
+        == "##active_line1##"
+    )
+
+
+def test_line_postprocessor_strips_node24_multiline_prompt():
+    """Node 24's "| " continuation prompts are stripped without eating table rows.
+
+    Node 24's readline uses "| " for a buffered multi-line command's
+    continuation prompt, so a multi-line wrapper leaked a run of "| " onto the
+    result line. A single or double leading "| " is legitimate output (a
+    markdown table row), so only runs of four or more are stripped.
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("| | | | hello from node v24\n") == "hello from node v24"
+    assert js.line_postprocessor("| a | b |\n") == "| a | b |"
+    assert js.line_postprocessor("| | empty\n") == "| | empty"
+    assert js.line_postprocessor("| | | three\n") == "| | | three"
+
+
 def test_line_postprocessor_strips_dot_space_and_newline():
     """Leading/trailing dots, spaces and newlines are trimmed.
 
