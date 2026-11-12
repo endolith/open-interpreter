@@ -97,3 +97,31 @@ def test_partial_end_marker_is_plain_text():
     content = "@@@RECIPIENT:user@@@CONTENT:hello@@@END-ish"
 
     assert parse_for_recipient(content) == (None, content)
+
+
+def test_payload_ending_with_the_marker_round_trips():
+    """A payload whose own text ends in @@@END survives the round trip.
+
+    format_to_recipient appends its own @@@END, so this input encodes to two
+    markers back to back. Stripping exactly one marker by length is what keeps
+    the payload's copy; an rsplit-based parser would also look right here while
+    dropping the payload's marker.
+    """
+    text = "done@@@END"
+    recipient, parsed = parse_for_recipient(format_to_recipient(text, "user"))
+
+    assert recipient == "user"
+    assert parsed == text
+
+
+def test_trailing_bytes_after_end_marker_are_plain_text():
+    """An envelope with anything after @@@END passes through unchanged.
+
+    The guard requires the message to end with the marker, so a stray trailing
+    newline or other trailing text is treated as ordinary text instead of being
+    split at the prefix. Returning plain text is the safe direction when the end
+    of the payload cannot be located.
+    """
+    content = "@@@RECIPIENT:user@@@CONTENT:hello@@@END trailing"
+
+    assert parse_for_recipient(content) == (None, content)
