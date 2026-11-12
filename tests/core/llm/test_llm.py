@@ -10,13 +10,18 @@ from tests.helpers import TEST_LLM_MODEL
 
 @pytest.fixture(autouse=True)
 def _isolate_litellm_drop_params():
-    """fixed_litellm_completions mutates the process-global litellm.drop_params;
-    restore it after each test so it can't leak between tests."""
+    """fixed_litellm_completions mutates process-global state — litellm.drop_params
+    and the set of endpoints known to reject stream_options. Restore both after
+    each test so they can't leak between tests."""
     import litellm
 
+    from interpreter.core.llm import llm as llm_module
+
     original = getattr(litellm, "drop_params", None)
+    llm_module._UNSUPPORTED_STREAM_OPTIONS.clear()
     yield
     litellm.drop_params = original
+    llm_module._UNSUPPORTED_STREAM_OPTIONS.clear()
 
 _MESSAGES = [
     {"role": "system", "type": "message", "content": "system"},
@@ -1046,3 +1051,47 @@ def test_fixed_litellm_completions_reports_failure_after_stream_options_retry():
 
     assert len(calls) == 4
     assert "stream_options" not in calls[1]
+
+
+def test_fixed_litellm_completions_remembers_stream_options_rejection():
+    """An endpoint that rejected stream_options is not sent it again in this process.
+
+    Without the memo every call to the same endpoint pays for a failed request
+    first. The rejection is keyed per endpoint, so a different api_base serving
+    the same model name still gets the option.
+    """
+    from interpreter.core.llm import llm as llm_module
+
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(dict(params))
+        if len(calls) == 1:
+            raise RuntimeError("Unsupported parameter: stream_options.include_usage")
+        return iter(())
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion
+    ):
+        for _ in range(2):
+            list(
+                llm_module.fixed_litellm_completions(
+                    model="memo-model",
+                    messages=[],
+                    stream_options={"include_usage": True},
+                )
+            )
+        # A different endpoint for the same model name is unaffected.
+        list(
+            llm_module.fixed_litellm_completions(
+                model="memo-model",
+                messages=[],
+                api_base="https://other.example/v1",
+                stream_options={"include_usage": True},
+            )
+        )
+
+    assert calls[0]["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in calls[1]
+    assert "stream_options" not in calls[2]
+    assert calls[3]["stream_options"] == {"include_usage": True}

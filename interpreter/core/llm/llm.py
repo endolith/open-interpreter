@@ -556,6 +556,12 @@ def _is_unsupported_stream_options_error(error):
     )
 
 
+# Endpoints that rejected stream_options are remembered per (api_base, model)
+# so only the first call pays for that discovery. Two endpoints can serve the
+# same model name and disagree about the option, hence the api_base in the key.
+_UNSUPPORTED_STREAM_OPTIONS = set()
+
+
 def fixed_litellm_completions(**params):
     """
     Just uses a dummy API key, since we use litellm without an API key sometimes.
@@ -569,6 +575,10 @@ def fixed_litellm_completions(**params):
     litellm.drop_params = True
 
     params["model"] = params["model"].replace(":latest", "")
+
+    stream_options_key = (params.get("api_base"), params["model"])
+    if stream_options_key in _UNSUPPORTED_STREAM_OPTIONS:
+        params.pop("stream_options", None)
 
     _fill_reasoning_content(params)
 
@@ -600,8 +610,10 @@ def fixed_litellm_completions(**params):
                 raise
             if "stream_options" in params and _is_unsupported_stream_options_error(e):
                 # Some OpenAI-compatible endpoints reject stream_options rather
-                # than ignoring it. Retry without it; usage is optional.
+                # than ignoring it. Retry without it; usage is optional. Remember
+                # the rejection so this is a one-off cost for the process.
                 params.pop("stream_options", None)
+                _UNSUPPORTED_STREAM_OPTIONS.add(stream_options_key)
                 continue
             if first_error is None:
                 # Store the first error that was not solved by dropping
