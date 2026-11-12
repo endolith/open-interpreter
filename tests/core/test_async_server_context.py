@@ -328,6 +328,39 @@ def test_non_streaming_turn_saves_conversation_history(tmp_path):
     assert saved[-1]["content"] == "4"
 
 
+def test_conversation_file_is_named_from_the_first_text_message(tmp_path):
+    """An image-first conversation is named from text, not from base64 (#436).
+
+    The OpenAI endpoint can arrive image-first, and its opening history entry
+    then carries base64 as `content`. `_save_conversation` used that for the
+    filename, producing a 25-character base64 stem. It should pick the first
+    entry whose type is "message" instead.
+    """
+    interpreter, _client = _make()
+    interpreter.messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "base64.png",
+            "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        },
+        {"role": "user", "type": "message", "content": "describe this image"},
+        {"role": "assistant", "type": "message", "content": "It is a single dot."},
+    ]
+    interpreter.conversation_history = True
+    interpreter.conversation_history_path = str(tmp_path)
+
+    interpreter._save_conversation()
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    name = files[0].stem
+    assert "describe_this" in name
+    assert "iVBOR" not in name
+    saved = json.loads(files[0].read_text(encoding="utf-8"))
+    assert saved[1]["content"] == "describe this image"
+
+
 def test_streaming_turn_saves_conversation_history(tmp_path):
     """A streaming endpoint turn writes the conversation file (#436)."""
 

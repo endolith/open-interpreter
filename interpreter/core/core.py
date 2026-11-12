@@ -227,13 +227,28 @@ class OpenInterpreter:
         if self.conversation_history:
             # If it's the first message, set the conversation name
             if not self.conversation_filename:
-                first_few_words_list = self.messages[0]["content"][:25].split(" ")
+                # An image-first conversation opens with base64 content; naming
+                # the file after 25 bytes of it is useless and unreadable. Prefer
+                # the first actual message, falling back to the opening entry when
+                # the conversation has none yet.
+                naming_message = next(
+                    (
+                        message
+                        for message in self.messages
+                        if message.get("type") == "message"
+                    ),
+                    self.messages[0],
+                )
+                opening_content = naming_message.get("content") or ""
+                if not isinstance(opening_content, str):
+                    opening_content = ""
+                first_few_words_list = opening_content[:25].split(" ")
                 if (
                     len(first_few_words_list) >= 2
                 ):  # for languages like English with blank between words
                     first_few_words = "_".join(first_few_words_list[:-1])
                 else:  # for languages like Chinese without blank between words
-                    first_few_words = self.messages[0]["content"][:15]
+                    first_few_words = opening_content[:15]
                 for char in '<>:"/\\|?*!\n':  # Invalid characters for filenames
                     first_few_words = first_few_words.replace(char, "")
 
