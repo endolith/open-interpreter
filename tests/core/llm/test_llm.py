@@ -8,8 +8,11 @@ from interpreter.core.llm.llm import (
     Llm,
     SuppressDebugFilter,
     _image_trim_limit,
+    _image_trim_reserve,
     _messages_contain_images,
+    _runner_request_overhead,
 )
+from interpreter.core.llm.run_tool_calling_llm import tool_conversion_overhead
 from interpreter.core.llm.utils.cache_aware_trim import _count_message_tokens
 from tests.helpers import TEST_LLM_MODEL
 
@@ -1039,13 +1042,13 @@ def _capture_converted(llm, messages, converted):
     return captured["params"]
 
 
-def test_run_charges_images_at_fixed_cost_not_base64_size():
+def test_run_charges_images_at_estimate_not_base64_size():
     """A large base64 image must not be tokenized as text.
 
     `tokentrim` counts the data URL by its characters, so a single screenshot
     used to look larger than the whole context window and evicted every other
-    turn (or raised outright). The image branch charges the provider's fixed
-    per-image cost instead, so the history survives untouched.
+    turn (or raised outright). The image branch charges a model-aware
+    per-image estimate instead, so the history survives untouched.
     """
     interp = _interp()
     llm = Llm(interp)
@@ -1053,7 +1056,7 @@ def test_run_charges_images_at_fixed_cost_not_base64_size():
     llm.model = TEST_LLM_MODEL
     llm.supports_functions = True
     llm.supports_vision = True
-    llm.context_window = 4000
+    llm.context_window = 8000
     llm.max_tokens = 100
 
     history = _raw_history(40)
@@ -1087,7 +1090,7 @@ def test_run_trims_text_history_with_image_to_the_budget():
     llm.model = TEST_LLM_MODEL
     llm.supports_functions = True
     llm.supports_vision = True
-    llm.context_window = 400
+    llm.context_window = 3000
     llm.max_tokens = 100
 
     history = _raw_history(20, size=400)
@@ -1105,7 +1108,7 @@ def test_run_trims_text_history_with_image_to_the_budget():
         for message in sent
         for part in (message.get("content") or [])
     )
-    assert _count_message_tokens(sent, TEST_LLM_MODEL) <= 275 + 1
+    assert _count_message_tokens(sent, TEST_LLM_MODEL) <= 2875
 
 
 def test_run_with_image_and_unknown_window_does_not_send_untrimmed_history():
@@ -1175,3 +1178,116 @@ def test_image_trim_limit_ignores_model_without_input_window():
         "interpreter.core.llm.llm.litellm.get_model_info", return_value={}
     ):
         assert _image_trim_limit(llm, "mystery-model") is None
+
+
+def test_runner_request_overhead_counts_execution_instructions():
+    """The text runner appends its instructions to the system message after
+    trimming, so the trim must reserve the tokens those instructions cost."""
+    llm = SimpleNamespace(
+        supports_functions=False,
+        execution_instructions="To execute code, write a markdown code block.",
+    )
+    assert _runner_request_overhead(llm, None) > 0
+    assert _runner_request_overhead(
+        SimpleNamespace(supports_functions=False, execution_instructions=""), None
+    ) == 0
+
+
+def test_runner_request_overhead_uses_the_real_language_enum():
+    """The tool schema is measured with OI's actual languages, not the template.
+
+    `run_tool_calling_llm` fills the template's empty `language` enum with the
+    interpreter's languages before sending.  Counting the empty template would
+    undercount the schema, so the reserved overhead must be measured from the
+    same populated schema the provider receives.
+    """
+    languages = [
+        SimpleNamespace(name=name) for name in ("python", "javascript", "bash")
+    ]
+    llm = SimpleNamespace(
+        supports_functions=True,
+        execution_instructions="",
+        interpreter=SimpleNamespace(
+            computer=SimpleNamespace(
+                terminal=SimpleNamespace(languages=languages)
+            )
+        ),
+    )
+    overhead = _runner_request_overhead(llm, None)
+    template_only = _runner_request_overhead(
+        SimpleNamespace(
+            supports_functions=True,
+            execution_instructions="",
+            interpreter=SimpleNamespace(),
+        ),
+        None,
+    )
+    assert overhead > template_only
+
+
+def test_image_trim_reserve_includes_tool_conversion_delta():
+    """Reserving only the tool schema would ignore what the tool-calling runner
+    adds after trimming: `function_call` turns become `tool_calls` with new ids
+    and results gain `tool_call_id`s.  The image budget must reserve that delta
+    too, or a long converted history can exceed the window after trimming."""
+    llm = SimpleNamespace(
+        supports_functions=True,
+        execution_instructions="",
+        interpreter=SimpleNamespace(),
+    )
+    messages = [
+        {"role": "user", "content": "run this"},
+        {
+            "role": "assistant",
+            "content": "",
+            "function_call": {"name": "execute", "arguments": "{}"},
+        },
+        {"role": "function", "name": "execute", "content": "1"},
+    ]
+    base = _runner_request_overhead(llm, None)
+    reserve = _image_trim_reserve(llm, messages, None)
+    assert reserve == base + tool_conversion_overhead(messages, None)
+    assert reserve > base
+
+
+def test_image_trim_reserve_skips_conversion_for_the_text_runner():
+    """`run_text_llm` never rewrites function_call turns, so a text-only run
+    reserves just the runner's fixed additions."""
+    llm = SimpleNamespace(
+        supports_functions=False,
+        execution_instructions="To execute code, write a code block.",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "function_call": {"name": "execute", "arguments": "{}"},
+        }
+    ]
+    assert _image_trim_reserve(llm, messages, None) == _runner_request_overhead(
+        llm, None
+    )
+
+
+def test_tool_schema_build_is_a_copy_of_the_template():
+    """Building a schema must not mutate the shared template.
+
+    The module-level template has an empty enum; filling it in place would leak
+    one interpreter's language list into every later request.
+    """
+    from interpreter.core.llm.run_tool_calling_llm import build_tool_schema, tool_schema
+
+    llm = SimpleNamespace(
+        interpreter=SimpleNamespace(
+            computer=SimpleNamespace(
+                terminal=SimpleNamespace(
+                    languages=[SimpleNamespace(name="python")]
+                )
+            )
+        )
+    )
+    schema = build_tool_schema(llm)
+    assert schema["function"]["parameters"]["properties"]["language"]["enum"] == [
+        "python"
+    ]
+    assert tool_schema["function"]["parameters"]["properties"]["language"]["enum"] == []
