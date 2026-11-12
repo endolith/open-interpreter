@@ -21,6 +21,22 @@ from ..base_language import BaseLanguage
 
 DEBUG_MODE = False
 
+# A hard kernel exit produces no idle message, so the run has to say why it
+# ended. The listener queues this before returning; the capture loop may also
+# detect the exit itself, so both paths share one constant to keep it to a
+# single notice per run.
+_KERNEL_EXIT_NOTICE = "The Python kernel exited. It will restart on the next run."
+
+
+def _is_kernel_exit_notice(chunk):
+    """Whether an output chunk is the kernel-exit notice."""
+    return (
+        isinstance(chunk, dict)
+        and chunk.get("type") == "console"
+        and chunk.get("content") == _KERNEL_EXIT_NOTICE
+    )
+
+
 # When running from an executable, ipykernel calls itself infinitely
 # This is a workaround to detect it and launch it manually
 if "ipykernel_launcher" in sys.argv:
@@ -100,8 +116,7 @@ class JupyterLanguage(BaseLanguage):
         self.km.start_kernel()
         self.kc = self.km.client()
         self.kc.start_channels()
-        while not self.kc.is_alive():
-            time.sleep(0.1)
+        self._wait_for_client()
         time.sleep(0.5)
 
         self.listener_thread = None
@@ -132,6 +147,12 @@ matplotlib.use('{backend}')
 %matplotlib inline
 import matplotlib.pyplot as plt
 """.strip()
+
+        if not self._kernel_is_alive():
+            # A replacement that died during startup cannot take the setup
+            # code. Skipping the warm-up leaves run() to report the failure
+            # instead of restarting recursively through __init__.
+            return
 
         self._startup_warmup = True
         try:
@@ -167,9 +188,93 @@ import matplotlib.pyplot as plt
             listener.join(timeout=10)
         self.terminate()
 
-    def run(self, code):
+    def _kernel_is_alive(self):
+        """Whether the kernel process is still running.
+
+        Client channels can stay open after the process exits, so checking
+        `kc.is_alive()` is not enough: `os._exit(0)` leaves them open and the
+        run waits forever for an idle message that cannot arrive.
+        """
+        km = getattr(self, "km", None)
+        if km is None:
+            return True
+        try:
+            return bool(km.is_alive())
+        except Exception:
+            return True
+
+    def _stop_kernel(self):
+        """Stop channels and shut the kernel down, ignoring teardown failures."""
+        try:
+            if getattr(self, "kc", None):
+                self.kc.stop_channels()
+        except Exception:
+            pass
+        try:
+            if getattr(self, "km", None):
+                self.km.shutdown_kernel(now=True)
+        except Exception:
+            pass
+
+    def _fence_listener(self, timeout=5):
+        """Invalidate and join the previous listener before the client changes.
+
+        A listener blocked in the input-patience model call only notices a stop
+        signal once that call returns, and it holds its own reference to the
+        client it was built for. Fencing it by generation is what guarantees it
+        cannot send input to, consume output from, or stop a later run even if
+        the bounded join below times out.
+        """
+        self._listener_generation = getattr(self, "_listener_generation", 0) + 1
+        previous_listener = getattr(self, "listener_thread", None)
+        if previous_listener is not None and previous_listener.is_alive():
+            previous_listener.join(timeout=timeout)
+
+    def _ensure_kernel(self):
+        """Recreate the kernel after a hard exit, with OI's setup applied.
+
+        Re-running __init__ is deliberate: a bare restart would leave the new
+        kernel without the matplotlib backend and the display formatter, and
+        the model depends on both.
+        """
+        if self._kernel_is_alive():
+            return
+        self.finish_flag = True
+        self._fence_listener()
+        self._stop_kernel()
+        self.__init__(self.computer)
+
+    def _wait_for_client(self, timeout=10):
+        """Wait for the client channels to come up, but never forever.
+
+        A replacement kernel that dies during startup never brings its client
+        up, so its process is checked too: a dead kernel ends the wait instead
+        of idling until the deadline.
+        """
+        deadline = time.time() + timeout
         while not self.kc.is_alive():
+            if not self._kernel_is_alive() or time.time() >= deadline:
+                return
             time.sleep(0.1)
+
+    def run(self, code):
+        try:
+            self._ensure_kernel()
+        except Exception:
+            # A restart that fails midway (start_kernel, channels, ...) must be
+            # reported like any other run failure, not escape as a traceback;
+            # tear down whatever part of the replacement came up.
+            self._stop_kernel()
+            yield {"type": "console", "format": "output", "content": traceback.format_exc()}
+            return
+        if not self._kernel_is_alive():
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": "The Python kernel could not be restarted.",
+            }
+            return
+        self._wait_for_client()
 
         self.last_output_time = time.time()
         self.last_output_message_time = time.time()
@@ -272,15 +377,35 @@ import matplotlib.pyplot as plt
         self._request_submitted = True
         self._execution_id = execution_id
 
-        def iopub_message_listener(execution_id=execution_id, generation=generation):
+        def iopub_message_listener(
+            execution_id=execution_id, generation=generation, kc=self.kc
+        ):
             # Bound as defaults so this listener always filters against the
             # request id from its own execute call, even if a later run
-            # overwrites self._execution_id.
+            # overwrites self._execution_id. The client is bound for the same
+            # reason: a restart swaps self.kc, and an old listener must never
+            # read from or type into the replacement.
             max_retries = 100
             while True:
                 if generation != self._listener_generation:
-                    # A newer request started: stop consuming the channel so
-                    # the current listener gets this run's messages.
+                    # A newer request started — or a restart replaced the
+                    # kernel — so stop consuming the channel and leave every
+                    # shared flag and the client to its current owner. This
+                    # check comes before the liveness one: during a restart
+                    # the process is briefly dead, and a stale listener that
+                    # reported that would stop the recovered run.
+                    return
+                # A hard exit (os._exit, OOM, segfault) closes the channels
+                # without sending idle; stop waiting and report it.
+                if not self._kernel_is_alive():
+                    message_queue.put(
+                        {
+                            "type": "console",
+                            "format": "output",
+                            "content": _KERNEL_EXIT_NOTICE,
+                        }
+                    )
+                    self.finish_flag = True
                     return
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
                 if self.finish_flag == True:
@@ -334,6 +459,13 @@ import matplotlib.pyplot as plt
                             if type(content) == str:
                                 response += content
 
+                        if generation != self._listener_generation:
+                            # A newer request started — or a restart replaced
+                            # the kernel — while the model call was blocking.
+                            # The answer describes an execution that no longer
+                            # owns the client, so act on none of it.
+                            return
+
                         # Parse the response for input tags
                         input_match = re.search(r"<input>(.*?)</input>", response)
                         if input_match:
@@ -343,9 +475,9 @@ import matplotlib.pyplot as plt
                             if user_input.upper() == "CTRL-C":
                                 self.finish_flag = True
                             else:
-                                self.kc.input(user_input)
+                                kc.input(user_input)
 
-                    msg = self.kc.iopub_channel.get_msg(timeout=0.05)
+                    msg = kc.iopub_channel.get_msg(timeout=0.05)
                 except queue.Empty:
                     continue
                 except Exception as e:
@@ -438,6 +570,8 @@ import matplotlib.pyplot as plt
         return line, None
 
     def _capture_output(self, message_queue):
+        exit_notice_delivered = False
+
         while True:
             time.sleep(0.1)
 
@@ -454,6 +588,8 @@ import matplotlib.pyplot as plt
                     output = message_queue.get(timeout=0.1)
                     if DEBUG_MODE:
                         print(output)
+                    if _is_kernel_exit_notice(output):
+                        exit_notice_delivered = True
                     yield output
 
                 except queue.Empty:
@@ -464,11 +600,56 @@ import matplotlib.pyplot as plt
                             output = message_queue.get(timeout=0.1)
                             if DEBUG_MODE:
                                 print(output)
+                            if _is_kernel_exit_notice(output):
+                                exit_notice_delivered = True
                             yield output
                         except queue.Empty:
                             if DEBUG_MODE:
                                 print("we're done")
                             break
+                    elif not self._kernel_is_alive():
+                        # The listener queues the notice when it sees the
+                        # exit, but it may be stuck in a channel read. Drain
+                        # what it left and deliver the notice once if it was
+                        # not already in the queue.
+                        while not message_queue.empty():
+                            output = message_queue.get()
+                            if _is_kernel_exit_notice(output):
+                                exit_notice_delivered = True
+                            yield output
+                        if not exit_notice_delivered:
+                            yield {
+                                "type": "console",
+                                "format": "output",
+                                "content": _KERNEL_EXIT_NOTICE,
+                            }
+                        self.finish_flag = True
+                        break
+                    elif (
+                        not self.listener_thread.is_alive()
+                        and message_queue.empty()
+                    ):
+                        # The listener died without setting finish_flag. The
+                        # kernel may still be running code whose output this
+                        # run can no longer collect, so interrupt it and
+                        # report why the run ended instead of pretending it
+                        # completed normally.
+                        try:
+                            self.km.interrupt_kernel()
+                        except Exception:
+                            # Best-effort interrupt: a dead client connection
+                            # must not turn the report into another crash.
+                            pass
+                        self.finish_flag = True
+                        yield {
+                            "type": "console",
+                            "format": "output",
+                            "content": (
+                                "The Python kernel stopped sending output; "
+                                "the run was interrupted."
+                            ),
+                        }
+                        break
 
     def stop(self):
         self.finish_flag = True
