@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 
@@ -31,6 +32,21 @@ tool_schema = {
         },
     },
 }
+
+
+def build_tool_schema(llm):
+    """Return the `execute` tool schema populated with OI's available languages.
+
+    The module-level `tool_schema` is a template whose language enum is empty.
+    Building a fresh copy per request keeps one interpreter's language list
+    from leaking into another's request, and lets the context trim count the
+    exact schema the runner will attach.
+    """
+    schema = copy.deepcopy(tool_schema)
+    schema["function"]["parameters"]["properties"]["language"]["enum"] = [
+        language.name.lower() for language in llm.interpreter.computer.terminal.languages
+    ]
+    return schema
 
 
 def process_messages(messages):
@@ -105,10 +121,7 @@ def run_tool_calling_llm(llm, request_params):
     ## Setup
 
     # Add languages OI has access to
-    tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
-        i.name.lower() for i in llm.interpreter.computer.terminal.languages
-    ]
-    request_params["tools"] = [tool_schema]
+    request_params["tools"] = [build_tool_schema(llm)]
 
     request_params["messages"] = process_messages(request_params["messages"])
 
