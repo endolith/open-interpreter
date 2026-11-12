@@ -1630,27 +1630,32 @@ def test_hello_world():
 
 @pytest.mark.integration
 def test_math():
-    """Integration: LLM computes a random order-of-operations expression correctly."""
+    """Integration: the chat loop returns the model's answer to an expression.
 
-    min_number = randint(1, 99)
-    max_number = randint(1001, 9999)
+    The expression is small and integral on purpose. This test exists to check
+    that ``chat`` relays a plain text answer; it is not a model-capability
+    test, and multi-step float arithmetic made it fail on a mental-arithmetic
+    slip even when nothing under test had changed (#581). Operands within 2-9
+    keep a correct answer exact, so the comparison can require a number that
+    equals the expected result rather than a substring.
+    """
+    n1 = randint(2, 9)
+    n2 = randint(2, 9)
 
-    n1 = randint(min_number, max_number)
-    n2 = randint(min_number, max_number)
-
-    test_result = n1 + n2 * (n1 - n2) / (n2 + n1)
+    # Multiplication binds before the additions and subtractions, so a strictly
+    # left-to-right evaluation would land on a different number.
+    test_result = n1 + n2 * n1 - n2
 
     order_of_operations_message = f"""
-    Please perform the calculation `{n1} + {n2} * ({n1} - {n2}) / ({n2} + {n1})` then reply with just the answer, nothing else. No confirmation. No explanation. No words. Do not use commas. Do not show your work. Just return the result of the calculation. Do not introduce the results with a phrase like \"The result of the calculation is...\" or \"The answer is...\"
+    Please perform the calculation `{n1} + {n2} * {n1} - {n2}` then reply with just the answer, nothing else. No confirmation. No explanation. No words. Do not use commas. Do not show your work. Just return the result of the calculation. Do not introduce the results with a phrase like \"The result of the calculation is...\" or \"The answer is...\"
 
-    Round to 2 decimal places.
+    Reply with a whole number.
     """.strip()
 
-    print("loading")
     messages = interpreter.chat(order_of_operations_message)
-    print("done")
 
-    assert str(round(test_result, 2)) in messages[-1]["content"]
+    numbers = [float(number) for number in re.findall(r"\d+", messages[-1]["content"])]
+    assert any(number == test_result for number in numbers)
 
 
 @pytest.mark.timeout(120)
