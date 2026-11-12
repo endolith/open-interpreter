@@ -5,6 +5,7 @@ import pytest
 
 from interpreter import OpenInterpreter
 from interpreter.core.llm.llm import Llm, SuppressDebugFilter
+from interpreter.core.llm.utils.cache_aware_trim import _count_message_tokens
 from tests.helpers import TEST_LLM_MODEL
 
 
@@ -974,3 +975,157 @@ def test_run_prepends_empty_system_message():
 
     assert captured["params"]["messages"][0]["role"] == "system"
     assert captured["params"]["messages"][0]["content"] == ""
+
+def _raw_text(role, text):
+    """A message in Open Interpreter's pre-conversion shape."""
+    return {"role": role, "type": "message", "content": text}
+
+
+def _raw_history(turns, size=200):
+    """User/assistant text turns, ending on a user message."""
+    messages = []
+    for index in range(turns):
+        role = "user" if index % 2 == 0 else "assistant"
+        messages.append(_raw_text(role, f"{index} " + "x" * size))
+    if messages[-1]["role"] != "user":
+        messages.append(_raw_text("user", "last"))
+    return messages
+
+
+def _converted_with_image(history, size=200_000):
+    """OpenAI-format messages: a text history plus one large base64 image."""
+    converted = [{"role": "system", "content": "s"}] + [
+        {"role": message["role"], "content": message["content"]} for message in history
+    ]
+    converted.append(
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "what is in this screenshot?"},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64," + "A" * size,
+                        "detail": "low",
+                    },
+                },
+            ],
+        }
+    )
+    return converted
+
+
+def _capture_converted(llm, messages, converted):
+    """Run llm.run with the LLM plumbing and message conversion stubbed out."""
+    captured = {}
+
+    def fake_run(llm_obj, params):
+        captured["params"] = params
+        return iter(())
+
+    with mock.patch(
+        "interpreter.core.llm.llm.run_tool_calling_llm", side_effect=fake_run
+    ):
+        with mock.patch(
+            "interpreter.core.llm.llm.convert_to_openai_messages",
+            return_value=converted,
+        ):
+            list(llm.run(messages))
+    return captured["params"]
+
+
+def test_run_charges_images_at_fixed_cost_not_base64_size():
+    """A large base64 image must not be tokenized as text.
+
+    `tokentrim` counts the data URL by its characters, so a single screenshot
+    used to look larger than the whole context window and evicted every other
+    turn (or raised outright). The image branch charges the provider's fixed
+    per-image cost instead, so the history survives untouched.
+    """
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.model = TEST_LLM_MODEL
+    llm.supports_functions = True
+    llm.supports_vision = True
+    llm.context_window = 4000
+    llm.max_tokens = 100
+
+    history = _raw_history(40)
+    raw = [{"role": "system", "type": "message", "content": "s"}] + history + [
+        {"role": "user", "type": "image", "format": "base64.png", "content": "A" * 200_000}
+    ]
+    converted = _converted_with_image(history)
+
+    sent = _capture_converted(llm, raw, converted)["messages"]
+
+    assert len(sent) == len(converted)
+    image_parts = [
+        part
+        for message in sent
+        for part in (message.get("content") or [])
+        if isinstance(part, dict) and part.get("type") == "image_url"
+    ]
+    assert len(image_parts) == 1
+    assert len(image_parts[0]["image_url"]["url"]) > 100_000
+
+
+def test_run_trims_text_history_with_image_to_the_budget():
+    """An oversized history that includes an image is trimmed to the window.
+
+    Trimming still happens for text turns — the image fix only stops the image
+    itself from being over-counted — and the image is never truncated.
+    """
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.model = TEST_LLM_MODEL
+    llm.supports_functions = True
+    llm.supports_vision = True
+    llm.context_window = 400
+    llm.max_tokens = 100
+
+    history = _raw_history(20, size=400)
+    raw = [{"role": "system", "type": "message", "content": "s"}] + history + [
+        {"role": "user", "type": "image", "format": "base64.png", "content": "A" * 200_000}
+    ]
+    converted = _converted_with_image(history)
+
+    sent = _capture_converted(llm, raw, converted)["messages"]
+
+    assert len(sent) < len(converted)
+    assert sent[0] == {"role": "system", "content": "s"}
+    assert any(
+        isinstance(part, dict) and part.get("type") == "image_url"
+        for message in sent
+        for part in (message.get("content") or [])
+    )
+    assert _count_message_tokens(sent, TEST_LLM_MODEL) <= 275 + 1
+
+
+def test_run_with_image_and_unknown_window_does_not_send_untrimmed_history():
+    """An unknown model with images still gets a bounded request.
+
+    `tokentrim` raises a TypeError on multipart content, and the old bare
+    `except` re-sent the whole history. The image path falls back to 8000
+    tokens instead, so the API never receives a prompt it will reject.
+    """
+    interp = _interp()
+    llm = Llm(interp)
+    llm._is_loaded = True
+    llm.model = "totally-unknown-model-xyz"
+    llm.supports_functions = True
+    llm.supports_vision = True
+    llm.context_window = None
+    llm.max_tokens = None
+
+    history = _raw_history(200, size=400)
+    raw = [{"role": "system", "type": "message", "content": "s"}] + history + [
+        {"role": "user", "type": "image", "format": "base64.png", "content": "A" * 200_000}
+    ]
+    converted = _converted_with_image(history)
+
+    sent = _capture_converted(llm, raw, converted)["messages"]
+
+    assert len(sent) < len(converted)
+    assert sent[0] == {"role": "system", "content": "s"}

@@ -73,7 +73,7 @@ llm:
 
 ### Context Window
 
-Manually set the context window size in tokens for the model. For local models, using a smaller context window will use less RAM, which is more suitable for most devices.
+Manually set the context window size in tokens for the model. For local models, using a smaller context window will use less RAM, which is more suitable for most devices. When a conversation contains images, each one counts as the provider's fixed per-image token cost rather than as its raw base64 size, so a screenshot doesn't consume the whole window.
 
 <CodeGroup>
 

@@ -23,6 +23,7 @@ from .providers import OpenRouterCatalogError, openrouter_model_entry
 
 from .run_text_llm import run_text_llm
 from .run_tool_calling_llm import run_tool_calling_llm
+from .utils.cache_aware_trim import cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 
 # Create or get the logger
@@ -66,6 +67,44 @@ def _supports_vision(model: str) -> bool | None:
     except Exception:
         pass
     return False
+
+
+def _messages_contain_images(messages):
+    """Whether any converted message carries an `image_url` content part.
+
+    Image parts are base64 data URLs, not text: tokenizing them literally makes
+    one screenshot look larger than an entire context window, so the trim
+    branch below must count them differently (see ``cache_aware_trim``).
+    """
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                return True
+    return False
+
+
+def _image_trim_limit(llm, model):
+    """Token budget for image-bearing prompts, mirroring the branches below.
+
+    Returns ``None`` when neither an explicit window nor a known model is
+    available; the caller then falls back to the same conservative 8000-token
+    budget the text path warns about for unknown models.
+    """
+    if llm.context_window and llm.max_tokens:
+        return llm.context_window - llm.max_tokens - 25  # arbitrary buffer
+    if llm.context_window:
+        return llm.context_window
+    if model:
+        try:
+            window = litellm.get_model_info(model).get("max_input_tokens")
+        except Exception:
+            window = None
+        if window:
+            return window - (llm.max_tokens or 0) - 25
+    return None
 
 
 class Llm:
@@ -258,7 +297,21 @@ class Llm:
 
         # Trim messages
         try:
-            if self.context_window and self.max_tokens:
+            if _messages_contain_images(messages):
+                # `tokentrim` tokenizes a base64 image as text, so one screenshot
+                # can outweigh the whole window and either raise (a multipart
+                # content list is not encodable as a string) or evict every
+                # other turn. Count image parts at their fixed provider cost
+                # instead. retention_ratio=1.0 keeps this a plain sliding
+                # window, matching the text branches below.
+                messages = cache_aware_trim(
+                    messages,
+                    system_message=system_message,
+                    token_limit=_image_trim_limit(self, model) or 8000,
+                    retention_ratio=1.0,
+                    model=model,
+                )
+            elif self.context_window and self.max_tokens:
                 trim_to_be_this_many_tokens = (
                     self.context_window - self.max_tokens - 25
                 )  # arbitrary buffer
@@ -279,7 +332,7 @@ class Llm:
                     messages = tt.trim(
                         messages, system_message=system_message, model=model
                     )
-                except:
+                except Exception:
                     if len(messages) == 1:
                         if self.interpreter.in_terminal_interface:
                             self.interpreter.display_message(
@@ -306,15 +359,14 @@ Continuing...
                     messages = tt.trim(
                         messages, system_message=system_message, max_tokens=8000
                     )
-        except:
-            # If we're trimming messages, this won't work.
-            # If we're trimming from a model we don't know, this won't work.
-            # Better not to fail until `messages` is too big, just for frustrations sake, I suppose.
+        except Exception as exc:
+            # Trimming is best-effort: a model or provider whose limits we can't
+            # determine shouldn't abort the turn. Report it rather than silently
+            # sending the full, oversized history to the API.
+            logger.warning("Could not trim messages: %s", exc)
 
             # Reunite system message with messages
             messages = [{"role": "system", "content": system_message}] + messages
-
-            pass
 
         # If there should be a system message, there should be a system message!
         # Empty system messages appear to be deleted :(
