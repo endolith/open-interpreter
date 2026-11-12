@@ -42,6 +42,21 @@ def _language(**attrs):
     return lang
 
 
+class _QueueAfterEmpty(queue.Queue):
+    """A queue whose first get raises Empty, as if an item landed just after."""
+
+    def __init__(self, item):
+        super().__init__()
+        self.put(item)
+        self.gets = 0
+
+    def get(self, block=True, timeout=None):
+        self.gets += 1
+        if self.gets == 1:
+            raise queue.Empty
+        return super().get(block=block, timeout=timeout)
+
+
 def test_a_persistent_listener_failure_is_re_raised_after_the_retry_budget(monkeypatch):
     """A kernel that keeps erroring surfaces eventually instead of spinning forever.
 
@@ -562,20 +577,6 @@ def test_capture_output_drains_output_that_arrives_as_the_kernel_dies():
     dropping the run's last output.
     """
 
-    class _QueueAfterEmpty(queue.Queue):
-        """Raises Empty once, as if the chunk landed just after the timeout."""
-
-        def __init__(self, item):
-            super().__init__()
-            self.put(item)
-            self.gets = 0
-
-        def get(self, block=True, timeout=None):
-            self.gets += 1
-            if self.gets == 1:
-                raise queue.Empty
-            return super().get(block=block, timeout=timeout)
-
     lang = _language()
     lang.km = SimpleNamespace(is_alive=lambda: False)
     lang.listener_thread = threading.Thread(target=lambda: None)
@@ -713,3 +714,54 @@ def test_capture_output_does_not_repeat_the_exit_notice():
 
     assert chunks == [notice]
     assert lang.finish_flag is True
+
+
+def test_capture_output_and_drain_do_not_repeat_the_exit_notice():
+    """A notice drained after the dead-kernel check is yielded once, not twice.
+
+    The listener can enqueue its notice just after the consumer's timeout, so
+    the drain loop has to recognize it and suppress the fallback copy the same
+    way the normal queue path does.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    lang.listener_thread = threading.Thread(target=lambda: None)
+    notice = {
+        "type": "console",
+        "format": "output",
+        "content": "The Python kernel exited. It will restart on the next run.",
+    }
+    queued = _QueueAfterEmpty(notice)
+
+    chunks = _collect(lang._capture_output(queued))
+
+    assert chunks == [notice]
+    assert lang.finish_flag is True
+
+
+def test_a_restart_without_a_client_shuts_down_only_the_manager(monkeypatch):
+    """A half-built kernel may have no client, so the restart must not assume one.
+
+    ``__init__`` can fail after the manager exists but before a client is
+    created; the restart path then has to shut the manager down without
+    touching a missing ``kc``, rather than raising AttributeError.
+    """
+    lang = _language()
+    lang.kc = None
+    lang._kernel_ready = False
+    dead_km = SimpleNamespace(is_alive=lambda: False, shutdown_kernel=mock.Mock())
+    lang.km = dead_km
+    restarted = {}
+
+    def fake_init(_self, computer):
+        restarted["computer"] = computer
+        _self._kernel_ready = True
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", fake_init)
+
+    lang._ensure_kernel()
+
+    assert restarted["computer"] is lang.computer
+    dead_km.shutdown_kernel.assert_called_once_with(now=True)
+    assert lang._kernel_restart_error is None
+    assert lang._kernel_ready is True
