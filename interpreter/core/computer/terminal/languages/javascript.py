@@ -22,8 +22,27 @@ class JavaScript(SubprocessLanguage):
         if line.strip() in ["undefined", 'Type ".help" for more information.']:
             return None
         line = line.strip(". \n")
-        # Remove trailing ">"s
-        line = re.sub(r"^\s*(>\s*)+", "", line)
+        # Strip the REPL prompt sequence, including the continuation prompts
+        # for multi-line input: "> ", "> > ", "... ... ". Without the "..." arm
+        # Node echoes a buffered multi-line command as "... ... ... " glued to
+        # the result line, which the model then reads as output.
+        line = re.sub(r"^\s*(?:(?:>\s*)|(?:\.\.\.\s*))+", "", line)
+        # Node 24 renders a buffered multi-line command's continuation prompt as
+        # "| " (readline's kMultilinePrompt) and emits the run on the result
+        # line. Our try/catch wrapper is at least seven lines, so a real run is
+        # long; requiring four leaves ordinary output such as a markdown table
+        # row ("| a | b |", or "| | empty") untouched.
+        #
+        # The prompt token and a row's first cell delimiter are the same "| ",
+        # so a table row that directly follows the prompts loses its leading
+        # delimiter along with them ("| | | | | | | | a | b |" -> "a | b |").
+        # Where the prompts stop is not recoverable from the line alone, so put
+        # one delimiter back when what remains still looks like a row: it ends
+        # with a delimiter and has another one inside. Rows with several leading
+        # empty cells stay ambiguous, as does a value that merely ends in "|".
+        line, prompt_run = re.subn(r"^(?:\| ){4,}", "", line)
+        if prompt_run and line.endswith("|") and line.count("|") >= 2:
+            line = "| " + line
         return line
 
     def detect_active_line(self, line):
