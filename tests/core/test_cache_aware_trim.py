@@ -1,5 +1,9 @@
 from interpreter.core.llm.utils.cache_aware_trim import (
     _count_message_tokens,
+    _count_text,
+    _extract_ts,
+    _find_safe_cut,
+    _get_encoding,
     cache_aware_trim,
 )
 
@@ -330,3 +334,92 @@ def test_cut_never_orphans_an_assistant_tool_call():
     assert not any(m.get("tool_calls") for m in retained)
     assert not any(m.get("role") == "tool" for m in retained)
     assert retained == messages[3:]
+
+
+def test_count_text_ignores_non_text_values():
+    """Non-text scalars cost zero tokens instead of breaking the count.
+
+    Message dicts can carry numbers, booleans, or nulls (for example a
+    `tool_call` index), so the counter must skip them rather than raise and
+    abort the whole trim.
+    """
+    encoding = _get_encoding(None)
+    assert _count_text(42, encoding) == 0
+    assert _count_text(None, encoding) == 0
+    assert _count_text([42, None], encoding) == 0
+
+
+def test_find_safe_cut_counts_when_costs_are_not_precomputed():
+    """The cut helper stays usable without precomputed per-message costs.
+
+    Callers with a conversion cache pass costs in, but the default path must
+    count for itself and land on the same boundary.
+    """
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        {"role": "assistant", "content": "a"},
+        _big_user("2026-08-11 09:00", "second"),
+    ]
+    costs = [_count_message_tokens([m], None) for m in messages]
+    assert _find_safe_cut(messages, 1000, None) == _find_safe_cut(
+        messages, 1000, None, costs=costs
+    )
+
+
+def test_extract_ts_reads_text_part_in_multipart_message():
+    """Multipart user messages still yield their `[YYYY-MM-DD HH:MM]` prefix.
+
+    Once vision is used, user content becomes a list of text/image parts, and
+    only the text part carries the timestamp the omission placeholder quotes.
+    """
+    assert (
+        _extract_ts(
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "[2026-11-12 07:00] hi"}],
+            }
+        )
+        == "2026-11-12 07:00"
+    )
+    # Content that is neither a string nor a list of parts carries no prefix.
+    assert _extract_ts({"role": "user", "content": None}) is None
+    # No text part at all, and a text part without a timestamp, both yield None.
+    assert (
+        _extract_ts(
+            {
+                "role": "user",
+                "content": [{"type": "image_url", "image_url": {"url": "data:..."}}],
+            }
+        )
+        is None
+    )
+    assert (
+        _extract_ts({"role": "user", "content": [{"type": "text", "text": "hi"}]})
+        is None
+    )
+
+
+def test_retention_ratio_none_applies_default():
+    """Omitting the retention ratio selects the documented 0.8 default."""
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        _big_user("2026-08-11 09:00", "second"),
+        _big_user("2026-08-12 09:00", "third"),
+    ]
+    assert cache_aware_trim(
+        messages, SYSTEM, token_limit=500, retention_ratio=None
+    ) == cache_aware_trim(messages, SYSTEM, token_limit=500)
+
+
+def test_precomputed_message_costs_match_the_counted_path():
+    """Supplied per-message costs are used verbatim, skipping a second pass."""
+    messages = [
+        _big_user("2026-08-10 09:00", "first"),
+        _big_user("2026-08-11 09:00", "second"),
+        {"role": "assistant", "content": "a"},
+        _big_user("2026-08-12 09:00", "third"),
+    ]
+    costs = [_count_message_tokens([m], None) for m in messages]
+    assert cache_aware_trim(
+        messages, SYSTEM, token_limit=500, message_costs=costs
+    ) == cache_aware_trim(messages, SYSTEM, token_limit=500)

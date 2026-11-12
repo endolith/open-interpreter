@@ -4,7 +4,12 @@ from unittest import mock
 import pytest
 
 from interpreter import OpenInterpreter
-from interpreter.core.llm.llm import Llm, SuppressDebugFilter
+from interpreter.core.llm.llm import (
+    Llm,
+    SuppressDebugFilter,
+    _image_trim_limit,
+    _messages_contain_images,
+)
 from interpreter.core.llm.utils.cache_aware_trim import _count_message_tokens
 from tests.helpers import TEST_LLM_MODEL
 
@@ -1129,3 +1134,44 @@ def test_run_with_image_and_unknown_window_does_not_send_untrimmed_history():
 
     assert len(sent) < len(converted)
     assert sent[0] == {"role": "system", "content": "s"}
+
+
+def test_messages_contain_images_ignores_text_only_parts():
+    """A multipart message without an `image_url` part is not image-bearing.
+
+    Mixed content can produce a text-only list; claiming images there would
+    take the image-specific trim path for an ordinary text prompt.
+    """
+    messages = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+    assert _messages_contain_images(messages) is False
+
+
+def test_image_trim_limit_uses_context_window_without_max_tokens():
+    """An explicit context window is the budget when max_tokens is unset."""
+    llm = SimpleNamespace(context_window=4000, max_tokens=None)
+    assert _image_trim_limit(llm, None) == 4000
+
+
+def test_image_trim_limit_returns_none_without_window_or_model():
+    """No explicit window and no model means the caller's 8000 fallback applies."""
+    llm = SimpleNamespace(context_window=None, max_tokens=None)
+    assert _image_trim_limit(llm, None) is None
+
+
+def test_image_trim_limit_subtracts_max_tokens_from_model_window():
+    """A known model window is reduced by the reserved completion budget."""
+    llm = SimpleNamespace(context_window=None, max_tokens=100)
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.get_model_info",
+        return_value={"max_input_tokens": 8000},
+    ):
+        assert _image_trim_limit(llm, "gpt-4o") == 8000 - 100 - 25
+
+
+def test_image_trim_limit_ignores_model_without_input_window():
+    """Model info without `max_input_tokens` yields None instead of a crash."""
+    llm = SimpleNamespace(context_window=None, max_tokens=None)
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.get_model_info", return_value={}
+    ):
+        assert _image_trim_limit(llm, "mystery-model") is None
