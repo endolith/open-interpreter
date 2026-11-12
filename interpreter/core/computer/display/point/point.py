@@ -25,6 +25,11 @@ english_words = set(words.words())
 
 
 def take_screenshot_to_pil(filename="temp_screenshot.png"):
+    """Capture the screen with macOS `screencapture` and return it as a PIL image.
+
+    The command writes a temporary PNG, which is read into memory and then
+    deleted so a failed or concurrent capture does not accumulate files.
+    """
     # Capture the screenshot and save it to a temporary file
     subprocess.run(["screencapture", "-x", filename], check=True)
 
@@ -43,6 +48,12 @@ from ...utils.computer_vision import find_text_in_image
 
 
 def point(description, screenshot=None, debug=False, hashes=None):
+    """Resolve a description to a list of normalized click coordinates.
+
+    A description wrapped in double quotes names literal on-screen text and
+    goes through OCR text search; anything else is treated as an icon
+    description and matched visually.
+    """
     if description.startswith('"') and description.endswith('"'):
         return find_text_in_image(description.strip('"'), screenshot, debug)
     else:
@@ -71,6 +82,11 @@ def _expand_boxes(icons_bounding_boxes, image_width, image_height, pixel_expand)
 
 
 def find_icon(description, screenshot=None, debug=False, hashes=None):
+    """Find icon-like regions and return the normalized centers of the best matches.
+
+    Detects candidate boxes, drops text and extreme sizes, expands and merges
+    overlapping boxes, then ranks the remaining crops against the description.
+    """
     if debug:
         print("STARTING")
     if screenshot == None:
@@ -345,6 +361,13 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
         )
 
     def combine_boxes(icons_bounding_boxes):
+        """Merge overlapping boxes into their bounding rectangle.
+
+        Repeats until a pass produces no merges, so a chain of overlapping
+        boxes collapses into a single box. Each pass grows a merged box's far
+        edges from the boxes being merged, never from an origin shifted
+        mid-comparison.
+        """
         while True:
             combined_boxes = []
             for box in icons_bounding_boxes:
@@ -355,22 +378,23 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
                         and box["y"] < combined_box["y"] + combined_box["height"]
                         and box["y"] + box["height"] > combined_box["y"]
                     ):
+                        # Read the far edges before moving the origin: the width
+                        # and height below are measured from combined_box["x"]/
+                        # ["y"], so mutating them first would compare the
+                        # incoming box against the shifted origin and cut off
+                        # whatever stuck out past it.
+                        right = max(
+                            box["x"] + box["width"],
+                            combined_box["x"] + combined_box["width"],
+                        )
+                        bottom = max(
+                            box["y"] + box["height"],
+                            combined_box["y"] + combined_box["height"],
+                        )
                         combined_box["x"] = min(box["x"], combined_box["x"])
                         combined_box["y"] = min(box["y"], combined_box["y"])
-                        combined_box["width"] = (
-                            max(
-                                box["x"] + box["width"],
-                                combined_box["x"] + combined_box["width"],
-                            )
-                            - combined_box["x"]
-                        )
-                        combined_box["height"] = (
-                            max(
-                                box["y"] + box["height"],
-                                combined_box["y"] + combined_box["height"],
-                            )
-                            - combined_box["y"]
-                        )
+                        combined_box["width"] = right - combined_box["x"]
+                        combined_box["height"] = bottom - combined_box["y"]
                         break
                 else:
                     combined_boxes.append(box.copy())
@@ -484,6 +508,7 @@ if fast_model == False:
     transforms = timm.data.create_transform(**data_config, is_training=False)
 
     def embed_images(images: List[Image.Image], model, transforms):
+        """Embed a batch of PIL images with the given model and transforms."""
         # Stack images along the batch dimension
         image_batch = torch.stack([transforms(image) for image in images])
         # Get embeddings
@@ -507,6 +532,14 @@ model = model.to(device)
 
 
 def image_search(query, icons, hashes, debug):
+    """Rank icons by semantic similarity to the query, returning the best matches.
+
+    Embeddings for icons whose hash is already in ``hashes`` are reused and
+    the rest are computed here, so repeated searches over the same screen skip
+    the expensive encoding step. The top hit is always returned even when no
+    score clears the similarity threshold, because an empty result is
+    indistinguishable from a failed search to the caller.
+    """
     hashed_icons = [icon for icon in icons if icon["hash"] in hashes]
     unhashed_icons = [icon for icon in icons if icon["hash"] not in hashes]
 
@@ -554,6 +587,12 @@ def image_search(query, icons, hashes, debug):
 
 
 def get_element_boxes(image_data, debug):
+    """Detect icon-sized rectangles by thresholding the image and finding contours.
+
+    Runs the image through a fixed contrast/threshold pass, or through ten
+    randomized passes when ``OI_POINT_PERMUTATE`` is set, and turns every
+    contour it finds into a bounding box.
+    """
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
     debug_path = os.path.join(desktop_path, "oi-debug")
 
@@ -582,6 +621,12 @@ def get_element_boxes(image_data, debug):
         block_size=11,
         C=3,
     ):
+        """Apply contrast enhancement and adaptive thresholding, returning contours.
+
+        Each pass uses the given contrast level and OpenCV thresholding
+        parameters, optionally saving the intermediate images under
+        ``debug_path`` so a pass that misses an icon can be inspected later.
+        """
         # Apply an extreme contrast filter
         enhancer = ImageEnhance.Contrast(pil_image)
         contrasted_image = enhancer.enhance(

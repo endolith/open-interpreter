@@ -453,6 +453,7 @@ def _run_find_icon(monkeypatch, boxes, text_blocks=(), screenshot=None, **env):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the icons offered for ranking and return the first as the hit."""
         captured["icons"] = icons
         return icons[:1]
 
@@ -610,6 +611,37 @@ def test_expansion_clamps_to_the_image_edge(monkeypatch):
     assert box["x"] + box["width"] == 200, "the box still covers the icon"
 
 
+def test_merging_boxes_keeps_the_far_edge_of_the_earlier_box(monkeypatch):
+    """A box that extends the merge left keeps the right edge of the existing box.
+
+    combine_boxes used to overwrite combined_box["x"] before recomputing the
+    width from it, so the incoming box's far edge was compared against the
+    shifted origin and lost whatever stuck out past it (#403, #432):
+
+        expanded input  163..200, 173..197, 143..167
+        broken merge    143..180   (right edge 20px short)
+        fixed merge     143..200
+
+    The right edge has to come from the pre-merge boxes. A regression here
+    silently narrows every icon that overlaps a neighbour on one side.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 170, "y": 20, "width": 30, "height": 10},
+            {"x": 180, "y": 20, "width": 10, "height": 10},
+            {"x": 150, "y": 20, "width": 10, "height": 10},
+        ],
+        OI_POINT_PIXEL_EXPAND="7",
+    )
+
+    assert len(icons) == 1
+    box = icons[0]
+    assert box["x"] == 143
+    assert box["width"] == 57
+    assert box["x"] + box["width"] == 200, "the merge must keep the far edge"
+
+
 def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
     """When every candidate is filtered out, image_search is given an empty list.
 
@@ -627,6 +659,7 @@ def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the icons offered for ranking and report no matches."""
         captured["icons"] = icons
         return []
 
@@ -752,6 +785,7 @@ def test_permutation_does_vary_the_other_three_parameters(monkeypatch):
     state = {}
 
     def rotate(options):
+        """Return each supplied option in turn, wrapping around to the first."""
         key = tuple(options)
         index = state.get(key, 0)
         state[key] = index + 1
@@ -916,6 +950,7 @@ def test_point_downloads_words_on_lookup_error(monkeypatch):
     calls = []
 
     def flaky_words():
+        """Raise on first access to simulate a missing corpus, then return words."""
         if not calls:
             calls.append(1)
             raise LookupError("missing corpus")
