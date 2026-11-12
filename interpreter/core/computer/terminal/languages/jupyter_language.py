@@ -133,7 +133,12 @@ import matplotlib.pyplot as plt
             return True
         try:
             return bool(km.is_alive())
-        except Exception:
+        except Exception as error:
+            # Fail open: a spurious restart would discard the user's live
+            # session state. Under verbose, surface the failure so a probe that
+            # fails consistently is distinguishable from a healthy kernel.
+            if getattr(getattr(self, "computer", None), "verbose", False):
+                print(f"Kernel liveness check failed: {error}")
             return True
 
     def _ensure_kernel(self):
