@@ -37,8 +37,11 @@ _MAX_STUB_ATTEMPTS = 40
 
 
 def _stub_module(name):
-    # A MagicMock tolerates the `from x import y` forms point.py and its
-    # siblings use, which a bare ModuleType stub cannot.
+    """Return a MagicMock standing in for an optional dependency module.
+
+    A MagicMock tolerates the `from x import y` forms point.py and its
+    siblings use, which a bare ModuleType stub cannot.
+    """
     module = mock.MagicMock(name=name)
     module.__name__ = name
     module.__spec__ = mock.MagicMock()
