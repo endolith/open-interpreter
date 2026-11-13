@@ -69,10 +69,35 @@ When changing code, update **all** relevant documentation:
 - **Make every commit a small, self-contained, working unit that completes one coherent idea—and nothing else** (i.e., both atomic and logical). Unrelated edits belong in separate commits even when each is small (e.g. a workflow trigger change and a pytest marker are two commits). A commit's idea includes everything that supports it—its tests, documentation, and any CI/workflow changes for it—so keep those in the same commit as the code they describe, not in a later commit for a different feature, and reviewers can read commit-by-commit while `git revert <commit>` undoes one idea cleanly.
 - **Fold follow-up fixes into the commit that caused the problem.** If a commit in an unmerged branch needs a small fix (e.g. it broke CI), squash that fix into the original commit with `git rebase -i` (mark it `fixup`) rather than stacking a "fix CI" commit on top. History should read as if each commit was correct the first time, so every commit is one coherent, CI-green unit.
 - **Never commit agent-generated scratch files.** AI assistants sometimes write summary/status notes into the repo (e.g. `*_summary.md`, session notes, chat dumps); these are not part of the codebase and must not be committed. If one is accidentally committed in an unmerged branch, remove it from history with `git rebase -i` rather than adding a "delete file" commit that leaves an add-then-delete pair.
-- **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain the problem being solved, the chosen approach, and any trade-offs. Provide the *context* that makes the diff understandable—why each change exists and what it achieves. Avoid meta-commentary about the commit itself (e.g., "fixing my commit according to instructions"). Keep process discussion in chat.
+- **Write comprehensive commit messages.** The subject line is a concise summary; the body must explain the problem being solved, the chosen approach, and any trade-offs. Provide the *context* that makes the diff understandable—why each change exists and what it achieves. Avoid meta-commentary about the commit itself (e.g., "fixing my commit according to instructions"). Keep process discussion in chat. What that context must contain is spelled out in *Writing commit messages and PR descriptions* below.
 - **Use Conventional Commits** (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`) to categorize changes and enable automated changelog generation.
 
+### Writing commit messages and PR descriptions
+
+Write for someone who has never opened the files, has no access to the conversation that produced the change, and will read this months later. The diff shows *what* changed; the message must supply the model of the system in which the change makes sense.
+
+1. **Lead with the change.** One sentence: what changed and where. Then explain it properly.
+2. **State the old behaviour as a spec.** What did the code assume, and what actually happens at runtime? Do not assume the reader can reconstruct it from function names or from the new code.
+3. **Describe mechanisms, not verdicts.** Replace "flaky", "racy", "wrong" and "broken" with the sequence of events that produces the failure, quoting real input and output where possible. A label says something is bad; a mechanism says why.
+4. **Explain how the old behaviour could look fine.** Where a false positive is possible, say what the passing case was actually measuring. That is usually the central insight, and it is the part a future reader cannot recover from the diff.
+5. **Make the causal chain explicit and ordered.** Because A, B had no value; because B was absent, C could only guess. Use concrete nouns instead of "this" or "it" when the referent was a sentence or two back.
+6. **Separate what changed from what deliberately did not.** Name the non-goal, and say where displaced responsibility or coverage now lives ("we no longer check X here; X is covered in Y"), so the next reader does not assume a gap.
+7. **Keep it self-contained.** Describe the problem in words before citing issue or PR numbers, define terms on first use, and do not rely on the reader having followed the history. Links are supporting evidence, never the explanation: if understanding the change requires opening another issue or PR, the message is incomplete.
+8. **Use prose for reasoning, bullets for parallel facts.** Complete sentences, one idea each. Length is not the constraint; clarity is. Chopping prose into Simple English does not make it clearer.
+
+If you had to ask questions to understand your own change, those questions and their answers belong in the message.
+
+**Template:**
+
+```
+<one sentence: what changed, and where>
+<background: how the thing behaves today, in terms a newcomer can follow>
+<problem: the concrete failure, with real evidence, and why it could look fine>
+<change: what now happens, what deliberately does not, and where that moved>
+```
+
 ### Comments
+
 
 - **Code comments** explain *why*: the intent, non-obvious reasoning, edge cases, and business logic. If a comment is needed to restate what the code does, rewrite the code to be clearer instead. Historical context that explains current behavior is acceptable. Remove meta-commentary about the development process (e.g., "fixing my commit according to instructions" or "now following the directions"). Keep process discussions in chat, not in comments or commit messages.
 - Don't delete, omit, or paraphrase comments while changing things. Comments are just as important as code.
