@@ -166,18 +166,19 @@ def test_line_postprocessor_keeps_result_dots_after_node22_dot_prompts():
 
 
 def test_line_postprocessor_falls_back_when_dot_prompt_count_is_stale():
-    """A recorded dot-prompt count that no longer matches falls back to a wholesale strip.
+    """A recorded dot-prompt count that no longer matches falls back to a run-length strip.
 
     preprocess_code records the prompt count for the code it just wrapped. If a
     later call carries a stale count (Node changed how it renders the run, or a
     caller invoked line_postprocessor outside a completed run) the counted
     strip removes nothing, and leaving the dots would leak the prompt run into
-    the model's output. Falling back to the wholesale dot strip keeps the
-    prompt noise out even though the count is unusable.
+    the model's output. The fallback strips a run of at least four complete
+    tokens, the same threshold the "| " fallback uses, so a count larger than
+    what Node printed still loses its prompt padding.
     """
     js = JavaScript()
-    js._continuation_prompts = 5
-    assert js.line_postprocessor("> > ... ... ...waiting\n") == "waiting"
+    js._continuation_prompts = 6
+    assert js.line_postprocessor("> > ... ... ... ... result\n") == "result"
 
 
 def test_line_postprocessor_falls_back_when_pipe_prompt_count_is_stale():
@@ -222,13 +223,101 @@ def test_line_postprocessor_leaves_unprompted_table_rows_alone():
     )
 
 
-def test_line_postprocessor_strips_dot_space_and_newline():
-    """Leading/trailing dots, spaces and newlines are trimmed.
+def test_line_postprocessor_preserves_result_dots_and_trims_whitespace():
+    """Dots in the program's own output are data, not prompt padding.
 
-    The strip charset is ". \\n"; dropping it would leave padding in the output.
+    Node prompt dots are removed only on the line carrying the ">" prefix, so a
+    strip charset that also ate dots turned "done." into "done" and a later
+    "...waiting" line into "waiting". Surrounding whitespace is still trimmed.
     """
     js = JavaScript()
-    assert js.line_postprocessor("  .value. ") == "value"
+    assert js.line_postprocessor("  .value. ") == ".value."
+    assert js.line_postprocessor("done.\n") == "done."
+
+
+def test_line_postprocessor_keeps_result_dots_on_a_later_output_line():
+    """A later output line that starts with ">" keeps its leading ellipsis.
+
+    Node prints the prompt run once, on the line carrying ##active_line1##,
+    then echoes each buffered line's output on its own line. A program that
+    prints "> ...waiting" therefore yields "> ...waiting" as a result line: the
+    arrow cleanup removes the leading ">", but the dots are the program's own
+    text, so treating them as continuation-prompt padding turned the result
+    into "waiting".
+    """
+    js = JavaScript()
+    js.preprocess_code('console.log("> ...waiting")')
+    prompts = js._continuation_prompts
+    assert prompts >= 4
+    lines = [
+        "> > " + "... " * prompts + "##active_line1##\n",
+        "> ...waiting\n",
+        "undefined\n",
+        "> ##end_of_execution##\n",
+    ]
+    out = [js.line_postprocessor(line) for line in lines]
+
+    assert out[0] == "##active_line1##"
+    assert out[1] == "...waiting"
+    assert out[2] is None
+    assert out[3] == "##end_of_execution##"
+
+
+def test_line_postprocessor_keeps_spaced_result_dots_on_a_later_output_line():
+    """A result "> ... waiting" keeps its dots; one "... " is not a prompt run.
+
+    A later output line is program text, not the prompt line: Node glues its
+    continuation prompts to the line carrying ">", and the wrapper always
+    buffers enough lines that a real run holds several "... " tokens. The
+    fallback strip used to treat a single complete token as prompt padding,
+    so a program printing "> ... waiting" came back as "waiting". Only a
+    run of at least four complete tokens may be stripped when the recorded
+    count does not match.
+    """
+    js = JavaScript()
+    js.preprocess_code('console.log("> ... waiting")')
+    prompts = js._continuation_prompts
+    assert prompts >= 4
+    lines = [
+        "> > " + "... " * prompts + "##active_line1##\n",
+        "> ... waiting\n",
+        "undefined\n",
+        "> ##end_of_execution##\n",
+    ]
+    out = [js.line_postprocessor(line) for line in lines]
+
+    assert out[0] == "##active_line1##"
+    assert out[1] == "... waiting"
+    assert out[2] is None
+    assert out[3] == "##end_of_execution##"
+
+
+def test_line_postprocessor_keeps_two_token_result_dots_on_a_later_output_line():
+    """A result "> ... ... waiting" keeps its dots; two "... " are not a prompt run.
+
+    The prompt run lives only on the line carrying the active-line marker, so a
+    later output line is program text even when it starts with several
+    ellipses. A program printing "> ... ... waiting" used to come back as
+    "waiting" because the stale-count fallback treated any run of two or more
+    complete tokens as prompt padding. Real prompt runs hold at least five, so
+    the fallback now requires four.
+    """
+    js = JavaScript()
+    js.preprocess_code('console.log("> ... ... waiting")')
+    prompts = js._continuation_prompts
+    assert prompts >= 4
+    lines = [
+        "> > " + "... " * prompts + "##active_line1##\n",
+        "> ... ... waiting\n",
+        "undefined\n",
+        "> ##end_of_execution##\n",
+    ]
+    out = [js.line_postprocessor(line) for line in lines]
+
+    assert out[0] == "##active_line1##"
+    assert out[1] == "... ... waiting"
+    assert out[2] is None
+    assert out[3] == "##end_of_execution##"
 
 
 def test_preprocess_javascript_multiline_skips_active_line_markers():
