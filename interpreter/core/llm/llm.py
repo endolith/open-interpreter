@@ -398,6 +398,12 @@ class Llm:
         # including plain dashscope/ where the prefix is the wire name.
         self._dashscope_wire_model = None
         self._is_loaded = False
+        # What load() itself put in api_key/api_base for the current route.
+        # The model setter compares against these so a credential resolved for
+        # one provider is not carried into another, while a value the user
+        # assigned is left untouched.
+        self._route_api_key = None
+        self._route_api_base = None
 
         # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
         # "auto" = sanitize for remote models, skip for local (ollama/local/jan). "on"/"off" override.
@@ -1028,6 +1034,39 @@ Continuing...
         # run detects the new one. An explicit override is preserved.
         if changed and not getattr(self, "_supports_vision_is_manual", False):
             self._supports_vision = None
+        # Credentials load() resolved for the previous route must not follow the
+        # switch: a DASHSCOPE key or aliyuncs.com base sent to DeepSeek (or an
+        # OpenAI key sent to Alibaba) is a cross-vendor disclosure. Only values
+        # that load() itself supplied are dropped; a key or base the user
+        # assigned is theirs to keep.
+        #
+        # Ownership decides, not load state. `_is_loaded` is false after any
+        # assignment -- including a no-op `llm.model = llm.model` -- and after a
+        # load() that fails once it has captured a base, so gating the cleanup
+        # on it skipped the very cases the cleanup exists for. Comparing the
+        # value with what load() recorded keeps explicit overrides intact.
+        if changed:
+            route_api_key = getattr(self, "_route_api_key", None)
+            route_api_base = getattr(self, "_route_api_base", None)
+            if route_api_key is not None and self.api_key == route_api_key:
+                self.api_key = None
+            if route_api_base is not None and self.api_base == route_api_base:
+                self.api_base = None
+            self._route_api_key = None
+            self._route_api_base = None
+
+    def _assign_internal_model(self, value):
+        """Record load()'s own rewrite of the model id without a route switch.
+
+        load() normalizes some ids (opencode_go/GLM-5.2 -> its lowercase
+        spelling, ollama/<model> -> <model>:latest). That is not a user
+        changing models, so it must not clear the credentials or the vision
+        detection load() just resolved for that route. Going through the
+        property cleared both whenever the normalized spelling differed,
+        which is every id that was written with uppercase letters.
+        """
+        self._model = value
+        self._is_loaded = False
 
     def wire_model_name(self):
         """The model id to put on the wire when it differs from self.model.
@@ -1133,8 +1172,14 @@ Continuing...
             model_name, _dashscope_default_base = dashscope_route
             if self.api_base is None:
                 self.api_base = _dashscope_default_base
-            if self.api_key is None:
-                self.api_key = os.environ.get("DASHSCOPE_API_KEY")
+                self._route_api_base = _dashscope_default_base
+            # The route's own credential wins over a key carried in from another
+            # model/profile (often an OpenAI key from OI onboarding), so that
+            # key cannot shadow the real DashScope key.
+            env_key = os.environ.get("DASHSCOPE_API_KEY")
+            if env_key:
+                self.api_key = env_key
+                self._route_api_key = env_key
             # Qwen3.5 is a unified vision-language architecture — there are no separate
             # VL variants because every model in the family natively supports image input.
             # Keep this explicit: it also covers variants the registry has not listed.
@@ -1186,6 +1231,7 @@ Continuing...
             go_base = os.environ.get("OPENCODE_GO_API_BASE", _OPENCODE_GO_DEFAULT_BASE)
             if self.api_base is None or not _is_opencode_go_base(self.api_base):
                 self.api_base = go_base
+                self._route_api_base = go_base
             # Same reasoning as api_base: the profile may still hold an api_key
             # saved for a different provider (often an OpenAI key from OI's
             # onboarding). Sending that to the Go gateway produces exactly
@@ -1197,6 +1243,7 @@ Continuing...
                 env_key = os.environ.get("OPENCODE_GO_API_KEY")
                 if env_key:
                     self.api_key = env_key
+                    self._route_api_key = env_key
                 # Without an override, a non-Go-shaped profile key cannot be
                 # sent to the gateway; leaving it in place would repeat the
                 # "Invalid API key." failure the check above exists to prevent.
@@ -1239,7 +1286,7 @@ Continuing...
             # wire name plus provider are passed to LiteLLM explicitly in run()
             # via custom_llm_provider. Verified against the gateway: the outgoing
             # request is identical to the rewritten form.
-            self.model = f"opencode_go/{model_name}"
+            self._assign_internal_model(f"opencode_go/{model_name}")
 
         # DeepSeek API (OpenAI-compatible). Keep deepseek/<model> for LiteLLM routing.
         if model_lower.startswith("deepseek/"):
@@ -1247,11 +1294,17 @@ Continuing...
                 self.api_base = os.environ.get(
                     "DEEPSEEK_API_BASE", "https://api.deepseek.com"
                 )
-            if self.api_key is None:
-                self.api_key = os.environ.get("DEEPSEEK_API_KEY")
+                self._route_api_base = self.api_base
+            # Same precedence as DashScope: the route's own key wins over one
+            # carried in from a different model, so an OpenAI profile key is not
+            # sent to api.deepseek.com.
+            env_key = os.environ.get("DEEPSEEK_API_KEY")
+            if env_key:
+                self.api_key = env_key
+                self._route_api_key = env_key
 
         if self.model.startswith("ollama/") and not ":" in self.model:
-            self.model = self.model + ":latest"
+            self._assign_internal_model(self.model + ":latest")
 
         self._is_loaded = True
 
