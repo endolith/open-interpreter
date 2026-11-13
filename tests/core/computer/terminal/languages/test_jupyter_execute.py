@@ -6,6 +6,7 @@ output chunk. Neither is about the happy path, and neither was covered.
 """
 
 import queue
+import threading
 import time
 from types import SimpleNamespace
 from unittest import mock
@@ -39,6 +40,21 @@ def _language(**attrs):
     for key, value in attrs.items():
         setattr(lang, key, value)
     return lang
+
+
+class _QueueAfterEmpty(queue.Queue):
+    """A queue whose first get raises Empty, as if an item landed just after."""
+
+    def __init__(self, item):
+        super().__init__()
+        self.put(item)
+        self.gets = 0
+
+    def get(self, block=True, timeout=None):
+        self.gets += 1
+        if self.gets == 1:
+            raise queue.Empty
+        return super().get(block=block, timeout=timeout)
 
 
 def test_a_persistent_listener_failure_is_re_raised_after_the_retry_budget(monkeypatch):
@@ -359,3 +375,393 @@ def test_a_listener_from_a_superseded_generation_stops_consuming(monkeypatch):
     # Running the superseded listener returns at the generation check.
     targets[0]()
     lang.kc.iopub_channel.get_msg.assert_not_called()
+
+
+def _collect(generator, timeout=15):
+    """Drain a generator in a thread so a hang fails the test, not the suite."""
+    result = {}
+
+    def worker():
+        try:
+            result["chunks"] = list(generator)
+        except Exception as exc:  # pragma: no cover - surfaced by the assertion
+            result["error"] = exc
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    assert not thread.is_alive(), "generator hung instead of returning"
+    assert "error" not in result, result.get("error")
+    return result["chunks"]
+
+
+def test_kernel_is_alive_uses_the_process_not_the_client():
+    """Liveness must come from the manager: the client stays up after a hard exit."""
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    assert lang._kernel_is_alive() is False
+
+    lang.km = SimpleNamespace(is_alive=lambda: True)
+    assert lang._kernel_is_alive() is True
+
+
+def test_a_dead_kernel_is_restarted_before_the_next_run(monkeypatch):
+    """os._exit(0) must not leave the next run executing against a dead kernel."""
+    lang = _language()
+    lang.kc.stop_channels = mock.Mock()
+    # The manager can be wedged too; a failed shutdown must not block the restart.
+    dead_km = SimpleNamespace(
+        is_alive=lambda: False,
+        shutdown_kernel=mock.Mock(side_effect=RuntimeError("already gone")),
+    )
+    lang.km = dead_km
+    restarted = {}
+
+    def fake_init(_self, computer):
+        restarted["computer"] = computer
+        lang.km = SimpleNamespace(is_alive=lambda: True, shutdown_kernel=mock.Mock())
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", fake_init)
+    lang._execute_code = lambda code, message_queue: None
+    lang._capture_output = lambda message_queue: iter(
+        [{"type": "console", "format": "output", "content": "ok"}]
+    )
+
+    chunks = list(lang.run("x = 1"))
+
+    assert restarted["computer"] is lang.computer
+    lang.kc.stop_channels.assert_called_once_with()
+    dead_km.shutdown_kernel.assert_called_once_with(now=True)
+    assert chunks == [{"type": "console", "format": "output", "content": "ok"}]
+
+
+def test_a_listener_reports_a_dead_kernel_and_stops():
+    """A hard exit is reported instead of waiting for an idle that cannot arrive.
+
+    The channels outlive the process, so the iopub reader would otherwise spin
+    until the user interrupts, and the consumer has no exit condition.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False, interrupt_kernel=mock.Mock())
+    lang.kc.execute = mock.Mock(return_value="msg-1")
+    message_queue = queue.Queue()
+
+    lang._execute_code("pass", message_queue)
+
+    lang.listener_thread.join(timeout=5)
+    assert not lang.listener_thread.is_alive()
+    assert lang.finish_flag is True
+    assert "kernel exited" in message_queue.get_nowait()["content"]
+
+
+def test_capture_output_stops_when_the_listener_dies_without_finishing():
+    """A listener that dies without setting finish_flag must not hang the consumer."""
+    lang = _language()
+    listener = threading.Thread(target=lambda: None)
+    listener.start()
+    listener.join()
+    lang.listener_thread = listener
+    lang.finish_flag = False
+
+    chunks = _collect(lang._capture_output(queue.Queue()))
+
+    assert chunks == []
+    assert lang.finish_flag is True
+
+
+def test_kernel_is_alive_fails_open_when_the_manager_is_unavailable():
+    """A manager that raises, or none at all, must not block a run from starting."""
+    lang = _language()
+
+    def boom():
+        raise RuntimeError("kernel manager is gone")
+
+    lang.km = SimpleNamespace(is_alive=boom)
+    assert lang._kernel_is_alive() is True
+
+    bare = JupyterLanguage.__new__(JupyterLanguage)
+    assert bare._kernel_is_alive() is True
+
+
+def test_kernel_is_alive_reports_a_failing_probe_only_when_verbose(capsys):
+    """A consistently failing liveness probe must be diagnosable under verbose.
+
+    The probe fails open so a transient error cannot throw away a live session,
+    but a silent fail-open makes the original hang indistinguishable from a
+    healthy kernel. Verbose output is the only place that difference is visible.
+    """
+    lang = _language()
+    lang.computer.verbose = False
+
+    def boom():
+        raise RuntimeError("kernel manager is gone")
+
+    lang.km = SimpleNamespace(is_alive=boom)
+
+    assert lang._kernel_is_alive() is True
+    assert capsys.readouterr().out == ""
+
+    lang.computer.verbose = True
+    assert lang._kernel_is_alive() is True
+    assert "kernel manager is gone" in capsys.readouterr().out
+
+
+def test_a_kernel_that_cannot_be_restarted_reports_it(monkeypatch):
+    """When the restart fails, the run says so instead of executing anyway."""
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False, shutdown_kernel=mock.Mock())
+    monkeypatch.setattr(JupyterLanguage, "__init__", lambda _self, computer: None)
+
+    chunks = list(lang.run("x = 1"))
+
+    assert chunks == [
+        {
+            "type": "console",
+            "format": "output",
+            "content": "The Python kernel could not be restarted.",
+        }
+    ]
+
+
+def test_run_waits_only_briefly_for_channels_that_never_come_up(monkeypatch):
+    """A client whose channels never open ends the run instead of spinning.
+
+    The old wait was `while not kc.is_alive(): sleep`, with no deadline, so a
+    kernel that failed to start hung the run before it ever yielded.
+    """
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KERNEL_WAIT_SECONDS",
+        0.05,
+    )
+    lang = _language()
+    lang.kc.is_alive = lambda: False
+    lang._execute_code = lambda code, message_queue: None
+    lang._capture_output = lambda message_queue: iter(
+        [{"type": "console", "format": "output", "content": "ok"}]
+    )
+
+    chunks = _collect(lang.run("x = 1"))
+
+    assert chunks == [{"type": "console", "format": "output", "content": "ok"}]
+
+
+def test_capture_output_stops_when_the_kernel_is_dead():
+    """A consumer waiting on a dead kernel stops and still reports the death.
+
+    The listener may not have enqueued its notice before the consumer decides
+    the queue is empty, so the consumer delivers the notice itself rather than
+    ending the run silently.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    lang.listener_thread = threading.Thread(target=lambda: None)
+    lang.finish_flag = False
+
+    chunks = _collect(lang._capture_output(queue.Queue()))
+
+    assert chunks == [
+        {
+            "type": "console",
+            "format": "output",
+            "content": "The Python kernel exited. It will restart on the next run.",
+        }
+    ]
+    assert lang.finish_flag is True
+
+
+def test_capture_output_drains_output_that_arrives_as_the_kernel_dies():
+    """Output queued before the death check is still shown to the user.
+
+    The listener can put a chunk between the consumer's timed-out get and the
+    liveness check, so the dead-kernel branch drains what is there rather than
+    dropping the run's last output.
+    """
+
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    lang.listener_thread = threading.Thread(target=lambda: None)
+    lang.finish_flag = False
+    pending = {"type": "console", "format": "output", "content": "last words"}
+
+    chunks = _collect(lang._capture_output(_QueueAfterEmpty(pending)))
+
+    # The chunk is preserved, and the death is still reported: the listener
+    # never got the chance to enqueue its own notice here.
+    assert chunks == [
+        pending,
+        {
+            "type": "console",
+            "format": "output",
+            "content": "The Python kernel exited. It will restart on the next run.",
+        },
+    ]
+    assert lang.finish_flag is True
+
+
+def test_a_restart_that_raises_is_reported_and_retried(monkeypatch):
+    """An `__init__` failure must surface as output, not escape run().
+
+    A failed restart used to propagate out of `run()` before it could say what
+    went wrong, and a manager left half-built could be trusted by the next run.
+    The failure is reported, the incomplete kernel is not reused, and the next
+    run tries again.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False, shutdown_kernel=mock.Mock())
+    lang.kc.stop_channels = mock.Mock()
+    lang._kernel_ready = False
+
+    def exploding_init(_self, computer):
+        raise RuntimeError("no kernelspec")
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", exploding_init)
+
+    chunks = list(lang.run("x = 1"))
+
+    assert chunks == [
+        {
+            "type": "console",
+            "format": "output",
+            "content": "The Python kernel could not be restarted: no kernelspec",
+        }
+    ]
+    assert lang._kernel_ready is False
+
+    attempts = {"n": 0}
+
+    def recovering_init(_self, computer):
+        attempts["n"] += 1
+        lang.km = SimpleNamespace(is_alive=lambda: True, shutdown_kernel=mock.Mock())
+        lang.kc = SimpleNamespace(
+            execute=mock.Mock(),
+            input=mock.Mock(),
+            is_alive=lambda: True,
+            iopub_channel=SimpleNamespace(),
+        )
+        lang._kernel_ready = True
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", recovering_init)
+    lang._execute_code = lambda code, message_queue: None
+    lang._capture_output = lambda message_queue: iter(
+        [{"type": "console", "format": "output", "content": "ok"}]
+    )
+
+    assert list(lang.run("x = 1")) == [
+        {"type": "console", "format": "output", "content": "ok"}
+    ]
+    assert attempts["n"] == 1
+
+
+def test_init_gives_up_when_the_new_kernel_never_starts(monkeypatch):
+    """A kernel whose channels never open raises instead of waiting forever."""
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KERNEL_WAIT_SECONDS",
+        0.05,
+    )
+    manager = mock.Mock()
+    manager.is_alive.return_value = True  # the process keeps running
+    manager.client.return_value.is_alive.return_value = False  # channels never open
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with pytest.raises(RuntimeError, match="channels never came up"):
+            JupyterLanguage(SimpleNamespace())
+
+
+def test_init_reports_a_kernel_that_exits_before_its_channels_open(monkeypatch):
+    """A replacement process that dies immediately is reported, not waited on.
+
+    The wait would otherwise run to its deadline for a process that is already
+    gone, and a later run would inherit the unusable manager.
+    """
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KERNEL_WAIT_SECONDS",
+        30,
+    )
+    manager = mock.Mock()
+    manager.is_alive.return_value = False
+    manager.client.return_value.is_alive.return_value = False
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with pytest.raises(RuntimeError, match="channels never came up"):
+            JupyterLanguage(SimpleNamespace())
+
+
+def test_capture_output_does_not_repeat_the_exit_notice():
+    """A notice read through the normal queue path is not emitted a second time.
+
+    The listener queues the notice; the consumer yields it and then takes the
+    dead-kernel branch on its next timeout. That branch must not add another
+    copy, or non-streaming output repeats the same sentence.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    lang.listener_thread = threading.Thread(target=lambda: None)
+    notice = {
+        "type": "console",
+        "format": "output",
+        "content": "The Python kernel exited. It will restart on the next run.",
+    }
+    queued = queue.Queue()
+    queued.put(notice)
+
+    chunks = _collect(lang._capture_output(queued))
+
+    assert chunks == [notice]
+    assert lang.finish_flag is True
+
+
+def test_capture_output_and_drain_do_not_repeat_the_exit_notice():
+    """A notice drained after the dead-kernel check is yielded once, not twice.
+
+    The listener can enqueue its notice just after the consumer's timeout, so
+    the drain loop has to recognize it and suppress the fallback copy the same
+    way the normal queue path does.
+    """
+    lang = _language()
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    lang.listener_thread = threading.Thread(target=lambda: None)
+    notice = {
+        "type": "console",
+        "format": "output",
+        "content": "The Python kernel exited. It will restart on the next run.",
+    }
+    queued = _QueueAfterEmpty(notice)
+
+    chunks = _collect(lang._capture_output(queued))
+
+    assert chunks == [notice]
+    assert lang.finish_flag is True
+
+
+def test_a_restart_without_a_client_shuts_down_only_the_manager(monkeypatch):
+    """A half-built kernel may have no client, so the restart must not assume one.
+
+    ``__init__`` can fail after the manager exists but before a client is
+    created; the restart path then has to shut the manager down without
+    touching a missing ``kc``, rather than raising AttributeError.
+    """
+    lang = _language()
+    lang.kc = None
+    lang._kernel_ready = False
+    dead_km = SimpleNamespace(is_alive=lambda: False, shutdown_kernel=mock.Mock())
+    lang.km = dead_km
+    restarted = {}
+
+    def fake_init(_self, computer):
+        restarted["computer"] = computer
+        _self._kernel_ready = True
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", fake_init)
+
+    lang._ensure_kernel()
+
+    assert restarted["computer"] is lang.computer
+    dead_km.shutdown_kernel.assert_called_once_with(now=True)
+    assert lang._kernel_restart_error is None
+    assert lang._kernel_ready is True

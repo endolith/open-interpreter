@@ -309,7 +309,14 @@ def test_capture_output_yields_queued_items_then_stops():
     """_capture_output() yields enqueued chunks and breaks once finish_flag is set and the queue empties."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
     lang.finish_flag = True
-    lang.listener_thread = threading.Thread
+    # A live listener instance (the class itself used to stand in here): the
+    # consumer asks is_alive() to tell a dead listener from a live one, and a
+    # dead one would take the early exit instead of this test's finish_flag path.
+    listener_stays_alive = threading.Event()
+    lang.listener_thread = threading.Thread(
+        target=listener_stays_alive.wait, daemon=True
+    )
+    lang.listener_thread.start()
     lang.computer = SimpleNamespace(
         interpreter=SimpleNamespace(stop_event=threading.Event())
     )
