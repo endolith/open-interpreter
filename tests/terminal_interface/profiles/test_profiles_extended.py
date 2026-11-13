@@ -13,6 +13,7 @@ from unittest import mock
 
 import pytest
 import requests
+import yaml
 
 from interpreter.core.core import OpenInterpreter
 from interpreter.terminal_interface.profiles import profiles
@@ -302,8 +303,12 @@ def test_apply_profile_filters_computer_languages(profile_env):
 
 
 def test_apply_profile_raises_when_llm_not_dict(profile_env):
-    """apply_profile() propagates the error when profile['llm'] is not a dict
-    during the model-rewrite (the bare except/raise preserves the original)."""
+    """apply_profile() rejects a malformed llm section with a clear error.
+
+    The model rewrite reads profile['llm']['model'], so a non-mapping used to
+    fail deep inside the migration with a confusing exception; it must still
+    raise rather than silently skip the rewrite, but with an explicit message.
+    """
     path = os.path.join(profile_env["profile_dir"], "default.yaml")
     with open(path, "w") as f:
         f.write("version: 0.2.0\n")
@@ -311,10 +316,101 @@ def test_apply_profile_raises_when_llm_not_dict(profile_env):
     with mock.patch("builtins.input", return_value="y"), mock.patch(
         "interpreter.terminal_interface.profiles.profiles.migrate_user_app_directory"
     ):
-        with pytest.raises(TypeError, match="string indices"):
+        with pytest.raises(TypeError, match="'llm' must be a mapping"):
             profiles.apply_profile(
                 interpreter, {"version": "0.2.0", "llm": "not-a-dict"}, path
             )
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "python_value"),
+    [("null", None), ("false", False), ("[]", [])],
+)
+def test_apply_profile_rejects_false_valued_llm_before_writing(
+    profile_env, yaml_text, python_value
+):
+    """llm: null/false/[] must raise before the migrated file is rewritten.
+
+    ``profile.get("llm") or {}`` used to hide these values from the mapping
+    check while ``profile["llm"]`` kept them, so apply_profile_to_object then
+    replaced ``interpreter.llm`` with None/False/[]. The file must stay
+    untouched when the profile is rejected.
+    """
+    path = os.path.join(profile_env["profile_dir"], "default.yaml")
+    original = f"version: 0.2.0\nllm: {yaml_text}\n"
+    with open(path, "w") as f:
+        f.write(original)
+    interpreter = mock.Mock()
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.migrate_user_app_directory"
+    ):
+        with pytest.raises(TypeError, match="'llm' must be a mapping"):
+            profiles.apply_profile(
+                interpreter, {"version": "0.2.0", "llm": python_value}, path
+            )
+
+    assert open(path).read() == original
+
+
+def test_apply_profile_rejects_invalid_llm_before_legacy_migration_writes(profile_env):
+    """A non-mapping llm is rejected before migrate_profile rewrites the file.
+
+    A versionless default.yaml can combine ``llm: false`` with a flat legacy
+    key such as ``local:``. The migration branch used to call migrate_profile
+    first, which rewrites the file in place, and only validate llm afterwards,
+    so a profile that was rejected had already been modified on disk.
+    """
+    path = os.path.join(profile_env["profile_dir"], "default.yaml")
+    original = "llm: false\nlocal: false\n"
+    with open(path, "w") as f:
+        f.write(original)
+    interpreter = mock.Mock()
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.migrate_user_app_directory"
+    ):
+        with pytest.raises(TypeError, match="'llm' must be a mapping"):
+            profiles.apply_profile(
+                interpreter, {"llm": False, "local": False}, path
+            )
+
+    assert open(path).read() == original
+
+
+def test_apply_profile_rejects_invalid_llm_for_current_version_profiles(profile_env):
+    """A profile needing no migration still must not replace interpreter.llm
+    with a non-mapping value."""
+    path = os.path.join(profile_env["profile_dir"], "p.yaml")
+    with pytest.raises(TypeError, match="'llm' must be a mapping"):
+        profiles.apply_profile(
+            mock.Mock(), {"version": profiles.OI_VERSION, "llm": None}, path
+        )
+
+
+def test_apply_profile_converts_flat_legacy_settings_before_versioning(profile_env):
+    """A versionless default.yaml in the pre-0.2.0 flat layout is converted
+    before it is marked current, so its model reaches interpreter.llm.model.
+
+    Stamping the version first would leave ``model`` at the top level, where
+    apply_profile_to_object sets an unused ``interpreter.model``; later launches
+    then skip migration because the file already declares the current version.
+    """
+    path = os.path.join(profile_env["profile_dir"], "default.yaml")
+    with open(path, "w") as f:
+        f.write("model: my-local-model\n")
+    interpreter = mock.Mock()
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.migrate_user_app_directory"
+    ):
+        result = profiles.apply_profile(
+            interpreter, {"model": "my-local-model"}, path
+        )
+
+    saved = yaml.safe_load(open(path))
+    assert result is interpreter
+    assert saved["llm"]["model"] == "my-local-model"
+    assert "model" not in saved
+    assert saved["version"] == profiles.OI_VERSION
+    assert interpreter.llm.model == "my-local-model"
 
 
 # ---------------------------------------------------------------------------
@@ -436,15 +532,14 @@ def test_reset_profile_without_a_name_resets_default_yaml(profile_env, monkeypat
     with open(target, "w") as f:
         f.write("auto_run: True\n")
     with mock.patch("builtins.input", return_value="y") as prompt, mock.patch(
-        "interpreter.terminal_interface.profiles.profiles.determine_user_version",
-        return_value="0.2.5",
-    ), mock.patch(
         "interpreter.terminal_interface.profiles.profiles.send2trash.send2trash",
         mock.Mock(),
     ):
         profiles.reset_profile()
     assert prompt.called
-    assert open(target).read().strip() == "offline: True"
+    content = open(target).read()
+    assert content.startswith("offline: True")
+    assert yaml.safe_load(content)["version"] == profiles.OI_VERSION
     assert not os.path.exists(os.path.join(profile_env["profile_dir"], "fast.yaml"))
 
 
@@ -454,10 +549,7 @@ def test_reset_profile_interactive_no(profile_env, monkeypatch):
     target = os.path.join(profile_env["profile_dir"], "default.yaml")
     with open(target, "w") as f:
         f.write("auto_run: True\n")
-    with mock.patch("builtins.input", return_value="n"), mock.patch(
-        "interpreter.terminal_interface.profiles.profiles.determine_user_version",
-        return_value="0.2.5",
-    ):
+    with mock.patch("builtins.input", return_value="n"):
         profiles.reset_profile("default.yaml")
     assert open(target).read().strip() == "auto_run: True"
 
@@ -470,15 +562,96 @@ def test_reset_profile_interactive_yes_trashes_and_copies(profile_env, monkeypat
         f.write("auto_run: True\n")
     trashed = []
     with mock.patch("builtins.input", return_value="y"), mock.patch(
-        "interpreter.terminal_interface.profiles.profiles.determine_user_version",
-        return_value="0.2.5",
-    ), mock.patch(
         "interpreter.terminal_interface.profiles.profiles.send2trash.send2trash",
         side_effect=lambda p: trashed.append(p),
     ):
         profiles.reset_profile("default.yaml")
     assert trashed and os.path.basename(trashed[0]) == "default.yaml"
-    assert open(target).read().strip() == "offline: True"
+    content = open(target).read()
+    assert content.startswith("offline: True")
+    assert yaml.safe_load(content)["version"] == profiles.OI_VERSION
+
+
+def test_reset_profile_versions_the_copy_so_the_next_launch_does_not_prompt(profile_env, monkeypatch):
+    """A reset default.yaml must load silently next launch instead of prompting.
+
+    The shipped default.yaml has no version key, so copying it verbatim left
+    the reset file unversioned and answering the migration prompt crashed
+    (KeyError: 'version'). Regression test for #294.
+    """
+    _set_defaults(profile_env["defaults_dir"], {"default.yaml": "offline: True\n"}, monkeypatch)
+    target = os.path.join(profile_env["profile_dir"], "default.yaml")
+    with open(target, "w") as f:
+        f.write("auto_run: True\n")
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.send2trash.send2trash"
+    ):
+        profiles.reset_profile("default.yaml")
+
+    loaded = yaml.safe_load(open(target))
+    assert loaded["version"] == profiles.OI_VERSION
+    with mock.patch("builtins.input") as prompt:
+        profiles.apply_profile(mock.Mock(), loaded, target)
+    assert not prompt.called, "the migrated profile must not prompt again"
+
+
+def test_reset_profile_does_not_duplicate_an_existing_version_line(profile_env, monkeypatch):
+    """A packaged default that already declares a version keeps exactly one.
+
+    reset_profile() appends the trailer unconditionally in the normal case; if
+    a future default.yaml ships its own version line, appending again would
+    create a duplicate YAML key.
+    """
+    _set_defaults(
+        profile_env["defaults_dir"],
+        {
+            "default.yaml": f"offline: True\nversion: {profiles.OI_VERSION}\n"
+        },
+        monkeypatch,
+    )
+    target = os.path.join(profile_env["profile_dir"], "default.yaml")
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.send2trash.send2trash"
+    ):
+        profiles.reset_profile("default.yaml")
+
+    lines = [line for line in open(target) if line.startswith("version:")]
+    assert len(lines) == 1
+    assert yaml.safe_load(open(target))["version"] == profiles.OI_VERSION
+
+
+def test_apply_profile_migrates_an_unversioned_default_without_crashing(profile_env):
+    """A versionless default.yaml must gain the trailer instead of raising
+    KeyError: 'version' when the user accepts the migration (#294)."""
+    path = os.path.join(profile_env["profile_dir"], "default.yaml")
+    with open(path, "w") as f:
+        f.write("offline: True\n")
+    interpreter = mock.Mock()
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.migrate_user_app_directory"
+    ):
+        result = profiles.apply_profile(interpreter, {"offline": True}, path)
+
+    assert result is interpreter
+    assert yaml.safe_load(open(path))["version"] == profiles.OI_VERSION
+
+
+def test_apply_profile_migrates_a_versioned_profile_without_an_llm_section(profile_env):
+    """An old default.yaml with no llm section must migrate without
+    KeyError: 'llm' (previously raised from the gpt-4 model rewrite)."""
+    path = os.path.join(profile_env["profile_dir"], "default.yaml")
+    with open(path, "w") as f:
+        f.write("custom_instructions: hi\nversion: 0.2.4\n")
+    interpreter = mock.Mock()
+    with mock.patch("builtins.input", return_value="y"), mock.patch(
+        "interpreter.terminal_interface.profiles.profiles.migrate_user_app_directory"
+    ):
+        result = profiles.apply_profile(
+            interpreter, {"custom_instructions": "hi", "version": "0.2.4"}, path
+        )
+
+    assert result is interpreter
+    assert f"version: {profiles.OI_VERSION}" in open(path).read()
 
 
 def test_reset_profile_creates_directories_when_missing(tmp_path, monkeypatch):
@@ -492,11 +665,7 @@ def test_reset_profile_creates_directories_when_missing(tmp_path, monkeypatch):
     _set_defaults(
         str(defaults_dir), {"default.yaml": "offline: True\n"}, monkeypatch
     )
-    with mock.patch(
-        "interpreter.terminal_interface.profiles.profiles.determine_user_version",
-        return_value=None,
-    ):
-        profiles.reset_profile("default.yaml")
+    profiles.reset_profile("default.yaml")
     assert profile_dir.exists()
     assert (profile_dir / "default.yaml").exists()
 
@@ -518,12 +687,10 @@ def test_reset_profile_resets_known_historical_profile(tmp_path, monkeypatch):
     monkeypatch.setattr(profiles, "historical_profiles", [historical])
     target = profile_dir / "default.yaml"
     target.write_text(historical)
-    with mock.patch(
-        "interpreter.terminal_interface.profiles.profiles.determine_user_version",
-        return_value="0.2.5",
-    ):
-        profiles.reset_profile("default.yaml")
-    assert target.read_text().strip() == "offline: True"
+    profiles.reset_profile("default.yaml")
+    content = target.read_text()
+    assert content.startswith("offline: True")
+    assert yaml.safe_load(content)["version"] == profiles.OI_VERSION
 
 
 # ---------------------------------------------------------------------------
