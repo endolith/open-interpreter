@@ -152,15 +152,6 @@ def start_terminal_interface(interpreter):
             "attribute": {"object": interpreter, "attr_name": "loop"},
         },
         {
-            "name": "disable_telemetry",
-            "nickname": "dt",
-            "help_text": "disables sending of basic anonymous usage stats",
-            "type": bool,
-            # No default: an attribute-bound argument must stay None when it
-            # isn't passed, or set_attributes would apply it over the profile.
-            "attribute": {"object": interpreter, "attr_name": "disable_telemetry"},
-        },
-        {
             "name": "offline",
             "nickname": "o",
             "help_text": "turns off all online features (except the language model, if it's hosted)",
@@ -459,10 +450,6 @@ Use """ to write multi-line messages.
     ### Set attributes on interpreter, because the arguments passed in via the CLI should override profile
 
     set_attributes(args, arguments)
-
-    # The environment variable can only turn telemetry off, never back on
-    if os.getenv("DISABLE_TELEMETRY", "false").lower() == "true":
-        interpreter.disable_telemetry = True
 
     # if safe_mode and auto_run are enabled, safe_mode disables auto_run.
     # This has to run last, once the profile and the CLI flags have both been

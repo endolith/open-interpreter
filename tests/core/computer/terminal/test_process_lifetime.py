@@ -24,7 +24,6 @@ import psutil
 from interpreter import OpenInterpreter
 i = OpenInterpreter()
 i.offline = True
-i.disable_telemetry = True
 i.computer.run("python", "print(1)")
 children = [p.pid for p in psutil.Process().children(recursive=True)]
 open(sys.argv[1], "w").write(json.dumps(children))
@@ -79,7 +78,6 @@ def test_terminate_is_idempotent():
 
     interpreter = OpenInterpreter()
     interpreter.offline = True
-    interpreter.disable_telemetry = True
     interpreter.computer.run("python", "print(1)")
 
     interpreter.computer.terminal.terminate()
