@@ -453,6 +453,7 @@ def _run_find_icon(monkeypatch, boxes, text_blocks=(), screenshot=None, **env):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the icons offered for ranking and return the first as the hit."""
         captured["icons"] = icons
         return icons[:1]
 
@@ -583,24 +584,17 @@ def test_expansion_never_produces_a_negative_coordinate(monkeypatch):
 
 
 def test_expansion_clamps_to_the_image_edge(monkeypatch):
-    """A box near the right edge is clamped — but today the clamp shrinks it.
+    """A box near the right edge is trimmed to the screenshot edge (fixed in #432 for #403).
 
-    Pinned as observed behaviour for #403. The clamp is meant to *trim* the box
-    to the screenshot edge. Instead it computes `image_width - x - width` after x
-    has already been shifted left and width is still the original, so it subtracts
-    pre-shift geometry from a post-shift origin and collapses the box:
+    The clamp used to compute `image_width - x - width` after x had already
+    been shifted left while width was still the original, subtracting pre-shift
+    geometry from a post-shift origin and collapsing the box:
 
         input  x=170 width=30   (right edge exactly 200)
-        output x=163 width=7    (right edge 170)
+        broken x=163 width=7    (right edge 170, off the icon entirely)
 
-    The box loses 23 of its 30 pixels and stops covering the icon at all. Clipping
-    would have given width = 200 - 163 = 37.
-
-    The exact values are asserted so a future fix is visible: when the clamp is
-    corrected to `image_width - box["x"]`, this test fails on `width == 37` and
-    should be updated alongside the fix. A weaker "does not exceed 200" assertion
-    would pass for the broken 7 and for the correct 37 alike, which is what
-    CodeRabbit flagged.
+    Clipping to `image_width - box["x"]` keeps the expanded box covering the
+    icon: x=163 width=37 (right edge 200).
     """
     icons = _run_find_icon(
         monkeypatch,
@@ -611,10 +605,41 @@ def test_expansion_clamps_to_the_image_edge(monkeypatch):
     box = icons[0]
     assert box["x"] == 163
     # The image is 200 wide and this box's right edge is exactly 200, so the clamp
-    # branch is taken. See the docstring: 7 is the bug, 37 is the intent.
-    assert box["width"] == 7, "current collapsing behaviour; see #403"
+    # branch is taken. 37 is the intent (was 7 before the fix).
+    assert box["width"] == 37, "the expanded box must still reach the image edge"
     assert box["height"] == 24
-    assert box["x"] + box["width"] == 170, "the box retreats off the icon entirely"
+    assert box["x"] + box["width"] == 200, "the box still covers the icon"
+
+
+def test_merging_boxes_keeps_the_far_edge_of_the_earlier_box(monkeypatch):
+    """A box that extends the merge left keeps the right edge of the existing box.
+
+    combine_boxes used to overwrite combined_box["x"] before recomputing the
+    width from it, so the incoming box's far edge was compared against the
+    shifted origin and lost whatever stuck out past it (#403, #432):
+
+        expanded input  163..200, 173..197, 143..167
+        broken merge    143..180   (right edge 20px short)
+        fixed merge     143..200
+
+    The right edge has to come from the pre-merge boxes. A regression here
+    silently narrows every icon that overlaps a neighbour on one side.
+    """
+    icons = _run_find_icon(
+        monkeypatch,
+        [
+            {"x": 170, "y": 20, "width": 30, "height": 10},
+            {"x": 180, "y": 20, "width": 10, "height": 10},
+            {"x": 150, "y": 20, "width": 10, "height": 10},
+        ],
+        OI_POINT_PIXEL_EXPAND="7",
+    )
+
+    assert len(icons) == 1
+    box = icons[0]
+    assert box["x"] == 143
+    assert box["width"] == 57
+    assert box["x"] + box["width"] == 200, "the merge must keep the far edge"
 
 
 def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
@@ -634,6 +659,7 @@ def test_no_boxes_leaves_image_search_with_nothing(monkeypatch):
     captured = {}
 
     def fake_image_search(description, icons, hashes, debug):
+        """Record the icons offered for ranking and report no matches."""
         captured["icons"] = icons
         return []
 
@@ -693,6 +719,7 @@ def test_permutation_does_vary_the_other_three_parameters(monkeypatch):
     state = {}
 
     def rotate(options):
+        """Return each supplied option in turn, wrapping around to the first."""
         key = tuple(options)
         index = state.get(key, 0)
         state[key] = index + 1
@@ -857,6 +884,7 @@ def test_point_downloads_words_on_lookup_error(monkeypatch):
     calls = []
 
     def flaky_words():
+        """Raise on first access to simulate a missing corpus, then return words."""
         if not calls:
             calls.append(1)
             raise LookupError("missing corpus")
