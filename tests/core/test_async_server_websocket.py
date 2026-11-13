@@ -16,7 +16,12 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from interpreter.core.async_core import AsyncInterpreter, Server, authenticate_function
+from interpreter.core.async_core import (
+    AsyncInterpreter,
+    Server,
+    authenticate_function,
+    confirmation_digest,
+)
 
 
 async def _hang_output():
@@ -506,3 +511,53 @@ def test_unacked_fresh_output_survives_disconnect(ws_pair, monkeypatch):
     assert any(
         m.get("content") == "hello" for m in interp.unsent_messages
     ), "unacknowledged fresh output must be parked for the next connection"
+
+
+def test_disconnect_cancels_a_pending_code_confirmation(ws_pair):
+    """A client leaving mid-confirmation must not leave a respond thread parked.
+
+    Nothing can deliver the approval answer once the socket closes, so the
+    endpoint teardown declines the pending confirmation: the payload is cleared
+    and the approval event is set. Without that, the respond thread waits on
+    the event while holding the output queue until some later turn's start
+    chunk happens to tear it down.
+    """
+    client, interp, _ = ws_pair
+    payload = {"type": "code", "format": "python", "content": "print(1)"}
+    interp.pending_confirmation = payload
+    interp.pending_confirmation_digest = confirmation_digest(payload)
+
+    with client.websocket_connect("/") as ws:
+        _handshake(ws)
+
+    for _ in range(100):
+        if interp._approval_event.is_set():
+            break
+        time.sleep(0.01)
+
+    assert interp.pending_confirmation is None
+    assert interp._approval_event.is_set()
+    assert interp._approval_granted is False
+
+
+
+def test_unauthenticated_disconnect_keeps_pending_confirmation(ws_pair, monkeypatch):
+    """An unauthorised socket must not cancel the shared interpreter's approval.
+
+    Teardown declines pending confirmations so a real client leaving cannot
+    park the respond thread. With auth required, though, a socket that never
+    completed the handshake must not be able to deny another client's
+    approval, so the cleanup is gated on authentication.
+    """
+    monkeypatch.setenv("INTERPRETER_REQUIRE_AUTH", "True")
+    client, interp, _ = ws_pair
+    payload = {"type": "code", "format": "python", "content": "print(1)"}
+    interp.pending_confirmation = payload
+    interp.pending_confirmation_digest = confirmation_digest(payload)
+
+    with client.websocket_connect("/") as ws:
+        pass  # connect and leave without sending an auth frame
+
+    time.sleep(0.2)
+    assert interp.pending_confirmation == payload
+    assert interp._approval_event.is_set() is False
