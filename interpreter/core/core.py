@@ -199,8 +199,11 @@ class OpenInterpreter:
             return self.messages[self.last_messages_count :]
 
         except GeneratorExit:
+            # Reset the flag for a caller that closes the stream underneath us,
+            # then propagate: swallowing a BaseException here would hide the close
+            # from whoever closed the generator (#105).
             self.responding = False
-            # It's fine
+            raise
         except Exception as e:
             self.responding = False
             if self.anonymous_telemetry:

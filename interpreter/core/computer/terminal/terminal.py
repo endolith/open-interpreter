@@ -211,7 +211,11 @@ class Terminal:
                     print(chunk["content"], end="")
 
         except GeneratorExit:
+            # Closing the stream must stop the running language process. Re-raise
+            # as well, so this frame does not swallow the close and a later yield
+            # cannot turn into "generator ignored GeneratorExit" (#104).
             self.stop()
+            raise
 
     def stop(self):
         for language in self._active_languages.values():
