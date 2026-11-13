@@ -60,12 +60,12 @@ def _expand_boxes(icons_bounding_boxes, image_width, image_height, pixel_expand)
         box["width"] = (
             box["width"] + pixel_expand * 2
             if box["x"] + box["width"] + pixel_expand * 2 <= image_width
-            else image_width - box["x"] - box["width"]
+            else image_width - box["x"]
         )
         box["height"] = (
             box["height"] + pixel_expand * 2
             if box["y"] + box["height"] + pixel_expand * 2 <= image_height
-            else image_height - box["y"] - box["height"]
+            else image_height - box["y"]
         )
     return icons_bounding_boxes
 
