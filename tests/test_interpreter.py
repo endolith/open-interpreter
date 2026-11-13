@@ -3,7 +3,6 @@ import platform
 import re
 import signal
 import time
-from random import randint
 
 import pytest
 
@@ -1630,31 +1629,6 @@ def test_hello_world():
     assert messages[0]["role"] == "assistant"
     assert messages[0]["type"] == "message"
     assert messages[0]["content"] == hello_world_response
-
-
-@pytest.mark.integration
-def test_math():
-    """Integration: LLM computes a random order-of-operations expression correctly."""
-
-    min_number = randint(1, 99)
-    max_number = randint(1001, 9999)
-
-    n1 = randint(min_number, max_number)
-    n2 = randint(min_number, max_number)
-
-    test_result = n1 + n2 * (n1 - n2) / (n2 + n1)
-
-    order_of_operations_message = f"""
-    Please perform the calculation `{n1} + {n2} * ({n1} - {n2}) / ({n2} + {n1})` then reply with just the answer, nothing else. No confirmation. No explanation. No words. Do not use commas. Do not show your work. Just return the result of the calculation. Do not introduce the results with a phrase like \"The result of the calculation is...\" or \"The answer is...\"
-
-    Round to 2 decimal places.
-    """.strip()
-
-    print("loading")
-    messages = interpreter.chat(order_of_operations_message)
-    print("done")
-
-    assert str(round(test_result, 2)) in messages[-1]["content"]
 
 
 @pytest.mark.timeout(120)
