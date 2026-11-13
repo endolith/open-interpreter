@@ -388,6 +388,71 @@ def _last_assistant_text(messages):
     return ""
 
 
+_JUDGE_ATTEMPTS = 3
+
+
+def _ask_yes_no(ask, prompt, attempts=_JUDGE_ATTEMPTS):
+    """Return "yes" or "no" from a model asked to answer with exactly one word.
+
+    The judge is an oracle over another model's reply, not the thing under
+    test. It occasionally answers by echoing that reply's code block instead
+    of giving a verdict, and a code reply says nothing about whether the
+    assistant claimed the file exists, so failing the integration job on it
+    turns an oracle hiccup into a red run on an unrelated commit (#591). Ask
+    again a bounded number of times; a verdict later in the budget still
+    fails the caller's assertion, so a genuinely wrong answer is not masked.
+    Only a reply that is exactly "yes" or "no" (optionally with one trailing
+    period) counts as a verdict.
+    """
+
+    replies = []
+    for _ in range(attempts):
+        reply = ask(prompt)
+        replies.append(reply)
+        match = re.fullmatch(r"\s*(yes|no)\s*[.!]?\s*", reply or "", re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+    pytest.fail(
+        f"judge did not answer yes/no in {len(replies)} attempts: {replies!r}"
+    )
+
+
+def test_ask_yes_no_retries_when_the_judge_echoes_code():
+    """A judge reply that is code is retried instead of failing the run.
+
+    The judge sometimes echoes the assistant's code block instead of
+    answering (#591). The first two calls here return code; the third returns
+    "No." with a trailing period and newline, which must be accepted
+    case-insensitively.
+    """
+    replies = iter(
+        ['import os\nprint(os.path.exists("/something.txt"))', "```python\n", "No.\n"]
+    )
+
+    def ask(prompt):
+        return next(replies)
+
+    assert _ask_yes_no(ask, "does it exist?") == "no"
+
+
+def test_ask_yes_no_fails_after_exhausting_attempts():
+    """Unparseable judge replies fail after the budget and name the replies.
+
+    Without a bound the retry loop could spin forever; with one, an oracle
+    that never answers still fails loudly, and the message carries the raw
+    replies so the log shows what the judge returned.
+    """
+    prompts = []
+
+    def ask(prompt):
+        prompts.append(prompt)
+        return "import os"
+
+    with pytest.raises(pytest.fail.Exception, match="import os"):
+        _ask_yes_no(ask, "does it exist?")
+    assert len(prompts) == 3
+
+
 @pytest.mark.timeout(120)
 def test_hallucinations():
     """Common LLM code hallucinations are normalized before execution.
@@ -931,17 +996,14 @@ def test_server():
             # model replies with a code block or GET /messages lags behind the stream.
             last_assistant = _last_assistant_text(messages) or accumulated_content
             assert last_assistant, "expected assistant response after file turn"
-            response = interpreter.computer.ai.chat(
+            answer = _ask_yes_no(
+                interpreter.computer.ai.chat,
                 last_assistant
                 + "\n\nBased on the assistant response above, does the assistant think the file exists? "
                 "Answer with exactly one of these two words: 'yes' or 'no'. "
-                "Do not write code, shell commands, explanations, or punctuation."
+                "Do not write code, shell commands, explanations, or punctuation.",
             )
-            answer = response.strip().lower()
-            assert answer in {"yes", "no"}, (
-                f"expected exactly 'yes' or 'no', got {response!r}"
-            )
-            assert answer == "no", f"expected a negative verdict, got {response!r}"
+            assert answer == "no", f"expected a negative verdict, got {answer!r}"
 
             #### TEST IMAGES ####
 
