@@ -1,3 +1,5 @@
+import pytest
+
 from interpreter.core.computer.ai.ai import chunk_responses, split_into_chunks
 
 
@@ -60,13 +62,18 @@ def test_chunk_responses_empty_list_returns_empty():
     assert chunk_responses([], tokens=100, llm=llm) == []
 
 
-def test_split_into_chunks_overlap_greater_than_tokens_returns_empty():
-    """When overlap exceeds tokens the tiktoken step is negative and yields no chunks.
+def test_split_into_chunks_rejects_overlap_at_or_above_tokens():
+    """An overlap that leaves no forward step is a misconfiguration, not empty input.
 
-    This documents current behavior; callers should keep overlap < tokens.
+    Both the token and character loops advance by the window minus the overlap,
+    so ``overlap >= tokens`` makes the step zero or negative and the loops yield
+    nothing. Returning ``[]`` let a caller treat the misconfiguration as "no
+    text to summarize"; raising names the two values that conflict instead.
     """
     llm = type("Llm", (), {"model": "gpt-4"})()
-    assert split_into_chunks("abcdefghij", tokens=5, llm=llm, overlap=6) == []
+    for overlap in (5, 6):
+        with pytest.raises(ValueError, match=r"overlap \(\d+\) must be less than tokens \(5\)"):
+            split_into_chunks("abcdefghij", tokens=5, llm=llm, overlap=overlap)
 
 
 def test_chunk_responses_flushes_the_open_chunk_when_the_budget_is_exceeded():
@@ -132,3 +139,16 @@ def test_chunk_responses_character_fallback_empty_list():
     """The fallback branch also returns an empty list for no input."""
     llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
     assert chunk_responses([], tokens=10, llm=llm) == []
+
+
+def test_chunk_responses_character_fallback_starts_a_new_chunk_for_the_next_response():
+    """A response that fits alone starts a new chunk when the open one is full.
+
+    Each response is under the tokens*4 character budget by itself, but the two
+    together exceed it. The fallback must emit the open chunk and make the next
+    response the start of a new one instead of merging them or dropping content.
+    """
+    llm = type("Llm", (), {"model": "totally-invalid-model-name-xyz"})()
+    responses = ["a" * 30, "b" * 30]
+    result = chunk_responses(responses, tokens=10, llm=llm)
+    assert result == responses
