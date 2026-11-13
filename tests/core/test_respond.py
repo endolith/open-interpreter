@@ -548,3 +548,33 @@ def test_alias_normalization_updates_the_code_message_not_trailing_reasoning():
 
     assert code["format"] == "python"
     assert "format" not in reasoning
+
+
+def test_respond_reraises_generator_exit_after_execution_output():
+    """Closing respond() mid-execution closes the generator instead of leaking a traceback chunk.
+
+    The execution block wraps the confirmation and output yields in a `except
+    KeyboardInterrupt / except:` pair. A bare `except` also catches GeneratorExit,
+    so closing the stream made respond() yield a traceback chunk instead of closing;
+    Python then reported "generator ignored GeneratorExit" at teardown (#103).
+    """
+    executed = []
+
+    def run(language, code, **kwargs):
+        executed.append(code)
+        yield {"type": "console", "format": "output", "content": "42"}
+
+    interpreter = _code_interpreter()
+    interpreter.computer.run = run
+
+    stream = respond(interpreter)
+    first = next(stream)
+    assert first["type"] == "confirmation"
+    second = next(stream)
+    assert second["format"] == "output"
+
+    stream.close()
+    assert executed == ["1+1"]
+
+    with pytest.raises(StopIteration):
+        next(stream)

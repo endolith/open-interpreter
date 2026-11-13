@@ -347,9 +347,11 @@ def respond(interpreter):
                         },
                     }
                 except GeneratorExit:
-                    # The user might exit here.
-                    # We need to tell python what we (the generator) should do if they exit
-                    break
+                    # The consumer stopped iterating at the approval prompt, so the
+                    # code must not run. Re-raise instead of breaking: breaking resumes
+                    # the outer loop and yields another chunk, which Python reports as
+                    # "generator ignored GeneratorExit" (#103).
+                    raise
 
                 # They may have edited the code! Grab it again
                 code = [m for m in interpreter.messages if m["type"] == "code"][-1][
@@ -450,6 +452,11 @@ def respond(interpreter):
 
             except KeyboardInterrupt:
                 break  # It's fine.
+            except GeneratorExit:
+                # The bare handler below would catch a close and yield a traceback
+                # chunk, which makes Python report "generator ignored GeneratorExit".
+                # Propagate the close instead (#103).
+                raise
             except:
                 yield {
                     "role": "computer",
