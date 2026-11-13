@@ -125,10 +125,28 @@ def test_java_subprocess_smoke(interpreter):
     assert "java_ok" in console_output_text(chunks)
 
 
+def _skip_if_the_renderer_failed(chunks):
+    """Skip when html2image could not render: the language then reports the source.
+
+    The screenshot needs Chrome and, for React, the CDN scripts it loads; either
+    can be unavailable in CI without anything in the language being wrong. The
+    absence of a "headless browser failed" note still fails the test, so a real
+    gating regression cannot hide behind this skip.
+    """
+    if any(
+        "headless browser failed" in str(chunk.get("content", ""))
+        for chunk in chunks
+    ):
+        pytest.skip("html2image could not render a preview")
+
+
 @pytest.mark.timeout(90)
 def test_html_runtime_smoke(interpreter):
     """HTML execution yields console + code + image chunks (via html2image/Chrome)."""
     require_chrome_for_html()
+    # The screenshot path only runs for vision models (#553), and this test is
+    # exactly about screenshotting.
+    interpreter.llm.supports_vision = True
     try:
         chunks = list(
             interpreter.computer.run(
@@ -137,7 +155,8 @@ def test_html_runtime_smoke(interpreter):
         )
     except FileNotFoundError as exc:
         pytest.skip(f"html2image screenshot failed: {exc}")
-    assert chunks_of_type(chunks, "console")
+    _skip_if_the_renderer_failed(chunks)
+    # No console chunk: the screenshot is the assistant's single result.
     assert chunks_of_type(chunks, "code")[0]["format"] == "html"
     images = chunks_of_type(chunks, "image")
     assert len(images) == 1
@@ -149,11 +168,15 @@ def test_html_runtime_smoke(interpreter):
 def test_react_runtime_smoke(interpreter):
     """React code is injected into the CDN-backed HTML template and screenshotted."""
     require_chrome_for_html()
+    # The screenshot path only runs for vision models (#553), and this test is
+    # exactly about screenshotting.
+    interpreter.llm.supports_vision = True
     try:
         chunks = list(interpreter.computer.run("react", _REACT_SMOKE))
     except FileNotFoundError as exc:
         pytest.skip(f"html2image screenshot failed: {exc}")
-    assert chunks_of_type(chunks, "console")
+    _skip_if_the_renderer_failed(chunks)
+    # No console chunk: the screenshot is the assistant's single result.
     assert chunks_of_type(chunks, "code")[0]["format"] == "html"
     images = chunks_of_type(chunks, "image")
     assert len(images) == 1
