@@ -65,7 +65,7 @@ class JavaScript(SubprocessLanguage):
         if re.match(r"^(?:\.\.\.\s*)+", line):
             if self._continuation_prompts:
                 line, prompt_run = re.subn(
-                    "^" + "... " * self._continuation_prompts, "", line, count=1
+                    "^" + r"\.\.\. " * self._continuation_prompts, "", line, count=1
                 )
                 if not prompt_run:
                     line = re.sub(r"^(?:\.\.\.\s*)+", "", line)

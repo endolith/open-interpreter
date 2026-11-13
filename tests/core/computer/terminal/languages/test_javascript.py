@@ -193,6 +193,19 @@ def test_line_postprocessor_falls_back_when_pipe_prompt_count_is_stale():
     assert js.line_postprocessor("> > | | | | | hello\n") == "hello"
 
 
+def test_line_postprocessor_counted_strip_matches_literal_dots_only():
+    """An overcounted prompt run must not consume ordinary result text.
+
+    The counted pattern repeats the prompt token, so its dots have to be
+    literal. With wildcard dots, a count larger than the prompts Node actually
+    printed consumed the first "..."-free word of the result ("abc") as if it
+    were a fifth prompt, leaving "result" instead of "abc result".
+    """
+    js = JavaScript()
+    js._continuation_prompts = 5
+    assert js.line_postprocessor("> > " + "... " * 4 + "abc result\n") == "abc result"
+
+
 def test_line_postprocessor_leaves_unprompted_table_rows_alone():
     """A later output row's leading empty cells are not prompt tokens.
 
