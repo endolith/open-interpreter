@@ -1,4 +1,7 @@
 import ast
+import sys
+
+import pytest
 
 from interpreter.core.computer.terminal.languages.jupyter_language import (
     AddLinePrints,
@@ -87,3 +90,26 @@ def test_add_line_prints_transformer_inserts_prints():
     new_tree = transformer.visit(tree)
     unparsed = ast.unparse(new_tree)
     assert "##active_line" in unparsed
+
+
+def test_preprocess_python_keeps_blank_lines_inside_triple_quoted_strings(monkeypatch):
+    """A blank line inside a triple-quoted string is part of the value, not padding."""
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "false")
+    code = 'text = """A\n\nB"""\nprint(text)'
+
+    result = preprocess_python(code)
+
+    assert '"""A\n\nB"""' in result
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 14), reason="template strings require Python 3.14"
+)
+def test_preprocess_python_keeps_blank_lines_inside_template_strings(monkeypatch):
+    """A Python 3.14 t-string keeps its blank lines (TSTRING_MIDDLE is protected)."""
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "false")
+    code = 'text = t"""A\n\nB"""\nprint(text)'
+
+    result = preprocess_python(code)
+
+    assert 't"""A\n\nB"""' in result
