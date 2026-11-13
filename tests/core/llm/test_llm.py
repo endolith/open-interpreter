@@ -10,13 +10,18 @@ from tests.helpers import TEST_LLM_MODEL
 
 @pytest.fixture(autouse=True)
 def _isolate_litellm_drop_params():
-    """fixed_litellm_completions mutates the process-global litellm.drop_params;
-    restore it after each test so it can't leak between tests."""
+    """fixed_litellm_completions mutates process-global state — litellm.drop_params
+    and the set of endpoints known to reject stream_options. Restore both after
+    each test so they can't leak between tests."""
     import litellm
 
+    from interpreter.core.llm import llm as llm_module
+
     original = getattr(litellm, "drop_params", None)
+    llm_module._UNSUPPORTED_STREAM_OPTIONS.clear()
     yield
     litellm.drop_params = original
+    llm_module._UNSUPPORTED_STREAM_OPTIONS.clear()
 
 _MESSAGES = [
     {"role": "system", "type": "message", "content": "system"},
@@ -192,6 +197,24 @@ def test_run_dispatches_to_text_runner_without_functions():
 
     assert captured["params"]["stream"] is True
     assert captured["params"]["messages"][0]["content"] == "hi"
+
+
+def test_run_requests_streamed_usage():
+    """llm.run asks OpenAI-compatible APIs to attach usage to the stream."""
+    llm = Llm(_interp())
+    llm._is_loaded = True
+    llm.supports_functions = True
+    llm.supports_vision = False
+
+    captured = _run_capture(
+        llm,
+        [
+            {"role": "system", "type": "message", "content": "s"},
+            {"role": "user", "type": "message", "content": "hi"},
+        ],
+    )
+
+    assert captured["params"]["stream_options"] == {"include_usage": True}
 
 
 def test_run_includes_optional_llm_params():
@@ -974,3 +997,101 @@ def test_run_prepends_empty_system_message():
 
     assert captured["params"]["messages"][0]["role"] == "system"
     assert captured["params"]["messages"][0]["content"] == ""
+
+def test_fixed_litellm_completions_retries_without_stream_options():
+    """An endpoint that rejects stream_options is retried without that parameter."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(dict(params))
+        if len(calls) == 1:
+            raise RuntimeError("Unsupported parameter: stream_options.include_usage")
+        return iter(())
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion
+    ):
+        list(
+            fixed_litellm_completions(
+                model="gpt-4o",
+                messages=[],
+                stream_options={"include_usage": True},
+            )
+        )
+
+    assert calls[0]["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in calls[1]
+
+
+def test_fixed_litellm_completions_reports_failure_after_stream_options_retry():
+    """A later failure is surfaced when the first attempt only rejected stream_options."""
+    from interpreter.core.llm.llm import fixed_litellm_completions
+
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(dict(params))
+        if len(calls) == 1:
+            raise RuntimeError("Unsupported parameter: stream_options.include_usage")
+        raise RuntimeError("fallback failed")
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion
+    ):
+        with pytest.raises(RuntimeError, match="fallback failed"):
+            list(
+                fixed_litellm_completions(
+                    model="gpt-4o",
+                    messages=[],
+                    stream_options={"include_usage": True},
+                )
+            )
+
+    assert len(calls) == 4
+    assert "stream_options" not in calls[1]
+
+
+def test_fixed_litellm_completions_remembers_stream_options_rejection():
+    """An endpoint that rejected stream_options is not sent it again in this process.
+
+    Without the memo every call to the same endpoint pays for a failed request
+    first. The rejection is keyed per endpoint, so a different api_base serving
+    the same model name still gets the option.
+    """
+    from interpreter.core.llm import llm as llm_module
+
+    calls = []
+
+    def fake_completion(**params):
+        calls.append(dict(params))
+        if len(calls) == 1:
+            raise RuntimeError("Unsupported parameter: stream_options.include_usage")
+        return iter(())
+
+    with mock.patch(
+        "interpreter.core.llm.llm.litellm.completion", side_effect=fake_completion
+    ):
+        for _ in range(2):
+            list(
+                llm_module.fixed_litellm_completions(
+                    model="memo-model",
+                    messages=[],
+                    stream_options={"include_usage": True},
+                )
+            )
+        # A different endpoint for the same model name is unaffected.
+        list(
+            llm_module.fixed_litellm_completions(
+                model="memo-model",
+                messages=[],
+                api_base="https://other.example/v1",
+                stream_options={"include_usage": True},
+            )
+        )
+
+    assert calls[0]["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in calls[1]
+    assert "stream_options" not in calls[2]
+    assert calls[3]["stream_options"] == {"include_usage": True}

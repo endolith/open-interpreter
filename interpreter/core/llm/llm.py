@@ -109,6 +109,10 @@ class Llm:
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
+        # Filled from the final streaming chunk when the API sends usage
+        # (see stream_usage.record_stream_chunk_usage).
+        self.last_completion_usage = None
+
     def run(self, messages):
         """
         We're responsible for formatting the call into the llm.completions object,
@@ -328,6 +332,9 @@ Continuing...
             "model": model,
             "messages": messages,
             "stream": True,
+            # OpenAI-compatible APIs need this to attach token usage to the
+            # final streaming chunk.
+            "stream_options": {"include_usage": True},
         }
 
         # Optional inputs
@@ -540,6 +547,21 @@ def _fill_reasoning_content(params):
             last_reasoning = None
 
 
+def _is_unsupported_stream_options_error(error):
+    """Whether a provider explicitly rejected the stream_options parameter."""
+    message = str(error).lower()
+    return "stream_options" in message and any(
+        marker in message
+        for marker in ("unsupported", "unknown", "unexpected", "invalid", "not supported")
+    )
+
+
+# Endpoints that rejected stream_options are remembered per (api_base, model)
+# so only the first call pays for that discovery. Two endpoints can serve the
+# same model name and disagree about the option, hence the api_base in the key.
+_UNSUPPORTED_STREAM_OPTIONS = set()
+
+
 def fixed_litellm_completions(**params):
     """
     Just uses a dummy API key, since we use litellm without an API key sometimes.
@@ -553,6 +575,10 @@ def fixed_litellm_completions(**params):
     litellm.drop_params = True
 
     params["model"] = params["model"].replace(":latest", "")
+
+    stream_options_key = (params.get("api_base"), params["model"])
+    if stream_options_key in _UNSUPPORTED_STREAM_OPTIONS:
+        params.pop("stream_options", None)
 
     _fill_reasoning_content(params)
 
@@ -582,8 +608,16 @@ def fixed_litellm_completions(**params):
                 # into a string that never parses and executes only the prefix.
                 # A mid-stream failure cannot be retried safely, so surface it.
                 raise
-            if attempt == 0:
-                # Store the first error
+            if "stream_options" in params and _is_unsupported_stream_options_error(e):
+                # Some OpenAI-compatible endpoints reject stream_options rather
+                # than ignoring it. Retry without it; usage is optional. Remember
+                # the rejection so this is a one-off cost for the process.
+                params.pop("stream_options", None)
+                _UNSUPPORTED_STREAM_OPTIONS.add(stream_options_key)
+                continue
+            if first_error is None:
+                # Store the first error that was not solved by dropping
+                # stream_options, regardless of which attempt produced it.
                 first_error = e
             if (
                 isinstance(e, litellm.exceptions.AuthenticationError)

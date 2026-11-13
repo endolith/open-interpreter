@@ -1,3 +1,6 @@
+from .utils.stream_usage import record_stream_chunk_usage
+
+
 FENCE = "```"
 
 
@@ -104,7 +107,41 @@ def run_text_llm(llm, params):
     # contains a bare ``` line). The closing run must be at least as long.
     opener_len = len(FENCE)
 
-    for chunk in llm.completions(**params):
+    llm.last_completion_usage = None
+
+    finished = False
+    # core.py only observes stop_event when it receives a chunk, and the drain
+    # below yields nothing, so a cancellation during the drain would otherwise
+    # wait for the provider to finish talking.
+    stop_event = getattr(llm.interpreter, "stop_event", None)
+
+    def _stream_completions():
+        """Yield chunks, tolerating a late error once the reply has finished.
+
+        After the closing fence the remaining chunks only carry usage data, and
+        respond() runs the code block only after llm.run returns. A provider
+        error there must therefore end the drain, not the turn, or a complete
+        code block would be discarded unexecuted. Errors before the fence are
+        still propagated.
+        """
+        try:
+            yield from llm.completions(**params)
+        except Exception:
+            if not finished:
+                raise
+
+    for chunk in _stream_completions():
+        record_stream_chunk_usage(llm, chunk)
+
+        if finished:
+            # The response text ended at the closing fence, but the final
+            # usage-only chunk still needs to be recorded for `%usage`. Stop
+            # early when the user cancelled: nothing is yielded while draining,
+            # so core cannot see the stop_event until the stream ends.
+            if stop_event is not None and stop_event.is_set():
+                break
+            continue
+
         if llm.interpreter.verbose:
             print("Chunk in coding_llm", chunk)
 
@@ -230,7 +267,10 @@ def run_text_llm(llm, params):
                     "format": language,
                     "content": accumulated[cursor:fence_at],
                 }
-            return
+            finished = True
+            inside_code_block = False
+            cursor = len(accumulated)
+            break
 
         if pending_reasoning:
             yield _reasoning_chunk(pending_reasoning)
