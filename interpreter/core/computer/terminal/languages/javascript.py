@@ -41,17 +41,20 @@ class JavaScript(SubprocessLanguage):
             return None
         if line.strip() in ["undefined", 'Type ".help" for more information.']:
             return None
-        line = line.strip(". \n")
+        # Trim padding only. Dots are output data here: a result line such as
+        # "done." ends with one and a later line such as "...waiting" begins
+        # with them. The prompt dots are removed by the counted strip below;
+        # a wholesale dot strip would also eat the program's own characters.
+        line = line.strip(" \n")
         # Strip the REPL prompt sequence, including the continuation prompts
         # for multi-line input: "> ", "> > ", "... ... ". Without the "..." arm
         # Node echoes a buffered multi-line command as "... ... ... " glued to
         # the result line, which the model then reads as output.
         #
-        # A ">" prefix marks the line Node glued its continuation prompts to
-        # (a line that begins with "..." has already lost its dots in the strip
-        # above). Remember the prefix before the regex consumes it: later
-        # output lines must not be treated as prompt lines even when they
-        # begin with "| ", because that is a table row's own delimiter.
+        # A ">" prefix marks the line Node glued its continuation prompts to.
+        # Continuation prompts appear only on that line, so a later output line
+        # that begins with "| " is a table row's own delimiter and lines
+        # without the prefix are passed through untouched.
         prompt = re.match(r"^\s*(?:>\s*)+", line)
         if prompt is None:
             return line

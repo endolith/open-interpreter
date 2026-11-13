@@ -222,13 +222,37 @@ def test_line_postprocessor_leaves_unprompted_table_rows_alone():
     )
 
 
-def test_line_postprocessor_strips_dot_space_and_newline():
-    """Leading/trailing dots, spaces and newlines are trimmed.
+def test_line_postprocessor_preserves_result_dots_and_trims_whitespace():
+    """Dots in the program's own output are data, not prompt padding.
 
-    The strip charset is ". \\n"; dropping it would leave padding in the output.
+    Node prompt dots are removed only on the line carrying the ">" prefix, so a
+    strip charset that also ate dots turned "done." into "done" and a later
+    "...waiting" line into "waiting". Surrounding whitespace is still trimmed.
     """
     js = JavaScript()
-    assert js.line_postprocessor("  .value. ") == "value"
+    assert js.line_postprocessor("  .value. ") == ".value."
+    assert js.line_postprocessor("done.\n") == "done."
+
+
+def test_line_postprocessor_keeps_a_later_output_line_starting_with_dots():
+    """Output after the glued prompt line keeps its leading ellipsis.
+
+    Node prints the prompt run on the line with the ">" prefix and echoes each
+    buffered line's results afterwards. A run whose program prints ">" and then
+    "...waiting" must deliver "...waiting" intact, not "waiting".
+    """
+    js = JavaScript()
+    js.preprocess_code('console.log(">");\nconsole.log("...waiting");')
+    lines = [
+        "> > " + "... " * js._continuation_prompts + "##active_line1##\n",
+        ">\n",
+        "##active_line2##\n",
+        "...waiting\n",
+    ]
+    out = [js.line_postprocessor(line) for line in lines]
+
+    assert out[0] == "##active_line1##"
+    assert out[3] == "...waiting"
 
 
 def test_preprocess_javascript_multiline_skips_active_line_markers():
