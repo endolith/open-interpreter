@@ -137,6 +137,21 @@ def _stop_server_subprocess(process):
         process.join()
 
 
+def _install_child_approval_guard(test_name):
+    """Install the process-wide approval guard in a spawned server child.
+
+    A child process does not inherit the pytest process's monkeypatches, so every
+    spawned server installs the guard itself; otherwise it would run the model's
+    code with no prompt while the parent test believes it is guarded. CI has no
+    terminal, so it keeps skipping the prompt there as the other integration
+    runs do.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        from tests.integration_support import install_process_approval
+
+        install_process_approval(test_name)
+
+
 async def _wait_for_websocket_complete(
     websocket,
     max_messages=500,
@@ -205,8 +220,8 @@ async def _wait_for_websocket_complete(
         message_data = json.loads(message)
         if acknowledge and "id" in message_data:
             await websocket.send(json.dumps({"ack": message_data["id"]}))
-        if "error" in message_data:
-            raise Exception(message_data["content"])
+        if "error" in message_data or message_data.get("type") == "error":
+            raise Exception(message_data.get("content") or str(message_data))
         print("Received from WebSocket:", message_data)
         content = message_data.get("content")
         if prose_only:
@@ -368,6 +383,37 @@ def test_wait_for_websocket_complete_message_limit():
     asyncio.run(scenario())
 
 
+def test_wait_for_websocket_complete_raises_on_typed_error_frame():
+    """A frame with type "error" fails the wait even without an "error" key.
+
+    Refusals are reported as ``{"role": "server", "type": "error", ...}`` and
+    are followed by the completion marker. Checking only for an ``error`` key
+    let the receiver swallow the following ``complete`` and pass, hiding a
+    turn the server had already refused.
+    """
+
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, Mock
+
+    websocket = Mock()
+    websocket.recv = AsyncMock(
+        side_effect=[
+            json.dumps(
+                {"role": "server", "type": "error", "content": "not approved"}
+            ),
+            json.dumps({"role": "server", "type": "status", "content": "complete"}),
+        ]
+    )
+
+    async def scenario():
+        """Expect the refusal frame itself to raise, before completion is read."""
+        with pytest.raises(Exception, match="not approved"):
+            await _wait_for_websocket_complete(websocket, phase="refused_turn")
+
+    asyncio.run(scenario())
+
+
 def _last_assistant_message(messages):
     for message in reversed(messages):
         if message.get("role") == "assistant" and message.get("type") == "message":
@@ -521,6 +567,9 @@ def test_server_url_helpers():
 
 
 def run_auth_server():
+    _install_child_approval_guard(
+        "test_authenticated_acknowledging_breaking_server"
+    )
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "True"
     os.environ["INTERPRETER_API_KEY"] = "testing"
     async_interpreter = AsyncInterpreter()
@@ -616,8 +665,8 @@ def test_authenticated_acknowledging_breaking_server():
                 message_data = json.loads(message)
                 if "id" in message_data:
                     await websocket.send(json.dumps({"ack": message_data["id"]}))
-                if "error" in message_data:
-                    raise Exception(str(message_data))
+                if "error" in message_data or message_data.get("type") == "error":
+                    raise Exception(message_data.get("content") or str(message_data))
                 print("Received from WebSocket:", message_data)
                 if type(message_data.get("content")) == str:
                     poem += message_data.get("content")
@@ -675,6 +724,7 @@ def test_authenticated_acknowledging_breaking_server():
 
 def run_server():
     """Run the AsyncInterpreter server inside the spawned test process."""
+    _install_child_approval_guard("test_server")
     os.environ["INTERPRETER_REQUIRE_ACKNOWLEDGE"] = "False"
     if "INTERPRETER_API_KEY" in os.environ:
         del os.environ["INTERPRETER_API_KEY"]

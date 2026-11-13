@@ -5,9 +5,7 @@ import platform
 import litellm
 import pytest
 
-_INTEGRATION_OPT_IN_SKIP = (
-    "integration tests need OI_RUN_INTEGRATION=1 (LLM auto-runs generated code)"
-)
+_INTEGRATION_OPT_IN_SKIP = "integration tests need OI_RUN_INTEGRATION=1 (LLM auto-runs generated code)"
 _INTEGRATION_API_KEY_SKIP = "OPENAI_API_KEY not set; skipping integration tests"
 
 
@@ -16,6 +14,7 @@ from tests.helpers import (
     end_test_conversations,
     _test_interpreters,
 )
+from tests.integration_support import install_chat_approval, terminal_available
 
 
 def _install_construction_tracking() -> None:
@@ -112,7 +111,60 @@ def pytest_collection_modifyitems(config, items):
         for marker, required_os in _PLATFORM_MARKERS.items():
             if marker in item.keywords and current != required_os:
                 item.add_marker(
-                    pytest.mark.skip(
-                        reason=f"{marker} only runs on {required_os} (this host is {current})"
-                    )
+                    pytest.mark.skip(reason=f"{marker} only runs on {required_os} (this host is {current})")
                 )
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--approve-integration",
+        action="store_true",
+        default=False,
+        help="Run integration tests without prompting before each LLM-generated "
+        "code block (sets OI_AUTO_APPROVE_INTEGRATION=1).",
+    )
+
+
+def pytest_configure(config):
+    if config.getoption("--approve-integration"):
+        os.environ["OI_AUTO_APPROVE_INTEGRATION"] = "1"
+
+
+def pytest_sessionstart(session):
+    """Tell an interactive local run that generated code will be prompted for."""
+    if integration_skip_reason() is not None:
+        return
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return
+    if os.environ.get("OI_AUTO_APPROVE_INTEGRATION") == "1":
+        print(
+            "\nIntegration tests: LLM-generated code will run without per-block "
+            "prompts (OI_AUTO_APPROVE_INTEGRATION=1).\n"
+        )
+        return
+    if not terminal_available():
+        print(
+            "\nIntegration tests call an LLM and execute generated code. This session has "
+            "no interactive terminal to approve the code blocks; set "
+            "OI_AUTO_APPROVE_INTEGRATION=1 to run them, or run pytest from a terminal "
+            "window.\n"
+        )
+        return
+    print(
+        "\nIntegration tests call an LLM and execute generated code on your machine. "
+        "You will be prompted before each code block (y/n/a).\n"
+    )
+
+
+@pytest.fixture(autouse=True)
+def _approve_llm_generated_code(request, monkeypatch):
+    """Prompt before an integration test runs code the LLM generated.
+
+    CI runners are disposable and non-interactive, so the hook is skipped there;
+    ``prompt_for_code_execution`` still honours OI_AUTO_APPROVE_INTEGRATION.
+    """
+    if "integration" not in request.node.keywords:
+        return
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return
+    install_chat_approval(monkeypatch, request.node.name)

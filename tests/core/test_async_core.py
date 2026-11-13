@@ -584,6 +584,38 @@ class TestAsyncInputLifecycle(TestCase):
         self.interpreter.respond_thread.join(timeout=5)
         self.interpreter.respond.assert_called_once()
 
+    def test_end_chunk_creates_the_output_queue_before_the_worker_starts(self):
+        """A turn that fails before output() is awaited still reports to the client.
+
+        The respond thread can raise before any consumer has called output(),
+        so input() has to create the queue first. Without it the error path
+        dereferences None, and the client gets neither the error nor the
+        completion frame and waits out its recv timeout.
+        """
+
+        def exploding_store():
+            """Raise as soon as the stream is pulled, as a refused turn would."""
+            raise ValueError("turn exploded before output()")
+            yield  # pragma: no cover - makes this a generator
+
+        # No consumer has run yet, so this is the reported starting state.
+        self.interpreter.output_queue = None
+        with mock.patch.object(self.interpreter, "_respond_and_store", exploding_store):
+            self._feed({"role": "user", "type": "message", "start": True})
+            self._feed({"type": "message", "end": True})
+            self.interpreter.respond_thread.join(timeout=5)
+
+        self.assertFalse(self.interpreter.respond_thread.is_alive())
+        self.assertIsNotNone(self.interpreter.output_queue)
+        chunks = []
+        while not self.interpreter.output_queue.sync_q.empty():
+            chunks.append(self.interpreter.output_queue.sync_q.get_nowait())
+
+        errors = [chunk for chunk in chunks if chunk.get("type") == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("turn exploded before output()", errors[0]["content"])
+        self.assertEqual(chunks[-1], complete_message)
+
     def test_end_chunk_clears_a_leftover_stop_event(self):
         """A new turn clears a stop flag left set by the previous one.
 
@@ -1060,6 +1092,28 @@ class TestAsyncRespondProgress(TestCase):
         with mock.patch.object(self.interpreter, "_respond_and_store", exploding_store):
             self.interpreter.respond()
 
+        self.assertEqual(self._put_chunks()[-1], complete_message)
+
+    def test_base_exception_is_reported_before_it_propagates(self):
+        """A refusal from the approval guard reaches the client as an error frame.
+
+        ``pytest.fail`` raises ``Failed``, a BaseException: without reporting it
+        here the worker thread dies with no error or complete frame and the
+        waiting client hits its recv timeout instead of seeing the refusal.
+        """
+        def refusing_store():
+            """Raise a pytest failure as the spawned server's guard does."""
+            pytest.fail("LLM-generated code was not approved")
+            yield  # pragma: no cover - makes this a generator
+
+        with mock.patch.object(self.interpreter, "_respond_and_store", refusing_store):
+            with self.assertRaises(BaseException) as caught:
+                self.interpreter.respond()
+
+        self.assertIn("was not approved", str(caught.exception))
+        errors = [c for c in self._put_chunks() if c.get("type") == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("was not approved", errors[0]["content"])
         self.assertEqual(self._put_chunks()[-1], complete_message)
 
     def test_empty_response_is_retried_five_times_then_raises(self):
