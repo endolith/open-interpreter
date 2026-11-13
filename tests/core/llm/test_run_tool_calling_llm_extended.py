@@ -3,7 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from interpreter.core.llm.run_tool_calling_llm import run_tool_calling_llm
+from interpreter.core.llm.run_tool_calling_llm import (
+    build_request_tools,
+    run_tool_calling_llm,
+)
 
 
 class Lang:
@@ -168,6 +171,100 @@ def test_view_image_schema_steers_away_from_ocr():
     description = view_image_tool_schema["function"]["description"]
     assert "vision is better than OCR" in description
     assert "prefer this tool" in description
+
+
+def _tool_names(tools):
+    return [tool["function"]["name"] for tool in tools]
+
+
+def test_view_image_injected_image_keeps_the_tool_in_the_schema():
+    """An image injected by view_image must not hide the tool that produced it.
+
+    The injection is a user-role image on the wire, so the converted-message
+    heuristic cannot tell it apart from a genuine attachment. It is marked in
+    LMC before conversion so a second image can still be viewed in the same turn.
+    """
+    llm = _make_llm([])
+    llm.interpreter.llm.supports_vision = True
+    llm.interpreter.messages = [
+        {"role": "assistant", "type": "message", "content": "Here it is."},
+        {
+            "role": "user",
+            "type": "image",
+            "format": "path",
+            "content": "/tmp/code.png",
+            "viewed_image": True,
+        },
+    ]
+
+    tools = build_request_tools(
+        llm.interpreter, lmc_messages=llm.interpreter.messages
+    )
+
+    assert "view_image" in _tool_names(tools)
+
+
+def test_genuine_user_attachment_hides_view_image():
+    """A genuine attachment after the last assistant text still hides the tool."""
+    llm = _make_llm([])
+    llm.interpreter.llm.supports_vision = True
+    llm.interpreter.messages = [
+        {"role": "assistant", "type": "message", "content": "Here it is."},
+        {
+            "role": "user",
+            "type": "image",
+            "format": "path",
+            "content": "/tmp/attachment.png",
+        },
+    ]
+
+    tools = build_request_tools(
+        llm.interpreter, lmc_messages=llm.interpreter.messages
+    )
+
+    assert "view_image" not in _tool_names(tools)
+
+
+def test_assistant_text_after_attachment_restores_view_image():
+    """The tool returns once the model has replied after the attachment."""
+    llm = _make_llm([])
+    llm.interpreter.llm.supports_vision = True
+    llm.interpreter.messages = [
+        {
+            "role": "user",
+            "type": "image",
+            "format": "path",
+            "content": "/tmp/attachment.png",
+        },
+        {"role": "assistant", "type": "message", "content": "I see it."},
+    ]
+
+    tools = build_request_tools(
+        llm.interpreter, lmc_messages=llm.interpreter.messages
+    )
+
+    assert "view_image" in _tool_names(tools)
+
+
+def test_run_tool_calling_llm_uses_lmc_image_provenance():
+    """The runner must pass the LMC history to the schema gate, not converted messages."""
+    captured = {}
+    llm = _make_llm([], captured=captured)
+    llm.interpreter.llm.supports_vision = True
+    llm.interpreter.messages = [
+        {"role": "assistant", "type": "message", "content": "Here it is."},
+        {
+            "role": "user",
+            "type": "image",
+            "format": "path",
+            "content": "/tmp/code.png",
+            "viewed_image": True,
+        },
+    ]
+
+    list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert "view_image" in _tool_names(captured["tools"])
 
 
 def test_language_named_tool_call_is_rewritten_to_execute():

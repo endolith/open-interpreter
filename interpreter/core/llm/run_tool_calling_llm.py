@@ -311,6 +311,34 @@ def _inline_user_image_in_turn_after_last_assistant_text(messages):
     return False
 
 
+def user_attached_image_in_current_turn(messages):
+    """
+    True if a user-attached image is already in the current turn.
+
+    This is the LMC counterpart of ``_inline_user_image_in_turn_after_last_assistant_text``.
+    It must run before conversion, where the image is still an LMC message and can be
+    distinguished from the image injected after a successful ``view_image`` call (marked
+    ``viewed_image=True``). Without that distinction, viewing one image hides ``view_image``
+    from the schema and the model cannot view another image in the same turn.
+    """
+    last_text_i = -1
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if m.get("role") != "assistant" or m.get("type") != "message":
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and c.strip():
+            last_text_i = i
+            break
+    for m in messages[last_text_i + 1 :]:
+        if m.get("role") != "user" or m.get("type") != "image":
+            continue
+        if m.get("format") == "description" or m.get("viewed_image") is True:
+            continue
+        return True
+    return False
+
+
 def merge_consecutive_assistant_messages(messages):
     """Collapse runs of consecutive ``assistant`` messages into single turns.
 
@@ -621,7 +649,7 @@ def answer_dangling_tool_calls(messages):
     return repaired
 
 
-def build_request_tools(interpreter, messages=None):
+def build_request_tools(interpreter, messages=None, lmc_messages=None):
     """Build the ``tools`` array sent on the chat completions API request (deep copy)."""
     import copy
 
@@ -640,9 +668,15 @@ def build_request_tools(interpreter, messages=None):
     )
     tools = [execute_tool, copy.deepcopy(edit_tool_schema)]
     if getattr(interpreter.llm, "supports_vision", None) is True:
-        if messages is None or not _inline_user_image_in_turn_after_last_assistant_text(
-            messages
-        ):
+        if lmc_messages is not None:
+            inline_user_image = user_attached_image_in_current_turn(lmc_messages)
+        elif messages is not None:
+            inline_user_image = _inline_user_image_in_turn_after_last_assistant_text(
+                messages
+            )
+        else:
+            inline_user_image = False
+        if not inline_user_image:
             tools.append(copy.deepcopy(view_image_tool_schema))
     return tools
 
@@ -659,7 +693,9 @@ def run_tool_calling_llm(llm, request_params):
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
     request_params["tools"] = build_request_tools(
-        llm.interpreter, messages=request_params["messages"]
+        llm.interpreter,
+        messages=request_params["messages"],
+        lmc_messages=getattr(llm.interpreter, "messages", None),
     )
 
     # Append tool-calling-specific instructions to the system message (analogous to

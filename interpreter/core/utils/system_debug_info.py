@@ -76,7 +76,7 @@ def _llm_prompt_sections_for_info(interpreter):
             ("System message (`messages[0]`)", system_content or "(empty)")
         )
 
-        tools = build_request_tools(interpreter, messages=interpreter.messages)
+        tools = build_request_tools(interpreter, lmc_messages=interpreter.messages)
         tools_json = json.dumps(tools, indent=2)
         sections.append(
             (

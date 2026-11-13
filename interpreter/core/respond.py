@@ -747,6 +747,7 @@ def respond(interpreter):
                 "type": "image",
                 "format": "path",
                 "content": pending_path,
+                "viewed_image": True,
             }
             if pending_shrink is not None:
                 img_msg["shrink"] = pending_shrink
