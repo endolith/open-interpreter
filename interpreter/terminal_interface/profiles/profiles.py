@@ -28,6 +28,37 @@ default_profiles_names = [os.path.basename(path) for path in default_profiles_pa
 # Constant to hold the version number
 OI_VERSION = "0.2.5"
 
+# Pre-0.2.0 profiles kept LLM settings at the top level; migration moves these
+# into the nested `llm` section (and `local` to `offline`). A versionless
+# profile still in that shape must be converted before it is marked current,
+# or its model would land on an attribute nothing reads.
+LEGACY_PROFILE_ATTRIBUTE_MAPPING = {
+    "model": "llm.model",
+    "temperature": "llm.temperature",
+    "llm_supports_vision": "llm.supports_vision",
+    "function_calling_llm": "llm.supports_functions",
+    "context_window": "llm.context_window",
+    "max_tokens": "llm.max_tokens",
+    "api_base": "llm.api_base",
+    "api_key": "llm.api_key",
+    "api_version": "llm.api_version",
+    "max_budget": "llm.max_budget",
+    "local": "offline",
+}
+
+
+def _require_llm_mapping(profile):
+    """Return the profile's ``llm`` mapping, rejecting invalid values.
+
+    ``llm: null`` or ``llm: false`` passes an isinstance check only after
+    ``or {}`` replaces it, while the profile still carries the invalid value
+    into ``apply_profile_to_object`` (which would overwrite ``interpreter.llm``).
+    An absent key is fine and means "no LLM settings".
+    """
+    if "llm" in profile and not isinstance(profile["llm"], dict):
+        raise TypeError("profile 'llm' must be a mapping")
+    return profile.get("llm", {})
+
 
 def profile(interpreter, filename_or_url):
     # See if they're doing shorthand for a default profile
@@ -148,6 +179,11 @@ def apply_profile(interpreter, profile, profile_path):
         scope = {"interpreter": interpreter}
         exec(profile["start_script"], scope, scope)
 
+    # Validate before any branch can rewrite the file: migrate_profile writes
+    # new_path as part of its conversion, so a malformed ``llm`` that is only
+    # rejected afterwards would leave the rejected profile modified on disk.
+    _require_llm_mapping(profile)
+
     if (
         "version" not in profile or profile["version"] != OI_VERSION
     ):  # Remember to update this version number at the top of the file ^
@@ -163,22 +199,39 @@ def apply_profile(interpreter, profile, profile_path):
             print("Migration complete.")
             print("")
             if profile_path.endswith("default.yaml"):
+                if any(key in profile for key in LEGACY_PROFILE_ATTRIBUTE_MAPPING):
+                    # A versionless default.yaml may still use the pre-0.2.0
+                    # flat layout (``model:`` at the top level). migrate_profile
+                    # rewrites those keys into their nested sections and stamps
+                    # the version; without it this branch would mark the file
+                    # current while apply_profile_to_object set an unused
+                    # top-level ``interpreter.model``.
+                    migrate_profile(profile_path, profile_path)
+                    with open(profile_path, "r") as file:
+                        profile = yaml.safe_load(file) or {}
+
                 with open(profile_path, "r") as file:
                     text = file.read()
-                text = text.replace(
-                    "version: " + str(profile["version"]), f"version: {OI_VERSION}"
-                )
+                if "version" in profile:
+                    text = text.replace(
+                        "version: " + str(profile["version"]), f"version: {OI_VERSION}"
+                    )
+                else:
+                    # Profiles copied before the trailer was added have no
+                    # version line to rewrite, and ``profile["version"]``
+                    # would raise KeyError.
+                    text = text.rstrip("\n") + (
+                        f"\n\nversion: {OI_VERSION}  # Profile version (do not modify)"
+                    )
 
-                try:
-                    if profile["llm"]["model"] == "gpt-4":
-                        text = text.replace("gpt-4", "gpt-4.1")
-                        profile["llm"]["model"] = "gpt-4.1"
-                    elif profile["llm"]["model"] == "gpt-4-turbo-preview":
-                        text = text.replace("gpt-4-turbo-preview", "gpt-4.1")
-                        profile["llm"]["model"] = "gpt-4.1"
-                except:
-                    raise
-                    pass  # fine
+                llm = _require_llm_mapping(profile)
+                model = llm.get("model")
+                if model == "gpt-4":
+                    text = text.replace("gpt-4", "gpt-4.1")
+                    llm["model"] = "gpt-4.1"
+                elif model == "gpt-4-turbo-preview":
+                    text = text.replace("gpt-4-turbo-preview", "gpt-4.1")
+                    llm["model"] = "gpt-4.1"
 
                 with open(profile_path, "w") as file:
                     file.write(text)
@@ -218,6 +271,7 @@ def apply_profile(interpreter, profile, profile_path):
             },
         }
 
+    _require_llm_mapping(profile)
     apply_profile_to_object(interpreter, profile)
 
     return interpreter
@@ -226,26 +280,11 @@ def apply_profile(interpreter, profile, profile_path):
 def migrate_profile(old_path, new_path):
     with open(old_path, "r") as old_file:
         profile = yaml.safe_load(old_file)
-    # Mapping old attribute names to new ones
-    attribute_mapping = {
-        "model": "llm.model",
-        "temperature": "llm.temperature",
-        "llm_supports_vision": "llm.supports_vision",
-        "function_calling_llm": "llm.supports_functions",
-        "context_window": "llm.context_window",
-        "max_tokens": "llm.max_tokens",
-        "api_base": "llm.api_base",
-        "api_key": "llm.api_key",
-        "api_version": "llm.api_version",
-        "max_budget": "llm.max_budget",
-        "local": "offline",
-    }
-
     # Update attribute names in the profile
     mapped_profile = {}
     for key, value in profile.items():
-        if key in attribute_mapping:
-            new_key = attribute_mapping[key]
+        if key in LEGACY_PROFILE_ATTRIBUTE_MAPPING:
+            new_key = LEGACY_PROFILE_ATTRIBUTE_MAPPING[key]
             mapped_profile[new_key] = value
         else:
             mapped_profile[key] = value
@@ -610,6 +649,44 @@ def open_storage_dir(directory):
     return
 
 
+def _append_profile_version_flag(path):
+    """Add the version trailer a copied default profile ships without.
+
+    defaults/default.yaml carries no ``version`` key, so a copy made without
+    the trailer looks unversioned on the next launch: the migration prompt
+    appears, and answering yes crashes because the default.yaml migration
+    path rewrites an existing version line (see ``apply_profile``).
+    """
+    with open(path) as file:
+        if any(line.startswith("version:") for line in file.read().splitlines()):
+            return
+    with open(path, "a") as file:
+        file.write(f"\nversion: {OI_VERSION}  # Profile version (do not modify)")
+
+
+def _migrate_legacy_directory_before_stamp():
+    """Migrate a legacy app directory before a reset replaces the default.
+
+    ``apply_profile`` only calls ``migrate_user_app_directory`` from its
+    migration prompt, and a profile stamped with the current version never
+    reaches that prompt. ``reset_profile`` stamps the packaged default, which
+    carries no version, so stamping it first would leave a pre-0.2.0 or 0.2.0
+    directory unmigrated and its profiles and conversations invisible on the
+    next launch.
+
+    Call this only on the branches that need the legacy data. The migration
+    may itself create ``profiles/default.yaml`` from the legacy
+    ``config.yaml``, so callers must not blindly overwrite that result:
+    automatic creation keeps the migrated file, while an accepted reset trashes
+    the original before migrating so the recoverable copy is the user's file
+    rather than the converted legacy settings. The profile directory must
+    exist before this runs, or ``migrate_app_directory`` raises
+    ``FileNotFoundError``.
+    """
+    if determine_user_version() in ("pre_0.2.0", "0.2.0"):
+        migrate_user_app_directory()
+
+
 def reset_profile(specific_default_profile=None):
     if (
         specific_default_profile
@@ -618,9 +695,6 @@ def reset_profile(specific_default_profile=None):
         raise ValueError(
             f"The specific default profile '{specific_default_profile}' is not a default profile."
         )
-
-    # Check version, before making the profile directory
-    current_version = determine_user_version()
 
     for default_yaml_file in default_profiles_paths:
         filename = os.path.basename(default_yaml_file)
@@ -645,30 +719,40 @@ def reset_profile(specific_default_profile=None):
             os.makedirs(profile_dir)
 
         if not os.path.exists(target_file):
-            shutil.copy(default_yaml_file, target_file)
-            if current_version is None:
-                # If there is no version, add it to the default yaml
-                with open(target_file, "a") as file:
-                    file.write(
-                        f"\nversion: {OI_VERSION}  # Profile version (do not modify)"
-                    )
-            if not create_oi_directory:
-                print(f"{filename} has been reset.")
+            _migrate_legacy_directory_before_stamp()
+            if os.path.exists(target_file):
+                # The migration converted the legacy config.yaml into this
+                # file; copying the packaged default over it would discard the
+                # settings the migration just preserved.
+                if not create_oi_directory:
+                    print(f"{filename} has been migrated.")
+            else:
+                shutil.copy(default_yaml_file, target_file)
+                _append_profile_version_flag(target_file)
+                if not create_oi_directory:
+                    print(f"{filename} has been reset.")
         else:
             with open(target_file, "r") as file:
                 current_profile = file.read()
             if current_profile not in historical_profiles:
                 user_input = input(f"Would you like to reset/update {filename}? (y/n) ")
                 if user_input.lower() == "y":
+                    # Trash the original before the migration can rewrite it,
+                    # so the recoverable copy holds the file the user had
+                    # rather than the converted legacy settings.
                     send2trash.send2trash(
                         target_file
                     )  # This way, people can recover it from the trash
+                    _migrate_legacy_directory_before_stamp()
                     shutil.copy(default_yaml_file, target_file)
+                    _append_profile_version_flag(target_file)
                     print(f"{filename} has been reset.")
                 else:
                     print(f"{filename} was not reset.")
             else:
+                _migrate_legacy_directory_before_stamp()
                 shutil.copy(default_yaml_file, target_file)
+                _append_profile_version_flag(target_file)
                 print(f"{filename} has been reset.")
 
 
