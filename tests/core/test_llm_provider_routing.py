@@ -139,6 +139,79 @@ def test_dashscope_profile_key_is_used_without_env(interpreter, monkeypatch):
     assert interpreter.llm.model == "dashscope-us/qwen3-max"
 
 
+def test_dashscope_env_credentials_do_not_follow_the_model_to_deepseek(
+    interpreter, monkeypatch
+):
+    """A key/base resolved for one provider must not be sent to another.
+
+    load() stores the DashScope key and aliyuncs.com base on llm. Before the
+    model-switch cleanup, switching llm.model to deepseek/... left both in
+    place, so the DeepSeek request went to Alibaba's endpoint with a DashScope
+    key (or, loading in the other order, an OpenAI key went to DeepSeek) --
+    a silent cross-vendor disclosure.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    interpreter.llm.model = "dashscope-us/qwen3-max"
+    interpreter.llm.api_key = None
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == "sk-test-dashscope"
+    assert "aliyuncs.com" in interpreter.llm.api_base
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-deepseek")
+    interpreter.llm.model = "deepseek/deepseek-v4-flash"
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == "sk-test-deepseek"
+    assert interpreter.llm.api_base == "https://api.deepseek.com"
+
+
+def test_environment_key_beats_a_key_carried_in_from_another_model(
+    interpreter, monkeypatch
+):
+    """The route's own env credential wins over an inherited llm.api_key.
+
+    A profile saved for a different model can leave an OpenAI key in
+    llm.api_key. When DASHSCOPE_API_KEY is present that key must not shadow it;
+    the old `if self.api_key is None` check kept the inherited value and sent it
+    to Alibaba Cloud.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-env-dashscope")
+
+    interpreter.llm.model = "dashscope-us/qwen3-max"
+    interpreter.llm.api_key = "sk-openai-from-profile"
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == "sk-env-dashscope"
+
+
+def test_explicit_api_base_is_not_cleared_by_a_model_switch(interpreter, monkeypatch):
+    """A base the user assigned deliberately survives a model change.
+
+    Only values load() resolved belong to a route; clobbering an explicit
+    api_base would break custom gateways that serve several model families.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    interpreter.llm.model = "dashscope-us/qwen3-max"
+    interpreter.llm.api_key = None
+    interpreter.llm.api_base = "https://gateway.example/v1"
+    interpreter.llm._is_loaded = False
+    interpreter.llm.load()
+
+    interpreter.llm.model = "deepseek/deepseek-v4-flash"
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_base == "https://gateway.example/v1"
+
+
 class _FakeOpenRouterResponse:
     def __init__(self, modalities_by_id):
         self.modalities_by_id = modalities_by_id
