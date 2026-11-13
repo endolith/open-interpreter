@@ -71,7 +71,19 @@ def is_websocket_origin_allowed(origin: Optional[str]) -> bool:
 SENSITIVE_SERVER_SETTINGS = frozenset(
     {"auto_run", "safe_mode", "system_message", "messages"}
 )
-SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
+SENSITIVE_LLM_SETTINGS = frozenset(
+    {
+        "api_base",
+        "api_key",
+        # Backing field for the model property: writing it directly bypasses
+        # the setter's provider-switch cleanup (and its credential handling).
+        "_model",
+        # DeepSeek environment credentials are tracked so a model switch can
+        # drop them; a client must not be able to forge that state either.
+        "_deepseek_env_api_key",
+        "_deepseek_env_api_base",
+    }
+)
 # Attributes that hold an object, so POST /settings only writes their sub-keys.
 NESTED_SERVER_SETTINGS = frozenset({"llm", "computer"})
 
@@ -879,6 +891,16 @@ def create_router(async_interpreter):
                                     "error": f"The setting llm.{sub_key} is not modifiable through the server due to security constraints."
                                 },
                             )
+                    if "model" in value and (
+                        not isinstance(value["model"], str)
+                        or not value["model"].strip()
+                    ):
+                        return JSONResponse(
+                            status_code=HTTP_400_BAD_REQUEST,
+                            content={
+                                "error": "The setting llm.model must be a non-empty string."
+                            },
+                        )
                 if not hasattr(async_interpreter, key):
                     return JSONResponse(
                         {"error": f"Setting {key} not found"}, status_code=404
