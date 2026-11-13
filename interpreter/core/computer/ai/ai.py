@@ -4,6 +4,18 @@ import tiktoken
 
 
 def split_into_chunks(text, tokens, llm, overlap):
+    """Split text into token-sized windows that overlap by ``overlap`` tokens.
+
+    ``overlap`` must be smaller than the window size: both branches advance by
+    ``tokens - overlap`` (or ``tokens * 4 - overlap`` for the character
+    fallback), so an overlap at or above the window yields no progress. Reject
+    it up front instead of returning an empty list, which callers would read as
+    "there was no text to summarize".
+    """
+    if overlap >= tokens:
+        raise ValueError(
+            f"overlap ({overlap}) must be less than tokens ({tokens})"
+        )
     try:
         encoding = tiktoken.encoding_for_model(llm.model)
         tokenized_text = encoding.encode(text)
