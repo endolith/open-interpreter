@@ -75,6 +75,13 @@ SENSITIVE_LLM_SETTINGS = frozenset({"api_base", "api_key"})
 # Attributes that hold an object, so POST /settings only writes their sub-keys.
 NESTED_SERVER_SETTINGS = frozenset({"llm", "computer"})
 
+# Pre-authentication buffering covers handshake overlap only (issue #249): a
+# handful of early frames, not a mailbox. Both caps apply while the client is
+# unauthenticated; exceeding either closes the connection with 1009 (message
+# too big) instead of growing the queue without bound.
+MAX_PENDING_INPUT_FRAMES = 100
+MAX_PENDING_INPUT_BYTES = 1024 * 1024
+
 
 def confirmation_digest(confirmation_content: Dict[str, Any]) -> str:
     """
@@ -88,6 +95,11 @@ def confirmation_digest(confirmation_content: Dict[str, Any]) -> str:
 
 class AsyncInterpreter(OpenInterpreter):
     def __init__(self, *args, **kwargs):
+        """Build the async interpreter and the state its server layers share.
+
+        Adds the response thread, approval gate, and message-state flags that
+        the REST and websocket handlers coordinate on to the base interpreter.
+        """
         super().__init__(*args, **kwargs)
 
         self.respond_thread = None
@@ -99,6 +111,10 @@ class AsyncInterpreter(OpenInterpreter):
         self._approval_granted = False
         self.pending_confirmation = None
         self.pending_confirmation_digest = None
+        # Whether a "start" chunk opened a message that "end" has not closed.
+        # A completed message stays in `messages`, so this cannot be inferred
+        # from the list being non-empty.
+        self._message_open = False
         self.id = os.getenv("INTERPRETER_ID", datetime.now().timestamp())
         self.print = False  # Will print output
 
@@ -141,7 +157,16 @@ class AsyncInterpreter(OpenInterpreter):
         When it hits an "end" flag, calls interpreter.respond().
         """
 
-        if "start" in chunk:
+        if type(chunk) == bytes:
+            # Binary frames (e.g. file bytes) append to the open message's
+            # content. They must be routed before any `in` checks: `"start" in
+            # chunk` raises TypeError on bytes instead of returning False.
+            if not self._message_open:
+                raise ValueError(
+                    "Binary input requires an open message; send a 'start: True' chunk first."
+                )
+            self.accumulate(chunk)
+        elif "start" in chunk:
             # If the user is starting something, the interpreter should stop.
             # Command blocks (e.g. go/stop) must not tear down a thread waiting on approval.
             if (
@@ -152,11 +177,17 @@ class AsyncInterpreter(OpenInterpreter):
                 self.stop_event.set()
                 self._cancel_pending_approval()
                 self.respond_thread.join()
-            self.accumulate(chunk)
+            # Only a start chunk accumulation accepted opens a message. An
+            # ignored one (e.g. a progress-only "active_line" start) must leave
+            # a completed message closed, or a later binary frame could append
+            # to it.
+            if self.accumulate(chunk):
+                self._message_open = True
         elif "content" in chunk:
             self.accumulate(chunk)
         elif "end" in chunk:
             # If the user is done talking, the interpreter should respond.
+            self._message_open = False
 
             run_code = None  # Will later default to auto_run unless the user makes a command here
 
@@ -358,9 +389,14 @@ class AsyncInterpreter(OpenInterpreter):
         self.output_queue.sync_q.put(complete_message)
         raise Exception("No chunks sent or unknown error.")
 
-    def accumulate(self, chunk):
+    def accumulate(self, chunk) -> bool:
         """
         Accumulates LMC chunks onto interpreter.messages.
+
+        Returns True when the chunk was applied to a message and False when it
+        was ignored, such as a progress-only "active_line" chunk. Callers that
+        track whether a message is open must use this return value rather than
+        assume that every received "start" chunk opened one.
         """
         if type(chunk) == str:
             chunk = json.loads(chunk)
@@ -368,7 +404,7 @@ class AsyncInterpreter(OpenInterpreter):
         if type(chunk) == dict:
             if chunk.get("format") == "active_line":
                 # We don't do anything with these.
-                pass
+                return False
 
             elif "content" in chunk and not (
                 len(self.messages) > 0
@@ -423,9 +459,15 @@ class AsyncInterpreter(OpenInterpreter):
                 self.messages.append(chunk_copy)
 
         elif type(chunk) == bytes:
+            if len(self.messages) == 0:
+                raise Exception(
+                    "You must send a 'start: True' chunk first to create this message."
+                )
             if self.messages[-1]["content"] == "":  # We initialize as an empty string ^
                 self.messages[-1]["content"] = b""  # But it actually should be bytes
             self.messages[-1]["content"] += chunk
+
+        return True
 
 
 def authenticate_function(key):
@@ -447,6 +489,7 @@ def authenticate_function(key):
 
 
 def create_router(async_interpreter):
+    """Build the FastAPI router: heartbeat, chat page, REST, and websocket."""
     router = APIRouter()
 
     @router.get("/heartbeat")
@@ -593,6 +636,11 @@ def create_router(async_interpreter):
 
     @router.websocket("/")
     async def websocket_endpoint(websocket: WebSocket):
+        """Serve one chat socket: check the origin, authenticate, then converse.
+
+        Frames sent before the API-key check are buffered within a bounded
+        budget and replayed once authentication succeeds.
+        """
         origin = websocket.headers.get("origin")
         if not is_websocket_origin_allowed(origin):
             raise WebSocketException(code=1008, reason="Origin not allowed")
@@ -603,44 +651,124 @@ def create_router(async_interpreter):
 
             async def receive_input():
                 authenticated = False
+                pending_inputs = []
+                pending_bytes = 0
                 while True:
                     try:
                         if websocket.client_state != WebSocketState.CONNECTED:
                             return
                         data = await websocket.receive()
 
+                        def frame_size(frame):
+                            """Billable size of a queued pre-auth frame."""
+                            if "text" in frame:
+                                return len(frame["text"].encode("utf-8"))
+                            return len(frame.get("bytes", b""))
+
+                        async def hold_for_auth(frame):
+                            """Queue a pre-auth payload, enforcing the caps.
+
+                            Returns True when the frame was queued. When it
+                            would exceed the frame or byte budget, closes the
+                            connection with 1009 (message too big) instead of
+                            growing the queue, and returns False.
+                            """
+                            nonlocal pending_bytes
+                            size = frame_size(frame)
+                            if (
+                                len(pending_inputs) >= MAX_PENDING_INPUT_FRAMES
+                                or pending_bytes + size > MAX_PENDING_INPUT_BYTES
+                            ):
+                                await websocket.close(
+                                    code=1009,
+                                    reason="pre-authentication queue full",
+                                )
+                                return False
+                            pending_inputs.append(frame)
+                            pending_bytes += size
+                            return True
+
+                        async def deliver_frame(frame):
+                            """Deliver one websocket.receive frame to input()."""
+                            if "text" in frame:
+                                frame = json.loads(frame["text"])
+                                if (
+                                    async_interpreter.require_acknowledge
+                                    and "ack" in frame
+                                ):
+                                    async_interpreter.acknowledged_outputs.append(
+                                        frame["ack"]
+                                    )
+                                    return
+                            else:
+                                frame = frame.get("bytes", frame)
+                            await async_interpreter.input(frame)
+
                         if (
                             not authenticated
                             and os.getenv("INTERPRETER_REQUIRE_AUTH") != "False"
                         ):
                             if "text" in data:
-                                data = json.loads(data["text"])
-                                if "auth" in data:
+                                parsed = json.loads(data["text"])
+                                if "auth" in parsed:
+                                    # Auth attempts are answered, never queued:
+                                    # replaying one would feed {"auth": ...}
+                                    # to input() after the handshake.
                                     if async_interpreter.server.authenticate(
-                                        data["auth"]
+                                        parsed["auth"]
                                     ):
                                         authenticated = True
                                         await websocket.send_text(
                                             json.dumps({"auth": True})
                                         )
-                            if not authenticated:
-                                await websocket.send_text(json.dumps({"auth": False}))
+                                        queued, pending_inputs = pending_inputs, []
+                                        pending_bytes = 0
+                                        for pending in queued:
+                                            try:
+                                                await deliver_frame(pending)
+                                            except Exception as e:
+                                                error = (
+                                                    traceback.format_exc()
+                                                    + "\n"
+                                                    + str(e)
+                                                )
+                                                if (
+                                                    websocket.client_state
+                                                    == WebSocketState.CONNECTED
+                                                ):
+                                                    await websocket.send_text(
+                                                        json.dumps(
+                                                            {
+                                                                "role": "server",
+                                                                "type": "error",
+                                                                "content": error,
+                                                            }
+                                                        )
+                                                    )
+                                                    await websocket.send_text(
+                                                        json.dumps(complete_message)
+                                                    )
+                                                print(error)
+                                        continue
+                                else:
+                                    # Not an auth attempt: hold the raw frame
+                                    # for delivery after the handshake instead
+                                    # of dropping it (issue #249). Any text
+                                    # here is a payload: text frames always
+                                    # arrive as websocket.receive. A full queue
+                                    # closes the connection; nothing further
+                                    # is answered on it.
+                                    if not await hold_for_auth(data):
+                                        return
+                            elif data.get("type") == "websocket.receive":
+                                # Binary pre-auth payload: hold it the same way.
+                                if not await hold_for_auth(data):
+                                    return
+                            await websocket.send_text(json.dumps({"auth": False}))
                             continue
 
                         if data.get("type") == "websocket.receive":
-                            if "text" in data:
-                                data = json.loads(data["text"])
-                                if (
-                                    async_interpreter.require_acknowledge
-                                    and "ack" in data
-                                ):
-                                    async_interpreter.acknowledged_outputs.append(
-                                        data["ack"]
-                                    )
-                                    continue
-                            elif "bytes" in data:
-                                data = data["bytes"]
-                            await async_interpreter.input(data)
+                            await deliver_frame(data)
                         elif data.get("type") == "websocket.disconnect":
                             print("Client wants to disconnect, that's fine..")
                             return
