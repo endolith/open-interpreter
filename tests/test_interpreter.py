@@ -832,7 +832,11 @@ def test_server():
                     {
                         "role": "user",
                         "type": "message",
-                        "content": "What's 239023*79043? Use Python.",
+                        "content": (
+                            "Use Python to compute 239023*79043. Write code that "
+                            "prints the result instead of working the arithmetic "
+                            "out yourself."
+                        ),
                     }
                 )
             )
