@@ -188,15 +188,14 @@ def run_text_llm(llm, params):
                 # make the next line be parsed as a label.
                 language = label.strip()
 
-                # Default to python if not specified
+                # Default to python if not specified. OS mode frequently
+                # emits unlabelled markdown blocks while taking notes, so those
+                # reach the terminal as text instead of being dropped.
                 if language == "":
-                    if llm.interpreter.os == False:
-                        language = "python"
-                    elif llm.interpreter.os == False:  # pragma: no cover - see #392
-                        # OS mode does this frequently. Takes notes with markdown code blocks
-                        # NOTE: repeats the condition above, so it is unreachable
-                        # and OS mode emits nothing here — see issue #220.
+                    if llm.interpreter.os:
                         language = "text"
+                    else:
+                        language = "python"
                 else:
                     # Removes hallucinations containing spaces or non letters.
                     language = "".join(char for char in language if char.isalpha())
