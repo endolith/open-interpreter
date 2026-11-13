@@ -118,3 +118,42 @@ def test_html_to_png_base64_returns_none_when_the_browser_raises(tmp_path, monke
     with mock.patch.object(html_to_png_base64, "html2image") as lazy:
         lazy.Html2Image.return_value = mock_hti
         assert html_to_png_base64.html_to_png_base64("<html></html>") is None
+
+
+def test_html_to_png_base64_returns_none_when_the_browser_is_not_installed(tmp_path, monkeypatch):
+    """A missing Chrome executable is reported as None, not raised.
+
+    html2image discovers (and validates) the executable while constructing
+    Html2Image, so the failure arrives before screenshot() is reached. The
+    helper promises callers a None fallback for any browser failure, so
+    construction belongs inside the same guard.
+    """
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.side_effect = FileNotFoundError("no chrome")
+        assert html_to_png_base64.html_to_png_base64("<html></html>") is None
+
+
+def test_html_to_png_base64_silences_the_headless_browser(tmp_path, monkeypatch):
+    """The renderer is asked to suppress browser output.
+
+    Without disable_logging the Chromium subprocess inherits stdout/stderr, so
+    a container lacking dbus dumps "Failed to connect to the bus" for every
+    render and prints its own "N bytes written to file" line, both of which
+    land in the user's console.
+    """
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+    mock_hti = mock.Mock()
+    mock_hti.output_path = None
+    mock_hti.screenshot = lambda **kwargs: None
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.return_value = mock_hti
+        html_to_png_base64.html_to_png_base64("<html></html>")
+
+    lazy.Html2Image.assert_called_once_with(disable_logging=True)

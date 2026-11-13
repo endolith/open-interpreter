@@ -13,16 +13,20 @@ from ....terminal_interface.utils.local_storage_path import get_storage_path
 
 
 def html_to_png_base64(code):
-    # Convert the HTML into an image using html2image
-    hti = html2image.Html2Image()
-
     # Generate a random filename for the temporary image
     temp_filename = "".join(random.choices(string.digits, k=10)) + ".png"
-    hti.output_path = get_storage_path()
+
     # The headless browser can fail to produce a file (snap confinement,
     # missing Chrome, a bad page). Callers fall back to showing the source, so
     # report that by returning None instead of raising into the run loop.
+    # Constructing the wrapper also discovers the browser executable, so it
+    # raises for a machine without Chrome and belongs inside the try.
     try:
+        # Without disable_logging the browser's subprocess inherits our stdout
+        # and stderr, dumping dbus connection errors and its own "bytes written
+        # to file" line into the user's console on every HTML render.
+        hti = html2image.Html2Image(disable_logging=True)
+        hti.output_path = get_storage_path()
         hti.screenshot(
             html_str=code,
             save_as=temp_filename,
