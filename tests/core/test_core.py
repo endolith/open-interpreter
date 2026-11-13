@@ -143,3 +143,23 @@ def test_chat_does_not_overwrite_an_existing_conversation_file(tmp_path):
     assert json.loads(existing.read_text()) == [{"role": "user", "content": "old"}]
     assert interpreter.conversation_filename != existing.name
     assert len(list(history.glob("*.json"))) == 2
+
+
+def test_chat_reraises_generator_exit(monkeypatch):
+    """chat() resets responding and propagates GeneratorExit from the stream (#105).
+
+    chat() is a regular function, so this handler is defensive: it exists so a
+    stream closed underneath it cleans up the flag. Absorbing the exception would
+    also hide the close from the caller, so it re-raises after resetting.
+    """
+
+    def closed(*args, **kwargs):
+        raise GeneratorExit
+
+    interpreter = OpenInterpreter(disable_telemetry=True)
+    monkeypatch.setattr(interpreter, "_streaming_chat", closed)
+
+    with pytest.raises(GeneratorExit):
+        interpreter.chat("hi", stream=True)
+
+    assert interpreter.responding is False
