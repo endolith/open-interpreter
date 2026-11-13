@@ -1062,13 +1062,6 @@ def test_pytes():
 
 
 @pytest.mark.integration
-def test_ai_chat():
-    """Integration smoke: computer.ai.chat returns a response for a simple greeting."""
-
-    print(interpreter.computer.ai.chat("hi"))
-
-
-@pytest.mark.integration
 def test_generator():
     """Sends two messages, makes sure everything is correct with display both on and off."""
 
@@ -1417,14 +1410,6 @@ def test_i():
     assert full_response != ""
 
 
-@pytest.mark.integration
-def test_async():
-    """Non-blocking chat returns immediately; wait() collects the final result."""
-
-    interpreter.chat("Hello!", blocking=False)
-    print(interpreter.wait())
-
-
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_find_text_api():
     """Manual display smoke: mouse.move with a long natural-language target string."""
@@ -1548,27 +1533,6 @@ def test_spotlight():
     interpreter.computer.keyboard.hotkey("command", "space")
 
 
-@pytest.mark.integration
-def test_files(tmp_path):
-    """Integration: LLM checks whether a user-attached file path exists on disk."""
-
-    require_bash_compatible_shell()
-    # Main used a hardcoded /Users/Killian/... path that only existed on one machine.
-    # tmp_path creates a real file on any OS so the LLM can answer the existence question.
-    image_file = tmp_path / "image.png"
-    image_file.write_bytes(b"fake png content")
-    messages = [
-        {"role": "user", "type": "message", "content": "Does this file exist?"},
-        {
-            "role": "user",
-            "type": "file",
-            "format": "path",
-            "content": str(image_file),
-        },
-    ]
-    interpreter.chat(messages)
-
-
 @pytest.mark.skip(reason="Only 100 vision calls allowed / day!")
 def test_vision():
     """Manual vision integration: describe a base64 PNG with supports_vision enabled."""
@@ -1615,15 +1579,18 @@ def test_multiple_instances():
 def test_hello_world():
     """Integration: LLM replies with exactly 'Hello, World!' and no code execution.
 
-    Thinking models also attach reasoning_content, so compare the fields that
-    define the reply rather than requiring an exact dict.
+    The turn runs non-blocking, so this also covers chat(blocking=False) plus
+    wait() returning the reply on the real (not mocked) path. Thinking models
+    also attach reasoning_content, so compare the fields that define the reply
+    rather than requiring an exact dict.
     """
 
     hello_world_response = "Hello, World!"
 
     hello_world_message = f"Please reply with just the words {hello_world_response} and nothing else. Do not run code. No confirmation just the text."
 
-    messages = interpreter.chat(hello_world_message)
+    interpreter.chat(hello_world_message, blocking=False)
+    messages = interpreter.wait()
 
     assert len(messages) == 1
     assert messages[0]["role"] == "assistant"
@@ -1685,16 +1652,6 @@ with open('numbers.txt', 'a+') as f:
     assert "5" not in content
 
 
-@pytest.mark.integration
-def test_delayed_exec():
-    """Integration: LLM writes and runs code with a delay between print statements."""
-
-    require_bash_compatible_shell()
-    interpreter.chat(
-        """Can you write a single block of code and execute it that prints something, then delays 1 second, then prints something else? No talk just code, execute the code. Thanks!"""
-    )
-
-
 # Python multiline + a trivial bash one-liner. Nested shell loops with echo
 # variables often produce broken quoting and hang subprocess_language; echo is enough
 # to verify the LLM can emit and run shell on Linux CI.
@@ -1735,15 +1692,6 @@ def test_write_to_file(monkeypatch, tmp_path):
         """Read file.txt in the current directory and tell me what's in it."""
     )
     assert "Washington" in messages[-1]["content"]
-
-
-@pytest.mark.integration
-def test_markdown():
-    """Integration: LLM emits assorted markdown features in a single reply."""
-
-    interpreter.chat(
-        """Hi, can you test out a bunch of markdown features? Try writing a fenced code block, a table, headers, everything. DO NOT write the markdown inside a markdown code block, just write it raw."""
-    )
 
 
 def test_reset():

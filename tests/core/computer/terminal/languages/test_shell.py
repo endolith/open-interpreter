@@ -318,3 +318,37 @@ def test_shell_run_returns_when_the_block_exits_the_shell():
         assert shell.process is None
     finally:
         shell.terminate()
+
+
+@pytest.mark.linux_ci
+@pytest.mark.timeout(30)
+def test_shell_output_is_yielded_before_the_command_finishes():
+    """Output streams as the process produces it, not in one batch at the end.
+
+    A command that prints, sleeps, then prints again is the case a REPL user
+    notices: if run() held every line until the end marker, the first line would
+    only appear once the whole job finished. `done` is set when the end marker is
+    read, so observing it unset when the first line arrives proves that line was
+    not held back.
+    """
+    require_bash_compatible_shell()
+    shell = Shell()
+    contents = []
+    first_line_streamed = False
+    try:
+        for chunk in shell.run("echo stream_first; sleep 2; echo stream_second"):
+            content = chunk.get("content")
+            # active_line chunks carry an int, not the command's text
+            if not isinstance(content, str):
+                continue
+            contents.append(content)
+            if "stream_first" in content and not shell.done.is_set():
+                first_line_streamed = True
+    finally:
+        shell.terminate()
+
+    assert first_line_streamed, contents
+    assert any("stream_second" in content for content in contents), contents
+    # run() only returns after reading the end marker, so done must be set now;
+    # otherwise the earlier "not done" observation proves nothing.
+    assert shell.done.is_set(), contents
