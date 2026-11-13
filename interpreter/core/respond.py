@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 
@@ -177,7 +178,25 @@ def respond(interpreter):
 
                     print(provider_message)
 
-                    response = input()
+                    if interpreter.auto_run or not sys.stdin.isatty():
+                        # -y means yes to every prompt, but there is nothing
+                        # useful to say yes to: the hosted `i` fallback has
+                        # been removed, so selecting it would end this run
+                        # with no assistant response (the next request
+                        # raises ValueError for model "i" in llm.py).
+                        # Without a terminal there is nobody to ask either.
+                        # Surface the original model-access error instead of
+                        # prompting, hanging, or crashing on EOFError.
+                        raise
+
+                    try:
+                        response = input()
+                    except EOFError:
+                        # The user gave no answer (Ctrl-D / closed pipe).
+                        # Treat that as a decline so the original
+                        # model-access error surfaces, matching the
+                        # auto_run/headless path above.
+                        response = "n"
                     print("")  # <- Aesthetic choice
 
                     if response.strip().lower() == "y":
