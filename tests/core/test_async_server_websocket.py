@@ -454,6 +454,14 @@ def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
                 break
             time.sleep(0.02)
 
+        # Stay connected well past the ack window after the append. The drain
+        # loop retries the parked head every ~10ms; exiting here as soon as the
+        # append is visible used to cancel the task before a retry returned, so
+        # whether its success arc was ever exercised (and therefore whether CI
+        # recorded that branch as covered) depended on teardown timing. Sleeping
+        # through several retries pins the retry-failure arc deterministically.
+        time.sleep(0.25)
+
     assert any(
         isinstance(m, dict) and m.get("content") == "unacked"
         for m in interp.unsent_messages
