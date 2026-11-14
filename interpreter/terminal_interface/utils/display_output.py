@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 
 from .in_jupyter_notebook import in_jupyter_notebook
+from .strip_control_sequences import strip_control_sequences
 
 
 def display_output(output):
@@ -12,7 +13,7 @@ def display_output(output):
         from IPython.display import HTML, Image, Javascript, display
 
         if output["type"] == "console":
-            print(output["content"])
+            print(strip_control_sequences(output["content"]))
         elif output["type"] == "image":
             if "base64" in output["format"]:
                 # Decode the base64 image data
@@ -36,7 +37,7 @@ def display_output(output):
 
 def display_output_cli(output):
     if output["type"] == "console":
-        print(output["content"])
+        print(strip_control_sequences(output["content"]))
     elif output["type"] == "image":
         if "base64" in output["format"]:
             if "." in output["format"]:
