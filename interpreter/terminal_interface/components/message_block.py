@@ -4,6 +4,7 @@ from rich.box import MINIMAL
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from ..utils.strip_control_sequences import strip_control_sequences
 from .base_block import BaseBlock
 
 
@@ -17,7 +18,7 @@ class MessageBlock(BaseBlock):
     def refresh(self, cursor=True):
         # De-stylize any code blocks in markdown,
         # to differentiate from our Code Blocks
-        content = textify_markdown_code_blocks(self.message)
+        content = textify_markdown_code_blocks(strip_control_sequences(self.message))
 
         if cursor:
             content += "●"

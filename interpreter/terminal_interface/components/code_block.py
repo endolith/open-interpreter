@@ -4,6 +4,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
+from ..utils.strip_control_sequences import strip_control_sequences
 from .base_block import BaseBlock
 
 
@@ -37,7 +38,7 @@ class CodeBlock(BaseBlock):
             return
 
         # Get code
-        code = self.code
+        code = strip_control_sequences(self.code)
 
         # Create a table for the code
         code_table = Table(
@@ -84,7 +85,9 @@ class CodeBlock(BaseBlock):
         if self.output == "" or self.output == "None":
             output_panel = ""
         else:
-            output_panel = Panel(self.output, box=MINIMAL, style="#FFFFFF on #3b3b37")
+            output_panel = Panel(
+                strip_control_sequences(self.output), box=MINIMAL, style="#FFFFFF on #3b3b37"
+            )
 
         # Create a group with the code table and output panel
         group_items = [code_panel, output_panel]
