@@ -14,7 +14,7 @@ from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from interpreter.core.async_core import AsyncInterpreter, Server, authenticate_function
 
@@ -425,7 +425,7 @@ def test_acknowledged_output_gets_an_id_and_waits_for_the_ack(ws_pair):
 
 
 
-def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
+def test_an_unacknowledged_output_is_queued_for_retry(ws_pair, monkeypatch):
     """An output the client never acks is kept, not dropped.
 
     send_message gives up after its wait window and reports failure, and
@@ -440,6 +440,25 @@ def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
     interp.unsent_messages.clear()
     gate = _emit(interp, {"role": "assistant", "type": "message", "content": "unacked"})
 
+    # Record the server's transmissions of this output so the test can wait for
+    # retries to actually happen instead of assuming they did after a fixed
+    # sleep. The drain loop retries the parked head every ~10ms; the initial
+    # send plus two failed retries show the failure arc ran and the loop moved
+    # on to the next attempt.
+    transmissions = []
+    real_send_text = WebSocket.send_text
+
+    async def _observed_send_text(self, data):
+        try:
+            payload = json.loads(data)
+        except (TypeError, ValueError):
+            payload = None
+        if isinstance(payload, dict) and payload.get("content") == "unacked":
+            transmissions.append(payload)
+        await real_send_text(self, data)
+
+    monkeypatch.setattr(WebSocket, "send_text", _observed_send_text)
+
     with client.websocket_connect("/") as ws:
         _handshake(ws)
         gate["open"] = True
@@ -453,6 +472,24 @@ def test_an_unacknowledged_output_is_queued_for_retry(ws_pair):
             if interp.unsent_messages:
                 break
             time.sleep(0.02)
+
+        # A retry that returns False leaves the message in the deque, so its
+        # success arc only runs while this connection is still open. Wait
+        # (bounded) for the initial transmission plus two retries rather than
+        # sleeping through a window that may contain none of them, which would
+        # cancel the task before a retry returned and lose that arc from
+        # coverage. The id must stay the same across attempts, since the client
+        # acknowledges by id.
+        deadline = time.monotonic() + 5
+        while len(transmissions) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(transmissions) >= 3, (
+            "expected the parked output to be retransmitted twice while unacked, "
+            f"saw {len(transmissions)} transmission(s)"
+        )
+        assert len({t["id"] for t in transmissions}) == 1, (
+            f"retries must reuse the message id, got {[t['id'] for t in transmissions]}"
+        )
 
     assert any(
         isinstance(m, dict) and m.get("content") == "unacked"
