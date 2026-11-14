@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import sys
 import time
 import traceback
 
@@ -165,49 +164,23 @@ def respond(interpreter):
                 elif (
                     interpreter.offline == False and "not have access" in str(e).lower()
                 ):
-                    # Check for invalid model in error message and then fallback.
+                    # Explain the cause, but do not offer a fallback model:
+                    # the hosted `i` model was retired and llm.py raises
+                    # ValueError for it, so accepting the offer would only
+                    # end this run without an assistant message and fail on
+                    # the next request. Re-raise the original error instead.
                     if (
                         "invalid model" in error_message
                         or "model does not exist" in error_message
                     ):
-                        provider_message = f"\n\nThe model '{interpreter.llm.model}' does not exist or is invalid. Please check the model name and try again.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
+                        provider_message = f"\n\nThe model '{interpreter.llm.model}' does not exist or is invalid. Please check the model name and try again.\n\n  "
                     elif "groq" in error_message:
-                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. Please check with Groq for more details.\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n  "
+                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. Please check with Groq for more details.\n\n  "
                     else:
-                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. If you are using an OpenAI model, you may need to add a payment method and purchase credits for the OpenAI API billing page (this is different from ChatGPT Plus).\n\nhttps://platform.openai.com/account/billing/overview\n\nWould you like to try Open Interpreter's hosted `i` model instead? (y/n)\n\n"
+                        provider_message = f"\n\nYou do not have access to {interpreter.llm.model}. If you are using an OpenAI model, you may need to add a payment method and purchase credits for the OpenAI API billing page (this is different from ChatGPT Plus).\n\nhttps://platform.openai.com/account/billing/overview\n\n"
 
                     print(provider_message)
-
-                    if interpreter.auto_run or not sys.stdin.isatty():
-                        # -y means yes to every prompt, but there is nothing
-                        # useful to say yes to: the hosted `i` fallback has
-                        # been removed, so selecting it would end this run
-                        # with no assistant response (the next request
-                        # raises ValueError for model "i" in llm.py).
-                        # Without a terminal there is nobody to ask either.
-                        # Surface the original model-access error instead of
-                        # prompting, hanging, or crashing on EOFError.
-                        raise
-
-                    try:
-                        response = input()
-                    except EOFError:
-                        # The user gave no answer (Ctrl-D / closed pipe).
-                        # Treat that as a decline so the original
-                        # model-access error surfaces, matching the
-                        # auto_run/headless path above.
-                        response = "n"
-                    print("")  # <- Aesthetic choice
-
-                    if response.strip().lower() == "y":
-                        interpreter.llm.model = "i"
-                        interpreter.display_message(f"> Model set to `i`")
-                        interpreter.display_message(
-                            "***Note:*** *Conversations with this model will be used to train our open-source model.*\n"
-                        )
-
-                    else:
-                        raise
+                    raise
                 elif interpreter.offline and not interpreter.os:
                     raise
                 else:
