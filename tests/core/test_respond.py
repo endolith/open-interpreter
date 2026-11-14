@@ -243,36 +243,44 @@ def test_respond_rate_limit_quota_shows_billing_message():
     assert "quota" in dm.call_args[0][0].lower()
 
 
-def test_respond_model_access_prompt_switches_to_i_model():
-    """Accepting the 'no access' prompt switches the model to hosted `i`."""
+@pytest.mark.parametrize(
+    "error,guidance",
+    [
+        (
+            "You do not have access to this model; invalid model name",
+            "does not exist or is invalid",
+        ),
+        ("You do not have access to this model (groq)", "Groq"),
+        ("You do not have access to this model", "payment method"),
+    ],
+)
+def test_respond_model_access_errors_explain_and_re_raise_without_offering_i(
+    error, guidance, capsys
+):
+    """Model-access errors print guidance and re-raise, never offering the retired `i` model (issue #583).
+
+    The fallback could only end the run without an assistant response: llm.py
+    rejects model "i" with ValueError, so this path must not prompt, must not
+    switch models, and must surface the original error.
+    """
     interpreter = _message_interpreter()
     interpreter.offline = False
+    interpreter.auto_run = False
     interpreter.llm.model = "gpt-4o"
 
     def run(msgs):
-        raise Exception("You do not have access to this model")
+        raise Exception(error)
 
     interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="y"):
-        list(respond(interpreter))
-
-    assert interpreter.llm.model == "i"
-    assert "Model set to `i`" in interpreter.display_message.call_args_list[0][0][0]
-
-
-def test_respond_model_access_prompt_no_raises():
-    """Declining the 'no access' prompt re-raises the original error."""
-    interpreter = _message_interpreter()
-    interpreter.offline = False
-    interpreter.llm.model = "gpt-4o"
-
-    def run(msgs):
-        raise Exception("You do not have access to this model")
-
-    interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="n"):
-        with pytest.raises(Exception, match="have access"):
+    with mock.patch("builtins.input") as prompt:
+        with pytest.raises(Exception, match="not have access"):
             list(respond(interpreter))
+
+    prompt.assert_not_called()
+    assert interpreter.llm.model == "gpt-4o"
+    printed = capsys.readouterr().out
+    assert guidance in printed
+    assert "hosted `i`" not in printed
 
 
 def test_respond_offline_errors_are_re_raised():
