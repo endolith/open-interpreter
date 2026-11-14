@@ -6,6 +6,7 @@ This is all messed up.... Uses the old streaming structure.
 from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
 from .utils.display_markdown_message import display_markdown_message
+from .utils.strip_control_sequences import strip_control_sequences
 
 
 def render_past_conversation(messages):
@@ -22,7 +23,7 @@ def render_past_conversation(messages):
             if active_block:
                 active_block.end()
                 active_block = None
-            print(">", chunk["content"])
+            print(">", strip_control_sequences(chunk["content"]))
             continue
 
         # Message

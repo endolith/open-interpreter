@@ -27,6 +27,7 @@ from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
+from .utils.strip_control_sequences import strip_control_sequences
 
 # Add examples to the readline history
 examples = [
@@ -206,7 +207,9 @@ def terminal_interface(interpreter, message):
 
                 if chunk["type"] == "review" and chunk.get("content"):
                     # Specialized models can emit a code review.
-                    print(chunk.get("content"), end="", flush=True)
+                    print(
+                        strip_control_sequences(chunk["content"]), end="", flush=True
+                    )
 
                 # Execution notice
                 if chunk["type"] == "confirmation":
@@ -303,7 +306,11 @@ def terminal_interface(interpreter, message):
                         if "end" in chunk:
                             print("```", flush=True)
                     if chunk.get("format") != "active_line":
-                        print(chunk.get("content", ""), end="", flush=True)
+                        print(
+                            strip_control_sequences(chunk.get("content", "")),
+                            end="",
+                            flush=True,
+                        )
                     continue
 
                 if "end" in chunk and active_block:

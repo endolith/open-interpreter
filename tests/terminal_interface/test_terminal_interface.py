@@ -222,6 +222,31 @@ def test_terminal_interface_plain_text_renders_code_fences(capsys):
     assert "```" in output
 
 
+def test_terminal_interface_plain_text_strips_control_sequences(capsys):
+    """Plain-text mode must not emit stored escape sequences to the terminal.
+
+    `--plain` and `--stdin` bypass the Rich components that sanitize content, so
+    a message carrying `ESC[?1000h` would re-enable mouse reporting on the
+    user's terminal if the raw chunk were printed.
+    """
+    interpreter = _make_interpreter()
+    interpreter.plain_text_display = True
+
+    def chat(message, display=False, stream=True):
+        """Emulate a streamed assistant message containing a mouse-reporting escape."""
+        yield {"type": "message", "role": "assistant", "start": True}
+        yield {"type": "message", "role": "assistant", "content": "before\x1b[?1000hafter"}
+        yield {"type": "message", "role": "assistant", "end": True}
+
+    interpreter.chat = chat
+
+    list(terminal_interface(interpreter, "hi"))
+
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "beforeafter" in output
+
+
 def test_terminal_interface_os_failsafe_stops_loop(capsys):
     """A PyAutoGUI failsafe output in OS mode stops the current run."""
     interpreter = _make_interpreter()
@@ -245,6 +270,24 @@ def test_terminal_interface_prints_review_chunk(capsys):
     list(terminal_interface(interpreter, "review"))
 
     assert "LGTM" in capsys.readouterr().out
+
+
+def test_terminal_interface_review_chunk_strips_control_sequences(capsys):
+    """Streamed code-review chunks are sanitized before they reach the terminal.
+
+    A review is model-generated text, so it can carry the same escape sequences
+    as ordinary assistant messages; it is printed in every display mode.
+    """
+    interpreter = _make_interpreter()
+    interpreter.chat = lambda message, display=False, stream=True: iter(
+        [{"type": "review", "role": "assistant", "content": "LGTM\x1b[?1000h"}]
+    )
+
+    list(terminal_interface(interpreter, "review"))
+
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "LGTM" in output
 
 
 def test_terminal_interface_declined_code_is_recorded():
