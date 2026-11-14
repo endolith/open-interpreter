@@ -14,6 +14,18 @@ def test_display_output_cli_console(capsys):
     assert capsys.readouterr().out.strip() == "hello"
 
 
+def test_display_output_cli_console_strips_control_sequences(capsys):
+    """Console output is captured tool output and must be sanitized before printing.
+
+    Command output is the main source of stored escape sequences (#169), so it
+    must not reach the terminal raw when the computer tool displays it.
+    """
+    display_output_cli({"type": "console", "content": "before\x1b[?1000hafter"})
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "beforeafter" in output
+
+
 def test_display_output_cli_html_writes_temp_file():
     """HTML code output is written to a temp file and opened in the browser."""
     output = {"type": "code", "format": "html", "content": "<html></html>"}

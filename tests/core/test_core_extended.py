@@ -241,6 +241,34 @@ def test_display_message_plain_text_mode(capsys):
     assert "**bold** text" in capsys.readouterr().out
 
 
+def test_display_message_plain_text_strips_control_sequences(capsys):
+    """Plain display_message must not print terminal escape sequences.
+
+    Profile start scripts and other callers print untrusted text through this
+    method; `ESC[?1000h` would turn on mouse reporting instead of being shown.
+    """
+    interpreter = OpenInterpreter()
+    interpreter.plain_text_display = True
+    interpreter.display_message("before\x1b[?1000hafter")
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "beforeafter" in output
+
+
+def test_display_message_markdown_branch_strips_control_sequences(capsys):
+    """The default Markdown branch filters text before handing it to Rich.
+
+    `display_markdown_message` renders through Rich Markdown, which passes ESC
+    through, so a message such as the raw input line echoed by a failed magic
+    command must be filtered in `display_message` itself.
+    """
+    interpreter = OpenInterpreter()
+    interpreter.plain_text_display = False
+    with mock.patch("interpreter.core.core.display_markdown_message") as mock_display:
+        interpreter.display_message("before\x1b[?1000hafter")
+    mock_display.assert_called_once_with("beforeafter")
+
+
 def test_display_message_markdown_mode():
     """When not in plain_text mode, display_message delegates to display_markdown_message."""
     interpreter = OpenInterpreter()
