@@ -1,10 +1,11 @@
 import asyncio
+import inspect
 import os
 from unittest import mock
 
 import pytest
 
-from interpreter.core.async_core import AsyncInterpreter, authenticate_function
+from interpreter.core.async_core import AsyncInterpreter, Server, authenticate_function
 
 
 def test_authenticate_function_no_env_key_allows_all():
@@ -157,3 +158,21 @@ def test_respond_emits_error_when_response_is_empty():
         if call.args[0]["type"] == "error"
     ]
     assert len(error_chunks) >= 1
+
+
+def test_run_does_not_advertise_a_dead_retries_parameter():
+    """run() must not expose retry behaviour it never implements (#166).
+
+    The signature used to accept ``retries=5`` while the retry loop was
+    commented out, so callers expecting a bind failure to be retried silently
+    got no retry at all.  Removing the parameter makes that absence explicit
+    and turns a lingering ``retries=`` call into an immediate TypeError.
+    """
+    params = list(inspect.signature(Server.run).parameters)
+    assert params == ["self", "host", "port"]
+
+    server = Server(AsyncInterpreter())
+    server.uvicorn_server = mock.Mock()
+    with pytest.raises(TypeError):
+        server.run(retries=3)
+    server.uvicorn_server.run.assert_not_called()
