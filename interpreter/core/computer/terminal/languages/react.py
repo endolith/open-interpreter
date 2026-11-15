@@ -74,11 +74,14 @@ class React(BaseLanguage):
         # User sees interactive HTML
         yield {"type": "code", "format": "html", "content": code, "recipient": "user"}
 
-        # Assistant sees image
+        # Assistant sees image. When the headless browser cannot render one,
+        # omit the chunk rather than send an image with no content; the
+        # assistant already has the "being displayed" line above.
         base64 = html_to_png_base64(code)
-        yield {
-            "type": "image",
-            "format": "base64.png",
-            "content": base64,
-            "recipient": "assistant",
-        }
+        if base64:
+            yield {
+                "type": "image",
+                "format": "base64.png",
+                "content": base64,
+                "recipient": "assistant",
+            }
