@@ -25,11 +25,10 @@ python_version="3.11.7"
 # Install specific Python version using pyenv
 $pyenv_root init
 $pyenv_root install $python_version --skip-existing
-$pyenv_root shell $python_version
 
-$pyenv_root exec pip install open-interpreter --break-system-packages
-# Unset the Python version
-$pyenv_root shell --unset
+# `pyenv shell` only prints code to eval, so it cannot pin the version for the
+# next command; select the interpreter on `pyenv exec` itself instead.
+PYENV_VERSION="$python_version" $pyenv_root exec pip install open-interpreter --break-system-packages
 
 echo ""
 echo "Open Interpreter has been installed. Run the following command to use it: "
