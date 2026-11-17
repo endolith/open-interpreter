@@ -1,6 +1,11 @@
+from types import SimpleNamespace
+
 import litellm
 
 import interpreter.core.llm.llm as llm_mod
+from interpreter.core.llm.utils.convert_to_openai_messages import (
+    convert_to_openai_messages,
+)
 
 PLACEHOLDER = "."
 LEGACY_PLACEHOLDER = "Executing the requested command."
@@ -264,6 +269,72 @@ def test_empty_reasoning_on_tool_call_gets_placeholder():
         },
     ]
     out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_empty_reasoning_on_legacy_function_call_gets_placeholder():
+    """The legacy function_call shape carries the same non-empty requirement.
+
+    Conversion emits ``function_call`` rather than ``tool_calls``, so a replayed
+    turn whose filler-only reasoning stripped to "" must be repaired there too;
+    a DeepSeek tool request with an empty reasoning_content is a 400.
+    """
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "",
+            "function_call": {"name": "execute", "arguments": "{}"},
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_missing_reasoning_on_legacy_function_call_gets_placeholder():
+    """A legacy function_call turn with no reasoning_content is filled too."""
+    messages = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "content": "",
+            "function_call": {"name": "execute", "arguments": "{}"},
+        },
+    ]
+    out = _process(messages)
+    assert out[1]["reasoning_content"] == PLACEHOLDER
+
+
+def test_filler_only_reasoning_on_replay_is_repaired_end_to_end():
+    """Conversion plus fill leave no empty reasoning_content on a real replay.
+
+    The stored turn carries only a hollow directive, so the replay strip
+    reduces it to "" and conversion attaches it to the legacy function_call
+    message. Asserting on the dict actually handed to litellm covers the whole
+    path rather than a hand-built message.
+    """
+    interpreter = SimpleNamespace(
+        user_message_template="User: {content}",
+        always_apply_user_message_template=False,
+        code_output_template="Output:\n{content}",
+        empty_code_output_template="(no output)",
+        code_output_sender="user",
+        debug=False,
+    )
+    stored = [
+        {"role": "user", "type": "message", "content": "run it"},
+        {
+            "role": "assistant",
+            "type": "code",
+            "format": "python",
+            "content": "print(1)",
+            "reasoning_content": "Run.",
+        },
+    ]
+    converted = convert_to_openai_messages(stored, interpreter=interpreter)
+    assert converted[1]["reasoning_content"] == ""
+    out = _process(converted)
     assert out[1]["reasoning_content"] == PLACEHOLDER
 
 
