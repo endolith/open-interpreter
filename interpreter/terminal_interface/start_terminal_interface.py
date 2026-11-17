@@ -7,6 +7,7 @@ from importlib.metadata import version, PackageNotFoundError
 
 from .conversation_navigator import conversation_navigator
 from .profiles.profiles import open_storage_dir, profile, reset_profile
+from ..core.utils.commit_info import format_version_line, get_commit_info
 from .utils.check_for_update import check_for_update
 from .validate_llm_settings import validate_llm_settings
 
@@ -400,7 +401,7 @@ Use """ to write multi-line messages.
     if args.version:
         oi_version = version("open-interpreter")
         update_name = "Developer Preview"  # Change this with each major update
-        print(f"Open Interpreter {oi_version} {update_name}")
+        print(format_version_line(oi_version, update_name, get_commit_info()))
         return
 
     if args.no_highlight_active_line:

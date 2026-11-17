@@ -4,6 +4,8 @@ import subprocess
 from importlib.metadata import version, PackageNotFoundError
 import psutil
 
+from .commit_info import get_commit_info
+
 
 def get_python_version():
     """Return the version string of the running Python interpreter."""
@@ -101,6 +103,14 @@ def interpreter_info(interpreter):
         return "Error, couldn't get interpreter info"
 
 
+def _describe_commit():
+    """Render the checkout's commit for the `%info` report."""
+    commit = get_commit_info()
+    if commit is None:
+        return "unknown"
+    return f"{commit.short_sha} (dirty)" if commit.dirty else commit.short_sha
+
+
 def system_info(interpreter):
     """Print a debug report of the environment and the given interpreter."""
     oi_version = get_oi_version()
@@ -109,6 +119,7 @@ def system_info(interpreter):
         Python Version: {get_python_version()}
         Pip Version: {get_pip_version()}
         Open-interpreter Version: cmd: {oi_version[0]}, pkg: {oi_version[1]}
+        Commit: {_describe_commit()}
         OS Version and Architecture: {get_os_version()}
         CPU Info: {get_cpu_info()}
         RAM Info: {get_ram_info()}
