@@ -54,13 +54,70 @@ def test_line_postprocessor_strips_leading_prompt_arrows():
     assert js.line_postprocessor("> > 42") == "42"
 
 
-def test_line_postprocessor_strips_dot_space_and_newline():
-    """Leading/trailing dots, spaces and newlines are trimmed.
+def test_line_postprocessor_strips_continuation_prompts():
+    """Node's multi-line continuation prompts are removed, not leaked as output.
 
-    The strip charset is ". \\n"; dropping it would leave padding in the output.
+    The JS wrapper is fed to `node -i` as a multi-line try/catch, so the REPL
+    echoes "> " and "... " prompts before each buffered line. Only the prompt
+    tokens may be stripped; the echoed code and marker must survive intact.
     """
     js = JavaScript()
-    assert js.line_postprocessor("  .value. ") == "value"
+    assert (
+        js.line_postprocessor("> > ... ... ... ... ... ##active_line1##\n")
+        == "##active_line1##\n"
+    )
+
+
+def test_line_postprocessor_strips_node24_multiline_prompt():
+    """Node 24 echoes buffered multi-line input with a run of "| " prompts.
+
+    Node 22 used "... "; Node 24's readline uses kMultilinePrompt "| ", so the
+    prompt leaked onto the result line ("| | | | hello"). A single or double
+    leading "| " is legitimate output (a markdown table row), so only runs of
+    four or more are stripped.
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("| | | | hello from node v24\n") == (
+        "hello from node v24\n"
+    )
+    assert js.line_postprocessor("| a | b |\n") == "| a | b |\n"
+    assert js.line_postprocessor("| | empty\n") == "| | empty\n"
+    assert js.line_postprocessor("| | | three\n") == "| | | three\n"
+
+
+def test_line_postprocessor_preserves_trailing_newline():
+    """Trailing newlines are kept so non-streaming runs do not join adjacent lines.
+
+    Terminal.run(stream=False) concatenates output chunks, so stripping the
+    newline would glue the next line onto the previous one ("42" onto "js ok |").
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("js ok | v22.22.1\n") == "js ok | v22.22.1\n"
+
+
+def test_line_postprocessor_preserves_newline_on_prompt_only_lines():
+    r"""A prompt-only echoed line keeps its newline instead of collapsing to "".
+
+    Prompt tokens may be followed by spaces or tabs but not by the line
+    separator; a `\s` class would consume the newline, so an empty echoed line
+    would lose its break and the next chunk would be joined onto it.
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("> \n") == "\n"
+    assert js.line_postprocessor(">>> \n") == "\n"
+    assert js.line_postprocessor("... \n") == "\n"
+
+
+def test_line_postprocessor_preserves_non_prompt_text():
+    """Text that does not start with a REPL prompt is left verbatim.
+
+    The old implementation stripped ". \\n" from both ends of every line, which
+    silently deleted legitimate trailing dots and padding. Only prompt tokens
+    are removed now.
+    """
+    js = JavaScript()
+    assert js.line_postprocessor("  .value. ") == "  .value. "
+    assert js.line_postprocessor("table | value\n") == "table | value\n"
 
 
 def test_preprocess_javascript_multiline_skips_active_line_markers():
