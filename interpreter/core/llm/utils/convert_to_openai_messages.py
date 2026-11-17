@@ -5,6 +5,8 @@ import sys
 
 from PIL import Image
 
+from .reasoning_lines import strip_filler_reasoning_lines
+
 # Image formats vision providers accept, mapped to their MIME suffixes.
 # Anything else detectable (BMP, TIFF, ...) is re-encoded to PNG below.
 SUPPORTED_IMAGE_FORMATS = {
@@ -25,9 +27,11 @@ def convert_to_openai_messages(
     """
     Converts LMC messages into OpenAI messages
 
-    Stored `reasoning_content` is passed through when present. Only thinking
-    providers emit it; others are expected to ignore unknown message fields.
-    The DeepSeek backfill is gated separately in llm.py.
+    Stored `reasoning_content` is passed back when present, minus lines that
+    are only a hollow directive ("Run.", "Execute.", "Let's do it."): replaying
+    them teaches the model to keep producing filler. Only thinking providers
+    emit the field; others are expected to ignore unknown message fields. The
+    DeepSeek backfill is gated separately in llm.py.
     """
     new_messages = []
 
@@ -80,14 +84,19 @@ def convert_to_openai_messages(
                 new_message["content"] = message["content"]
 
             if message.get("reasoning_content"):
-                # Thinking-model chains of thought must be passed back
-                # verbatim or providers reject follow-up requests (#215).
-                new_message["reasoning_content"] = message["reasoning_content"]
+                # Thinking-model chains of thought must be passed back or
+                # providers reject follow-up requests (#215) — but filler-only
+                # lines would be learned and repeated on later turns.
+                new_message["reasoning_content"] = strip_filler_reasoning_lines(
+                    message["reasoning_content"]
+                )
 
         elif message["type"] == "code":
             new_message["role"] = "assistant"
             if message.get("reasoning_content"):
-                new_message["reasoning_content"] = message["reasoning_content"]
+                new_message["reasoning_content"] = strip_filler_reasoning_lines(
+                    message["reasoning_content"]
+                )
             if function_calling:
                 new_message["function_call"] = {
                     "name": "execute",
