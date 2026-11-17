@@ -236,7 +236,12 @@ class SubprocessLanguage(BaseLanguage):
                     )
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = re.sub(r"##active_line\d+##", "", line)
-                    if line:
+                    # The marker is normally printed on its own line, so removing it
+                    # leaves just the line separator. Emitting that would prepend a
+                    # blank line to the run's output, since Terminal.run(stream=False)
+                    # joins consecutive chunks ("\n" + "ok\n" -> "\nok\n"). Drop
+                    # separator-only residue but keep text that shared the marker's line.
+                    if line.strip():
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
