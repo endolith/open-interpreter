@@ -1,0 +1,187 @@
+import shutil
+import subprocess
+from types import SimpleNamespace
+from unittest import mock
+
+import pytest
+
+from interpreter.core.utils import commit_info, system_debug_info
+
+
+def _fake_git(short_sha, status=""):
+    """Patch the git runner so it answers rev-parse and status without a checkout."""
+
+    def run(args, cwd):
+        if args[0] == "rev-parse":
+            return short_sha
+        if args[0] == "status":
+            return status
+        raise AssertionError(f"unexpected git call: {args}")
+
+    return mock.patch.object(commit_info, "_git", side_effect=run)
+
+
+def test_get_commit_info_reports_the_short_sha_and_a_clean_tree(tmp_path):
+    """A clean checkout reports the short SHA with `dirty` false.
+
+    The SHA is what a bug report needs; claiming the tree is modified when it
+    is not would send maintainers looking for local changes that do not exist.
+    """
+    (tmp_path / ".git").mkdir()
+    with _fake_git("abc1234", ""):
+        info = commit_info.get_commit_info(tmp_path)
+
+    assert info == commit_info.CommitInfo("abc1234", False)
+
+
+def test_get_commit_info_flags_modified_tracked_files(tmp_path):
+    """A checkout with edited tracked files is reported as dirty.
+
+    `%info` and `--version` must warn that the reported SHA does not describe
+    exactly the code that ran.
+    """
+    (tmp_path / ".git").mkdir()
+    with _fake_git("abc1234", " M interpreter/core/core.py"):
+        info = commit_info.get_commit_info(tmp_path)
+
+    assert info == commit_info.CommitInfo("abc1234", True)
+
+
+def test_get_commit_info_finds_the_repo_root_from_the_module_path(tmp_path, monkeypatch):
+    """With no explicit root, the repository is found by walking up from this file.
+
+    Editable installs run from inside the checkout, so the module path is the
+    only hint available at runtime.
+    """
+    nested = tmp_path / "interpreter" / "core" / "utils"
+    nested.mkdir(parents=True)
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(commit_info, "__file__", str(nested / "commit_info.py"))
+
+    with _fake_git("abc1234", ""):
+        info = commit_info.get_commit_info()
+
+    assert info == commit_info.CommitInfo("abc1234", False)
+
+
+def test_get_commit_info_returns_none_outside_a_repository(tmp_path, monkeypatch):
+    """A wheel or sdist install has no `.git`, so no commit is reported.
+
+    Printing a stale or invented SHA would be worse than printing nothing.
+    """
+    monkeypatch.setattr(commit_info, "_find_repo_root", lambda: None)
+
+    assert commit_info.get_commit_info() is None
+
+
+def test_find_repo_root_returns_none_when_no_parent_has_git(tmp_path, monkeypatch):
+    """A module that lives outside any checkout resolves no root at all."""
+    monkeypatch.setattr(commit_info, "__file__", str(tmp_path / "commit_info.py"))
+    assert commit_info._find_repo_root() is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError("git"),
+        subprocess.TimeoutExpired(cmd="git", timeout=5),
+        subprocess.CalledProcessError(1, "git"),
+    ],
+)
+def test_get_commit_info_returns_none_when_git_cannot_answer(tmp_path, error):
+    """Missing git, a timeout, or a failing git command degrade to `unknown`.
+
+    `--version` and `%info` must still print on machines without git rather
+    than crash the CLI.
+    """
+    (tmp_path / ".git").mkdir()
+    with mock.patch.object(commit_info, "_git", side_effect=error):
+        assert commit_info.get_commit_info(tmp_path) is None
+
+
+def test_format_version_line_appends_the_commit():
+    """`--version` names the exact revision, including a dirty marker."""
+    line = commit_info.format_version_line(
+        "0.4.3", "Developer Preview", commit_info.CommitInfo("abc1234", False)
+    )
+    assert line == "Open Interpreter 0.4.3 Developer Preview (abc1234)"
+
+    dirty = commit_info.format_version_line(
+        "0.4.3", "Developer Preview", commit_info.CommitInfo("abc1234", True)
+    )
+    assert dirty == "Open Interpreter 0.4.3 Developer Preview (abc1234 dirty)"
+
+
+def test_format_version_line_omits_the_commit_when_unknown():
+    """Without a commit, the line keeps the historical wording unchanged."""
+    assert (
+        commit_info.format_version_line("0.4.3", "Developer Preview", None)
+        == "Open Interpreter 0.4.3 Developer Preview"
+    )
+
+
+def test_system_info_reports_the_commit():
+    """The `%info` report carries a commit line so reports are attributable."""
+    interpreter = SimpleNamespace(
+        offline=False,
+        llm=SimpleNamespace(
+            api_base=None,
+            supports_vision=False,
+            model="test-model",
+            supports_functions=True,
+            context_window=8000,
+            max_tokens=1000,
+        ),
+        messages=[],
+        system_message="test",
+        auto_run=True,
+        computer=SimpleNamespace(import_computer_api=False),
+    )
+    with mock.patch.object(
+        system_debug_info, "get_commit_info", return_value=commit_info.CommitInfo("abc1234", True)
+    ):
+        with mock.patch("builtins.print") as fake_print:
+            system_debug_info.system_info(interpreter)
+
+    report = fake_print.call_args.args[0]
+    assert "Commit: abc1234 (dirty)" in report
+
+
+def test_system_info_reports_unknown_without_a_commit():
+    """`%info` says `unknown` rather than omitting the line on non-git installs."""
+    interpreter = SimpleNamespace(
+        offline=False,
+        llm=SimpleNamespace(
+            api_base=None,
+            supports_vision=False,
+            model="test-model",
+            supports_functions=True,
+            context_window=8000,
+            max_tokens=1000,
+        ),
+        messages=[],
+        system_message="test",
+        auto_run=True,
+        computer=SimpleNamespace(import_computer_api=False),
+    )
+    with mock.patch.object(system_debug_info, "get_commit_info", return_value=None):
+        with mock.patch("builtins.print") as fake_print:
+            system_debug_info.system_info(interpreter)
+
+    report = fake_print.call_args.args[0]
+    assert "Commit: unknown" in report
+
+
+def test_get_commit_info_works_against_the_real_checkout():
+    """The real runner shells out to git and reports this repository's SHA.
+
+    The other tests patch `_git`, so without this one the subprocess call and
+    its argument handling would never run in CI.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    if commit_info._find_repo_root() is None:
+        pytest.skip("not running from a git checkout")
+    info = commit_info.get_commit_info()
+    assert info is not None
+    assert len(info.short_sha) >= 7
