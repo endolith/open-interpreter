@@ -22,6 +22,20 @@ class SubprocessLanguage(BaseLanguage):
         # Kept so run() can wait for them to drain the pipes when the process
         # dies without printing the end-of-execution marker.
         self.stream_threads = []
+        # Reader threads share this instance; thread-local state lets a
+        # language's postprocessor tell stdout lines from stderr lines, which
+        # arrive interleaved and need different treatment (stderr is never the
+        # REPL's own echo, so skip its prompt cleanup).
+        self._stream_state = threading.local()
+
+    @property
+    def current_stream_is_error(self):
+        """Whether the line being postprocessed came from the stderr reader.
+
+        Each stream runs in its own thread, so this is per-thread state set by
+        handle_stream_output rather than a flag both readers would overwrite.
+        """
+        return getattr(self._stream_state, "is_error", False)
 
     def detect_active_line(self, line):
         return None
@@ -207,6 +221,7 @@ class SubprocessLanguage(BaseLanguage):
         return self.process.poll()
 
     def handle_stream_output(self, stream, is_error_stream):
+        self._stream_state.is_error = is_error_stream
         try:
             for line in iter(stream.readline, ""):
                 if self.verbose:
@@ -235,8 +250,24 @@ class SubprocessLanguage(BaseLanguage):
                         }
                     )
                     # Sometimes there's a little extra on the same line, so be sure to send that out
+                    # A marker that ends the line owns that line separator: it
+                    # was printed after an unfinished output fragment, so it
+                    # yields "a##active_line2##\n" for `stdout.write("a")` then
+                    # the next marker. Keeping the separator would split the
+                    # fragment ("a\nb" instead of "ab"). Markers printed alone
+                    # leave separator-only residue, dropped below either way.
+                    marker_ends_line = (
+                        re.search(r"##active_line\d+##\r?\n?$", line) is not None
+                    )
                     line = re.sub(r"##active_line\d+##", "", line)
-                    if line:
+                    if marker_ends_line:
+                        line = line.rstrip("\r\n")
+                    # The marker is normally printed on its own line, so removing it
+                    # leaves just the line separator. Emitting that would prepend a
+                    # blank line to the run's output, since Terminal.run(stream=False)
+                    # joins consecutive chunks ("\n" + "ok\n" -> "\nok\n"). Drop
+                    # separator-only residue but keep text that shared the marker's line.
+                    if line.strip():
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
