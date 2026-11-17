@@ -222,3 +222,70 @@ def test_html_to_png_base64_returns_the_image_when_cleanup_fails(
 
     assert result == base64.b64encode(png_bytes).decode()
 
+
+def test_html_to_png_base64_retries_with_logging_when_the_png_is_missing(
+    tmp_path, monkeypatch,
+):
+    """A missing PNG triggers one re-render with the browser's output enabled.
+
+    html2image reports a failed capture only by not writing the file, so the
+    quiet render leaves the user with no explanation. The retry lets Chromium's
+    own diagnostics (missing shared libraries, a sandbox refusal) reach the
+    console, and recovers the image when the first capture failed transiently.
+    """
+    import base64
+
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+    png_bytes = b"\x89PNG\r\n\x1a\nretried"
+
+    quiet_hti = mock.Mock()
+    quiet_hti.screenshot = mock.Mock()
+
+    loud_hti = mock.Mock()
+
+    def fake_screenshot(html_str, save_as, size):
+        (tmp_path / save_as).write_bytes(png_bytes)
+
+    loud_hti.screenshot = fake_screenshot
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.side_effect = [quiet_hti, loud_hti]
+        result = html_to_png_base64.html_to_png_base64("<html></html>")
+
+    assert result == base64.b64encode(png_bytes).decode()
+    assert lazy.Html2Image.call_args_list == [
+        mock.call(disable_logging=True),
+        mock.call(disable_logging=False),
+    ]
+
+
+def test_html_to_png_base64_returns_none_when_the_logging_retry_also_misses(
+    tmp_path, monkeypatch,
+):
+    """A second failed capture returns None rather than raising.
+
+    The retry exists to surface the browser's diagnosis, not to change the
+    contract: callers fall back to showing the source, and an exception here
+    would take down the run loop.
+    """
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+
+    quiet_hti = mock.Mock()
+    quiet_hti.screenshot = mock.Mock()
+    loud_hti = mock.Mock()
+    loud_hti.screenshot = mock.Mock()
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.side_effect = [quiet_hti, loud_hti]
+        result = html_to_png_base64.html_to_png_base64("<html></html>")
+
+    assert result is None
+    assert lazy.Html2Image.call_args_list == [
+        mock.call(disable_logging=True),
+        mock.call(disable_logging=False),
+    ]
+
