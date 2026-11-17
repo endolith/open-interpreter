@@ -540,6 +540,85 @@ def _fill_reasoning_content(params):
             last_reasoning = None
 
 
+# A model that is unavailable is unavailable permanently (a typo, a retired
+# name), so matching the bare word "unavailable" turned a typo into four
+# pointless attempts. These phrases are checked first, and before the generic
+# retryable markers, because a message can contain both ("Model is
+# unavailable. Please try again later.") and the permanent cause must win.
+_PERMANENT_MARKERS = (
+    "model is unavailable",
+    "model unavailable",
+    "model not available",
+    "model not found",
+    "no such model",
+    "unknown model",
+    "was not found",
+    "does not exist",
+    "invalid api key",
+    "incorrect api key",
+    "invalid_api_key",
+)
+
+# Unavailability that genuinely clears on its own. Matched as phrases rather
+# than as the single word "unavailable", so the classification says what it
+# means and "temporarily unavailable" is never read as a permanent model typo.
+_TEMPORARY_UNAVAILABLE_PHRASES = (
+    "temporarily unavailable",
+    "temporarily not available",
+    "service unavailable",
+    "service is unavailable",
+    "provider unavailable",
+)
+
+# 4xx statuses that do clear on their own: request timeout, too early, and
+# throttling. A 429 that means quota exhaustion is handled separately below.
+_RETRYABLE_4XX_STATUSES = (408, 425, 429)
+
+
+def _is_permanent_provider_error(error):
+    """
+    Return True when a provider error cannot succeed on a retry.
+
+    Retrying a permanent failure (auth, missing model, malformed request,
+    exhausted quota) four times only delays the message the user needs, so the
+    retry loop raises it immediately. Anything this cannot positively identify
+    as permanent keeps the historical retry behaviour: an unrecognised failure
+    may still be a transient connection blip, and dropping that retry would
+    make the client less resilient than it was before.
+
+    Structured providers expose the HTTP status as an integer, so that is
+    preferred. Substring matching is only the fallback for errors that carry no
+    status at all (plain strings, connection failures, bare JSON bodies).
+    """
+    for attr in ("status_code", "http_status"):
+        status = getattr(error, attr, None)
+        if isinstance(status, int) and status > 0:
+            if status in _RETRYABLE_4XX_STATUSES or 500 <= status <= 599:
+                if status == 429 and "quota" in str(error).lower():
+                    # Quota exhaustion is a 429 that never clears; retrying
+                    # hides the billing hint behind four attempts.
+                    return True
+                return False
+            if 400 <= status <= 499:
+                return True
+            break  # Nonsense status: fall through to the text heuristics.
+    message = str(error).lower()
+    if any(phrase in message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES):
+        return False
+    if any(marker in message for marker in _PERMANENT_MARKERS):
+        return True
+    # A provider names the bad model in the message ("The model `foo` was not
+    # found"), so the exact marker cannot match across the name. Treat any
+    # sentence about a model plus a negative word as permanent, having already
+    # excluded the temporary phrases above.
+    if "model" in message and any(
+        word in message
+        for word in ("not found", "unavailable", "not available", "no such", "unknown")
+    ):
+        return True
+    return False
+
+
 def fixed_litellm_completions(**params):
     """
     Just uses a dummy API key, since we use litellm without an API key sometimes.
@@ -594,6 +673,14 @@ def fixed_litellm_completions(**params):
                 )
                 # So, let's try one more time with a dummy API key:
                 params["api_key"] = "x"
+                # The missing key was the problem, not the request, so this
+                # attempt is not evidence of a permanent failure: retry it.
+                continue
+            if _is_permanent_provider_error(e):
+                # Auth, missing model, malformed request, exhausted quota:
+                # a retry cannot help, so surface the error now instead of
+                # spending three more attempts on it.
+                raise
             if attempt == 1:
                 # Try turning up the temperature?
                 params["temperature"] = params.get("temperature", 0.0) + 0.1
