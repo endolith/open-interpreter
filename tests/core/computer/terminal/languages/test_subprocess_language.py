@@ -150,6 +150,51 @@ def test_active_line_marker_is_stripped_from_trailing_output():
     assert "##active_line" not in trailing["content"]
 
 
+def test_active_line_marker_at_end_of_line_drops_its_newline():
+    """A marker after an unfinished fragment does not split that fragment.
+
+    JavaScript prints `process.stdout.write("a")` then the next line's marker,
+    so readline hands over "a##active_line2##\n". Dropping only the marker
+    emits "a\n", and Terminal.run(stream=False) then joins "b" as a separate
+    line ("a\nb" instead of "ab").
+    """
+    lang = EchoLanguage()
+
+    def detect(line):
+        return 2 if "##active_line2##" in line else None
+
+    lang.detect_active_line = detect
+    stream = StringIO("a##active_line2##\n")
+
+    lang.handle_stream_output(stream, is_error_stream=False)
+
+    lang.output_queue.get()  # active_line chunk
+    assert lang.output_queue.get() == {
+        "type": "console",
+        "format": "output",
+        "content": "a",
+    }
+
+
+def test_blank_output_line_without_a_marker_is_still_emitted():
+    """Ordinary blank lines are output, not marker residue.
+
+    The marker rule must only drop the separator a marker itself owns; a plain
+    blank line from the program still reaches the model.
+    """
+    lang = EchoLanguage()
+    lang.detect_active_line = lambda line: None
+    stream = StringIO("\n")
+
+    lang.handle_stream_output(stream, is_error_stream=False)
+
+    assert lang.output_queue.get() == {
+        "type": "console",
+        "format": "output",
+        "content": "\n",
+    }
+
+
 def test_end_of_execution_marker_is_stripped_but_trailing_text_kept():
     """The end marker is removed from the line and any trailing text is emitted.
 
