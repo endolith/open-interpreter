@@ -15,15 +15,24 @@ class JavaScript(SubprocessLanguage):
         return preprocess_javascript(code)
 
     def line_postprocessor(self, line):
-        # Node's interactive REPL outputs a billion things
-        # So we clean it up:
+        # Node's interactive REPL outputs a billion things, so clean it up.
         if "Welcome to Node.js" in line:
             return None
         if line.strip() in ["undefined", 'Type ".help" for more information.']:
             return None
-        line = line.strip(". \n")
-        # Remove trailing ">"s
-        line = re.sub(r"^\s*(>\s*)+", "", line)
+        # Strip the REPL prompt sequence, including continuation prompts for
+        # multi-line input: "> ", "> > ", "... ...". These otherwise leak into
+        # the output. Only the prompt tokens are removed; the rest of the line,
+        # including trailing whitespace, is preserved.
+        line = re.sub(r"^\s*(?:(?:>\s*)|(?:\.\.\.\s*))+", "", line)
+        # Node 24 renders a buffered multi-line command's continuation prompt as
+        # "| " (readline's kMultilinePrompt) and echoes the run on the result
+        # line. Our try/catch wrapper is at least seven lines, so a real run
+        # needs more than four prompts; requiring four leaves ordinary output
+        # such as a markdown table row ("| a | b |", or "| | empty") untouched.
+        line = re.sub(r"^(?:\| ){4,}", "", line)
+        # Keep the trailing newline: Terminal.run(stream=False) concatenates
+        # consecutive output chunks, so stripping it joins separate lines.
         return line
 
     def detect_active_line(self, line):
