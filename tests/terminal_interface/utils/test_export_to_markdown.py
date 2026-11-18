@@ -1,3 +1,5 @@
+from unittest import mock
+
 from interpreter.terminal_interface.utils.export_to_markdown import (
     export_to_markdown,
     messages_to_markdown,
@@ -120,3 +122,26 @@ def test_message_content_is_followed_by_a_blank_line():
 
     assert messages_to_markdown(messages) == "## assistant\n\nx\n\n"
 
+
+
+def test_export_to_markdown_writes_utf8_encoded_file(tmp_path):
+    """Non-ASCII conversation content is written as UTF-8, not the platform default.
+
+    Windows and non-UTF-8 locales previously produced UnicodeEncodeError (or a
+    mangled file) for emoji, CJK and accented text in an exported conversation.
+    """
+    path = tmp_path / "conversation.md"
+    messages = [{"role": "user", "type": "message", "content": "café — 日本語 😀"}]
+    export_to_markdown(messages, str(path))
+    # Text-mode writes translate "\n" to the platform newline, so read the
+    # file back the way a user would (universal newlines) and compare content.
+    assert path.read_text(encoding="utf-8") == messages_to_markdown(messages)
+
+
+def test_export_to_markdown_opens_with_explicit_utf8(tmp_path):
+    """The file is opened with an explicit utf-8 encoding, independent of the locale."""
+    path = tmp_path / "conversation.md"
+    messages = [{"role": "user", "type": "message", "content": "café"}]
+    with mock.patch("builtins.open", wraps=open) as open_mock:
+        export_to_markdown(messages, str(path))
+    assert open_mock.call_args.kwargs.get("encoding") == "utf-8"

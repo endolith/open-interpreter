@@ -1,6 +1,9 @@
 def export_to_markdown(messages: list[dict], export_path: str):
     markdown = messages_to_markdown(messages)
-    with open(export_path, 'w') as f:
+    # The platform default encoding is not UTF-8 everywhere (Windows cp1252,
+    # some POSIX locales), which raised UnicodeEncodeError for emoji, CJK and
+    # accented text. Conversation exports are UTF-8 markdown.
+    with open(export_path, 'w', encoding='utf-8') as f:
         f.write(markdown)
     print(f"Exported current conversation to {export_path}")
 
