@@ -1010,3 +1010,70 @@ def test_console_output_non_string_content_is_coerced_without_function_calling(i
     )
     assert result[0]["content"] == "Output:\n42"
     assert messages[0]["content"] == 42
+
+
+def test_whitespace_only_assistant_separator_is_dropped(interpreter):
+    """A stored loop-mode separator must never reach the API as an empty assistant message.
+
+    respond() stores an assistant message containing only "\\n\\n" as a visual separator
+    between turns when loop mode auto-continues. Conversion strips it to an empty string,
+    yielding an assistant message with neither content nor tool/function calls. DeepSeek
+    (and OpenRouter's BYOK relay for it) rejects such a message with a 400
+    ("Invalid assistant message: content or tool_calls must be set"). The separator carries
+    no information to the model, so it must be dropped from the request.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "hi"},
+        {"role": "assistant", "type": "message", "content": "Let me do that."},
+        {"role": "assistant", "type": "message", "content": "\n\n"},
+        {"role": "user", "type": "message", "content": "Proceed."},
+    ]
+
+    out = convert_to_openai_messages(messages, function_calling=True, interpreter=interpreter)
+
+    assert len(out) == 3
+    for m in out:
+        if m["role"] == "assistant":
+            assert m.get("tool_calls") or m.get("function_call") or str(m.get("content", "")).strip(), (
+                f"assistant message with neither content nor calls leaked: {m!r}"
+            )
+    assert out[1] == {"role": "assistant", "content": "Let me do that."}
+
+
+def test_blank_assistant_code_message_kept_under_function_calling(interpreter):
+    """A `code` message carries its empty content on purpose and must not be dropped.
+
+    Under function calling, code messages are emitted as the assistant's execute call
+    with content "" plus function_call; the OpenAI schema requires the empty content key.
+    The whitespace-only drop must not treat those as malformed history.
+    """
+    messages = [{"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}]
+
+    out = convert_to_openai_messages(messages, function_calling=True, interpreter=interpreter)
+
+    assert len(out) == 1
+    assert out[0]["role"] == "assistant"
+    assert out[0]["content"] == ""
+    assert out[0]["function_call"]["name"] == "execute"
+
+
+def test_whitespace_separator_dropped_without_function_calling(interpreter):
+    """The drop also applies on the non-function-calling path, leaving no trailing newline.
+
+    Without function calling, same-role messages are joined with newlines, so the separator
+    previously survived as a trailing "\\n" on the preceding assistant turn. It carries no
+    information, so both paths drop it; genuinely separate assistant messages still merge
+    with a newline (covered by test_merge_joins_same_role_messages_with_newline).
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "hi"},
+        {"role": "assistant", "type": "message", "content": "hello"},
+        {"role": "assistant", "type": "message", "content": "\n\n"},
+    ]
+
+    out = convert_to_openai_messages(messages, function_calling=False, interpreter=interpreter)
+
+    assert out == [
+        {"role": "user", "content": "User: hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
