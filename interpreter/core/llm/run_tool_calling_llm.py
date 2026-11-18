@@ -1,3 +1,4 @@
+import json
 import os
 import re
 
@@ -36,6 +37,31 @@ tool_schema = {
 def process_messages(messages):
     processed_messages = []
     last_tool_id = 0
+    # `tool_call_id`s declared by the most recent assistant message. A single
+    # turn may declare several calls, so the answers are not necessarily
+    # adjacent to their declaration; the pending set tells the second answer
+    # apart from a genuinely orphaned one.
+    pending_tool_ids = []
+    # The assistant message those ids belong to. An unmatchable answer that
+    # arrives in the middle of that turn's answers has to be declared by the
+    # same turn; a separate assistant message between the answers would leave
+    # the later answer without the turn that declared its call.
+    pending_assistant = None
+
+    def placeholder_tool_call(tool_id):
+        return {
+            "id": tool_id,
+            "type": "function",
+            "function": {
+                "name": "execute",
+                "arguments": json.dumps(
+                    {
+                        "language": "python",
+                        "code": "# Placeholder for an unsupported or invalid tool call; the provider's error was returned as the tool response.",
+                    }
+                ),
+            },
+        }
 
     i = 0
     while i < len(messages):
@@ -51,6 +77,8 @@ def process_messages(messages):
                 {"id": tool_id, "type": "function", "function": function}
             ]
             processed_messages.append(message)
+            pending_tool_ids = [tool_id]
+            pending_assistant = message
 
             # Process the next message if it's a function response
             if i + 1 < len(messages) and messages[i + 1].get("role") == "function":
@@ -64,6 +92,7 @@ def process_messages(messages):
                 processed_messages.append(
                     {"role": "tool", "tool_call_id": tool_id, "content": ""}
                 )
+            pending_tool_ids = []
 
         elif message.get("role") == "function":
             # This handles orphaned function responses
@@ -92,9 +121,49 @@ def process_messages(messages):
             message["tool_call_id"] = tool_id
             processed_messages.append(message)
 
+        elif message.get("role") == "tool":
+            # A tool message must follow an assistant message carrying the matching
+            # tool_call_id (OpenAI, OpenRouter, Alibaba). A provider that rejects an
+            # unsupported or malformed tool call still produces a tool response, but
+            # no assistant message with tool_calls is stored for it, leaving the pair
+            # unpaired and the next request rejected. Declare the call on the assistant
+            # message that owns this turn so the two messages stay paired.
+            # A declared call that has not been answered yet is not orphaned:
+            # one assistant turn can declare several calls and their answers
+            # arrive in sequence, so checking only the previous message
+            # mispaired the second answer and declared its call twice.
+            tool_id = message.get("tool_call_id")
+            if tool_id and tool_id in pending_tool_ids:
+                pending_tool_ids.remove(tool_id)
+            else:
+                if not tool_id:
+                    last_tool_id += 1
+                    tool_id = f"toolu_{last_tool_id}"
+                    message["tool_call_id"] = tool_id
+                call = placeholder_tool_call(tool_id)
+                if pending_assistant is not None:
+                    # Attach the call to the turn that is still waiting for answers
+                    # instead of inserting a new assistant message between them.
+                    pending_assistant.setdefault("tool_calls", []).append(call)
+                else:
+                    processed_messages.append(
+                        {"role": "assistant", "tool_calls": [call]}
+                    )
+            processed_messages.append(message)
+
         else:
             # For non-tool-related messages, just add them as is
             processed_messages.append(message)
+            if message.get("tool_calls"):
+                pending_tool_ids = [
+                    call.get("id") for call in message["tool_calls"] if call.get("id")
+                ]
+                pending_assistant = message
+            else:
+                # This message separates any earlier declarations from whatever
+                # follows, so a tool response after it cannot be paired with them.
+                pending_tool_ids = []
+                pending_assistant = None
 
         i += 1
 
