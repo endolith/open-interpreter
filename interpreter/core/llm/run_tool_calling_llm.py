@@ -33,6 +33,58 @@ tool_schema = {
 }
 
 
+def _merge_user_content(first, second):
+    """Combine two user message contents, preserving order and image parts.
+
+    Plain strings are joined with a blank line. If either side is multimodal
+    (a list of content parts), both sides are normalized to part lists and
+    concatenated so text and image parts keep their original order.
+    """
+    if isinstance(first, str) and isinstance(second, str):
+        parts = [part for part in (first, second) if part and part.strip()]
+        return "\n\n".join(parts)
+
+    def to_parts(content):
+        if content is None:
+            return []
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}] if content else []
+        return list(content)
+
+    return to_parts(first) + to_parts(second)
+
+
+def merge_consecutive_user_messages(messages):
+    """Collapse runs of consecutive user messages into a single turn.
+
+    DeepSeek requires interleaved roles ("deepseek-reasoner does not support
+    successive user or assistant messages ... interleave the user/assistant
+    messages", deepseek-ai/DeepSeek-R1#21). Successive same-role messages are
+    rejected by some DeepSeek endpoints and distort the chat template and
+    thinking-mode reasoning concatenation elsewhere.
+
+    OI naturally builds such runs: resuming a saved session appends a
+    ``SYSTEM ALERT`` user message, and attaching an image adds the path as a
+    text user message followed by the image itself, so a turn can contain
+    several adjacent user messages. Merging restores the alternating shape
+    without dropping text or images.
+    """
+    merged = []
+    for message in messages:
+        previous = merged[-1] if merged else None
+        if (
+            message.get("role") == "user"
+            and previous is not None
+            and previous.get("role") == "user"
+        ):
+            previous["content"] = _merge_user_content(
+                previous.get("content"), message.get("content")
+            )
+            continue
+        merged.append(dict(message))
+    return merged
+
+
 def process_messages(messages):
     processed_messages = []
     last_tool_id = 0
@@ -98,7 +150,7 @@ def process_messages(messages):
 
         i += 1
 
-    return processed_messages
+    return merge_consecutive_user_messages(processed_messages)
 
 
 def run_tool_calling_llm(llm, request_params):
