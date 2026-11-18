@@ -450,6 +450,41 @@ def test_system_info_labels_the_command_and_package_versions_separately():
     assert "pkg: PKG_VERSION" in report
 
 
+def test_interpreter_info_has_no_leading_indentation():
+    """Every line of the debug report starts at column zero.
+
+    The report body is an indented f-string literal, so the indentation used to
+    lay it out in the source leaks into the printed text unless the lines are
+    dedented. Eight spaces on every line read as a stray indented block in the
+    middle of a bug report.
+    """
+    out = system_debug_info.interpreter_info(_debug_interpreter())
+
+    assert "Vision: False" in out
+    assert "\nVision:" in out
+    assert "\n        Vision:" not in out
+    assert [line for line in out.splitlines() if line.startswith(" ")] == []
+
+
+def test_system_info_prints_the_environment_report_at_the_margin(capsys):
+    """The environment section is also dedented, not just the interpreter block.
+
+    system_info has its own indented f-string, so fixing only interpreter_info
+    would leave the Python/Pip/OS lines shifted right.
+    """
+    interpreter = _debug_interpreter()
+    with mock.patch.object(
+        system_debug_info, "get_oi_version", return_value=("CMD_VERSION", "1.0")
+    ):
+        system_debug_info.system_info(interpreter)
+
+    out = capsys.readouterr().out
+    assert "\nPython Version:" in out
+    assert "\nOpen-interpreter Version:" in out
+    assert "\n        Python Version:" not in out
+    assert [line for line in out.splitlines() if line.startswith(" ")] == []
+
+
 def test_interpreter_info_truncates_oversized_message_inline(capsys):
     """interpreter_info truncates a >2000-char message to 1000 chars without a handler (issue #385)."""
     interpreter = SimpleNamespace(
