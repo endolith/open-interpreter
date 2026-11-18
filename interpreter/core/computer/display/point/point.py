@@ -474,6 +474,15 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
 
 fast_model = True
 
+# Where the fine-tuned grounding model is cached between runs. `model_path` is
+# referenced three times in the block below but was never assigned, so flipping
+# `fast_model` to False raised NameError on its first os.path.isfile call.
+# `oi_dir` has been imported at the top of this file since before that code was
+# written and is unused otherwise, which is the per-user location this belongs
+# in; a bare relative path would depend on the working directory.
+os.makedirs(oi_dir, exist_ok=True)
+model_path = os.path.join(oi_dir, "point_grounding_model.pt")
+
 # First, we load the respective CLIP model
 model = SentenceTransformer("clip-ViT-B-32")
 
