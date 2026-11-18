@@ -87,6 +87,7 @@ def test_terminal_interface_shows_approval_intro():
     intro = interpreter.display_message.call_args[0][0]
     assert "will require approval before running code" in intro
     assert "Use `interpreter -y` to bypass this." in intro
+    assert "Press `CTRL-D` to exit." in intro
 
 
 def test_terminal_interface_skips_intro_when_auto_run():
@@ -118,11 +119,32 @@ def test_terminal_interface_ignores_empty_input():
     """terminal_interface skips an empty line instead of sending it to the LLM."""
     interpreter = _intro_interpreter()
 
-    with mock.patch("builtins.input", side_effect=["", KeyboardInterrupt()]):
+    with mock.patch("builtins.input", side_effect=["", EOFError()]):
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))
 
     assert "Exiting..." in interpreter.display_message.call_args[0][0]
+    interpreter.chat.assert_not_called()
+
+
+def test_terminal_interface_ctrl_c_at_prompt_cancels_the_line(capsys):
+    """Ctrl+C at the prompt echoes ^C and asks for another line.
+
+    On Windows the Ctrl+C signal can be delivered again immediately after an
+    in-progress response has been cancelled, so treating a prompt-time interrupt
+    as "exit" closed the session while the user was still typing. Ctrl+D is the
+    documented exit; the loop must survive the interrupt and prompt again.
+    """
+    interpreter = _intro_interpreter()
+
+    with mock.patch(
+        "builtins.input", side_effect=[KeyboardInterrupt(), EOFError()]
+    ) as prompt:
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert prompt.call_count == 2
+    assert "^C" in capsys.readouterr().out
     interpreter.chat.assert_not_called()
 
 
@@ -132,7 +154,7 @@ def test_terminal_interface_dispatches_magic_command():
 
     interpreter = _intro_interpreter()
     with mock.patch.object(ti, "handle_magic_command") as handle:
-        with mock.patch("builtins.input", side_effect=["%help", KeyboardInterrupt()]):
+        with mock.patch("builtins.input", side_effect=["%help", EOFError()]):
             with pytest.raises(KeyboardInterrupt):
                 list(terminal_interface(interpreter, ""))
 
@@ -156,7 +178,7 @@ def test_terminal_interface_failing_magic_command_returns_to_prompt(tmp_path, ve
 
     with mock.patch(
         "builtins.input",
-        side_effect=[f"%load_message {missing}", KeyboardInterrupt()],
+        side_effect=[f"%load_message {missing}", EOFError()],
     ) as prompt:
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))
@@ -172,7 +194,7 @@ def test_terminal_interface_local_command_hint(capsys):
     interpreter = _intro_interpreter()
     with mock.patch(
         "builtins.input",
-        side_effect=["interpreter --local", KeyboardInterrupt()],
+        side_effect=["interpreter --local", EOFError()],
     ):
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))
@@ -293,7 +315,7 @@ def test_terminal_interface_pip_upgrade_hint(capsys):
     interpreter = _intro_interpreter()
     with mock.patch(
         "builtins.input",
-        side_effect=["pip install --upgrade open-interpreter", KeyboardInterrupt()],
+        side_effect=["pip install --upgrade open-interpreter", EOFError()],
     ):
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))
@@ -524,10 +546,10 @@ def test_terminal_interface_uses_injected_message_in_interactive_mode():
     chat = mock.Mock(return_value=iter([]))
     interpreter.chat = chat
 
-    # After the injected message runs, the loop returns to the prompt; Ctrl-C exits.
+    # After the injected message runs, the loop returns to the prompt; Ctrl-D exits.
     with mock.patch(
         "builtins.input",
-        side_effect=[KeyboardInterrupt()],
+        side_effect=[EOFError()],
     ):
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))
@@ -560,7 +582,7 @@ def test_terminal_interface_empty_reply_does_not_resend_message():
     interpreter.chat = mock.Mock(side_effect=chat)
 
     with mock.patch(
-        "builtins.input", side_effect=["hello", KeyboardInterrupt()]
+        "builtins.input", side_effect=["hello", EOFError()]
     ) as prompt:
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))
@@ -577,7 +599,7 @@ def test_terminal_interface_multi_line_uses_cli_input():
     interpreter.multi_line = True
 
     with mock.patch.object(
-        ti, "cli_input", side_effect=["hi", KeyboardInterrupt()]
+        ti, "cli_input", side_effect=["hi", EOFError()]
     ) as prompt:
         with pytest.raises(KeyboardInterrupt):
             list(terminal_interface(interpreter, ""))

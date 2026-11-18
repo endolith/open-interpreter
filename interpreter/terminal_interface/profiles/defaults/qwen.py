@@ -42,5 +42,5 @@ interpreter.offline = True
 
 # Final message
 interpreter.display_message(
-    "> Model set to `qwen`\n\n**Open Interpreter** will require approval before running code.\n\nUse `interpreter -y` to bypass this.\n\nPress `CTRL-C` to exit.\n"
+    "> Model set to `qwen`\n\n**Open Interpreter** will require approval before running code.\n\nUse `interpreter -y` to bypass this.\n\nPress `CTRL-D` to exit.\n"
 )

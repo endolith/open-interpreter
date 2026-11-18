@@ -470,7 +470,7 @@ def local_setup(interpreter, provider=None, model=None):
         interpreter.display_message(
             "**Open Interpreter** will require approval before running code."
             + "\n\nUse `interpreter -y` to bypass this."
-            + "\n\nPress `CTRL-C` to exit.\n"
+            + "\n\nPress `CTRL-D` to exit.\n"
         )
 
     return interpreter

@@ -69,7 +69,7 @@ def terminal_interface(interpreter, message):
         if (
             not interpreter.plain_text_display
         ):  # A proxy/heuristic for standard in mode, which isn't tracked (but prob should be)
-            interpreter_intro_message.append("Press `CTRL-C` to exit.")
+            interpreter_intro_message.append("Press `CTRL-D` to exit.")
 
         interpreter.display_message("\n\n".join(interpreter_intro_message) + "\n")
 
@@ -113,8 +113,15 @@ def terminal_interface(interpreter, message):
                         if interpreter.multi_line
                         else input("> ").strip()
                     )
-                except (KeyboardInterrupt, EOFError):
-                    # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
+                except KeyboardInterrupt:
+                    # Ctrl+C at the empty prompt cancels the current input line and
+                    # shows a fresh prompt (same as bash / python REPL).  We must NOT
+                    # exit here because on Windows the Ctrl+C signal can be re-delivered
+                    # to input() immediately after cancelling an in-progress AI response.
+                    print("^C")
+                    continue
+                except EOFError:
+                    # Ctrl+D (EOF) exits gracefully.
                     interpreter.display_message("\n\n`Exiting...`")
                     raise KeyboardInterrupt
 

@@ -70,5 +70,5 @@ interpreter.max_output = 600
 
 # Final message
 interpreter.display_message(
-    "> Model set to `codestral`\n\n**Open Interpreter** will require approval before running code.\n\nUse `interpreter -y` to bypass this.\n\nPress `CTRL-C` to exit.\n"
+    "> Model set to `codestral`\n\n**Open Interpreter** will require approval before running code.\n\nUse `interpreter -y` to bypass this.\n\nPress `CTRL-D` to exit.\n"
 )
