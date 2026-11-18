@@ -11,6 +11,8 @@ check the returned shape and version.
 import ast
 import os
 
+import yaml
+
 import pytest
 
 from interpreter.terminal_interface.profiles import profiles
@@ -52,3 +54,38 @@ def test_default_profile_reports_current_version(filename):
     selecting it prompts to migrate a file the user does not own.
     """
     assert profiles.get_default_profile(filename)["version"] == profiles.OI_VERSION
+
+
+def _yaml_default_names():
+    """Basenames of the packaged defaults written as YAML."""
+    return [name for name in _default_filenames() if name.endswith((".yaml", ".yml"))]
+
+
+def _default_path(filename):
+    """Absolute path of a packaged default profile."""
+    return next(
+        path for path in profiles.default_profiles_paths if os.path.basename(path) == filename
+    )
+
+
+@pytest.mark.parametrize("filename", _yaml_default_names())
+def test_default_yaml_profiles_place_max_output_at_the_top_level(filename):
+    """A commented max_output instruction must sit at the top level, not under llm.
+
+    apply_profile_to_object only assigns attributes that appear at the profile's
+    top level, so a max_output left inside the `llm:` block silently did nothing
+    when a user followed the shipped instruction and uncommented it. Three
+    packaged templates had it nested under llm; uncommenting the line here must
+    produce a profile the interpreter actually reads.
+    """
+    with open(_default_path(filename), encoding="utf-8") as handle:
+        text = handle.read()
+
+    commented = [line for line in text.splitlines() if line.lstrip().startswith("# max_output:")]
+    assert [line for line in commented if line != line.lstrip()] == [], filename
+    if not commented:
+        return
+
+    assert len(commented) == 1, filename
+    profile = yaml.safe_load(text.replace(commented[0], commented[0].lstrip("# ")))
+    assert profile["max_output"] == 2500, filename
