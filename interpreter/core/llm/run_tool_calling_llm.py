@@ -1,3 +1,4 @@
+import json
 import os
 import re
 
@@ -36,6 +37,11 @@ tool_schema = {
 def process_messages(messages):
     processed_messages = []
     last_tool_id = 0
+    # `tool_call_id`s declared by the most recent assistant message. A single
+    # turn may declare several calls, so the answers are not necessarily
+    # adjacent to their declaration; the pending set tells the second answer
+    # apart from a genuinely orphaned one.
+    pending_tool_ids = []
 
     i = 0
     while i < len(messages):
@@ -51,6 +57,7 @@ def process_messages(messages):
                 {"id": tool_id, "type": "function", "function": function}
             ]
             processed_messages.append(message)
+            pending_tool_ids = [tool_id]
 
             # Process the next message if it's a function response
             if i + 1 < len(messages) and messages[i + 1].get("role") == "function":
@@ -64,6 +71,7 @@ def process_messages(messages):
                 processed_messages.append(
                     {"role": "tool", "tool_call_id": tool_id, "content": ""}
                 )
+            pending_tool_ids = []
 
         elif message.get("role") == "function":
             # This handles orphaned function responses
@@ -92,9 +100,54 @@ def process_messages(messages):
             message["tool_call_id"] = tool_id
             processed_messages.append(message)
 
+        elif message.get("role") == "tool":
+            # A tool message must follow an assistant message carrying the matching
+            # tool_call_id (OpenAI, OpenRouter, Alibaba). A provider that rejects an
+            # unsupported or malformed tool call still produces a tool response, but
+            # no assistant message with tool_calls is stored for it, leaving the pair
+            # unpaired and the next request rejected. Insert a synthetic assistant
+            # carrying this message's tool_call_id so the two messages stay paired.
+            # A declared call that has not been answered yet is not orphaned:
+            # one assistant turn can declare several calls and their answers
+            # arrive in sequence, so checking only the previous message
+            # mispaired the second answer and declared its call twice.
+            tool_id = message.get("tool_call_id")
+            if tool_id and tool_id in pending_tool_ids:
+                pending_tool_ids.remove(tool_id)
+            else:
+                if not tool_id:
+                    last_tool_id += 1
+                    tool_id = f"toolu_{last_tool_id}"
+                    message["tool_call_id"] = tool_id
+                processed_messages.append(
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": tool_id,
+                                "type": "function",
+                                "function": {
+                                    "name": "execute",
+                                    "arguments": json.dumps(
+                                        {
+                                            "language": "python",
+                                            "code": "# Placeholder for an unsupported or invalid tool call; the provider's error was returned as the tool response.",
+                                        }
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                )
+            processed_messages.append(message)
+
         else:
             # For non-tool-related messages, just add them as is
             processed_messages.append(message)
+            if message.get("tool_calls"):
+                pending_tool_ids = [
+                    call.get("id") for call in message["tool_calls"] if call.get("id")
+                ]
 
         i += 1
 

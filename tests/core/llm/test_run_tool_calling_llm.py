@@ -1,3 +1,5 @@
+import json
+
 from interpreter.core.llm.run_tool_calling_llm import process_messages
 
 
@@ -93,3 +95,102 @@ def test_sequential_function_calls_get_incrementing_tool_ids():
     assert result[1]["tool_call_id"] == "toolu_1"
     assert result[2]["tool_calls"][0]["id"] == "toolu_2"
     assert result[3]["tool_call_id"] == "toolu_2"
+
+
+def test_orphaned_tool_message_gets_synthetic_assistant_tool_call():
+    """A tool message with no preceding assistant tool_calls is paired with a synthetic one.
+
+    Providers reject a role "tool" message whose tool_call_id has no matching
+    assistant tool_calls entry (the error text would otherwise be followed by a
+    second rejection on the next request). The synthetic call reuses the existing
+    tool_call_id so the pair stays matched, and its arguments are valid JSON so a
+    strict provider does not reject the placeholder itself.
+    """
+    messages = [
+        {"role": "user", "content": "run this"},
+        {"role": "assistant", "content": "I'll try."},
+        {"role": "tool", "tool_call_id": "call_abc", "content": "Invalid tool call"},
+    ]
+    result = process_messages(messages)
+    assert result[0]["role"] == "user"
+    assert result[1] == {"role": "assistant", "content": "I'll try."}
+    assert result[2]["role"] == "assistant"
+    assert result[2]["tool_calls"][0]["id"] == "call_abc"
+    # The placeholder body must round-trip as JSON; providers validate arguments.
+    assert json.loads(result[2]["tool_calls"][0]["function"]["arguments"])["language"] == "python"
+    assert result[3]["role"] == "tool"
+    assert result[3]["tool_call_id"] == "call_abc"
+    assert result[3]["content"] == "Invalid tool call"
+
+
+def test_orphaned_tool_message_without_id_gets_generated_id():
+    """A tool message without a tool_call_id gets a generated id shared with its synthetic call."""
+    messages = [{"role": "user", "content": "run this"}, {"role": "tool", "content": "error"}]
+    result = process_messages(messages)
+    assert result[1]["role"] == "assistant"
+    generated = result[1]["tool_calls"][0]["id"]
+    assert generated.startswith("toolu_")
+    assert result[2]["role"] == "tool"
+    assert result[2]["tool_call_id"] == generated
+
+
+def test_tool_message_after_assistant_tool_calls_is_not_repaired():
+    """An already-paired tool message is passed through without an extra synthetic assistant."""
+    messages = [
+        {"role": "user", "content": "run this"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_abc",
+                    "type": "function",
+                    "function": {"name": "execute", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_abc", "content": "output"},
+    ]
+    result = process_messages(messages)
+    assert len(result) == 3
+    assert result[1]["tool_calls"][0]["id"] == "call_abc"
+    assert result[2] == messages[2]
+
+
+def test_parallel_tool_calls_are_not_repaired_again():
+    """Answers to two calls from one assistant turn must not each get a synthetic call.
+
+    The orphan repair used to look only at the previous message, so the second
+    answer (whose predecessor is the first answer, not the assistant) was treated
+    as orphaned. That declared its call a second time and left the first call
+    without an answer before the next assistant message, a sequence providers
+    reject. Tracking the ids declared by the most recent assistant message keeps
+    both answers paired without inserting anything.
+    """
+    messages = [
+        {"role": "user", "content": "run both"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_a",
+                    "type": "function",
+                    "function": {"name": "execute", "arguments": "{}"},
+                },
+                {
+                    "id": "call_b",
+                    "type": "function",
+                    "function": {"name": "execute", "arguments": "{}"},
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_a", "content": "a"},
+        {"role": "tool", "tool_call_id": "call_b", "content": "b"},
+    ]
+    result = process_messages(messages)
+    assert len(result) == 4
+    assert [m["role"] for m in result] == ["user", "assistant", "tool", "tool"]
+    assert result[1]["tool_calls"] == messages[1]["tool_calls"]
+    assert result[2]["tool_call_id"] == "call_a"
+    assert result[3]["tool_call_id"] == "call_b"
