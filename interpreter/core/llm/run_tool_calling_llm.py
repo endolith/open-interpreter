@@ -1,3 +1,4 @@
+import json
 import os
 import re
 
@@ -90,6 +91,42 @@ def process_messages(messages):
             # Process the function response
             message["role"] = "tool"
             message["tool_call_id"] = tool_id
+            processed_messages.append(message)
+
+        elif message.get("role") == "tool":
+            # A tool message must follow an assistant message carrying the matching
+            # tool_call_id (OpenAI, OpenRouter, Alibaba). A provider that rejects an
+            # unsupported or malformed tool call still produces a tool response, but
+            # no assistant message with tool_calls is stored for it, leaving the pair
+            # unpaired and the next request rejected. Insert a synthetic assistant
+            # carrying this message's tool_call_id so the two messages stay paired.
+            prev = processed_messages[-1] if processed_messages else None
+            if not prev or not prev.get("tool_calls"):
+                tool_id = message.get("tool_call_id")
+                if not tool_id:
+                    last_tool_id += 1
+                    tool_id = f"toolu_{last_tool_id}"
+                    message["tool_call_id"] = tool_id
+                processed_messages.append(
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": tool_id,
+                                "type": "function",
+                                "function": {
+                                    "name": "execute",
+                                    "arguments": json.dumps(
+                                        {
+                                            "language": "python",
+                                            "code": "# Placeholder for an unsupported or invalid tool call; the provider's error was returned as the tool response.",
+                                        }
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                )
             processed_messages.append(message)
 
         else:
