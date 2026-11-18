@@ -419,3 +419,70 @@ def test_open_review_body_in_later_mixed_delta_stays_a_review():
         chunk.get("type") == "message" and "good" in str(chunk.get("content"))
         for chunk in result
     )
+
+
+def test_non_string_code_in_arguments_does_not_crash():
+    """A model that nests `code` as JSON rather than text must not crash the stream.
+
+    Some models emit `{"language": "python", "code": {"nested": 1}}` instead of
+    a code string. Slicing that dict against the emitted-so-far string raised
+    TypeError and killed the turn, so the arguments are skipped instead of
+    crashing.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": {"nested": 1}}',
+                        )
+                    ]
+                }
+            )
+        ]
+    )
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
+
+def test_non_string_code_after_streamed_code_does_not_execute_the_partial_code():
+    """A call whose final `code` value is not a string must fail instead of running the partial.
+
+    Arguments fragments are concatenated, and duplicate keys resolve to the last
+    value, so a stream that sends `{"code": "print(1)"` and then `, "code": {}}`
+    leaves a non-string final value while the earlier string has already been
+    yielded. Skipping that final value used to let the superseded partial run as
+    if it were the completed code; the turn now raises before execution.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": "print(1)"',
+                        )
+                    ]
+                }
+            ),
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call("execute", ', "code": {"nested": 1}}')
+                    ]
+                }
+            ),
+        ]
+    )
+
+    chunks = []
+    with pytest.raises(TypeError, match="non-string `code`"):
+        for chunk in run_tool_calling_llm(llm, {"messages": []}):
+            chunks.append(chunk)
+
+    assert any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(1)"
+        for chunk in chunks
+    )

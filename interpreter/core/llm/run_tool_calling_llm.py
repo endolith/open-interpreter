@@ -173,6 +173,12 @@ def run_tool_calling_llm(llm, request_params):
     accumulated_deltas = {}
     language = None
     code = ""
+    # The most recent `code` value for the current call was not a string. It
+    # cannot be judged mid-stream: a provider can send the real string in a
+    # later fragment. It is checked once the stream ends, because duplicate-key
+    # JSON resolves to the last value and the string already yielded would
+    # otherwise be executed as the completed code.
+    code_ended_non_string = False
     function_call_detected = False
     accumulated_review = ""
     review_category = None
@@ -389,17 +395,24 @@ def run_tool_calling_llm(llm, request_params):
                         language = arguments["language"]
 
                     if language is not None and "code" in arguments:
-                        # Calculate the delta (new characters only)
-                        code_delta = arguments["code"][len(code) :]
-                        # Update the code
-                        code = arguments["code"]
-                        # Yield the delta
-                        if code_delta:
-                            yield {
-                                "type": "code",
-                                "format": language,
-                                "content": code_delta,
-                            }
+                        # Some models nest `code` as JSON ({"code": {...}}) instead
+                        # of emitting the code as text; slicing that against the
+                        # string emitted so far raises and kills the turn, so the
+                        # chunk is skipped instead.
+                        code_value = arguments["code"]
+                        code_ended_non_string = not isinstance(code_value, str)
+                        if isinstance(code_value, str):
+                            # Calculate the delta (new characters only)
+                            code_delta = code_value[len(code) :]
+                            # Update the code
+                            code = code_value
+                            # Yield the delta
+                            if code_delta:
+                                yield {
+                                    "type": "code",
+                                    "format": language,
+                                    "content": code_delta,
+                                }
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
@@ -414,6 +427,17 @@ def run_tool_calling_llm(llm, request_params):
             "content": buffer,
         }
         buffer = ""
+
+    if code and code_ended_non_string:
+        # Fail before the caller executes anything: the last `code` value for
+        # this call was not a string, so the string already streamed is a
+        # superseded partial. Skipping the final value silently would run that
+        # partial as if it were the completed code.
+        raise TypeError(
+            "The tool call ended with a non-string `code` value after code had "
+            "already been streamed; refusing to execute the partial code. "
+            "Providers must send `code` as a string."
+        )
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
