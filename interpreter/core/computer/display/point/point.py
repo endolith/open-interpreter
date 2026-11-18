@@ -474,6 +474,17 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
 
 fast_model = True
 
+# Where the fine-tuned grounding model is cached between runs. `model_path` is
+# referenced three times in the block below but was never assigned, so flipping
+# `fast_model` to False raised NameError on its first os.path.isfile call.
+# `oi_dir` has been imported at the top of this file since before that code was
+# written and is unused otherwise, which is the per-user location this belongs
+# in; a bare relative path would depend on the working directory. Only build the
+# path here: creating the directory belongs to the slow path that writes the
+# cache, since doing it at import fails the whole module on a read-only home for
+# users who never leave the default fast_model.
+model_path = os.path.join(oi_dir, "point_grounding_model.pt")
+
 # First, we load the respective CLIP model
 model = SentenceTransformer("clip-ViT-B-32")
 
@@ -492,6 +503,10 @@ if fast_model == False:
             num_classes=0,
         )
         model = model.eval()
+        # The fast path never reads or writes the cache, so import must not
+        # create this directory; a read-only home would otherwise turn into a
+        # PermissionError that kills the module import.
+        os.makedirs(oi_dir, exist_ok=True)
         torch.save(model.state_dict(), model_path)
     else:
         # If the model file exists, load the model from the saved state
