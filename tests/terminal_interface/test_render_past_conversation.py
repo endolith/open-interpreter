@@ -117,3 +117,49 @@ def test_render_past_conversation_switches_message_to_code_block():
     msg_block.end.assert_called()
     assert code_block.code == "1+1"
     code_block.end.assert_called()
+
+
+
+def test_render_past_conversation_console_without_code_block():
+    """A console chunk at the start of history renders into a new code block.
+
+    Conversation files can begin with console output, so active_block is still
+    None when the console branch runs; reading active_block.output then raised
+    AttributeError and `interpreter --conversations` failed to load.
+    """
+    code_block = mock.Mock(type="code", code="", output="", language="", active_line=None)
+    with mock.patch(
+        "interpreter.terminal_interface.render_past_conversation.CodeBlock",
+        return_value=code_block,
+    ):
+        render_past_conversation(
+            [{"role": "computer", "type": "console", "format": "output", "content": "1"}]
+        )
+    assert code_block.output == "1"
+    code_block.end.assert_called()
+
+
+def test_render_past_conversation_console_after_message_starts_code_block():
+    """A console chunk after a message block ends the message and starts a code block.
+
+    Console output that is not preceded by code in the file used to write into
+    the still-active message block, which has no `output` attribute.
+    """
+    msg_block = mock.Mock(type="message", message="intro")
+    code_block = mock.Mock(type="code", code="", output="", language="", active_line=None)
+    with mock.patch(
+        "interpreter.terminal_interface.render_past_conversation.MessageBlock",
+        return_value=msg_block,
+    ):
+        with mock.patch(
+            "interpreter.terminal_interface.render_past_conversation.CodeBlock",
+            return_value=code_block,
+        ):
+            render_past_conversation(
+                [
+                    {"role": "assistant", "type": "message", "content": "intro"},
+                    {"role": "computer", "type": "console", "format": "output", "content": "1"},
+                ]
+            )
+    msg_block.end.assert_called_once()
+    assert code_block.output == "1"

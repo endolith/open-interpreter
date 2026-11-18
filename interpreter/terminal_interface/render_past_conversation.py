@@ -57,6 +57,14 @@ def render_past_conversation(messages):
         if chunk["type"] == "console":
             ran_code_block = True
             render_cursor = False
+            # Console output belongs to a code block, but history files can
+            # begin with console output (or interleave a message block), which
+            # would leave active_block unset or the wrong kind here.
+            if active_block is None:
+                active_block = CodeBlock()
+            if active_block.type != "code":
+                active_block.end()
+                active_block = CodeBlock()
             active_block.output += "\n" + chunk["content"]
             active_block.output = active_block.output.strip()  # <- Aesthetic choice
 
