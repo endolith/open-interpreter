@@ -1,7 +1,6 @@
 import os
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import sys
 
 # Note: litellm in DEV mode will load .env files from the current directory
 # and all parent directories. This can lead to unexpected API keys being loaded
@@ -570,8 +569,11 @@ def fixed_litellm_completions(**params):
                 yield chunk
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
-            print("Exiting...")
-            sys.exit(0)
+            # Ctrl+C while a response is streaming cancels the current response,
+            # not the session. Re-raise so terminal_interface.py's outer handler
+            # can drop the partial message and return to the prompt; the retry
+            # loop must not swallow the interrupt and start another stream.
+            raise
         except Exception as e:
             if started:
                 # The stream already delivered chunks to the consumer before it

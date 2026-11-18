@@ -877,20 +877,23 @@ def test_fixed_litellm_completions_drops_unknown_params():
     assert llm_mod.litellm.drop_params is True
 
 
-def test_fixed_litellm_completions_exits_on_keyboard_interrupt():
-    """A KeyboardInterrupt during completion calls sys.exit(0)."""
+def test_fixed_litellm_completions_reraises_keyboard_interrupt():
+    """Ctrl+C during a response propagates instead of calling sys.exit.
+
+    The terminal_interface outer handler relies on KeyboardInterrupt reaching it
+    so it can cancel the current response and return to the prompt. A retry loop
+    that swallowed the interrupt (or exited the process) would either restart the
+    request or kill the session.
+    """
     import interpreter.core.llm.llm as llm_mod
     from interpreter.core.llm.llm import fixed_litellm_completions
 
-    with mock.patch.object(llm_mod.litellm, "completion", side_effect=KeyboardInterrupt):
-        with mock.patch.object(
-            llm_mod.sys, "exit", side_effect=SystemExit
-        ) as exit_mock:
-            with pytest.raises(SystemExit):
-                list(fixed_litellm_completions(model="gpt-4o", messages=[]))
-    # The first KeyboardInterrupt terminates the generator via sys.exit(0);
-    # assert it was called exactly once, so retries don't continue silently.
-    exit_mock.assert_called_once_with(0)
+    completion = mock.Mock(side_effect=KeyboardInterrupt)
+    with mock.patch.object(llm_mod.litellm, "completion", completion):
+        with pytest.raises(KeyboardInterrupt):
+            list(fixed_litellm_completions(model="gpt-4o", messages=[]))
+    # One interrupt ends the loop: it must not be retried as a transient error.
+    completion.assert_called_once()
 
 
 def test_run_verbose_logs_image_removal():
