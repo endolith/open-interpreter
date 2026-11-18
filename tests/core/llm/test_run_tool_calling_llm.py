@@ -33,20 +33,24 @@ def test_function_call_without_response_gets_empty_tool():
                          "content": ""}
 
 
-def test_orphaned_function_response_gets_synthetic_tool_call():
-    """A lone function message is paired with a synthetic assistant tool_call so the API sees a valid pair."""
+def test_orphaned_function_response_becomes_a_message():
+    """A lone function result must not become a fabricated execute call.
+
+    The fabricated call reached the model's history, which then imitated its
+    shape on later turns; its arguments were not valid JSON either. With no
+    stored call there is nothing for the provider to pair, so the output is
+    surfaced as a message instead.
+    """
     messages = [{"role": "function",
                  "name": "execute",
                  "content": "late output"}]
     result = process_messages(messages)
-    assert result[0]["role"] == "assistant"
-    assert result[0]["tool_calls"][0]["id"] == "toolu_1"
-    assert result[1] == {
-        "role": "tool",
-        "name": "execute",
-        "content": "late output",
-        "tool_call_id": "toolu_1",
-    }
+    assert result == [
+        {
+            "role": "assistant",
+            "content": "[tool output without a matching call] late output",
+        }
+    ]
 
 
 def test_passthrough_message_unchanged():

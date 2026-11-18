@@ -66,31 +66,19 @@ def process_messages(messages):
                 )
 
         elif message.get("role") == "function":
-            # This handles orphaned function responses
-            last_tool_id += 1
-            tool_id = f"toolu_{last_tool_id}"
-
-            # Add a tool call before this orphaned tool response
+            # Genuinely orphaned: nothing in the request made this call. Do not
+            # invent an execute call here -- the model sees fabricated calls in
+            # its history and imitates their shape on later turns, and the
+            # invented arguments are not valid JSON. With no matching tool call
+            # there is nothing for a provider to pair, so the output is
+            # surfaced as a plain message instead.
             processed_messages.append(
                 {
                     "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": tool_id,
-                            "type": "function",
-                            "function": {
-                                "name": "execute",
-                                "arguments": "# Automated tool call to fetch more output, triggered by the user.",
-                            },
-                        }
-                    ],
+                    "content": "[tool output without a matching call] "
+                    + str(message.get("content", "")),
                 }
             )
-
-            # Process the function response
-            message["role"] = "tool"
-            message["tool_call_id"] = tool_id
-            processed_messages.append(message)
 
         else:
             # For non-tool-related messages, just add them as is
