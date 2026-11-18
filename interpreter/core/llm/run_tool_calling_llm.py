@@ -389,17 +389,23 @@ def run_tool_calling_llm(llm, request_params):
                         language = arguments["language"]
 
                     if language is not None and "code" in arguments:
-                        # Calculate the delta (new characters only)
-                        code_delta = arguments["code"][len(code) :]
-                        # Update the code
-                        code = arguments["code"]
-                        # Yield the delta
-                        if code_delta:
-                            yield {
-                                "type": "code",
-                                "format": language,
-                                "content": code_delta,
-                            }
+                        # Some models nest `code` as JSON ({"code": {...}}) instead
+                        # of emitting the code as text; slicing that against the
+                        # string emitted so far raises and kills the turn, so the
+                        # chunk is skipped instead.
+                        code_value = arguments["code"]
+                        if isinstance(code_value, str):
+                            # Calculate the delta (new characters only)
+                            code_delta = code_value[len(code) :]
+                            # Update the code
+                            code = code_value
+                            # Yield the delta
+                            if code_delta:
+                                yield {
+                                    "type": "code",
+                                    "format": language,
+                                    "content": code_delta,
+                                }
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")

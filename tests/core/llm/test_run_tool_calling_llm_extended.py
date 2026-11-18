@@ -419,3 +419,29 @@ def test_open_review_body_in_later_mixed_delta_stays_a_review():
         chunk.get("type") == "message" and "good" in str(chunk.get("content"))
         for chunk in result
     )
+
+
+def test_non_string_code_in_arguments_does_not_crash():
+    """A model that nests `code` as JSON rather than text must not crash the stream.
+
+    Some models emit `{"language": "python", "code": {"nested": 1}}` instead of
+    a code string. Slicing that dict against the emitted-so-far string raised
+    TypeError and killed the turn, so the arguments are skipped instead of
+    crashing.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": {"nested": 1}}',
+                        )
+                    ]
+                }
+            )
+        ]
+    )
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
