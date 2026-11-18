@@ -173,6 +173,37 @@ def run_tool_calling_llm(llm, request_params):
     accumulated_deltas = {}
     language = None
     code = ""
+    # The code text actually handed to the caller so far. Duplicate `code`
+    # keys resolve to the last value, so a later fragment can reset `code` to
+    # ``""`` or to a non-string without retracting the chunk already yielded.
+    # Validation and delta calculation therefore compare against this text,
+    # not against the latest parsed value.
+    code_streamed = ""
+    # The legacy `python`/`functions` call streams its raw arguments string as
+    # code before the JSON path below parses the same text. The parsed `code`
+    # is a different representation, not a rewrite of what was yielded, so the
+    # prefix check must not treat it as one.
+    code_streamed_from_arguments = False
+    # The most recent `code` value for the current call was not a string. It
+    # cannot be judged mid-stream: a provider can send the real string in a
+    # later fragment. It is checked once the stream ends, because duplicate-key
+    # JSON resolves to the last value and the string already yielded would
+    # otherwise be executed as the completed code.
+    code_ended_non_string = False
+    # Whether a non-empty code chunk was ever yielded. The final `code` value
+    # can be an empty string (``{"code": ""}``) after code was streamed; testing
+    # only the latest value would treat that as "nothing was emitted" and let
+    # the superseded chunk through.
+    code_emitted = False
+    # A string that does not extend the code already streamed is a
+    # replacement, not a continuation: accepting it would execute the earlier
+    # text while the model's final value was the replacement. This must be
+    # checked on every string, not only directly after a non-string value: a
+    # successful recovery clears `code_ended_non_string`, and a later rewrite
+    # could otherwise slip through with no delta and leave the earlier chunk
+    # as the code that runs. The error is raised at the end so a later fragment
+    # can still complete the call by appending, which clears the flag again.
+    code_replaced = False
     function_call_detected = False
     accumulated_review = ""
     review_category = None
@@ -353,6 +384,9 @@ def run_tool_calling_llm(llm, request_params):
             code = accumulated_deltas["function_call"]["arguments"]
             # Yield the delta
             if code_delta:
+                code_emitted = True
+                code_streamed = code
+                code_streamed_from_arguments = True
                 yield {
                     "type": "code",
                     "format": language,
@@ -389,17 +423,40 @@ def run_tool_calling_llm(llm, request_params):
                         language = arguments["language"]
 
                     if language is not None and "code" in arguments:
-                        # Calculate the delta (new characters only)
-                        code_delta = arguments["code"][len(code) :]
-                        # Update the code
-                        code = arguments["code"]
-                        # Yield the delta
-                        if code_delta:
-                            yield {
-                                "type": "code",
-                                "format": language,
-                                "content": code_delta,
-                            }
+                        # Some models nest `code` as JSON ({"code": {...}}) instead
+                        # of emitting the code as text; slicing that against the
+                        # string emitted so far raises and kills the turn, so the
+                        # chunk is skipped instead.
+                        code_value = arguments["code"]
+                        if isinstance(code_value, str):
+                            if (
+                                not code_streamed_from_arguments
+                                and not code_value.startswith(code_streamed)
+                            ):
+                                # A string that rewrites rather than extends
+                                # the text already yielded cannot be reconciled
+                                # with the chunk the caller may already hold.
+                                # Leave `code` alone and refuse the call once
+                                # the stream ends.
+                                code_replaced = True
+                            else:
+                                code_replaced = False
+                                code_ended_non_string = False
+                                # Calculate the delta (new characters only)
+                                code_delta = code_value[len(code_streamed) :]
+                                # Update the code
+                                code = code_value
+                                # Yield the delta
+                                if code_delta:
+                                    code_emitted = True
+                                    code_streamed = code_value
+                                    yield {
+                                        "type": "code",
+                                        "format": language,
+                                        "content": code_delta,
+                                    }
+                        else:
+                            code_ended_non_string = True
                 else:
                     if llm.interpreter.verbose:
                         print("Arguments not a dict.")
@@ -414,6 +471,20 @@ def run_tool_calling_llm(llm, request_params):
             "content": buffer,
         }
         buffer = ""
+
+    if code_emitted and (code_ended_non_string or code_replaced):
+        # Fail before the caller executes anything: the final `code` value for
+        # this call was not a string, or replaced the string already streamed.
+        # Skipping that value silently would run the superseded partial as if
+        # it were the completed code. Checking `code` itself is not enough: a
+        # trailing ``{"code": ""}`` clears it without retracting the chunk that
+        # was already yielded, and an equal-length replacement yields no delta.
+        raise TypeError(
+            "The tool call ended with a non-string `code` value, or a string "
+            "that replaced code already streamed; refusing to execute the "
+            "partial code. Providers must send `code` as a string that only "
+            "extends what was already sent."
+        )
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)

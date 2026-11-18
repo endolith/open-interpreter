@@ -419,3 +419,309 @@ def test_open_review_body_in_later_mixed_delta_stays_a_review():
         chunk.get("type") == "message" and "good" in str(chunk.get("content"))
         for chunk in result
     )
+
+
+def test_non_string_code_in_arguments_does_not_crash():
+    """A model that nests `code` as JSON rather than text must not crash the stream.
+
+    Some models emit `{"language": "python", "code": {"nested": 1}}` instead of
+    a code string. Slicing that dict against the emitted-so-far string raised
+    TypeError and killed the turn, so the arguments are skipped instead of
+    crashing.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": {"nested": 1}}',
+                        )
+                    ]
+                }
+            )
+        ]
+    )
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
+
+def test_non_string_code_after_streamed_code_does_not_execute_the_partial_code():
+    """A call whose final `code` value is not a string must fail instead of running the partial.
+
+    Arguments fragments are concatenated, and duplicate keys resolve to the last
+    value, so a stream that sends `{"code": "print(1)"` and then `, "code": {}}`
+    leaves a non-string final value while the earlier string has already been
+    yielded. Skipping that final value used to let the superseded partial run as
+    if it were the completed code; the turn now raises before execution.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute",
+                            '{"language": "python", "code": "print(1)"',
+                        )
+                    ]
+                }
+            ),
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call("execute", ', "code": {"nested": 1}}')
+                    ]
+                }
+            ),
+        ]
+    )
+
+    chunks = []
+    with pytest.raises(TypeError, match="non-string `code`"):
+        for chunk in run_tool_calling_llm(llm, {"messages": []}):
+            chunks.append(chunk)
+
+    assert any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(1)"
+        for chunk in chunks
+    )
+
+def test_empty_code_after_streamed_code_still_rejects_a_non_string_end():
+    """An empty `code` fragment must not disguise that code was already streamed.
+
+    Duplicate keys resolve to the last value, so `{"code": "print(1)"`,
+    `, "code": ""`, `, "code": {}}` leaves both a non-string final value and an
+    empty current `code`. Testing only the latest value saw "nothing emitted"
+    and skipped the error while the superseded `print(1)` chunk remained queued
+    for execution; the guard must remember that a non-empty chunk was yielded.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", '{"language": "python", "code": "print(1)"'
+                        )
+                    ]
+                }
+            ),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": ""')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": {}}')]}),
+        ]
+    )
+
+    chunks = []
+    with pytest.raises(TypeError, match="non-string `code`"):
+        for chunk in run_tool_calling_llm(llm, {"messages": []}):
+            chunks.append(chunk)
+
+    assert any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(1)"
+        for chunk in chunks
+    )
+
+def test_recovered_code_that_replaces_streamed_code_is_rejected():
+    """A string after a non-string value must extend the emitted code, not rewrite it.
+
+    Duplicate keys resolve to the last value. With fragments
+    `{"code": "print(1)"`, `, "code": {}`, `, "code": "print(2)"}` the final
+    value is a string again, but an equal-length rewrite yields an empty delta,
+    so the earlier `print(1)` would execute while the model's last value was
+    `print(2)`. A recovered string that does not start with the code already
+    streamed now fails the turn instead.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", '{"language": "python", "code": "print(1)"'
+                        )
+                    ]
+                }
+            ),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": {}')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": "print(2)"}')]}),
+        ]
+    )
+
+    chunks = []
+    with pytest.raises(TypeError, match="replaced code already streamed"):
+        for chunk in run_tool_calling_llm(llm, {"messages": []}):
+            chunks.append(chunk)
+
+    assert any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(1)"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(2)"
+        for chunk in chunks
+    )
+
+
+def test_recovered_code_that_extends_streamed_code_is_accepted():
+    """A string that appends to the emitted code after a non-string value completes normally.
+
+    Deferring the non-string check exists so a provider can repair a nested
+    `code` object by sending the real string later. That repair is only valid
+    when it extends the text already streamed; the appended remainder is
+    yielded and the call succeeds.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", '{"language": "python", "code": "print(1)"'
+                        )
+                    ]
+                }
+            ),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": {}')]}),
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", ', "code": "print(1)\\nprint(2)"}'
+                        )
+                    ]
+                }
+            ),
+        ]
+    )
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert [
+        chunk["content"]
+        for chunk in chunks
+        if chunk.get("type") == "code"
+    ] == ["print(1)", "\nprint(2)"]
+
+
+def test_empty_code_between_streamed_and_replacement_is_rejected():
+    """An empty duplicate `code` must not erase the memory of streamed text.
+
+    The fragments `{"code": "print(1)"`, `, "code": ""`, `, "code": {}`,
+    `, "code": "print(2)"}` reset the latest parsed `code` to ``""`` before the
+    non-string value and then to `"print(2)"`. Comparing the recovered string
+    against the latest value made `startswith("")` pass, so `print(2)` was
+    emitted after `print(1)`. Validation must use the text already streamed,
+    which rejects the rewrite instead of executing `print(1)print(2)`.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", '{"language": "python", "code": "print(1)"'
+                        )
+                    ]
+                }
+            ),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": ""')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": {}')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": "print(2)"}')]}),
+        ]
+    )
+
+    chunks = []
+    with pytest.raises(TypeError, match="replaced code already streamed"):
+        for chunk in run_tool_calling_llm(llm, {"messages": []}):
+            chunks.append(chunk)
+
+    assert any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(1)"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.get("type") == "code" and chunk.get("content") == "print(2)"
+        for chunk in chunks
+    )
+
+
+def test_extension_after_empty_and_non_string_values_is_accepted():
+    """Recovery still works when empty and non-string duplicates precede the repair.
+
+    A provider can clear `code` with ``""``, send a nested object, then repair
+    with the full string. That is a valid continuation when the repaired string
+    extends the text already streamed; only the appended remainder is yielded.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", '{"language": "python", "code": "print(1)"'
+                        )
+                    ]
+                }
+            ),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": ""')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": {}')]}),
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", ', "code": "print(1)\\nprint(2)"}'
+                        )
+                    ]
+                }
+            ),
+        ]
+    )
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert [
+        chunk["content"]
+        for chunk in chunks
+        if chunk.get("type") == "code"
+    ] == ["print(1)", "\nprint(2)"]
+
+
+def test_replacement_after_recovery_is_still_rejected():
+    """A prefix check that stops after recovery lets a later rewrite through.
+
+    With fragments `{"code": "print(1)"`, `, "code": {}`,
+    `, "code": "print(1)"`, `, "code": "print(2)"}` the string after the nested
+    object is a valid extension, so the recovered-string check succeeded and
+    cleared its flag. The final `print(2)` then had the same length as the
+    streamed text, produced no delta, and the generator completed with `print(1)`
+    as the code to execute. Every later string must still be checked against the
+    text actually streamed, while an extending string continues to be accepted.
+    """
+    llm = _make_llm(
+        [
+            _chunk(
+                {
+                    "tool_calls": [
+                        _tool_call(
+                            "execute", '{"language": "python", "code": "print(1)"'
+                        )
+                    ]
+                }
+            ),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": {}')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": "print(1)"')]}),
+            _chunk({"tool_calls": [_tool_call("execute", ', "code": "print(2)"}')]}),
+        ]
+    )
+
+    chunks = []
+    with pytest.raises(TypeError, match="replaced code already streamed"):
+        for chunk in run_tool_calling_llm(llm, {"messages": []}):
+            chunks.append(chunk)
+
+    assert [
+        chunk["content"]
+        for chunk in chunks
+        if chunk.get("type") == "code"
+    ] == ["print(1)"]
