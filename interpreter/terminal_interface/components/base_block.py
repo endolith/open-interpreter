@@ -8,8 +8,13 @@ class BaseBlock:
     """
 
     def __init__(self):
+        # emoji=False keeps command output literal: Rich otherwise expands
+        # emoji shortcodes, so a MAC address such as dc:ef:09:ab:07:da would
+        # render with ":ab:" replaced by an emoji.
         self.live = Live(
-            auto_refresh=False, console=Console(), vertical_overflow="visible"
+            auto_refresh=False,
+            console=Console(emoji=False),
+            vertical_overflow="visible",
         )
         self.live.start()
 
