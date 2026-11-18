@@ -1,3 +1,5 @@
+import builtins
+
 from interpreter.terminal_interface.utils.export_to_markdown import (
     export_to_markdown,
     messages_to_markdown,
@@ -120,3 +122,26 @@ def test_message_content_is_followed_by_a_blank_line():
 
     assert messages_to_markdown(messages) == "## assistant\n\nx\n\n"
 
+
+def test_export_to_markdown_opens_the_file_as_utf8(tmp_path, monkeypatch):
+    """The export must request UTF-8 instead of the ambient default encoding.
+
+    Windows' default cp1252 cannot encode most non-ASCII conversation text, so
+    an implicit encoding crashes the export there. Opening the file explicitly
+    as UTF-8 makes the same conversation export on every platform.
+    """
+    opened_with = {}
+    real_open = builtins.open
+
+    def spy(path, mode="r", **kwargs):
+        opened_with.update(kwargs)
+        return real_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", spy)
+    path = tmp_path / "conversation.md"
+    messages = [{"role": "user", "type": "message", "content": "naïve café"}]
+
+    export_to_markdown(messages, str(path))
+
+    assert opened_with.get("encoding") == "utf-8"
+    assert path.read_text(encoding="utf-8") == messages_to_markdown(messages)

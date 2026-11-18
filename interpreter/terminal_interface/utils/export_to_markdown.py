@@ -1,6 +1,8 @@
 def export_to_markdown(messages: list[dict], export_path: str):
     markdown = messages_to_markdown(messages)
-    with open(export_path, 'w') as f:
+    # The export is UTF-8 text. Relying on the ambient default crashes on
+    # Windows, whose cp1252 cannot encode most non-ASCII conversation text.
+    with open(export_path, "w", encoding="utf-8") as f:
         f.write(markdown)
     print(f"Exported current conversation to {export_path}")
 
