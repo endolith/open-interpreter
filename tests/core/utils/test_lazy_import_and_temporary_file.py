@@ -1,3 +1,4 @@
+import importlib
 import os
 from unittest import mock
 
@@ -198,3 +199,166 @@ def test_create_temporary_file_failure_does_not_leave_a_file_behind(tmp_path, mo
         create_temporary_file("x = 1", "py")
 
     assert list(tmp_path.iterdir()) == [], "a failed creation must not leave files"
+
+
+
+def _install_broken_lazy_module(tmp_path, monkeypatch):
+    """Create a module whose body raises, and return its lazy placeholder.
+
+    The module counts how often its body runs via a builtins attribute, so a
+    test can tell "was executed" from "was only inspected" without relying on
+    a marker file (which would survive a failed import).
+    """
+    import builtins
+    import sys
+
+    module_dir = tmp_path / "probe"
+    module_dir.mkdir()
+    (module_dir / "oi_lazy_broken.py").write_text(
+        "import builtins\n"
+        "builtins.OI_LAZY_PROBE_RUNS = getattr(builtins, 'OI_LAZY_PROBE_RUNS', 0) + 1\n"
+        "raise RuntimeError('lazy probe import failed')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(module_dir))
+    monkeypatch.setattr(builtins, "OI_LAZY_PROBE_RUNS", 0, raising=False)
+    monkeypatch.delitem(sys.modules, "oi_lazy_broken", raising=False)
+
+    return lazy_import("oi_lazy_broken")
+
+
+def test_lazy_import_introspection_does_not_execute_the_module(tmp_path, monkeypatch):
+    """Inspecting a lazy module must not run its body, even when importing it fails.
+
+    Traceback rendering reads the module's __file__, __name__ and repr. If
+    those trigger the real import, a module that cannot load (pynput without a
+    display is the motivating case) raises inside the printer and buries the
+    original error. The placeholder answers them from the spec instead.
+    """
+    import builtins
+
+    module = _install_broken_lazy_module(tmp_path, monkeypatch)
+    assert module is not None
+
+    assert module.__name__ == "oi_lazy_broken"
+    assert module.__file__.endswith("oi_lazy_broken.py")
+    assert module.__spec__ is not None
+    assert "oi_lazy_broken" in repr(module)
+    assert builtins.OI_LAZY_PROBE_RUNS == 0, "introspection executed the module body"
+
+
+def test_lazy_import_package_runs_init_before_submodule(tmp_path, monkeypatch):
+    """Importing a submodule of a lazy package runs the package body first.
+
+    The import machinery asks the parent package for __path__ before it
+    executes the child module. Answering that from the placeholder would let
+    the child initialise against a package whose body never ran, which breaks
+    circular-import bookkeeping: numpy hit exactly that when matplotlib
+    imported numpy.linalg, which pulled numpy._core and numpy.dtypes ahead of
+    numpy/__init__.py, and the partially initialised _core then could not
+    export busday_count. The fixture mirrors that shape — the package body
+    imports a name from a child that is still executing — so a safe-__path__
+    placeholder raises the same "partially initialized module" ImportError
+    instead of loading the package.
+    """
+    import builtins
+    import sys
+
+    package_dir = tmp_path / "pkg_probe"
+    package_dir.mkdir()
+    package = package_dir / "oi_lazy_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "import builtins\n"
+        "builtins.OI_LAZY_PKG_INIT_RUNS = (\n"
+        "    getattr(builtins, 'OI_LAZY_PKG_INIT_RUNS', 0) + 1\n"
+        ")\n"
+        "VALUE = 'ready'\n"
+        "from .mid import MID_EXPORT\n",
+        encoding="utf-8",
+    )
+    (package / "mid.py").write_text(
+        "from . import leaf\n"
+        "MID_EXPORT = 'exported'\n",
+        encoding="utf-8",
+    )
+    (package / "leaf.py").write_text(
+        "from oi_lazy_pkg import VALUE\n"
+        "LEAF = VALUE + '-leaf'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(package_dir))
+    monkeypatch.setattr(builtins, "OI_LAZY_PKG_INIT_RUNS", 0, raising=False)
+    for name in ("oi_lazy_pkg", "oi_lazy_pkg.mid", "oi_lazy_pkg.leaf"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    module = lazy_import("oi_lazy_pkg")
+    assert module is not None, "the fixture package must be importable"
+
+    mid = importlib.import_module("oi_lazy_pkg.mid")
+    assert mid.MID_EXPORT == "exported"
+    assert builtins.OI_LAZY_PKG_INIT_RUNS == 1, (
+        "the package body must run exactly once, before the submodule it imports"
+    )
+
+
+def test_lazy_import_failed_use_raises_original_error_and_caches_it(tmp_path, monkeypatch):
+    """Real use raises the import's own error once, keeps the placeholder, and does not retry.
+
+    Restoring the placeholder in sys.modules keeps other importers from seeing
+    a half-built module, and caching the exception makes later real use raise
+    the same error instead of re-running a body that already failed.
+    """
+    import builtins
+    import sys
+
+    module = _install_broken_lazy_module(tmp_path, monkeypatch)
+    assert "oi_lazy_broken" in repr(module)
+
+    with pytest.raises(RuntimeError, match="lazy probe import failed"):
+        module.VALUE
+    assert builtins.OI_LAZY_PROBE_RUNS == 1
+    assert sys.modules["oi_lazy_broken"] is module, "the placeholder must be restored"
+
+    with pytest.raises(RuntimeError, match="lazy probe import failed"):
+        module.VALUE
+    assert builtins.OI_LAZY_PROBE_RUNS == 1, "a failed import must not run a second time"
+    assert "oi_lazy_broken" in repr(module), "introspection stays safe after a failure"
+
+
+def test_lazy_import_ignores_stub_installed_after_creation(tmp_path, monkeypatch):
+    """A stub parked in sys.modules must not hijack a lazy placeholder.
+
+    tests/computer_use/tools/test_computer_tool.py stubs sys.modules
+    ["pyautogui"] with a MagicMock so computer.py can be imported without a
+    display, and that stub outlives the module. The display tool is imported
+    later, so its lazy pyautogui placeholder sees the stub in sys.modules
+    before its first real use. A placeholder that re-read sys.modules then
+    handed the mock to callers: display.height unpacked MagicMock.size() (an
+    empty iterator) and collection died with "not enough values to unpack
+    (expected 2, got 0)" on Windows and macOS, although the real pyautogui
+    loads fine. The placeholder owns its load and keeps answering from the
+    module it imported itself.
+    """
+    import sys
+
+    module_dir = tmp_path / "probe"
+    module_dir.mkdir()
+    (module_dir / "oi_lazy_hijack.py").write_text(
+        "SIZE = (1920, 1080)\n"
+        "\n"
+        "def size():\n"
+        "    return SIZE\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(module_dir))
+    name = "oi_lazy_hijack"
+    monkeypatch.delitem(sys.modules, name, raising=False)
+
+    module = lazy_import(name)
+    stub = mock.MagicMock()
+    monkeypatch.setitem(sys.modules, name, stub)
+
+    assert not isinstance(module.SIZE, mock.Mock), "the sys.modules stub answered instead"
+    assert module.SIZE == (1920, 1080)
+    assert module.size() == (1920, 1080)
