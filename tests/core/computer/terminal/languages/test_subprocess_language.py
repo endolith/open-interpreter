@@ -83,6 +83,44 @@ def test_run_yields_queue_output():
     assert chunks[0]["content"] == "result"
 
 
+def test_run_reports_idle_ticks_when_the_consumer_asks():
+    """run() marks an idle queue for consumers that batch output.
+
+    The terminal buffers shell output to avoid flicker, and without an idle
+    marker it can only flush on size or completion, so a quiet producer would
+    hold its output indefinitely. The mocked poll ends after two idle
+    iterations, so a regression that stops emitting ticks yields the exit
+    diagnostic and fails the assertion instead of hanging the test.
+    """
+    lang = EchoLanguage()
+    mock_process = mock.Mock()
+    mock_process.stdin = mock.Mock()
+    lang.process = mock_process
+    mock_process.poll.side_effect = [None, 0]
+    lang.emit_idle_ticks = True
+
+    sleep_path = (
+        "interpreter.core.computer.terminal.languages.subprocess_language.time.sleep"
+    )
+    clock_path = (
+        "interpreter.core.computer.terminal.languages.subprocess_language."
+        "time.monotonic"
+    )
+    with mock.patch.object(lang, "start_process"):
+        with mock.patch(sleep_path):
+            with mock.patch(clock_path, return_value=5.0):
+                gen = lang.run("sleep 600")
+                chunk = next(gen)
+                gen.close()
+
+    assert chunk == {
+        "type": "console",
+        "format": "output",
+        "content": "",
+        "_idle": True,
+    }
+
+
 def test_handle_stream_output_plain_chunk_dict_is_exact():
     """A plain output line becomes an exact console/output chunk.
 

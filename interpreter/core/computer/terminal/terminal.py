@@ -52,6 +52,13 @@ def _terminate_live_terminals():
 atexit.register(_terminate_live_terminals)
 
 
+# Shell output arrives as one chunk per line, and printing each one redraws the
+# terminal, which makes large outputs (`cat`, `type`) flicker. Buffer it into a
+# single chunk, but flush once the buffer reaches this size so a long-running
+# command still shows progress and memory stays bounded.
+_SHELL_OUTPUT_FLUSH_AT = 8192
+
+
 class Terminal:
     def __init__(self, computer):
         _LIVE_TERMINALS.add(self)
@@ -182,8 +189,37 @@ class Terminal:
                 self._active_languages[language] = lang_class(self.computer)
             else:
                 self._active_languages[language] = lang_class()
+        shell_output = ""
+
+        def flush_buffered():
+            """Emit the pending shell output as one chunk, if there is any."""
+            nonlocal shell_output
+            if not shell_output:
+                return None
+            buffered = {
+                "type": "console",
+                "format": "output",
+                "content": shell_output,
+            }
+            shell_output = ""
+            self._print_chunk(buffered, display)
+            return buffered
+
         try:
+            if language == "shell":
+                # Ask the backend to report an idle queue, so output written
+                # by a command that then goes quiet (a long `sleep`, a waiting
+                # install) is displayed instead of held until it finishes.
+                self._active_languages[language].emit_idle_ticks = True
             for chunk in self._active_languages[language].run(code):
+                # The backend reports an idle queue so buffered output is not
+                # held while the producer is silent.
+                if chunk.pop("_idle", False):
+                    buffered = flush_buffered()
+                    if buffered:
+                        yield buffered
+                    continue
+
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
                 if chunk["type"] == "console" and chunk.get("format") == "output":
@@ -200,18 +236,50 @@ class Terminal:
                             + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
                         )
 
-                yield chunk
+                    if language == "shell":
+                        if "recipient" in chunk:
+                            # Recipient-tagged output is routed per chunk, so
+                            # it cannot be merged into a message addressed to
+                            # someone else. Flush the buffer first to keep the
+                            # plain output in the order it was written.
+                            buffered = flush_buffered()
+                            if buffered:
+                                yield buffered
+                        else:
+                            shell_output += chunk["content"]
+                            if len(shell_output) < _SHELL_OUTPUT_FLUSH_AT:
+                                continue
+                            chunk = {**chunk, "content": shell_output}
+                            shell_output = ""
 
-                # Print it also if display = True
-                if (
-                    display
-                    and chunk.get("format") != "active_line"
-                    and chunk.get("content")
-                ):
-                    print(chunk["content"], end="")
+                yield chunk
+                self._print_chunk(chunk, display)
+
+            # Nothing else will arrive: emit whatever is still buffered.
+            buffered = flush_buffered()
+            if buffered:
+                yield buffered
 
         except GeneratorExit:
             self.stop()
+        except Exception:
+            # A later chunk failing to parse must not discard output the
+            # consumer has not seen yet. GeneratorExit is separate: closing
+            # the generator may not yield another chunk.
+            buffered = flush_buffered()
+            if buffered:
+                yield buffered
+            raise
+
+    @staticmethod
+    def _print_chunk(chunk, display):
+        """Echo a chunk to stdout when the caller asked for live display."""
+        if (
+            display
+            and chunk.get("format") != "active_line"
+            and chunk.get("content")
+        ):
+            print(chunk["content"], end="")
 
     def stop(self):
         for language in self._active_languages.values():
