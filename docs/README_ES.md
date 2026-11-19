@@ -210,7 +210,7 @@ O puede utilizar Llamafile sin instalar software adicional simplemente ejecutand
 interpreter --local
 ```
 
-Para una guía más detallada, consulte [este video de Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
+Para una guía más detallada, consulte [este video de Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU)
 
 **Cómo ejecutar LM Studio en segundo plano.**
 
