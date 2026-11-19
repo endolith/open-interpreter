@@ -52,6 +52,13 @@ def _terminate_live_terminals():
 atexit.register(_terminate_live_terminals)
 
 
+# Shell output arrives as one chunk per line, and printing each one redraws the
+# terminal, which makes large outputs (`cat`, `type`) flicker. Buffer it into a
+# single chunk, but flush once the buffer reaches this size so a long-running
+# command still shows progress and memory stays bounded.
+_SHELL_OUTPUT_FLUSH_AT = 8192
+
+
 class Terminal:
     def __init__(self, computer):
         _LIVE_TERMINALS.add(self)
@@ -183,6 +190,7 @@ class Terminal:
             else:
                 self._active_languages[language] = lang_class()
         try:
+            shell_output = ""
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
@@ -200,18 +208,53 @@ class Terminal:
                             + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
                         )
 
-                yield chunk
+                    if language == "shell":
+                        if "recipient" in chunk:
+                            # Recipient-tagged output is routed per chunk, so
+                            # it cannot be merged into a message addressed to
+                            # someone else. Flush the buffer first to keep the
+                            # plain output in the order it was written.
+                            if shell_output:
+                                buffered = {
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": shell_output,
+                                }
+                                yield buffered
+                                self._print_chunk(buffered, display)
+                                shell_output = ""
+                        else:
+                            shell_output += chunk["content"]
+                            if len(shell_output) < _SHELL_OUTPUT_FLUSH_AT:
+                                continue
+                            chunk = {**chunk, "content": shell_output}
+                            shell_output = ""
 
-                # Print it also if display = True
-                if (
-                    display
-                    and chunk.get("format") != "active_line"
-                    and chunk.get("content")
-                ):
-                    print(chunk["content"], end="")
+                yield chunk
+                self._print_chunk(chunk, display)
+
+            # Nothing else will arrive: emit whatever is still buffered.
+            if shell_output:
+                buffered = {
+                    "type": "console",
+                    "format": "output",
+                    "content": shell_output,
+                }
+                yield buffered
+                self._print_chunk(buffered, display)
 
         except GeneratorExit:
             self.stop()
+
+    @staticmethod
+    def _print_chunk(chunk, display):
+        """Echo a chunk to stdout when the caller asked for live display."""
+        if (
+            display
+            and chunk.get("format") != "active_line"
+            and chunk.get("content")
+        ):
+            print(chunk["content"], end="")
 
     def stop(self):
         for language in self._active_languages.values():

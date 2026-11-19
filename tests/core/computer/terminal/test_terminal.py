@@ -3,7 +3,10 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.computer.terminal.terminal import Terminal
+from interpreter.core.computer.terminal.terminal import (
+    _SHELL_OUTPUT_FLUSH_AT,
+    Terminal,
+)
 
 
 def test_get_language_by_name():
@@ -334,3 +337,92 @@ def test_apt_install_shortcut_ignores_compound_commands(code):
 
     sudo_install.assert_not_called()
     assert seen == [("shell", code)]
+
+
+class _ChunkedShell:
+    """Shell stub that yields one console-output chunk per item it is given."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+
+    def __init__(self, computer):
+        self.computer = computer
+
+    def run(self, code):
+        for piece in code.splitlines(keepends=True):
+            yield {"type": "console", "format": "output", "content": piece}
+
+
+def _chunked_terminal():
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_ChunkedShell]
+    return terminal
+
+
+def test_shell_output_is_buffered_into_a_single_chunk():
+    """Shell output arrives as one chunk, so the terminal is redrawn once (#304).
+
+    Each line used to be printed separately, which made `cat`/`type` of a large
+    file flicker through the whole file.
+    """
+    terminal = _chunked_terminal()
+
+    chunks = list(terminal.run("shell", "a\nb\nc\n", stream=True))
+
+    assert chunks == [
+        {"type": "console", "format": "output", "content": "a\nb\nc\n"}
+    ]
+
+
+def test_non_shell_output_still_streams_per_chunk():
+    """Buffering is scoped to shell: other languages keep streaming incrementally."""
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [type("Py", (_ChunkedShell,), {"name": "Python", "aliases": []})]
+
+    chunks = list(terminal.run("python", "a\nb\n", stream=True))
+
+    assert [chunk["content"] for chunk in chunks] == ["a\n", "b\n"]
+
+
+def test_shell_output_flushes_once_the_buffer_is_full():
+    """A long command still emits output mid-run instead of staying silent.
+
+    The buffer is bounded so a `cat` of a huge file cannot exhaust memory and
+    the user sees progress before the command finishes.
+    """
+    terminal = _chunked_terminal()
+    piece = "x" * (_SHELL_OUTPUT_FLUSH_AT // 2)
+
+    chunks = list(
+        terminal.run("shell", f"{piece}\n{piece}\ntail\n", stream=True)
+    )
+
+    assert len(chunks) == 2
+    assert chunks[0]["content"] == f"{piece}\n{piece}\n"
+    assert chunks[1]["content"] == "tail\n"
+
+
+def test_recipient_tagged_shell_output_is_not_merged():
+    """Output addressed to another recipient is emitted as its own chunk.
+
+    Merging it would address the combined text to whichever recipient came
+    first and lose the second tag.
+    """
+    terminal = _chunked_terminal()
+
+    chunks = list(
+        terminal.run(
+            "shell",
+            "@@@RECIPIENT:computer@@@CONTENT:to the computer@@@END\n"
+            "plain\n"
+            "@@@RECIPIENT:user@@@CONTENT:to the user@@@END\n",
+            stream=True,
+        )
+    )
+
+    assert [chunk.get("recipient") for chunk in chunks] == [
+        "computer",
+        None,
+        "user",
+    ]
+
