@@ -94,6 +94,25 @@ class CodeBlock(BaseBlock):
         self.finalize()
         super().end()
 
+    def print_code_before_run(self):
+        """Print the code panel permanently before the command is dispatched.
+
+        Normally the panel first appears when the first execution chunk
+        arrives. A command that writes straight to the terminal (sudo's
+        password prompt, for instance) can produce output before that chunk is
+        rendered, so the panel then overwrites the prompt's line. Printing
+        here, before the run starts, keeps the panel above all process output.
+        """
+        self._flush_code()
+
+    def _flush_code(self):
+        """Print the pending code panel permanently and forget it."""
+        if self.code:
+            self._print_permanent_block(self.code, "code")
+            # Update code_lines_popped to maintain relative line numbering
+            self.code_lines_popped += len(self.code.split('\n'))
+            self.code = ""
+
     def finalize(self):
         """Render any remaining content permanently and clear the Live area."""
         if self.live.is_started:
@@ -101,11 +120,7 @@ class CodeBlock(BaseBlock):
             self.live.refresh()
             self.live.stop()
 
-        if self.code:
-            self._print_permanent_block(self.code, "code")
-            # Update code_lines_popped to maintain relative line numbering
-            self.code_lines_popped += len(self.code.split('\n'))
-            self.code = ""
+        self._flush_code()
 
         if self.output.strip():
             self._print_permanent_block(self.output, "output")

@@ -128,6 +128,28 @@ def test_code_block_shows_output_panel_only_when_present():
     assert captured_without["group"].renderables[2] == ""
 
 
+def test_code_block_prints_panel_before_run():
+    """print_code_before_run flushes the code panel immediately and forgets the
+    code, so finalize does not print the same panel a second time."""
+    block = CodeBlock()
+    block.code = "sudo apt install foo"
+    with mock.patch.object(block, "_print_permanent_block") as print_block:
+        block.print_code_before_run()
+        print_block.assert_called_once_with("sudo apt install foo", "code")
+        assert block.code == ""
+
+        block.finalize()
+        print_block.assert_called_once()
+
+
+def test_code_block_print_before_run_is_noop_without_code():
+    """print_code_before_run does nothing when there is no pending code."""
+    block = CodeBlock()
+    with mock.patch.object(block, "_print_permanent_block") as print_block:
+        block.print_code_before_run()
+        print_block.assert_not_called()
+
+
 def test_code_block_stores_interpreter_highlight_flag():
     """CodeBlock reads the interpreter's highlight_active_line at construction."""
     block = CodeBlock(interpreter=SimpleNamespace(highlight_active_line=False))

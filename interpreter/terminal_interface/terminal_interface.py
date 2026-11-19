@@ -682,6 +682,17 @@ def terminal_interface(interpreter, message):
                             print(f"  [{removed_notice}]", flush=True)
                             print("", flush=True)
 
+                    # Print the run block before dispatching the code. Otherwise the
+                    # block's first render waits for the first execution chunk, and a
+                    # command that writes straight to the terminal (sudo's password
+                    # prompt) lands before the panel and the panel overwrites its line.
+                    if (
+                        not interpreter.plain_text_display
+                        and active_block is not None
+                        and hasattr(active_block, "print_code_before_run")
+                    ):
+                        active_block.print_code_before_run()
+
                     # The confirmation chunk has been fully handled above (y/n/e all
                     # either break, continue, or fall into the active_block setup).
                     # Skip the rest of the loop body so the chunk isn't re-processed
