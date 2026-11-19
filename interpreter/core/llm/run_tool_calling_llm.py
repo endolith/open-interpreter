@@ -6,6 +6,7 @@ from .utils.normalize_double_escaped_arguments import (
     normalize_double_escaped_arguments,
 )
 from .utils.parse_partial_json import parse_partial_json
+from .utils.tool_call_errors import TOOL_CALL_ERROR_PREFIX
 
 tool_schema = {
     "type": "function",
@@ -414,6 +415,39 @@ def run_tool_calling_llm(llm, request_params):
             "content": buffer,
         }
         buffer = ""
+
+    # A call this build cannot run used to vanish: no code was streamed, so
+    # nothing was appended and the turn ended as if the model had said
+    # nothing (#629). Store the failure as assistant text so the next turn
+    # sees it and can retry through `execute`, and so `--no-loop` sessions
+    # are not left with a blank reply.
+    # Providers that stream the legacy `function_call` delta shape never set
+    # `function_call_detected` (only the tool_calls conversion does), so check
+    # the accumulated call as well or those calls still vanish.
+    if (function_call_detected or accumulated_deltas.get("function_call")) and not code:
+        function_name = (
+            accumulated_deltas.get("function_call", {}).get("name") or ""
+        )
+        if function_name in ("execute", "python", "functions"):
+            error = (
+                f"{TOOL_CALL_ERROR_PREFIX} `{function_name}` produced no code to run. "
+                "It needs both `language` and `code`; retry with "
+                "`execute(language, code)`."
+            )
+        elif function_name:
+            error = (
+                f"{TOOL_CALL_ERROR_PREFIX} `{function_name}` is not supported. "
+                "Call `execute` with a `language` and `code` block instead; "
+                "other APIs must be called from inside that code."
+            )
+        else:
+            error = (
+                f"{TOOL_CALL_ERROR_PREFIX} could not be run: it arrived without "
+                "a function name. Retry with `execute(language, code)`."
+            )
+        yield {"type": "message", "content": error}
+        if llm.interpreter.verbose:
+            print(error)
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
