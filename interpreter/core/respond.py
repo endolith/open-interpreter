@@ -462,6 +462,18 @@ def respond(interpreter):
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
 
+            # An unsupported tool call comes back as a tool message whose
+            # content is the error. Ending the turn there would leave the
+            # session stuck: the model never sees the error turn into another
+            # attempt. Loop once more so it can retry with `execute` + code.
+            if (
+                interpreter.messages
+                and interpreter.messages[-1].get("role") == "tool"
+                and "Unsupported function call"
+                in interpreter.messages[-1].get("content", "")
+            ):
+                continue
+
             loop_message = interpreter.loop_message
             if interpreter.os:
                 loop_message = loop_message.replace(

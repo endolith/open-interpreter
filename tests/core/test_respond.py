@@ -548,3 +548,64 @@ def test_alias_normalization_updates_the_code_message_not_trailing_reasoning():
 
     assert code["format"] == "python"
     assert "format" not in reasoning
+
+
+
+def _interpreter_ending_with_tool_message(content):
+    """An interpreter whose transcript ends with a tool reply, not pending code."""
+    interpreter = _code_interpreter()
+    interpreter.messages = [
+        {"role": "user", "type": "message", "content": "List the files."},
+        {"role": "tool", "type": "message", "content": content},
+    ]
+    return interpreter
+
+
+def test_unsupported_tool_call_retries_with_another_llm_turn():
+    """A tool reply reporting an unsupported function call must not end the turn.
+
+    The model has to see its own failure in context to retry with a supported
+    route (``execute`` plus Python) instead of the session stopping dead.
+    """
+    interpreter = _interpreter_ending_with_tool_message(
+        "Unsupported function call: ls"
+    )
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        # The first retry reply is empty, so the tool error is still the last
+        # message when the loop decides what to do next.
+        if len(calls) == 2:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": "I will use execute instead.",
+                }
+            )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 2, "the model should have been given a second turn"
+    assert interpreter.messages[-1]["content"] == "I will use execute instead."
+
+
+def test_ordinary_tool_output_still_ends_the_turn():
+    """A normal tool result ends the turn; only the unsupported-call error retries."""
+    interpreter = _interpreter_ending_with_tool_message("file1.txt\nfile2.txt")
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        interpreter.messages.append(
+            {"role": "assistant", "type": "message", "content": "Those are your files."}
+        )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 1
