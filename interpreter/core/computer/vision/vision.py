@@ -12,6 +12,16 @@ from ..utils.computer_vision import pytesseract_get_text
 # transformers = lazy_import("transformers") # Doesn't work for some reason! We import it later.
 
 
+def _is_computer_generated(lmc):
+    """Whether an image message came from the computer's own output (a plot or screenshot).
+
+    Printing the local-vision install hint for those is noise: the user never
+    asked for vision, the tool run produced the image, and there is nothing for
+    them to install on that path.
+    """
+    return bool(lmc and lmc.get("role") == "computer")
+
+
 class Vision:
     def __init__(self, computer):
         self.computer = computer
@@ -133,9 +143,10 @@ class Vision:
             text = " ".join([item[1] for item in result])
             return text.strip()
         except ImportError:
-            print(
-                "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-            )
+            if not _is_computer_generated(lmc):
+                print(
+                    "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
+                )
             return ""
         finally:
             if temp_file_path is not None:
@@ -162,9 +173,10 @@ class Vision:
             try:
                 success = self.load(load_easyocr=False)
             except ImportError:
-                print(
-                    "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-                )
+                if not _is_computer_generated(lmc):
+                    print(
+                        "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
+                    )
                 return ""
             if not success:
                 return ""

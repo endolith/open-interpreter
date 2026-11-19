@@ -204,6 +204,35 @@ def test_query_loads_model_on_demand():
     assert result == "answer"
 
 
+def test_ocr_silences_install_hint_for_computer_generated_images(capsys):
+    """An image the tool run produced does not prompt for the local vision extras.
+
+    llm.run() calls ocr() for every image when the model has no vision support,
+    so a plot the model just rendered used to print install instructions on
+    every turn. The hint stays for user-supplied images, where it is actionable.
+    """
+    vision = _make_vision()
+    with mock.patch.object(vision, "load", side_effect=ImportError):
+        result = vision.ocr(
+            lmc={"role": "computer", "format": "path", "content": __file__}
+        )
+
+    assert result == ""
+    assert "To use local vision" not in capsys.readouterr().out
+
+
+def test_query_silences_install_hint_for_computer_generated_images(capsys):
+    """Vision.query() does not ask the user to install local vision for tool images."""
+    vision = _make_vision()
+    with mock.patch.object(vision, "load", side_effect=ImportError):
+        result = vision.query(
+            lmc={"role": "computer", "format": "path", "content": __file__}
+        )
+
+    assert result == ""
+    assert "To use local vision" not in capsys.readouterr().out
+
+
 def test_query_returns_empty_on_import_error():
     """Vision.query() returns '' when the transformers import fails."""
     vision = _make_vision()
