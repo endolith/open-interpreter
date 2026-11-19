@@ -5,6 +5,20 @@ from .cwd_tracking import CwdTrackingMixin
 from .resolve_powershell import powershell_startup_args, resolve_powershell_executable
 from .subprocess_language import SubprocessLanguage
 
+# pwsh brackets each stdin read with DECCKM sequences (ESC[?1h / ESC[?1l) when
+# it echoes a prompt. On Linux these land *inside* the captured line, so a
+# continuation echo can start with "\x1b[?1l>> " and a marker can arrive as
+# "\x1b[?1l##oi_cwd##...", both of which the anchored checks below would miss.
+_ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+# pwsh emits ESC[?1h right before the echoed copy of the typed line, which makes
+# it an exact boundary between real output and OI's own input coming back.
+_INPUT_ECHO_START = "\x1b[?1h"
+# The prompt pwsh draws before that echo, when it lands after output that did
+# not end in a newline ("xPS /path> ").
+_PROMPT_TAIL_RE = re.compile(r"(?:\(.*?\) )?PS (?:[A-Za-z]:\\|/)[^>]*> ?\s*$")
+_CONTINUATION_TAIL_RE = re.compile(r">> ?\s*$")
+
 
 class PowerShell(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "ps1"
@@ -33,19 +47,45 @@ class PowerShell(CwdTrackingMixin, SubprocessLanguage):
     def _cwd_marker_echo(self):
         return '\nWrite-Output "##oi_cwd##$($PWD.Path)"'
 
-    def _postprocess_line(self, line):
-        # Strip PS prompt lines: "(base) PS C:\Users\...>" or "PS C:\...>"
-        # These appear because OI feeds code to a persistent interactive REPL via
-        # stdin, so PowerShell echoes each line back with its prompt.
-        # Use re.match (anchored to start of line) so that legitimate output
-        # containing "PS C:\" mid-line (e.g. "Path: PS C:\foo") is not dropped.
-        if re.match(r"(\(.*?\) )?PS [A-Za-z]:\\", line):
+    def line_postprocessor(self, line):
+        # Strip terminal-control sequences before classifying the line; see
+        # _ANSI_CSI_RE. Then drop echoed input (prompt + continuation) *before*
+        # the marker filters in CwdTrackingMixin run. An echoed source line such
+        # as `Write-Output "##oi_cwd##$($PWD.Path)"` contains the marker text,
+        # so letting it reach the marker parser would record `$($PWD.Path)"` as
+        # the working directory and leak the echoed tail as output.
+        if _INPUT_ECHO_START in line:
+            return self._output_before_input_echo(line)
+        line = _ANSI_CSI_RE.sub("", line)
+        if self._is_echo_line(line):
             return None
-        # Strip continuation-prompt echo lines (">> code" or bare ">>").
-        stripped = line.rstrip("\r\n")
-        if stripped == ">>" or stripped.startswith(">> "):
+        return super().line_postprocessor(line)
+
+    def _output_before_input_echo(self, line):
+        # Everything from the echo marker onward is OI's own input coming back,
+        # including any prompt text. Real output can precede it on the same line
+        # when the previous command did not end with a newline (pwsh draws the
+        # next prompt immediately after it), so keep that prefix and drop the
+        # prompt tail plus the echo.
+        head = line.split(_INPUT_ECHO_START, 1)[0]
+        head = _ANSI_CSI_RE.sub("", head)
+        head = _PROMPT_TAIL_RE.sub("", head)
+        head = _CONTINUATION_TAIL_RE.sub("", head)
+        if not head.strip():
             return None
-        return line
+        return head
+
+    def _is_echo_line(self, line):
+        # OI feeds code to a persistent interactive REPL through stdin, so pwsh
+        # echoes each line back with its prompt. Match the prompt shape at the
+        # start of the line only (a drive-letter path on Windows, an absolute
+        # POSIX path on Unix, optionally behind a conda prefix), so real output
+        # containing "PS ..." mid-line is kept.
+        if re.match(r"(\(.*?\) )?PS ([A-Za-z]:\\|/)", line):
+            return True
+        # Continuation-prompt echo lines: ">> code" or a bare ">>".
+        stripped = line.strip()
+        return stripped == ">>" or stripped.startswith(">> ")
 
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line
