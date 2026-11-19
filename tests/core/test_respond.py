@@ -5,6 +5,7 @@ from unittest import mock
 import pytest
 
 from interpreter import OpenInterpreter
+from interpreter.core.llm.utils.tool_call_errors import TOOL_CALL_ERROR_PREFIX
 from interpreter.core.respond import _pending_code_message, respond
 
 
@@ -548,3 +549,243 @@ def test_alias_normalization_updates_the_code_message_not_trailing_reasoning():
 
     assert code["format"] == "python"
     assert "format" not in reasoning
+
+
+
+def _interpreter_before_first_llm_turn():
+    """An interpreter with a pending user request and no stored assistant reply."""
+    interpreter = _code_interpreter()
+    interpreter.messages = [
+        {"role": "user", "type": "message", "content": "List the files."}
+    ]
+    return interpreter
+
+
+def _unrunnable_tool_call_error():
+    """The assistant text `run_tool_calling_llm` stores for a call it cannot run."""
+    return (
+        f"{TOOL_CALL_ERROR_PREFIX} `bash` is not supported. Call `execute` with a "
+        "`language` and `code` block instead; other APIs must be called from "
+        "inside that code."
+    )
+
+
+def test_unrunnable_tool_call_gets_one_retry_turn():
+    """A tool call the build cannot run must not end the turn on the first try.
+
+    `run_tool_calling_llm` stores the failure as assistant text (so nothing is
+    silently dropped). With `--no-loop` the turn would end there, leaving the
+    model no chance to retry; respond grants one more turn so it can switch to
+    ``execute`` plus code.
+    """
+    interpreter = _interpreter_before_first_llm_turn()
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        if len(calls) == 1:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": _unrunnable_tool_call_error(),
+                }
+            )
+        else:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": "I will use execute instead.",
+                }
+            )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 2, "the model should have been given a second turn"
+    assert interpreter.messages[-1]["content"] == "I will use execute instead."
+
+
+def test_repeated_unrunnable_tool_call_stops_after_one_retry():
+    """A model that repeats the same bad call is retried once, not forever.
+
+    Each retry stores another error message, so "progress" alone cannot end
+    the loop; the retry budget can.
+    """
+    interpreter = _interpreter_before_first_llm_turn()
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        interpreter.messages.append(
+            {
+                "role": "assistant",
+                "type": "message",
+                "content": _unrunnable_tool_call_error(),
+            }
+        )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 2
+
+
+def test_ordinary_tool_output_ends_the_turn():
+    """A plain tool result is not retried, even though it is not a reply.
+
+    The retry decision must key on the assistant error text specifically; a
+    tool message left as the transcript tail ends the turn after one call.
+    """
+    interpreter = _code_interpreter()
+    interpreter.messages = [
+        {"role": "user", "type": "message", "content": "List the files."},
+        {"role": "tool", "type": "message", "content": "file1.txt\nfile2.txt"},
+    ]
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 1
+
+
+def test_ordinary_assistant_reply_still_ends_the_turn():
+    """A normal assistant reply ends the turn; only the unrunnable-call error retries."""
+    interpreter = _interpreter_before_first_llm_turn()
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        interpreter.messages.append(
+            {"role": "assistant", "type": "message", "content": "Those are your files."}
+        )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 1
+
+
+def test_narration_before_the_error_still_gets_one_retry():
+    """Narration merged into the error message must not hide the unrunnable call.
+
+    `_respond_and_store` appends consecutive assistant `message` chunks to the
+    same transcript entry, so a model that narrates before the bad call leaves
+    a stored message starting with the narration rather than the error prefix.
+    respond must still recognise the report and grant the single retry, or
+    `--no-loop` sessions lose the retry this PR adds for that case.
+    """
+    interpreter = _interpreter_before_first_llm_turn()
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        if len(calls) == 1:
+            return iter(
+                [
+                    {"type": "message", "content": "I will use execute."},
+                    {"type": "message", "content": _unrunnable_tool_call_error()},
+                ]
+            )
+        return iter([{"type": "message", "content": "Switched to execute."}])
+
+    interpreter.llm.run = run
+    list(OpenInterpreter._respond_and_store(interpreter))
+
+    assert len(calls) == 2, "the error must still be recognised after narration"
+
+
+def test_a_note_block_does_not_replenish_the_retry_budget():
+    """A text block is stored as assistant text without running, so it must not
+    reset the retry budget.
+
+    respond() converts `text`/`markdown`/`plaintext` blocks and continues
+    without executing anything. Resetting the counter there lets a model
+    alternate an unsupported tool call with a note and keep retrying forever,
+    defeating the one-retry cap.
+    """
+    interpreter = _interpreter_before_first_llm_turn()
+    calls = []
+
+    def run(messages):
+        calls.append(len(messages))
+        if len(calls) == 1:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": _unrunnable_tool_call_error(),
+                }
+            )
+        elif len(calls) == 2:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "text",
+                    "content": "notes",
+                }
+            )
+        else:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": _unrunnable_tool_call_error(),
+                }
+            )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(calls) == 3, "the note block must not restore the retry budget"
+
+
+def test_retry_turn_request_ends_with_a_user_message():
+    """The retry request must not end on the stored assistant error.
+
+    Anthropic's newer models reject a request whose last message is an
+    assistant turn (prefill is no longer allowed). The error report is stored
+    as assistant text, so the retry turn appends a user correction to the
+    request only; the correction is not added to the stored transcript.
+    """
+    interpreter = _interpreter_before_first_llm_turn()
+    last_roles = []
+
+    def run(messages):
+        last_roles.append(messages[-1]["role"])
+        if len(last_roles) == 1:
+            interpreter.messages.append(
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": _unrunnable_tool_call_error(),
+                }
+            )
+        else:
+            interpreter.messages.append(
+                {"role": "assistant", "type": "message", "content": "Done."}
+            )
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert len(last_roles) == 2, "the model should have been given a second turn"
+    assert last_roles[1] == "user"
+    assert interpreter.messages[-1]["content"] == "Done."
+    assert all(
+        message["content"] != "That tool call could not be run. "
+        "Retry with `execute(language, code)`."
+        for message in interpreter.messages
+    ), "the correction is request-only and must not enter the transcript"
