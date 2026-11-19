@@ -6,6 +6,10 @@ from unittest import mock
 import pytest
 
 from interpreter.core.llm.run_tool_calling_llm import process_messages, run_tool_calling_llm
+from interpreter.core.llm.utils.tool_call_errors import (
+    TOOL_CALL_ERROR_PREFIX,
+    UNRUNNABLE_TOOL_CALL_KEY,
+)
 
 
 def _make_llm():
@@ -392,3 +396,164 @@ def test_double_escaped_arguments_still_produce_a_code_chunk():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "code", "format": "bash", "content": "echo hi"}
     ]
+
+
+def _one_call_stream(name, arguments):
+    """A one-chunk completion stream carrying a single tool call."""
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(name=name, arguments=arguments),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    return chat
+
+
+def test_unsupported_tool_name_is_reported_instead_of_dropped():
+    """A call this build cannot run must leave a trace in the transcript.
+
+    Only `execute` (and its legacy aliases) is understood, but nothing rejected
+    an unknown name: arguments without `code` yielded no chunk, nothing was
+    appended, and the turn ended as if the model had been silent (#629). The
+    error is stored as assistant text so the next turn can correct itself.
+    """
+    llm = _make_llm()
+    llm.completions = _one_call_stream("bash", '{"command": "ls"}')
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert len(chunks) == 1
+    assert chunks[0]["type"] == "message"
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+    assert "`bash`" in chunks[0]["content"]
+    assert "execute" in chunks[0]["content"]
+    assert chunks[0][UNRUNNABLE_TOOL_CALL_KEY] is True
+
+
+def test_execute_without_code_is_reported_instead_of_dropped():
+    """`execute` with the wrong argument names is reported, not silently lost.
+
+    A model that calls `execute` with something other than `language` plus
+    `code` (here a shell-style `command`) used to get no code chunk and no
+    message, ending the turn blank. The message names the missing arguments
+    instead.
+    """
+    llm = _make_llm()
+    llm.completions = _one_call_stream("execute", '{"command": "ls"}')
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert len(chunks) == 1, "a runnable-free call must still produce output"
+    assert chunks[0]["type"] == "message"
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+    assert "`execute`" in chunks[0]["content"]
+    assert "`language`" in chunks[0]["content"]
+    assert "`code`" in chunks[0]["content"]
+
+
+def test_legacy_function_call_delta_is_reported():
+    """A legacy `function_call` delta that cannot run is reported like a tool call.
+
+    Some providers stream the old `function_call` shape, which merges into
+    `accumulated_deltas` without setting the tool_calls conversion flag. It
+    used to bypass the report and end the turn silently.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "function_call": {"name": "execute", "arguments": "not json"}
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert len(chunks) == 1
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+
+
+def test_buffered_review_is_flushed_before_the_error():
+    """A buffered verdict must not displace the error as the transcript tail.
+
+    A verdict that arrives packed with a tool call and ends in its closing tag
+    stays buffered until the stream ends. The report is emitted after that
+    flush, so `respond` sees the tool-call error as the last message and
+    retries. Emitting the report first left the review as the tail and the
+    retry never fired.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "content": "<safe>Looks fine</safe>",
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(name="other", arguments='{"x": 1}'),
+                            )
+                        ],
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert [chunk["type"] for chunk in chunks] == ["review", "message"]
+    assert chunks[-1]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+
+
+def test_nameless_argumentless_tool_call_is_reported():
+    """A tool-call entry with no name or arguments must not end the turn silently.
+
+    The conversion loop skips a doubly-empty entry because there is nothing
+    usable to select, but that left nothing in the transcript and the turn
+    ended blank, the same silent failure as #629. The report names the missing
+    function so the next turn can correct itself.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(function=SimpleNamespace(name="", arguments=""))
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert len(chunks) == 1, "an unusable tool call must still produce output"
+    assert chunks[0]["type"] == "message"
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+    assert "without a function name" in chunks[0]["content"]
