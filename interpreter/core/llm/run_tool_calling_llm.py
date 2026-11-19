@@ -268,6 +268,24 @@ def run_tool_calling_llm(llm, request_params):
                 delta = dict(delta)
                 delta.pop("tool_calls", None)
 
+        # `arguments` must accumulate as a string. A provider may hand over
+        # the value already decoded into a list/dict, and storing that makes
+        # the next string fragment evaluate `[...] + "..."` inside
+        # merge_deltas, which raises TypeError and ends the stream before the
+        # code chunk is yielded (#646). Drop the non-string value here so a
+        # later fragment starts the accumulated arguments instead.
+        raw_function_call = delta.get("function_call")
+        if raw_function_call is not None:
+            if isinstance(raw_function_call, dict):
+                name = raw_function_call.get("name")
+                arguments = raw_function_call.get("arguments")
+            else:
+                name = getattr(raw_function_call, "name", None)
+                arguments = getattr(raw_function_call, "arguments", None)
+            if arguments is not None and not isinstance(arguments, str):
+                delta = dict(delta)
+                delta["function_call"] = {"name": name}
+
         # Accumulate deltas
         accumulated_deltas = merge_deltas(accumulated_deltas, delta)
 
@@ -336,21 +354,25 @@ def run_tool_calling_llm(llm, request_params):
                     ]
                 yield message_chunk
 
+        function_call = accumulated_deltas.get("function_call")
+
         if (
-            accumulated_deltas.get("function_call")
-            and "name" in accumulated_deltas["function_call"]
+            function_call
+            and "name" in function_call
             and (
-                accumulated_deltas["function_call"]["name"] == "python"
-                or accumulated_deltas["function_call"]["name"] == "functions"
+                function_call["name"] == "python"
+                or function_call["name"] == "functions"
             )
+            and "arguments" in function_call
         ):
             if language is None:
                 language = "python"
 
             # Pull the code string straight out of the "arguments" string
-            code_delta = accumulated_deltas["function_call"]["arguments"][len(code) :]
+            arguments_str = function_call["arguments"]
+            code_delta = arguments_str[len(code) :]
             # Update the code
-            code = accumulated_deltas["function_call"]["arguments"]
+            code = arguments_str
             # Yield the delta
             if code_delta:
                 yield {
@@ -359,50 +381,52 @@ def run_tool_calling_llm(llm, request_params):
                     "content": code_delta,
                 }
 
-        if (
-            accumulated_deltas.get("function_call")
-            and "arguments" in accumulated_deltas["function_call"]
-            and accumulated_deltas["function_call"]["arguments"]
-        ):
-            if "arguments" in accumulated_deltas["function_call"]:
-                arguments = accumulated_deltas["function_call"]["arguments"]
-                arguments = parse_partial_json(arguments)
-                if isinstance(arguments, dict):
-                    # Some providers escape the JSON a second time; without
-                    # this the `language`/`code` lookups below miss and the
-                    # call is dropped for the cost of a turn (#566).
-                    unescaped = normalize_double_escaped_arguments(arguments)
-                    if unescaped is not arguments and llm.interpreter.verbose:
-                        print(
-                            "Tool-call arguments arrived double-escaped; unescaped one level."
-                        )
-                    arguments = unescaped
+        if function_call and function_call.get("arguments"):
+            # `arguments` is a string here: the sanitizer above drops decoded
+            # list/dict values before they reach the accumulator, and
+            # parse_partial_json's character loop requires a string (#646).
+            arguments = parse_partial_json(function_call["arguments"])
+            if isinstance(arguments, dict):
+                # Some providers escape the JSON a second time; without
+                # this the `language`/`code` lookups below miss and the
+                # call is dropped for the cost of a turn (#566).
+                unescaped = normalize_double_escaped_arguments(arguments)
+                if unescaped is not arguments and llm.interpreter.verbose:
+                    print(
+                        "Tool-call arguments arrived double-escaped; unescaped one level."
+                    )
+                arguments = unescaped
 
-                if arguments:
-                    if (
-                        language is None
-                        and "language" in arguments
-                        and "code"
-                        in arguments  # <- This ensures we're *finished* typing language, as opposed to partially done
-                        and arguments["language"]
-                    ):
-                        language = arguments["language"]
+            if arguments:
+                if (
+                    language is None
+                    and "language" in arguments
+                    and "code"
+                    in arguments  # <- This ensures we're *finished* typing language, as opposed to partially done
+                    and arguments["language"]
+                ):
+                    language = arguments["language"]
 
-                    if language is not None and "code" in arguments:
-                        # Calculate the delta (new characters only)
-                        code_delta = arguments["code"][len(code) :]
-                        # Update the code
-                        code = arguments["code"]
-                        # Yield the delta
-                        if code_delta:
-                            yield {
-                                "type": "code",
-                                "format": language,
-                                "content": code_delta,
-                            }
-                else:
-                    if llm.interpreter.verbose:
-                        print("Arguments not a dict.")
+                if language is not None and "code" in arguments:
+                    # Ensure code is a string (some models may return other types)
+                    code_value = arguments["code"]
+                    if not isinstance(code_value, str):
+                        # If code is not a string, skip this chunk
+                        continue
+                    # Calculate the delta (new characters only)
+                    code_delta = code_value[len(code) :]
+                    # Update the code
+                    code = code_value
+                    # Yield the delta
+                    if code_delta:
+                        yield {
+                            "type": "code",
+                            "format": language,
+                            "content": code_delta,
+                        }
+            else:
+                if llm.interpreter.verbose:
+                    print("Arguments not a dict.")
 
     if buffer and review_category is not None:
         # A verdict that arrived whole in one chunk was buffered waiting for a
