@@ -6,6 +6,7 @@ from unittest import mock
 import pytest
 
 from interpreter.core.llm.run_tool_calling_llm import process_messages, run_tool_calling_llm
+from interpreter.core.llm.utils.tool_call_errors import TOOL_CALL_ERROR_PREFIX
 
 
 def _make_llm():
@@ -392,3 +393,66 @@ def test_double_escaped_arguments_still_produce_a_code_chunk():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "code", "format": "bash", "content": "echo hi"}
     ]
+
+
+def _one_call_stream(name, arguments):
+    """A one-chunk completion stream carrying a single tool call."""
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(name=name, arguments=arguments),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    return chat
+
+
+def test_unsupported_tool_name_is_reported_instead_of_dropped():
+    """A call this build cannot run must leave a trace in the transcript.
+
+    Only `execute` (and its legacy aliases) is understood, but nothing rejected
+    an unknown name: arguments without `code` yielded no chunk, nothing was
+    appended, and the turn ended as if the model had been silent (#629). The
+    error is stored as assistant text so the next turn can correct itself.
+    """
+    llm = _make_llm()
+    llm.completions = _one_call_stream("bash", '{"command": "ls"}')
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert len(chunks) == 1
+    assert chunks[0]["type"] == "message"
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+    assert "`bash`" in chunks[0]["content"]
+    assert "execute" in chunks[0]["content"]
+
+
+def test_execute_without_code_is_reported_instead_of_dropped():
+    """`execute` with the wrong argument names is reported, not silently lost.
+
+    A model that calls `execute` with something other than `language` plus
+    `code` (here a shell-style `command`) used to get no code chunk and no
+    message, ending the turn blank. The message names the missing arguments
+    instead.
+    """
+    llm = _make_llm()
+    llm.completions = _one_call_stream("execute", '{"command": "ls"}')
+
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+
+    assert len(chunks) == 1, "a runnable-free call must still produce output"
+    assert chunks[0]["type"] == "message"
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+    assert "`execute`" in chunks[0]["content"]
+    assert "`language`" in chunks[0]["content"]
+    assert "`code`" in chunks[0]["content"]

@@ -8,6 +8,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .llm.utils.tool_call_errors import is_tool_call_error
 from .render_message import render_message
 
 
@@ -40,6 +41,7 @@ def respond(interpreter):
 
     last_unsupported_code = ""
     insert_loop_message = False
+    unrunnable_tool_call_retries = 0
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -198,6 +200,9 @@ def respond(interpreter):
 
         code_message = _pending_code_message(interpreter.messages)
         if code_message is not None:
+            # The model found a route that runs; a later unrunnable call gets
+            # its own retry budget again.
+            unrunnable_tool_call_retries = 0
             if interpreter.verbose:
                 print("Running code:", code_message)
 
@@ -461,6 +466,21 @@ def respond(interpreter):
         else:
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
+
+            # An unrunnable tool call is stored as assistant text (see
+            # run_tool_calling_llm). Ending the turn there with `--no-loop`
+            # would leave the model no chance to retry, so grant one more
+            # turn. The report itself counted as progress, which is what
+            # makes this retry safe; the cap stops a model that repeats the
+            # same bad call from spinning.
+            if (
+                llm_made_progress
+                and interpreter.messages
+                and is_tool_call_error(interpreter.messages[-1])
+                and unrunnable_tool_call_retries < 1
+            ):
+                unrunnable_tool_call_retries += 1
+                continue
 
             loop_message = interpreter.loop_message
             if interpreter.os:
