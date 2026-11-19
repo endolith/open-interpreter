@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from interpreter.core.computer.vision import vision as vision_mod
-from interpreter.core.computer.vision.vision import Vision
+from interpreter.core.computer.vision.vision import LocalVisionUnavailable, Vision
 
 
 def _make_vision():
@@ -112,15 +112,6 @@ def test_ocr_loads_easyocr_on_demand():
     assert result == "hello world"
 
 
-def test_ocr_returns_empty_and_prints_install_hint_on_import_error(capsys):
-    """Vision.ocr() returns '' and prints the local-install hint when easyocr
-    can't be imported."""
-    vision = _make_vision()
-    with mock.patch.object(vision, "load", side_effect=ImportError):
-        result = vision.ocr(path="img.png")
-
-    assert result == ""
-    assert "pip install 'open-interpreter[local]'" in capsys.readouterr().out
 
 
 def test_load_loads_easyocr_reader():
@@ -204,11 +195,26 @@ def test_query_loads_model_on_demand():
     assert result == "answer"
 
 
-def test_query_returns_empty_on_import_error():
-    """Vision.query() returns '' when the transformers import fails."""
+def test_ocr_raises_local_vision_unavailable_on_import_error(capsys):
+    """Vision.ocr() raises when easyocr can't be imported.
+
+    Returning "" made llm.run() treat a missing dependency as a successful
+    empty OCR result, so the computer-image fallback description never ran.
+    """
     vision = _make_vision()
     with mock.patch.object(vision, "load", side_effect=ImportError):
-        assert vision.query(pil_image=Image.new("RGB", (4, 4))) == ""
+        with pytest.raises(LocalVisionUnavailable, match=r"open-interpreter\[local\]"):
+            vision.ocr(path="img.png")
+
+    assert capsys.readouterr().out == ""
+
+
+def test_query_raises_local_vision_unavailable_on_import_error():
+    """Vision.query() raises when the transformers import fails."""
+    vision = _make_vision()
+    with mock.patch.object(vision, "load", side_effect=ImportError):
+        with pytest.raises(LocalVisionUnavailable, match=r"open-interpreter\[local\]"):
+            vision.query(pil_image=Image.new("RGB", (4, 4)))
 
 
 def test_query_returns_empty_when_load_fails():
