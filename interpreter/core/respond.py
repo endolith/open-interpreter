@@ -8,6 +8,10 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import litellm
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .llm.utils.tool_call_errors import (
+    is_unrunnable_tool_call_chunk,
+    without_unrunnable_tool_call_key,
+)
 from .render_message import render_message
 
 
@@ -40,6 +44,12 @@ def respond(interpreter):
 
     last_unsupported_code = ""
     insert_loop_message = False
+    unrunnable_tool_call_retries = 0
+    # Correction text to append as a user message on the retry turn. The
+    # error report is stored as an assistant message, and providers that
+    # reject a trailing assistant turn (Anthropic's newer models refuse
+    # prefill) need the request to end with a user message instead.
+    retry_correction = None
 
     while True:
         ## RENDER SYSTEM MESSAGE ##
@@ -95,6 +105,16 @@ def respond(interpreter):
             yield {"role": "assistant", "type": "message", "content": "\n\n"}
             insert_loop_message = False
 
+        if retry_correction:
+            messages_for_llm.append(
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": retry_correction,
+                }
+            )
+            retry_correction = None
+
         ### RUN THE LLM ###
 
         assert (
@@ -105,6 +125,10 @@ def respond(interpreter):
         # empty reply is stored nowhere, so the transcript is unchanged and
         # re-prompting would send the identical request again, forever.
         llm_made_progress = True
+        # Set when the current call's producer marks its error report. Kept
+        # per-call: a report merged into an earlier transcript entry must not
+        # make a later successful reply look like a failure.
+        llm_reported_unrunnable_tool_call = False
 
         if _pending_code_message(interpreter.messages) is None:
             # No code is pending: call the LLM. A code block runs below.
@@ -114,6 +138,9 @@ def respond(interpreter):
             )
             try:
                 for chunk in interpreter.llm.run(messages_for_llm):
+                    if is_unrunnable_tool_call_chunk(chunk):
+                        llm_reported_unrunnable_tool_call = True
+                        chunk = without_unrunnable_tool_call_key(chunk)
                     yield {"role": "assistant", **chunk}
 
                 llm_made_progress = (
@@ -406,6 +433,12 @@ def respond(interpreter):
                     print(str(e))
                     print("Failed to sync iComputer with your Computer. Continuing...")
 
+                # Only code that actually runs restores the retry budget. The
+                # text and unsupported-language branches above `continue`
+                # without running anything, so a model alternating a bad call
+                # with a note cannot replenish the budget forever.
+                unrunnable_tool_call_retries = 0
+
                 ## ↓ CODE IS RUN HERE
 
                 for line in interpreter.computer.run(language, code, stream=True):
@@ -461,6 +494,26 @@ def respond(interpreter):
         else:
             ## LOOP MESSAGE
             # This makes it utter specific phrases if it doesn't want to be told to "Proceed."
+
+            # An unrunnable tool call is stored as assistant text (see
+            # run_tool_calling_llm). Ending the turn there with `--no-loop`
+            # would leave the model no chance to retry, so grant one more
+            # turn. The producer marks the report chunk and respond records
+            # that signal for the current call, so an ordinary answer that
+            # merely quotes the error text is not retried.
+            if llm_reported_unrunnable_tool_call:
+                if unrunnable_tool_call_retries < 1:
+                    unrunnable_tool_call_retries += 1
+                    retry_correction = (
+                        "That tool call could not be run. "
+                        "Retry with `execute(language, code)`."
+                    )
+                    continue
+                # The one retry is already spent and the model still cannot
+                # produce a runnable call. The report counts as progress, so
+                # the loop continuation below would re-prompt the same
+                # failing call forever; end the turn instead.
+                break
 
             loop_message = interpreter.loop_message
             if interpreter.os:
