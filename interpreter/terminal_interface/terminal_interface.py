@@ -393,6 +393,14 @@ def terminal_interface(interpreter, message):
                         # But if verbose is true, we do display it!
                         continue
 
+                    # Never hand HTML/JS to display_output: it opens a browser,
+                    # which takes focus away from the terminal mid-task. The
+                    # content is still shown, as plain text, so errors inside it
+                    # remain visible.
+                    if "format" in chunk and chunk["format"] in ("html", "javascript"):
+                        print(chunk["content"])
+                        continue
+
                     assistant_code_blocks = [
                         m
                         for m in interpreter.messages
