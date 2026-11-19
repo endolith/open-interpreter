@@ -1,7 +1,7 @@
 """One bracketed status stamp per shell block: outcome first, then location.
 
 A completed bash block reports its exit status and working directory as a
-single line -- ``[Exit code: 0 | Shell State: CWD: /app]`` -- because two
+single line -- ``[Exit code: 0 | Shell state: CWD: /app]`` -- because two
 separate bracketed stamps read as two unrelated annotations, and an
 unbracketed status read as program output. Exit status comes first: "how
 that ended, and here's where we are now" (cf. #401, which asks for the same
@@ -52,7 +52,7 @@ def _contents(language, code, keep_meta=False):
             continue
         content = str(chunk["content"])
         if keep_meta or not (
-            content.startswith("[Shell State:") or content.startswith("[Exit code:")
+            content.startswith("[Shell state:") or content.startswith("[Exit code:")
         ):
             out.append(content)
     return out
@@ -92,7 +92,7 @@ def test_successful_block_stamps_exit_zero_on_the_state_line():
     language = Bash()
     assert language.line_postprocessor("##oi_exit:0##\n") is None
     assert language._state_line() == (
-        f"[Exit code: 0 | Shell State: CWD: {language.cwd}]"
+        f"[Exit code: 0 | Shell state: CWD: {language.cwd}]"
     )
 
 
@@ -101,14 +101,14 @@ def test_failing_status_stamps_exit_code_first_on_the_state_line():
     language = Bash()
     assert language.line_postprocessor("##oi_exit:7##\n") is None
     assert language._state_line() == (
-        f"[Exit code: 7 | Shell State: CWD: {language.cwd}]"
+        f"[Exit code: 7 | Shell state: CWD: {language.cwd}]"
     )
 
 
 def test_state_line_without_a_status_has_no_exit_segment():
     """A block whose echo never ran (cmd, death path) keeps the plain stamp."""
     language = Bash()
-    assert language._state_line() == f"[Shell State: CWD: {language.cwd}]"
+    assert language._state_line() == f"[Shell state: CWD: {language.cwd}]"
 
 
 def test_status_glued_to_newlineless_output_keeps_that_output():
@@ -146,7 +146,7 @@ def test_failing_block_stamps_combined_line(bash):
     the model.
     """
     contents = "".join(_contents(bash, "false", keep_meta=True))
-    assert "[Exit code: 1 | Shell State: CWD: " in contents
+    assert "[Exit code: 1 | Shell state: CWD: " in contents
     assert "##oi_exit" not in contents
     # Exactly one stamp, not a second bracketed exit line.
     assert contents.count("[Exit code:") == 1
@@ -160,7 +160,7 @@ def test_silent_success_stamps_exit_zero(bash):
     """
     contents = _contents(bash, "true", keep_meta=True)
     assert len(contents) == 1
-    assert contents[0].startswith("[Exit code: 0 | Shell State: CWD: ")
+    assert contents[0].startswith("[Exit code: 0 | Shell state: CWD: ")
 
 
 def test_normal_output_keeps_output_and_adds_one_stamp(bash):
@@ -180,7 +180,7 @@ def test_last_command_status_wins(bash):
     """
     contents = "".join(_contents(bash, "false; echo done", keep_meta=True))
     assert "done" in contents
-    assert "[Exit code: 0 | Shell State: CWD: " in contents
+    assert "[Exit code: 0 | Shell state: CWD: " in contents
 
 
 def test_failed_command_keeps_stderr_and_adds_stamp(bash):
@@ -191,5 +191,5 @@ def test_failed_command_keeps_stderr_and_adds_stamp(bash):
     """
     contents = "".join(_contents(bash, "ls /definitely-not-here-oi-test", keep_meta=True))
     assert "No such file or directory" in contents
-    assert "[Exit code: 2 | Shell State: CWD: " in contents
+    assert "[Exit code: 2 | Shell state: CWD: " in contents
     assert "##oi_exit" not in contents

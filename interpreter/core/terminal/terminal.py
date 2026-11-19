@@ -280,6 +280,7 @@ print("__TOOLBOX_API_IMPORTED__")
                 self._active_languages[language].interpreter = self.interpreter
         try:
             buffered_output = ""
+            state_line = None
 
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
@@ -288,7 +289,7 @@ print("__TOOLBOX_API_IMPORTED__")
                     # Add timing to the end of the output
                     if "end" in chunk:
                         elapsed = round(time.time() - start_time, 2)
-                        chunk["content"] = f"{chunk['content'].strip()}\n\n[Time elapsed: {elapsed}s]"
+                        chunk["content"] = f"{chunk['content'].strip()}\n\n[Elapsed: {elapsed}s]"
 
                     recipient, content = parse_for_recipient(chunk["content"])
                     if recipient:
@@ -310,6 +311,9 @@ print("__TOOLBOX_API_IMPORTED__")
                                 "format": "output",
                                 "content": "[Note: Shell command output will be shown after completion.]\n\n"
                             }
+                        if chunk.get("state_line"):
+                            state_line = chunk["content"]
+                            continue
                         buffered_output += chunk["content"]
                         continue
 
@@ -326,12 +330,19 @@ print("__TOOLBOX_API_IMPORTED__")
                 else:
                     yield chunk
 
-            if buffered_output:
+            if buffered_output or state_line:
                 elapsed = round(time.time() - start_time, 2)
+                elapsed_line = f"Elapsed: {elapsed}s"
+                if state_line:
+                    metadata_line = f"{state_line[:-1]} | {elapsed_line}]"
+                else:
+                    metadata_line = f"[{elapsed_line}]"
+                body = buffered_output.strip()
+                content = f"{body}\n{metadata_line}" if body else metadata_line
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": f"{buffered_output.strip()}\n\n[Time elapsed: {elapsed}s]"
+                    "content": content,
                 }
 
         except GeneratorExit:

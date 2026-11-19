@@ -286,7 +286,12 @@ class SubprocessLanguage(BaseLanguage):
         if callable(state_line):
             line = state_line()
             if line:
-                yield {"type": "console", "format": "output", "content": line}
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": line,
+                    "state_line": True,
+                }
 
     def _join_stream_threads(self):
         """Wait for finite reader threads and report whether all of them finished."""

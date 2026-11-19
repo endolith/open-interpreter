@@ -46,7 +46,7 @@ def bash():
 def _output(language, code):
     """Console output from a run, excluding OI's own status stamp.
 
-    The combined stamp (``[Exit code: N | Shell State: CWD: ...]``) is added
+    The combined stamp (``[Exit code: N | Shell state: CWD: ...]``) is added
     by CwdTrackingMixin after every command, not by the command itself, and
     these tests are about what the *command's* output looks like once the
     markers have been consumed. Filtering it here keeps that distinction
@@ -57,7 +57,7 @@ def _output(language, code):
         if chunk.get("format") == "active_line" or not chunk.get("content"):
             continue
         content = str(chunk["content"])
-        if content.startswith(("[Shell State:", "[Exit code:")):
+        if content.startswith(("[Shell state:", "[Exit code:")):
             continue
         outputs.append(content)
     return outputs
@@ -196,7 +196,7 @@ class TestShellStateIsReportedToTheModel:
                 for c in chunks
                 if c.get("type") == "console"
             )
-            assert "Shell State" in joined, f"no state line in {joined!r}"
+            assert "Shell state" in joined, f"no state line in {joined!r}"
             assert (
                 tmp in joined
             ), "the reported cwd must be the directory we cd'd into"

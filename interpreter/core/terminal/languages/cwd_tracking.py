@@ -131,8 +131,8 @@ class CwdTrackingMixin:
         # (or as program output).
         status = getattr(self, "_last_exit_status", None)
         if status is None:
-            return f"[Shell State: CWD: {self.cwd}]"
-        return f"[Exit code: {status} | Shell State: CWD: {self.cwd}]"
+            return f"[Shell state: CWD: {self.cwd}]"
+        return f"[Exit code: {status} | Shell state: CWD: {self.cwd}]"
 
     def _insert_cwd_marker(self, code, end_marker):
         """Insert the exit-status and ``##oi_cwd##`` echoes before the end marker.
@@ -183,7 +183,7 @@ class CwdTrackingMixin:
         the confusion behind the silent-success cases this exists to end
         (cf. #401, which asks for the same kind of runtime evidence while a
         command is still running). The line itself is not re-emitted here: the
-        value rides into ``_state_line`` as ``[Exit code: <n> | Shell State:
+        value rides into ``_state_line`` as ``[Exit code: <n> | Shell state:
         CWD: ...]``, one bracketed stamp instead of two. The marker line is
         discarded (or, when glued to newline-less output, only the text before
         it is kept -- same no-anchoring rule as the cwd marker), and a
