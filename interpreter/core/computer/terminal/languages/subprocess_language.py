@@ -8,8 +8,17 @@ import traceback
 
 from ..base_language import BaseLanguage
 
+# How often run() may report an idle queue. Consumers that batch output use
+# these markers to bound how long a line written by a quiet command is held.
+_IDLE_TICK_INTERVAL = 1.0
+
 
 class SubprocessLanguage(BaseLanguage):
+    # Set by consumers that batch output and need to flush it while the
+    # producer is silent. Off by default so run()'s output stays exactly the
+    # process's own for callers that do not opt in.
+    emit_idle_ticks = False
+
     def __init__(self):
         self.start_cmd = []
         self.process = None
@@ -22,6 +31,7 @@ class SubprocessLanguage(BaseLanguage):
         # Kept so run() can wait for them to drain the pipes when the process
         # dies without printing the end-of-execution marker.
         self.stream_threads = []
+        self._next_idle_tick = 0.0
 
     def detect_active_line(self, line):
         return None
@@ -135,6 +145,20 @@ class SubprocessLanguage(BaseLanguage):
                     return
 
         while True:
+            # Check on every iteration, not only after an empty read: a
+            # command that writes steadily never reaches queue.Empty, and its
+            # small output would otherwise be held until the size limit or
+            # completion. Consumers flush buffered text on each tick, giving
+            # low-volume progress a bounded latency.
+            if self.emit_idle_ticks and time.monotonic() >= self._next_idle_tick:
+                self._next_idle_tick = time.monotonic() + _IDLE_TICK_INTERVAL
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": "",
+                    "_idle": True,
+                }
+
             if not self.output_queue.empty():
                 yield self.output_queue.get()
             else:
