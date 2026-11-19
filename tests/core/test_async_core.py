@@ -32,7 +32,11 @@ class TestOpenAICompatHelpers(TestCase):
         out = _format_openai_console_output("line1\nline2", language="bash")
         self.assertIn("```bash", out)
         self.assertIn("line1", out)
-        self.assertIsNone(_format_openai_console_output("Note: Shell command output will be shown after completion."))
+        self.assertIsNone(
+            _format_openai_console_output(
+                "[Note: Shell command output will be shown after completion.]"
+            )
+        )
 
     def test_code_approval_reply_normalization(self):
         self.assertEqual(_normalize_openai_code_approval_reply("yes"), "yes")

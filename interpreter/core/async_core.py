@@ -485,7 +485,7 @@ OPENAI_CODE_APPROVAL_INVALID_TEMPLATE = (
     "\n---\n"
 )
 
-OPENAI_SHELL_OUTPUT_NOTE = "Note: Shell command output will be shown after completion."
+OPENAI_SHELL_OUTPUT_NOTE = "[Note: Shell command output will be shown after completion.]"
 
 
 def _normalize_openai_code_approval_reply(content):

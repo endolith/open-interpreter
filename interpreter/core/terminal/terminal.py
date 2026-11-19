@@ -288,7 +288,7 @@ print("__TOOLBOX_API_IMPORTED__")
                     # Add timing to the end of the output
                     if "end" in chunk:
                         elapsed = round(time.time() - start_time, 2)
-                        chunk["content"] = f"{chunk['content'].strip()}\n\nTime elapsed: {elapsed}s"
+                        chunk["content"] = f"{chunk['content'].strip()}\n\n[Time elapsed: {elapsed}s]"
 
                     recipient, content = parse_for_recipient(chunk["content"])
                     if recipient:
@@ -308,7 +308,7 @@ print("__TOOLBOX_API_IMPORTED__")
                             yield {
                                 "type": "console",
                                 "format": "output",
-                                "content": "Note: Shell command output will be shown after completion.\n\n"
+                                "content": "[Note: Shell command output will be shown after completion.]\n\n"
                             }
                         buffered_output += chunk["content"]
                         continue
@@ -331,7 +331,7 @@ print("__TOOLBOX_API_IMPORTED__")
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": f"{buffered_output.strip()}\n\nTime elapsed: {elapsed}s"
+                    "content": f"{buffered_output.strip()}\n\n[Time elapsed: {elapsed}s]"
                 }
 
         except GeneratorExit:
