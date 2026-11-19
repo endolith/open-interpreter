@@ -48,12 +48,28 @@ end
         return processed_code
 
     def line_postprocessor(self, line):
+        # Control markers close the echoed-input window. irb echoes the
+        # submitted block and adds its own banner, so the line count drifts;
+        # letting the window swallow an exact marker loses the completion
+        # signal and the next run waits forever. The echoed source lines are
+        # not exact markers (they read `puts "##end_of_execution##\n"`), so
+        # this exemption cannot mistake an echo for the real marker.
+        stripped = line.strip()
+        if (
+            re.fullmatch(r"##active_line\d+##", stripped)
+            or stripped.startswith("##execution_error##")
+            or stripped == "##end_of_execution##"
+        ):
+            self.code_line_count = 0
+            return line
         # If the line count attribute is set and non-zero, decrement and skip the line
         if hasattr(self, "code_line_count") and self.code_line_count > 0:
             self.code_line_count -= 1
             return None
-        if "nil" in line:
-           return None
+        # irb prints a bare `nil` for a nil result. Match only that value so
+        # strings such as "vanilla" or "nilpotent" survive as real output.
+        if stripped in ("nil", "=> nil"):
+            return None
         return line
 
     def detect_end_of_execution(self, line):

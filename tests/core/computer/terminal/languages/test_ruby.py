@@ -73,3 +73,60 @@ def test_ruby_line_postprocessor_consumes_exactly_the_code_line_count():
 
     ruby.line_postprocessor("second")
     assert ruby.code_line_count == start - 2
+
+
+def test_ruby_end_marker_survives_a_drifted_echo_window():
+    """An exact end marker is passed and closes the skip window even mid-count.
+
+    irb echoes more lines than the wrapped block contains, so the line counter
+    is still positive when the real marker arrives on later calls. Skipping it
+    would leave the run waiting forever; the marker is control channel, not
+    echoed source, so the postprocessor must let it through and stop counting.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    assert ruby.code_line_count > 0
+
+    line = ruby.line_postprocessor("##end_of_execution##\n")
+
+    assert line == "##end_of_execution##\n"
+    assert ruby.code_line_count == 0
+
+
+def test_ruby_active_line_marker_survives_a_drifted_echo_window():
+    """An exact active-line marker also bypasses the skip window.
+
+    The same drift that swallowed the end marker dropped the highlight marker,
+    so later calls showed no active line even though execution succeeded.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    assert ruby.code_line_count > 0
+
+    line = ruby.line_postprocessor("##active_line1##\n")
+
+    assert line == "##active_line1##\n"
+    assert ruby.code_line_count == 0
+
+
+def test_ruby_echoed_marker_source_is_still_skipped():
+    """The echoed `puts "##end_of_execution##"` line is not treated as the marker.
+
+    If the exemption matched echoed source, irb would end the block while it is
+    still reading the input, long before the program runs.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    assert ruby.code_line_count > 0
+
+    assert ruby.line_postprocessor('    puts "##end_of_execution##\\n"\n') is None
+
+
+def test_ruby_nil_substring_is_real_output():
+    """Only a bare nil result is filtered, not values that contain `nil`."""
+    ruby = Ruby()
+    ruby.code_line_count = 0
+
+    assert ruby.line_postprocessor("vanilla\n") == "vanilla\n"
+    assert ruby.line_postprocessor("nilpotent\n") == "nilpotent\n"
+    assert ruby.line_postprocessor("nil\n") is None
