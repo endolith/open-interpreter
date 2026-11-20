@@ -465,6 +465,47 @@ def test_load_ollama_downloads_and_pings_model():
     interp.display_message.assert_any_call("*Model loaded.*\n")
 
 
+def test_load_ollama_interrupt_restores_state():
+    """A Ctrl-C during the ollama load ping propagates, restores max_tokens,
+    and resets _is_loaded so the next load retries instead of leaving every
+    later reply capped at one token."""
+    interp = _interp()
+    interp.computer.ai = SimpleNamespace(
+        chat=mock.Mock(side_effect=KeyboardInterrupt)
+    )
+    llm = Llm(interp)
+    llm.model = "ollama/llama3"
+    llm.api_base = "http://ollama:11434"
+    llm.max_tokens = 4096
+
+    tags_response = mock.Mock()
+    tags_response.ok = True
+    tags_response.json.return_value = {"models": []}  # llama3 not downloaded
+    show_response = mock.Mock()
+    show_response.json.return_value = {"model_info": {"llama3.context_length": 8192}}
+
+    with mock.patch("interpreter.core.llm.llm.requests.get", return_value=tags_response):
+        with mock.patch(
+            "interpreter.core.llm.llm.requests.post",
+            side_effect=[mock.Mock(), show_response],
+        ):
+            with pytest.raises(KeyboardInterrupt):
+                llm.load()
+
+    assert llm.max_tokens == 4096
+    assert llm._is_loaded is False
+
+    # The next attempt retries the load and keeps the real token limit.
+    interp.computer.ai.chat = mock.Mock()
+    with mock.patch("interpreter.core.llm.llm.requests.get", return_value=tags_response):
+        with mock.patch("interpreter.core.llm.llm.requests.post", return_value=mock.Mock()):
+            llm.load()
+
+    assert llm._is_loaded is True
+    assert llm.max_tokens == 4096
+    interp.computer.ai.chat.assert_called_once_with("ping")
+
+
 def test_load_ollama_exits_when_ollama_unreachable():
     """llm.load exits (SystemExit) with a download hint when ollama isn't
     reachable."""
@@ -877,20 +918,23 @@ def test_fixed_litellm_completions_drops_unknown_params():
     assert llm_mod.litellm.drop_params is True
 
 
-def test_fixed_litellm_completions_exits_on_keyboard_interrupt():
-    """A KeyboardInterrupt during completion calls sys.exit(0)."""
+def test_fixed_litellm_completions_reraises_keyboard_interrupt():
+    """Ctrl+C during a response propagates instead of calling sys.exit.
+
+    The terminal_interface outer handler relies on KeyboardInterrupt reaching it
+    so it can cancel the current response and return to the prompt. A retry loop
+    that swallowed the interrupt (or exited the process) would either restart the
+    request or kill the session.
+    """
     import interpreter.core.llm.llm as llm_mod
     from interpreter.core.llm.llm import fixed_litellm_completions
 
-    with mock.patch.object(llm_mod.litellm, "completion", side_effect=KeyboardInterrupt):
-        with mock.patch.object(
-            llm_mod.sys, "exit", side_effect=SystemExit
-        ) as exit_mock:
-            with pytest.raises(SystemExit):
-                list(fixed_litellm_completions(model="gpt-4o", messages=[]))
-    # The first KeyboardInterrupt terminates the generator via sys.exit(0);
-    # assert it was called exactly once, so retries don't continue silently.
-    exit_mock.assert_called_once_with(0)
+    completion = mock.Mock(side_effect=KeyboardInterrupt)
+    with mock.patch.object(llm_mod.litellm, "completion", completion):
+        with pytest.raises(KeyboardInterrupt):
+            list(fixed_litellm_completions(model="gpt-4o", messages=[]))
+    # One interrupt ends the loop: it must not be retried as a transient error.
+    completion.assert_called_once()
 
 
 def test_run_verbose_logs_image_removal():

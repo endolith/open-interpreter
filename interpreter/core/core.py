@@ -201,6 +201,12 @@ class OpenInterpreter:
         except GeneratorExit:
             self.responding = False
             # It's fine
+        except KeyboardInterrupt:
+            # Ctrl+C cancels the response, but the interpreter stays alive. Clear
+            # the flag before re-raising so a caller that catches the interrupt can
+            # still call wait(), which otherwise spins while responding stays True.
+            self.responding = False
+            raise
         except Exception as e:
             self.responding = False
             if self.anonymous_telemetry:

@@ -1,7 +1,6 @@
 import os
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import sys
 
 # Note: litellm in DEV mode will load .env files from the current directory
 # and all parent directories. This can lead to unexpected API keys being loaded
@@ -447,8 +446,19 @@ Continuing...
 
             old_max_tokens = self.max_tokens
             self.max_tokens = 1
-            self.interpreter.computer.ai.chat("ping")
-            self.max_tokens = old_max_tokens
+            try:
+                self.interpreter.computer.ai.chat("ping")
+            except BaseException:
+                # The ping runs through the normal completion loop, so Ctrl-C
+                # (or any failure) can unwind from here. Restore the real token
+                # limit, and let the next run() retry: _is_loaded was set before
+                # anything was verified, so leaving it True would cap every
+                # later reply at one token with no way to recover short of a
+                # process restart.
+                self._is_loaded = False
+                raise
+            finally:
+                self.max_tokens = old_max_tokens
 
             self.interpreter.display_message("*Model loaded.*\n")
 
@@ -570,8 +580,11 @@ def fixed_litellm_completions(**params):
                 yield chunk
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
-            print("Exiting...")
-            sys.exit(0)
+            # Ctrl+C while a response is streaming cancels the current response,
+            # not the session. Re-raise so terminal_interface.py's outer handler
+            # can drop the partial message and return to the prompt; the retry
+            # loop must not swallow the interrupt and start another stream.
+            raise
         except Exception as e:
             if started:
                 # The stream already delivered chunks to the consumer before it

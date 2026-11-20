@@ -356,6 +356,29 @@ def test_chat_handles_generator_exit():
     assert interpreter.responding is False
 
 
+def test_chat_clears_responding_when_interrupted():
+    """A Ctrl+C during a blocking chat clears responding so wait() still returns.
+
+    chat() only cleared the flag on success, GeneratorExit and Exception.
+    KeyboardInterrupt is a BaseException, so the flag stayed True and a caller
+    that caught the interrupt and called wait() looped forever.
+    """
+    interpreter = OpenInterpreter()
+
+    def raise_keyboard_interrupt(*args, **kwargs):
+        """Simulate Ctrl+C while the response is streaming."""
+        raise KeyboardInterrupt()
+
+    with mock.patch.object(
+        interpreter, "_streaming_chat", side_effect=raise_keyboard_interrupt
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            interpreter.chat(message="hello", stream=False, display=False)
+
+    assert interpreter.responding is False
+    assert interpreter.wait() == []
+
+
 def test_chat_sends_telemetry_on_error():
     """When chat errors and telemetry is on, an error telemetry event is sent."""
     interpreter = OpenInterpreter()
