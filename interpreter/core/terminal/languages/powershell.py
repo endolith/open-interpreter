@@ -47,6 +47,14 @@ class PowerShell(CwdTrackingMixin, SubprocessLanguage):
     def _cwd_marker_echo(self):
         return '\nWrite-Output "##oi_cwd##$($PWD.Path)"'
 
+    def _exit_marker_echo(self):
+        # $LASTEXITCODE is only written by native commands and survives across
+        # blocks, so wrap_in_try_catch resets it to 0 at the start of each block
+        # and sets 1 when a terminating error reaches the catch. That keeps the
+        # echo honest per block: a previous block's failure cannot be blamed on
+        # this one, and a thrown error still reports non-zero like bash.
+        return '\nWrite-Output "##oi_exit:$($LASTEXITCODE)##"'
+
     def line_postprocessor(self, line):
         # Strip terminal-control sequences before classifying the line; see
         # _ANSI_CSI_RE. Then drop echoed input (prompt + continuation) *before*
@@ -144,8 +152,16 @@ def wrap_in_try_catch(code):
     try_catch_code = """
 try {
     $ErrorActionPreference = "Stop"
+    $global:LASTEXITCODE = 0
 """
     # Write-Host to stdout keeps error output on one clean line.
     # Write-Error would include the full script-block context (the entire try{} wrapper)
     # which exposes OI's scaffolding and is not useful to the user or the LLM.
-    return try_catch_code + code + '\n} catch {\n    Write-Host "Error: $($_.Exception.Message)"\n}\n'
+    return (
+        try_catch_code
+        + code
+        + "\n} catch {\n"
+        + '    Write-Host "Error: $($_.Exception.Message)"\n'
+        + "    $global:LASTEXITCODE = 1\n"
+        + "}\n"
+    )

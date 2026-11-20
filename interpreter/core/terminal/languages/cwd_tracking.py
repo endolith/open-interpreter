@@ -100,11 +100,12 @@ class CwdTrackingMixin:
         """Echo appended after a block to report its exit status, or "" for silence.
 
         Opt-in per language. bash echoes ``$?``, which POSIX updates after every
-        command, so it is correct for each block. cmd's ``%ERRORLEVEL%`` and
-        PowerShell's ``$LASTEXITCODE`` are only written by some commands and
-        survive across blocks, so echoing them would blame a previous block's
-        failure on the next one; they stay silent until capture-and-reset is
-        wired up.
+        command, so it is correct for each block. PowerShell's
+        ``$LASTEXITCODE`` is only written by native commands and survives across
+        blocks, so PowerShell resets it to 0 at the start of each block and sets
+        1 from its catch (capture-and-reset; see
+        ``PowerShell._exit_marker_echo``). cmd's ``%ERRORLEVEL%`` has the same
+        stale-state problem and stays silent until it gets the same wiring.
         """
         return ""
 

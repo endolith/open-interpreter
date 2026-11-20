@@ -14,17 +14,24 @@ model guessing whether the block worked at all -- the confusion behind the
 silent-success cases ("Hmm no output? ... odd") in the Terminal-Bench
 transcripts.
 
-cmd and PowerShell stay silent for now: their status variables
-(``%ERRORLEVEL%``/``$LASTEXITCODE``) are only written by some commands and
-survive across blocks, so echoing them would blame a previous block's
-failure on the next one (pinned by the cmd test below).
+cmd stays silent for now: ``%ERRORLEVEL%`` is only written by some commands
+and survives across blocks, so echoing it would blame a previous block's
+failure on the next one (pinned by the cmd test below). PowerShell opts in
+with capture-and-reset: ``$LASTEXITCODE`` is zeroed at block start and set
+to 1 by the catch, so each block reports only its own outcome.
 """
+
+import shutil
 
 import pytest
 
 from interpreter.core.terminal.languages.bash import Bash
 from interpreter.core.terminal.languages.cmd import Cmd
 from interpreter.core.terminal.languages.cwd_tracking import CwdTrackingMixin
+from interpreter.core.terminal.languages.powershell import (
+    PowerShell,
+    wrap_in_try_catch,
+)
 from tests.helpers import require_bash_compatible_shell
 
 
@@ -33,6 +40,19 @@ def bash():
     """A live bash REPL, terminated even if a test fails."""
     require_bash_compatible_shell()
     language = Bash()
+    language.start_process()
+    try:
+        yield language
+    finally:
+        language.terminate()
+
+
+@pytest.fixture
+def powershell():
+    """A live pwsh REPL, terminated even if a test fails."""
+    if not shutil.which("pwsh"):
+        pytest.skip("pwsh not installed; PowerShell coverage needs it")
+    language = PowerShell()
     language.start_process()
     try:
         yield language
@@ -65,6 +85,40 @@ def test_bash_emits_exit_echo_before_cwd_and_end_markers():
     cwd_pos = code.index("##oi_cwd##")
     end_pos = code.index("##end_of_execution##")
     assert exit_pos < cwd_pos < end_pos
+
+
+def test_powershell_emits_exit_echo_before_cwd_and_end_markers():
+    """PowerShell reads $LASTEXITCODE before the cwd echo and end marker.
+
+    The cwd echo is itself a command, so reading the status after it would
+    report that Write-Output instead of the block's last native command.
+    """
+    ps = object.__new__(PowerShell)
+    CwdTrackingMixin.__init__(ps)
+    code = ps.preprocess_code("Write-Output hi")
+    exit_pos = code.index("##oi_exit:$($LASTEXITCODE)##")
+    cwd_pos = code.index("##oi_cwd##")
+    end_pos = code.index("##end_of_execution##")
+    assert exit_pos < cwd_pos < end_pos
+
+
+def test_powershell_wrapper_resets_status_and_marks_errors():
+    """Every block starts at zero, and a caught error reports 1.
+
+    $LASTEXITCODE survives across blocks, so without the reset a failed native
+    command would keep stamping the next, unrelated block.
+    """
+    wrapped = wrap_in_try_catch("1+1")
+    assert "$global:LASTEXITCODE = 0" in wrapped
+    assert "$global:LASTEXITCODE = 1" in wrapped
+
+
+def test_powershell_consumes_ansi_prefixed_exit_marker():
+    """pwsh prefixes the real marker with ESC[?1l, which must not hide it."""
+    ps = object.__new__(PowerShell)
+    CwdTrackingMixin.__init__(ps)
+    assert ps.line_postprocessor("\x1b[?1l##oi_exit:3##\n") is None
+    assert ps._last_exit_status == 3
 
 
 def test_cmd_stays_silent_until_errorlevel_is_reliable():
@@ -193,3 +247,25 @@ def test_failed_command_keeps_stderr_and_adds_stamp(bash):
     assert "No such file or directory" in contents
     assert "[Exit code: 2 | Shell state: CWD: " in contents
     assert "##oi_exit" not in contents
+
+
+def test_powershell_success_stamps_exit_zero(powershell):
+    """A successful block reports 0 and leaves no protocol text behind."""
+    contents = "".join(_contents(powershell, "1+1", keep_meta=True))
+    assert "[Exit code: 0 | Shell state: CWD: " in contents
+    assert "##oi_exit" not in contents
+
+
+def test_powershell_caught_error_stamps_one_and_does_not_leak(powershell):
+    """A thrown error reports 1, and the next block is zero again.
+
+    The reset between blocks is the point of capture-and-reset: bash's $? is
+    rewritten by every command, but $LASTEXITCODE is not.
+    """
+    failed = "".join(_contents(powershell, 'throw "boom"', keep_meta=True))
+    assert "Error: boom" in failed
+    assert "[Exit code: 1 | Shell state: CWD: " in failed
+
+    ok = "".join(_contents(powershell, "1+1", keep_meta=True))
+    assert "[Exit code: 0 | Shell state: CWD: " in ok
+    assert "[Exit code: 1" not in ok
