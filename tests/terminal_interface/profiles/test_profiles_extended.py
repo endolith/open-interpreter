@@ -633,6 +633,27 @@ def test_migrate_profile_writes_comment_wrapper(profile_env):
     assert "model: gpt-4" in content
 
 
+def test_migrate_profile_places_max_output_at_the_top_level(profile_env):
+    """migrate_profile() must not nest the max_output instruction under llm.
+
+    The regenerated file is a template whose commented settings users uncomment.
+    apply_profile_to_object only assigns top-level keys, so a max_output inside
+    the `# llm` section would set an attribute the interpreter never reads.
+    """
+    old = os.path.join(profile_env["profile_dir"], "old.yaml")
+    new = os.path.join(profile_env["profile_dir"], "new.yaml")
+    with open(old, "w") as f:
+        f.write("model: gpt-4\n")
+    profiles.migrate_profile(old, new)
+    lines = open(new).read().splitlines()
+
+    max_output = [line for line in lines if "max_output" in line]
+    assert max_output == [
+        "# max_output: 2800  # The maximum characters of code output visible to the LLM"
+    ]
+    assert lines.index(max_output[0]) < lines.index("# llm")
+
+
 def test_migrate_profile_reformats_dotted_keys(profile_env):
     """migrate_profile() nests dotted keys into a dict structure."""
     old = os.path.join(profile_env["profile_dir"], "old.yaml")
