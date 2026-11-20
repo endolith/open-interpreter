@@ -3,7 +3,10 @@ from unittest import mock
 
 import pytest
 
-from interpreter.core.computer.terminal.terminal import Terminal
+from interpreter.core.computer.terminal.terminal import (
+    _SHELL_OUTPUT_FLUSH_AT,
+    Terminal,
+)
 
 
 def test_get_language_by_name():
@@ -334,3 +337,222 @@ def test_apt_install_shortcut_ignores_compound_commands(code):
 
     sudo_install.assert_not_called()
     assert seen == [("shell", code)]
+
+
+class _ChunkedShell:
+    """Shell stub that yields one console-output chunk per item it is given."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+
+    def __init__(self, computer):
+        self.computer = computer
+
+    def run(self, code):
+        for piece in code.splitlines(keepends=True):
+            yield {"type": "console", "format": "output", "content": piece}
+
+
+def _chunked_terminal():
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_ChunkedShell]
+    return terminal
+
+
+def test_shell_output_is_buffered_into_a_single_chunk():
+    """Shell output arrives as one chunk, so the terminal is redrawn once (#304).
+
+    Each line used to be printed separately, which made `cat`/`type` of a large
+    file flicker through the whole file.
+    """
+    terminal = _chunked_terminal()
+
+    chunks = list(terminal.run("shell", "a\nb\nc\n", stream=True))
+
+    assert chunks == [
+        {"type": "console", "format": "output", "content": "a\nb\nc\n"}
+    ]
+
+
+def test_non_shell_output_still_streams_per_chunk():
+    """Buffering is scoped to shell: other languages keep streaming incrementally."""
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [type("Py", (_ChunkedShell,), {"name": "Python", "aliases": []})]
+
+    chunks = list(terminal.run("python", "a\nb\n", stream=True))
+
+    assert [chunk["content"] for chunk in chunks] == ["a\n", "b\n"]
+
+
+def test_shell_output_flushes_once_the_buffer_is_full():
+    """A long command still emits output mid-run instead of staying silent.
+
+    The buffer is bounded so a `cat` of a huge file cannot exhaust memory and
+    the user sees progress before the command finishes.
+    """
+    terminal = _chunked_terminal()
+    piece = "x" * (_SHELL_OUTPUT_FLUSH_AT // 2)
+
+    chunks = list(
+        terminal.run("shell", f"{piece}\n{piece}\ntail\n", stream=True)
+    )
+
+    assert len(chunks) == 2
+    assert chunks[0]["content"] == f"{piece}\n{piece}\n"
+    assert chunks[1]["content"] == "tail\n"
+
+
+class _IdleShell:
+    """Shell stub that reports an idle queue between two output lines."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+    emit_idle_ticks = False
+
+    def __init__(self, computer):
+        self.computer = computer
+
+    def run(self, code):
+        yield {"type": "console", "format": "output", "content": "started\n"}
+        yield {"type": "console", "format": "output", "content": "", "_idle": True}
+        yield {"type": "console", "format": "output", "content": "done\n"}
+
+
+class _BrokenRecipientShell:
+    """Shell stub whose second chunk makes parse_for_recipient raise."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+
+    def __init__(self, computer):
+        self.computer = computer
+        self.stopped = False
+
+    def run(self, code):
+        yield {"type": "console", "format": "output", "content": "saved\n"}
+        yield {
+            "type": "console",
+            "format": "output",
+            "content": "@@@RECIPIENT:user@@@END\n",
+        }
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_shell_output_flushes_when_the_producer_is_idle():
+    """Buffered output is delivered while the command is still quiet.
+
+    `echo started; sleep 600; echo done` used to keep "started" buffered for
+    the whole sleep because only size or completion flushed it, so long
+    commands lost their progress output. The backend now reports idleness and
+    the terminal flushes on that, and the idle marker itself is consumed.
+    """
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_IdleShell]
+
+    chunks = list(terminal.run("shell", "sleep 600", stream=True))
+
+    assert [chunk["content"] for chunk in chunks] == ["started\n", "done\n"]
+    assert all("_idle" not in chunk for chunk in chunks)
+    assert terminal._active_languages["shell"].emit_idle_ticks is True
+
+
+def test_shell_output_is_flushed_when_processing_raises():
+    """Output already collected survives a later chunk failing to parse.
+
+    The consumer never saw the buffer, so letting the exception propagate
+    without flushing would discard valid output produced before the failure.
+    """
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_BrokenRecipientShell]
+
+    delivered = []
+    with pytest.raises(IndexError):
+        for chunk in terminal.run("shell", "anything", stream=True):
+            delivered.append(chunk)
+
+    assert [chunk["content"] for chunk in delivered] == ["saved\n"]
+
+
+def test_closing_after_error_flushed_output_stops_the_shell():
+    """A close right after salvaged output still runs the close cleanup.
+
+    When a chunk fails to parse, the buffered text is yielded from the error
+    handler. If the consumer closes the generator at that yield, the
+    GeneratorExit is raised inside the handler, where the sibling
+    `except GeneratorExit` cannot catch it. The shell must still be stopped,
+    as it is when a close happens during normal output.
+    """
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_BrokenRecipientShell]
+
+    generator = terminal.run("shell", "anything", stream=True)
+    assert next(generator)["content"] == "saved\n"
+    generator.close()
+
+    assert terminal._active_languages["shell"].stopped is True
+
+
+class _ImageShell:
+    """Shell stub that emits an image between two output lines."""
+
+    name = "Shell"
+    aliases = ["bash", "sh"]
+
+    def __init__(self, computer):
+        self.computer = computer
+
+    def run(self, code):
+        yield {"type": "console", "format": "output", "content": "before\n"}
+        yield {"type": "image", "format": "base64", "content": "ZmFrZQ=="}
+        yield {"type": "console", "format": "output", "content": "after\n"}
+
+
+@pytest.mark.parametrize("stream", [True, False])
+def test_shell_output_is_flushed_before_an_image_event(stream):
+    """A non-text event is not yielded ahead of text buffered before it.
+
+    The shell buffer only joins plain console output. An image chunk must
+    therefore flush the pending text first, or the consumer (and the
+    stream=False merge) sees the image before text that the command wrote
+    earlier.
+    """
+    terminal = Terminal(computer=_bare_computer())
+    terminal.languages = [_ImageShell]
+
+    chunks = list(terminal.run("shell", "anything", stream=stream))
+
+    assert [
+        (chunk["type"], chunk.get("format"), chunk["content"]) for chunk in chunks
+    ] == [
+        ("console", "output", "before\n"),
+        ("image", "base64", "ZmFrZQ=="),
+        ("console", "output", "after\n"),
+    ]
+
+
+def test_recipient_tagged_shell_output_is_not_merged():
+    """Output addressed to another recipient is emitted as its own chunk.
+
+    Merging it would address the combined text to whichever recipient came
+    first and lose the second tag.
+    """
+    terminal = _chunked_terminal()
+
+    chunks = list(
+        terminal.run(
+            "shell",
+            "@@@RECIPIENT:computer@@@CONTENT:to the computer@@@END\n"
+            "plain\n"
+            "@@@RECIPIENT:user@@@CONTENT:to the user@@@END\n",
+            stream=True,
+        )
+    )
+
+    assert [chunk.get("recipient") for chunk in chunks] == [
+        "computer",
+        None,
+        "user",
+    ]
+
