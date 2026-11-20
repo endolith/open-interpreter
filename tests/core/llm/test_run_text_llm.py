@@ -684,3 +684,99 @@ def test_four_tick_opener_split_across_deltas():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+def test_plain_title_stream_skips_reasoning_and_fence_parsing():
+    """Auxiliary title requests map content directly and ignore non-content chunks."""
+    llm = _make_llm(
+        [
+            {"choices": []},
+            {"choices": [{"delta": {"reasoning_content": "thinking"}}]},
+            {"choices": [{"delta": {"content": None}}]},
+            {"choices": [{"delta": {"content": "A title"}}]},
+        ]
+    )
+
+    result = list(
+        run_text_llm(
+            llm,
+            {
+                "messages": [{"content": "system"}],
+                "conversation_title_plain_stream": True,
+            },
+        )
+    )
+
+    assert result == [{"type": "message", "content": "A title"}]
+
+
+def test_plain_title_stream_verbose_logs_chunks(capsys):
+    """Verbose title streaming logs each chunk without changing the result."""
+    llm = _make_llm(
+        [{"choices": [{"delta": {"content": "T"}}]}],
+        verbose=True,
+    )
+
+    result = list(
+        run_text_llm(
+            llm,
+            {"messages": [{"content": "system"}], "conversation_title_plain_stream": True},
+        )
+    )
+
+    assert result == [{"type": "message", "content": "T"}]
+    assert "Chunk in coding_llm" in capsys.readouterr().out
+
+
+def test_reasoning_before_prose_before_fence_is_preserved():
+    """Reasoning attached to prose before an opening fence is emitted."""
+    llm = _make_llm(
+        [
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "intro ```python\n",
+                            "reasoning_content": "think",
+                        }
+                    }
+                ]
+            },
+            {"choices": [{"delta": {"content": "print(1)\n```"}}]},
+        ]
+    )
+
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert result[0]["content"] == "intro "
+    assert result[0]["reasoning_content"] == "think"
+
+
+def test_plain_title_stream_keeps_content_when_reasoning_is_also_present():
+    """A relay may send reasoning and title content in the same delta."""
+    llm = _make_llm(
+        [
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning_content": "thinking",
+                            "content": "A title",
+                        }
+                    }
+                ]
+            }
+        ]
+    )
+
+    result = list(
+        run_text_llm(
+            llm,
+            {
+                "messages": [{"content": "system"}],
+                "conversation_title_plain_stream": True,
+            },
+        )
+    )
+
+    assert result == [{"type": "message", "content": "A title"}]
