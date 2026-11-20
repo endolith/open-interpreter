@@ -1,3 +1,7 @@
+import shutil
+
+import pytest
+
 from interpreter.core.terminal.languages.ruby import Ruby
 
 
@@ -130,3 +134,72 @@ def test_ruby_nil_substring_is_real_output():
     assert ruby.line_postprocessor("vanilla\n") == "vanilla\n"
     assert ruby.line_postprocessor("nilpotent\n") == "nilpotent\n"
     assert ruby.line_postprocessor("nil\n") is None
+
+
+def test_ruby_echo_window_counts_echoed_lines_not_split_segments(monkeypatch):
+    """The window spans exactly the lines irb echoes, not the final newline too.
+
+    split("\n") returns a phantom trailing element for the wrapper's terminating
+    newline, so the window stayed open one line past the echo. The first block's
+    session banner happened to spend that extra line; every later block spent it
+    on real output.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "false")
+    ruby = Ruby()
+    processed = ruby.preprocess_code('puts "C"; puts "D"')
+    assert ruby.code_line_count == len(processed.rstrip("\n").split("\n"))
+
+
+def test_ruby_session_banner_does_not_consume_a_source_line():
+    """irb's one-time banner is consumed without decrementing the window.
+
+    If it counted as an echoed line, the window would close before the last
+    echoed source line and leak that line into the output.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    start = ruby.code_line_count
+    assert ruby.line_postprocessor("Switch to inspect mode.\n") is None
+    assert ruby.code_line_count == start
+
+
+def test_ruby_echo_window_closes_before_the_first_output_line(monkeypatch):
+    """After the echoed block, the first real output line survives.
+
+    Feeds the echoed block lines only (no banner, as on later blocks), then the
+    first output line; the window must already be closed.
+    """
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "false")
+    ruby = Ruby()
+    processed = ruby.preprocess_code('puts "C"; puts "D"')
+    for raw in processed.splitlines():
+        assert ruby.line_postprocessor(raw + "\n") is None
+    assert ruby.code_line_count == 0
+    assert ruby.line_postprocessor("C\n") == "C\n"
+
+
+def test_ruby_later_blocks_keep_their_first_output_line(monkeypatch):
+    """Live irb: the second block in a session still prints both its lines.
+
+    The bug only appeared after the one-time banner was gone, so a single-block
+    test cannot catch it.
+    """
+    if shutil.which("irb") is None:
+        pytest.skip("irb not installed; Ruby REPL coverage needs it")
+    monkeypatch.setenv("INTERPRETER_ACTIVE_LINE_DETECTION", "false")
+    ruby = Ruby()
+    ruby.start_process()
+    try:
+        output = []
+        for code in ('puts "A"; puts "B"', 'puts "C"; puts "D"'):
+            output.append(
+                "".join(
+                    str(chunk["content"])
+                    for chunk in ruby.run(code)
+                    if chunk.get("format") == "output"
+                )
+            )
+    finally:
+        ruby.terminate()
+    assert "A" in output[0] and "B" in output[0]
+    assert "C" in output[1] and "D" in output[1]

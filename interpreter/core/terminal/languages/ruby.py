@@ -3,6 +3,11 @@ import re
 from pathlib import Path
 from .subprocess_language import SubprocessLanguage
 
+# irb prints this once per session when it starts echoing piped input. It is a
+# session banner, not part of any block's echo, so it must not consume a line
+# from the echo window.
+_IRB_BANNER_RE = re.compile(r"Switch to(?: non)? inspect mode\.\s*$")
+
 
 class Ruby(SubprocessLanguage):
     file_extension = "rb"
@@ -43,7 +48,12 @@ ensure
   puts "##end_of_execution##\\n"
 end
 """
-        self.code_line_count = len(processed_code.split("\n"))
+        # The window must span exactly the lines irb echoes back. split("\n")
+        # adds a phantom trailing element for the final newline, so the window
+        # closed one line too late on every block after the first -- once the
+        # one-time session banner was no longer there to spend that extra line,
+        # it ate the block's first real output line.
+        self.code_line_count = len(processed_code.splitlines())
         #print(processed_code)
         return processed_code
 
@@ -55,6 +65,10 @@ end
         # not exact markers (they read `puts "##end_of_execution##\n"`), so
         # this exemption cannot mistake an echo for the real marker.
         stripped = line.strip()
+        if self.code_line_count > 0 and _IRB_BANNER_RE.fullmatch(stripped):
+            # One-time session banner: consume it without spending a source line,
+            # or the echoed block's last line would leak as output.
+            return None
         if (
             re.fullmatch(r"##active_line\d+##", stripped)
             or stripped.startswith("##execution_error##")
