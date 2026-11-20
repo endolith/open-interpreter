@@ -247,13 +247,17 @@ def test_respond_model_access_prompt_switches_to_i_model():
     """Accepting the 'no access' prompt switches the model to hosted `i`."""
     interpreter = _message_interpreter()
     interpreter.offline = False
+    interpreter.auto_run = False
     interpreter.llm.model = "gpt-4o"
 
     def run(msgs):
         raise Exception("You do not have access to this model")
 
     interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="y"):
+    with (
+        mock.patch("builtins.input", return_value="y"),
+        mock.patch("sys.stdin.isatty", return_value=True),
+    ):
         list(respond(interpreter))
 
     assert interpreter.llm.model == "i"
@@ -264,15 +268,95 @@ def test_respond_model_access_prompt_no_raises():
     """Declining the 'no access' prompt re-raises the original error."""
     interpreter = _message_interpreter()
     interpreter.offline = False
+    interpreter.auto_run = False
     interpreter.llm.model = "gpt-4o"
 
     def run(msgs):
         raise Exception("You do not have access to this model")
 
     interpreter.llm.run = run
-    with mock.patch("builtins.input", return_value="n"):
+    with (
+        mock.patch("builtins.input", return_value="n"),
+        mock.patch("sys.stdin.isatty", return_value=True),
+    ):
         with pytest.raises(Exception, match="have access"):
             list(respond(interpreter))
+
+
+def test_respond_model_access_auto_run_raises_without_prompting():
+    """With auto_run (-y), the prompt is skipped and the original error re-raised (issue #277).
+
+    The hosted `i` fallback no longer exists, so accepting it automatically
+    would only end the run with no assistant response. `-y` must fail with
+    the model-access error instead of prompting or switching models.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.auto_run = True
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with mock.patch("builtins.input") as prompt:
+        with pytest.raises(Exception, match="have access"):
+            list(respond(interpreter))
+
+    prompt.assert_not_called()
+    assert interpreter.llm.model == "gpt-4o"
+
+
+def test_respond_model_access_headless_raises_without_prompting():
+    """Without a TTY and without auto_run, the fallback is skipped and the error raised (issue #277).
+
+    Previously input() raised EOFError here, hiding the original error.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.auto_run = False
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with (
+        mock.patch("builtins.input") as prompt,
+        mock.patch("sys.stdin.isatty", return_value=False),
+    ):
+        with pytest.raises(Exception, match="have access"):
+            list(respond(interpreter))
+
+    prompt.assert_not_called()
+
+
+def test_respond_model_access_eof_at_prompt_re_raises_original_error():
+    """EOF at the fallback prompt is a decline, not a crash (CodeRabbit review of #441).
+
+    A TTY user pressing Ctrl-D raises EOFError from input(); treating it as an
+    answer would surface that raw error instead of the model-access error that
+    triggered the prompt. It must follow the decline path, which re-raises the
+    original, and must not set the hosted model.
+    """
+    interpreter = _message_interpreter()
+    interpreter.offline = False
+    interpreter.auto_run = False
+    interpreter.llm.model = "gpt-4o"
+
+    def run(msgs):
+        raise Exception("You do not have access to this model")
+
+    interpreter.llm.run = run
+    with (
+        mock.patch("builtins.input", side_effect=EOFError("EOF when reading a line")),
+        mock.patch("sys.stdin.isatty", return_value=True),
+    ):
+        with pytest.raises(Exception, match="have access") as exc_info:
+            list(respond(interpreter))
+
+    assert not isinstance(exc_info.value, EOFError)
+    assert interpreter.llm.model == "gpt-4o"
 
 
 def test_respond_offline_errors_are_re_raised():
