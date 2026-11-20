@@ -658,6 +658,44 @@ def test_function_calling_false_merges_consecutive_messages(interpreter):
     ]
 
 
+@pytest.mark.parametrize(
+    ("reasoning", "expected"),
+    [
+        ("thought", "thought"),
+        (["thought"], None),
+        ({"summary": "thought"}, None),
+    ],
+)
+def test_function_calling_false_ignores_non_string_reasoning(
+    interpreter, reasoning, expected
+):
+    """Non-string reasoning on a retained message must not crash the flattening join.
+
+    A relay can store reasoning_content as a list or dict; `_fill_reasoning_content`
+    normalizes those later, so flattening has to treat them as empty instead of
+    passing them to `"\n".join`, which raises TypeError. String reasoning must
+    still be joined and attached to the combined message.
+    """
+    messages = [
+        {"role": "user", "type": "message", "content": "hi"},
+        {
+            "role": "assistant",
+            "type": "message",
+            "content": "hello",
+            "reasoning_content": reasoning,
+        },
+    ]
+    result = convert_to_openai_messages(
+        messages, interpreter=interpreter, function_calling=False
+    )
+    assistant = result[1]
+    assert assistant == {
+        "role": "assistant",
+        "content": "hello",
+        **({"reasoning_content": expected} if expected else {}),
+    }
+
+
 def test_vision_defaults_to_false_skips_images(interpreter, tmp_path):
     """Without vision enabled, image messages are dropped and later messages still appear."""
     path = tmp_path / "pic.png"
