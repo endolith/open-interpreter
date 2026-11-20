@@ -126,6 +126,43 @@ def test_terminal_interface_ignores_empty_input():
     interpreter.chat.assert_not_called()
 
 
+def test_terminal_interface_exits_on_a_typed_exit_word():
+    """Typing an exit command ends the session before the message reaches the model.
+
+    `%exit` / `%quit` used to hit the unknown-magic-command fallback, so the
+    session looked like it was ignoring them. Bare words and slash forms are
+    deliberately still messages, so the prefixed form is what is typed here.
+    """
+    interpreter = _intro_interpreter()
+
+    with mock.patch("builtins.input", side_effect=["%exit", KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    assert "Exiting..." in interpreter.display_message.call_args[0][0]
+    interpreter.chat.assert_not_called()
+
+
+@pytest.mark.parametrize("typed", ["exit", "/exit"])
+def test_terminal_interface_sends_a_bare_or_slash_word_to_the_model(typed):
+    """A typed bare word or slash form is a message, not a command.
+
+    The model can ask a question whose answer is that one word or a path;
+    taking either as an exit would kill the session mid-task.
+    """
+    interpreter = _intro_interpreter()
+
+    with mock.patch("builtins.input", side_effect=[typed, KeyboardInterrupt()]):
+        with pytest.raises(KeyboardInterrupt):
+            list(terminal_interface(interpreter, ""))
+
+    # Reaching chat with the word is the proof it fell through; the Ctrl-C
+    # used to end the loop also prints "Exiting...", so that message alone
+    # would not distinguish the two paths.
+    interpreter.chat.assert_called_once()
+    assert interpreter.chat.call_args[0][0] == typed
+
+
 def test_terminal_interface_dispatches_magic_command():
     """A message starting with % is handed to handle_magic_command."""
     import interpreter.terminal_interface.terminal_interface as ti
