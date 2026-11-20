@@ -2,12 +2,18 @@ from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.rule import Rule
 
+from .strip_control_sequences import strip_control_sequences
+
 
 def display_markdown_message(message):
     """
     Display markdown message. Works with multiline strings with lots of indentation.
     Will automatically make single line > tags beautiful.
     """
+
+    # Rich's Markdown only strips a few control codes, leaving ESC intact, so
+    # stored or pasted escape sequences would otherwise reach the terminal.
+    message = strip_control_sequences(message)
 
     for line in message.split("\n"):
         line = line.strip()

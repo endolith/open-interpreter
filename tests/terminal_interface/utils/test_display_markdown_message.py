@@ -196,3 +196,16 @@ def test_surrogate_line_degrades_to_escaped_placeholder(capsys):
 def test_real_surrogate_line_does_not_raise(capsys):
     """End to end: a lone surrogate in the message never escapes display (issue #384)."""
     dmm.display_markdown_message("bad \ud800 line")
+
+
+def test_display_markdown_message_strips_control_sequences(capsys):
+    """Markdown rendering must not forward stored escape sequences to the terminal.
+
+    Rich's Markdown strips only a few control codes (BEL, backspace, vertical
+    tab, form feed, carriage return), so ESC survives and a mouse-reporting or
+    OSC sequence would reach the terminal when a message is displayed as Markdown.
+    """
+    display_markdown_message("before\x1b[?1000h\x1b]0;title\x07after")
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "beforeafter" in output

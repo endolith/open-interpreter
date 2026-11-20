@@ -222,6 +222,65 @@ def test_terminal_interface_plain_text_renders_code_fences(capsys):
     assert "```" in output
 
 
+def test_terminal_interface_plain_text_strips_control_sequences(capsys):
+    """Plain-text mode must not emit stored escape sequences to the terminal.
+
+    `--plain` and `--stdin` bypass the Rich components that sanitize content, so
+    a message carrying `ESC[?1000h` would re-enable mouse reporting on the
+    user's terminal if the raw chunk were printed.
+    """
+    interpreter = _make_interpreter()
+    interpreter.plain_text_display = True
+
+    def chat(message, display=False, stream=True):
+        """Emulate a streamed assistant message containing a mouse-reporting escape."""
+        yield {"type": "message", "role": "assistant", "start": True}
+        yield {"type": "message", "role": "assistant", "content": "before\x1b[?1000hafter"}
+        yield {"type": "message", "role": "assistant", "end": True}
+
+    interpreter.chat = chat
+
+    list(terminal_interface(interpreter, "hi"))
+
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "beforeafter" in output
+
+
+def test_terminal_interface_plain_text_strips_control_sequences_from_fence_label(
+    capsys,
+):
+    """Plain-text mode must sanitize the code-fence label, not just its content.
+
+    The label after the opening backticks is built from the model-supplied
+    `language` (the code chunk's `format`), which reaches `print()` unfiltered.
+    An escape sequence there would reconfigure the terminal before the
+    (sanitized) code underneath was ever shown.
+    """
+    interpreter = _make_interpreter()
+    interpreter.plain_text_display = True
+
+    def chat(message, display=False, stream=True):
+        """Emulate a code block whose `language` smuggled in a mouse-reporting escape."""
+        yield {
+            "type": "code",
+            "role": "assistant",
+            "start": True,
+            "format": "python\x1b[?1000h",
+        }
+        yield {"type": "code", "role": "assistant", "content": "x = 1\n"}
+        yield {"type": "code", "role": "assistant", "end": True}
+
+    interpreter.chat = chat
+
+    list(terminal_interface(interpreter, "hi"))
+
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "```python" in output
+    assert "x = 1" in output
+
+
 def test_terminal_interface_os_failsafe_stops_loop(capsys):
     """A PyAutoGUI failsafe output in OS mode stops the current run."""
     interpreter = _make_interpreter()
@@ -245,6 +304,24 @@ def test_terminal_interface_prints_review_chunk(capsys):
     list(terminal_interface(interpreter, "review"))
 
     assert "LGTM" in capsys.readouterr().out
+
+
+def test_terminal_interface_review_chunk_strips_control_sequences(capsys):
+    """Streamed code-review chunks are sanitized before they reach the terminal.
+
+    A review is model-generated text, so it can carry the same escape sequences
+    as ordinary assistant messages; it is printed in every display mode.
+    """
+    interpreter = _make_interpreter()
+    interpreter.chat = lambda message, display=False, stream=True: iter(
+        [{"type": "review", "role": "assistant", "content": "LGTM\x1b[?1000h"}]
+    )
+
+    list(terminal_interface(interpreter, "review"))
+
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "LGTM" in output
 
 
 def test_terminal_interface_declined_code_is_recorded():

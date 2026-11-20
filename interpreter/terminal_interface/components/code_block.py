@@ -3,7 +3,9 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
+from rich.text import Text
 
+from ..utils.strip_control_sequences import strip_control_sequences
 from .base_block import BaseBlock
 
 
@@ -37,7 +39,7 @@ class CodeBlock(BaseBlock):
             return
 
         # Get code
-        code = self.code
+        code = strip_control_sequences(self.code)
 
         # Create a table for the code
         code_table = Table(
@@ -84,7 +86,14 @@ class CodeBlock(BaseBlock):
         if self.output == "" or self.output == "None":
             output_panel = ""
         else:
-            output_panel = Panel(self.output, box=MINIMAL, style="#FFFFFF on #3b3b37")
+            # Sanitized output is literal text, not markup: an ANSI-coloured
+            # "[/]" reduces to "[/]", which Rich would reject as an unmatched
+            # closing tag if the panel received a plain string.
+            output_panel = Panel(
+                Text(strip_control_sequences(self.output)),
+                box=MINIMAL,
+                style="#FFFFFF on #3b3b37",
+            )
 
         # Create a group with the code table and output panel
         group_items = [code_panel, output_panel]

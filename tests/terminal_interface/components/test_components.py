@@ -165,3 +165,62 @@ def test_block_types_are_distinct():
     """MessageBlock and CodeBlock identify themselves with distinct types."""
     assert MessageBlock().type == "message"
     assert CodeBlock().type == "code"
+
+
+def test_message_block_strips_control_sequences_before_markdown():
+    """Untrusted message bytes must not reach the Rich renderer (#169)."""
+    block = MessageBlock()
+    block.message = "hello \x1b[?1000h\x1b]0;pwned\x07 world"
+    captured = {}
+    block.live.update = lambda panel: captured.update(panel=panel)
+    block.live.refresh = lambda: None
+
+    block.refresh(cursor=False)
+    rendered = _render(captured["panel"])
+    assert "\x1b" not in rendered
+    assert "hello" in rendered and "world" in rendered
+
+
+def test_code_block_strips_control_sequences_from_code_and_output():
+    """Code and console output are sanitized before Rich renders them (#169)."""
+    block = CodeBlock()
+    block.code = "print('\x1b[?1000h')"
+    block.output = "line\x1b]0;pwned\x07"
+    original_output = block.output
+
+    syntax_calls = []
+    captured = {}
+    with mock.patch(
+        "interpreter.terminal_interface.components.code_block.Syntax",
+        side_effect=lambda text, *a, **k: syntax_calls.append(text) or text,
+    ):
+        block.live.update = lambda panel: captured.update(panel=panel)
+        block.live.refresh = lambda: None
+        block.refresh(cursor=False)
+
+    assert syntax_calls, "Syntax should have been called for the code line"
+    assert all("\x1b" not in text for text in syntax_calls)
+
+    output_content = captured["panel"].renderables[-1].renderable.plain
+    assert "\x1b" not in output_content
+    assert "line" in output_content
+    assert block.output == original_output, "the stored output must stay intact"
+    assert "\x1b" not in _render(captured["panel"])
+
+
+def test_code_block_renders_sanitized_output_literally():
+    """Sanitized output must not be reinterpreted as Rich markup (#169).
+
+    An ANSI-coloured "[/]" reduces to "[/]" after filtering, which Rich
+    rejects as an unmatched closing tag when the panel receives a plain
+    string, so a message that used to render would crash the refresh.
+    """
+    block = CodeBlock()
+    block.code = "print('x')"
+    block.output = "[\x1b[31m/]\x1b[0m"
+    captured = {}
+    block.live.update = lambda panel: captured.update(panel=panel)
+    block.live.refresh = lambda: None
+
+    block.refresh(cursor=False)  # must not raise MarkupError
+    assert "[/]" in _render(captured["panel"])
