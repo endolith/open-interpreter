@@ -177,23 +177,24 @@ def test_tool_calls_empty_list():
 
 
 def test_process_messages_orphaned_function_response():
-    """Orphaned function responses get a synthetic tool call prepended.
+    """History trimming can leave a result without its call; it is not forwarded.
 
     When a conversation starts with a function result (e.g. history was
-    truncated), the message must be paired with a synthetic assistant tool
-    call so the LLM sees a well-formed tool interaction rather than an
-    unanchored result.
+    truncated), there is no call to pair it with. A synthetic execute(pass)
+    showed the model a fake call it then imitated (#554), and relabelling the
+    result hands the model text with no call to attribute it to (#567). The
+    request keeps only what has a call; the stored history keeps the result
+    for display.
     """
     messages = [
         {"role": "function", "name": "execute", "content": "output"},
     ]
     result = process_messages(messages)
 
-    assert len(result) == 2
-    assert result[0]["role"] == "assistant"
-    assert result[0]["tool_calls"][0]["function"]["name"] == "execute"
-    assert result[1]["role"] == "tool"
-    assert result[1]["tool_call_id"] == result[0]["tool_calls"][0]["id"]
+    assert result == []
+    assert messages == [
+        {"role": "function", "name": "execute", "content": "output"},
+    ]
 
 
 def test_process_messages_function_call_without_response():

@@ -34,6 +34,15 @@ tool_schema = {
 
 
 def process_messages(messages):
+    """Turn stored LMC history into messages a tool-calling provider accepts.
+
+    Legacy `function_call`/`function` pairs become `tool_calls`/`tool`
+    messages sharing one id, an unanswered call gets an empty response, and a
+    result with no call in the request — because trimming removed it or it
+    was never stored — is kept for display but dropped from the request
+    rather than paired with a fabricated call or handed to the model
+    unattributed (#554, #567).
+    """
     processed_messages = []
     last_tool_id = 0
 
@@ -66,30 +75,47 @@ def process_messages(messages):
                 )
 
         elif message.get("role") == "function":
-            # This handles orphaned function responses
-            last_tool_id += 1
-            tool_id = f"toolu_{last_tool_id}"
+            # An orphaned function response: nothing in this request produced
+            # it, so there is no call to pair it with. Keep it out of the
+            # request entirely. Inventing an `execute` tool call puts a fake
+            # call in the model's history, which it then imitates (#554); an
+            # assistant message makes the model read text it never wrote as its
+            # own words (#567); a user message lends tool output the weight of
+            # an instruction. The stored history is untouched, so the output is
+            # still displayed to the user — it just never reaches the model
+            # without the call that gives it meaning.
+            i += 1
+            continue
 
-            # Add a tool call before this orphaned tool response
-            processed_messages.append(
-                {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": tool_id,
-                            "type": "function",
-                            "function": {
-                                "name": "execute",
-                                "arguments": "# Automated tool call to fetch more output, triggered by the user.",
-                            },
-                        }
-                    ],
-                }
-            )
-
-            # Process the function response
-            message["role"] = "tool"
-            message["tool_call_id"] = tool_id
+        elif message.get("role") == "tool":
+            # Match each result to an unanswered call of the preceding assistant
+            # message. A result whose call was trimmed away or never stored has
+            # nothing to pair with: forwarding it makes the provider reject the
+            # request, and relabelling it hands unattributed output to the model.
+            # Walking past this call's sibling results keeps several results for
+            # distinct calls of one assistant message all moving forward, while
+            # a mismatched or repeated tool_call_id is dropped.
+            call_ids = set()
+            answered_ids = set()
+            for prev in reversed(processed_messages):
+                if prev.get("role") == "tool":
+                    answered_ids.add(prev.get("tool_call_id"))
+                    continue
+                if prev.get("role") == "assistant":
+                    call_ids = {
+                        call.get("id")
+                        for call in prev.get("tool_calls") or []
+                        if call.get("id")
+                    }
+                break
+            tool_call_id = message.get("tool_call_id")
+            if (
+                not tool_call_id
+                or tool_call_id not in call_ids
+                or tool_call_id in answered_ids
+            ):
+                i += 1
+                continue
             processed_messages.append(message)
 
         else:
@@ -102,6 +128,15 @@ def process_messages(messages):
 
 
 def run_tool_calling_llm(llm, request_params):
+    """Stream one tool-calling completion and yield LMC chunks.
+
+    Fills the `execute` schema's language enum from this interpreter's
+    languages, repairs the history with `process_messages`, then merges the
+    streamed deltas: code is yielded as soon as `language` and `code` are
+    both known, reasoning and review verdicts are yielded as their own chunk
+    types, and with `INTERPRETER_REQUIRE_AUTHENTICATION` on a detected call
+    must have a review verdict behind it.
+    """
     ## Setup
 
     # Add languages OI has access to
