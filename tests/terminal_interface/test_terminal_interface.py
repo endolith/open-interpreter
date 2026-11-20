@@ -641,3 +641,84 @@ def test_terminal_interface_message_content_without_start_crashes():
     interpreter.chat = chat
     with pytest.raises(AttributeError):
         list(terminal_interface(interpreter, "hi"))
+
+
+def test_html_computer_output_is_printed_not_opened(monkeypatch, capsys):
+    """HTML/JS computer output is printed as text and never reaches display_output.
+
+    display_output would open a browser for these formats, stealing focus in
+    the middle of a task. Printing keeps the (often error) content visible.
+    """
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        yield {
+            "role": "computer",
+            "type": "console",
+            "format": "html",
+            "content": "<h1>SyntaxError: bad expression</h1>",
+        }
+
+    interpreter.chat = chat
+    display_output = mock.Mock(return_value="rendered")
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.terminal_interface.display_output",
+        display_output,
+    )
+
+    list(terminal_interface(interpreter, "go"))
+
+    assert "SyntaxError: bad expression" in capsys.readouterr().out
+    display_output.assert_not_called()
+
+
+def test_javascript_computer_output_skips_display_output(monkeypatch, capsys):
+    """JavaScript output takes the same plain-text path."""
+    interpreter = _make_interpreter()
+
+    def chat(message, display=False, stream=True):
+        yield {
+            "role": "computer",
+            "type": "console",
+            "format": "javascript",
+            "content": "alert('missed')",
+        }
+
+    interpreter.chat = chat
+    display_output = mock.Mock(return_value="rendered")
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.terminal_interface.display_output",
+        display_output,
+    )
+
+    list(terminal_interface(interpreter, "go"))
+
+    assert "alert('missed')" in capsys.readouterr().out
+    display_output.assert_not_called()
+
+
+def test_image_computer_output_still_uses_display_output(monkeypatch):
+    """Only HTML/JS bypass the renderer; screenshots keep their existing handling."""
+    interpreter = _make_interpreter()
+    interpreter.messages = [
+        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+    def chat(message, display=False, stream=True):
+        yield {
+            "role": "computer",
+            "type": "image",
+            "format": "base64.png",
+            "content": "iVBORw0KGgo=",
+        }
+
+    interpreter.chat = chat
+    display_output = mock.Mock(return_value="rendered")
+    monkeypatch.setattr(
+        "interpreter.terminal_interface.terminal_interface.display_output",
+        display_output,
+    )
+
+    list(terminal_interface(interpreter, "go"))
+
+    display_output.assert_called_once()
