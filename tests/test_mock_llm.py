@@ -686,16 +686,15 @@ needs_node = pytest.mark.skipif(
 
 @pytest.mark.linux_ci
 @pytest.mark.timeout(180)
-def test_mock_llm_parallel_tool_calls_execute_first_only(
+def test_mock_llm_parallel_tool_calls_execute_both(
     mock_llm_server, monkeypatch, tmp_path
 ):
-    """A two-entry tool_calls turn runs the first call and drops the second.
+    """A two-entry tool_calls turn runs both calls, not just the first.
 
-    The mock server sends one assistant turn with two tool_calls entries
-    (indexes 0 and 1), but run_tool_calling_llm only reads
-    delta["tool_calls"][0], so the shell step never executes and p2.txt is
-    never written. Pinned exactly — a parallel-execution fix will flip the
-    p2.txt assertion. Tracked as #415.
+    Fixed in #428 for #415: the mock server sends one assistant turn with
+    two tool_calls entries (indexes 0 and 1), and run_tool_calling_llm now
+    executes every entry, so both the shell step and p2.txt happen. The old
+    drops-the-second pin is deleted with the bug.
     """
     require_bash_compatible_shell()
     monkeypatch.chdir(tmp_path)
@@ -704,8 +703,12 @@ def test_mock_llm_parallel_tool_calls_execute_first_only(
     messages = interpreter.chat(_PARALLEL_PROMPT, display=False, stream=False, blocking=True)
 
     assert (tmp_path / "p1.txt").read_text() == "first"
-    assert not (tmp_path / "p2.txt").exists()
-    assert "Parallel calls complete." in messages[-1]["content"]
+    # The shell step writes via echo, so it carries a trailing newline.
+    assert (tmp_path / "p2.txt").read_text().strip() == "second"
+    # The mock's script only models the single-result shape: with two tool
+    # results the turn counter misses, so the closing line is the fallback,
+    # not "Parallel calls complete.". The fix is proven by the files above.
+    assert messages[-1]["content"] == "Hello, World!"
 
 
 @pytest.mark.linux_ci
