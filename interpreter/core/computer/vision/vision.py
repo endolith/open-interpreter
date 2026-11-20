@@ -12,6 +12,19 @@ from ..utils.computer_vision import pytesseract_get_text
 # transformers = lazy_import("transformers") # Doesn't work for some reason! We import it later.
 
 
+LOCAL_VISION_HINT = "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
+
+
+class LocalVisionUnavailable(ImportError):
+    """The optional local-vision dependencies are not installed.
+
+    ``llm.run()`` catches ``ImportError`` from the vision renderer to store a
+    text description instead, so the default renderer has to raise this
+    instead of returning ``""``: an empty string is indistinguishable from a
+    renderer that ran and found nothing, and the fallback would never run.
+    """
+
+
 class Vision:
     def __init__(self, computer):
         self.computer = computer
@@ -132,11 +145,8 @@ class Vision:
             result = self.easyocr.readtext(path)
             text = " ".join([item[1] for item in result])
             return text.strip()
-        except ImportError:
-            print(
-                "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-            )
-            return ""
+        except ImportError as exc:
+            raise LocalVisionUnavailable(LOCAL_VISION_HINT) from exc
         finally:
             if temp_file_path is not None:
                 # NamedTemporaryFile(delete=False) leaves the file behind, and
@@ -161,11 +171,8 @@ class Vision:
         if self.model == None and self.tokenizer == None:
             try:
                 success = self.load(load_easyocr=False)
-            except ImportError:
-                print(
-                    "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-                )
-                return ""
+            except ImportError as exc:
+                raise LocalVisionUnavailable(LOCAL_VISION_HINT) from exc
             if not success:
                 return ""
 
