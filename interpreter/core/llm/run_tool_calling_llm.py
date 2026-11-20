@@ -1,6 +1,8 @@
+import copy
 import os
 import re
 
+from .utils.cache_aware_trim import _count_message_tokens
 from .utils.merge_deltas import merge_deltas
 from .utils.normalize_double_escaped_arguments import (
     normalize_double_escaped_arguments,
@@ -31,6 +33,21 @@ tool_schema = {
         },
     },
 }
+
+
+def build_tool_schema(llm):
+    """Return the `execute` tool schema populated with OI's available languages.
+
+    The module-level `tool_schema` is a template whose language enum is empty.
+    Building a fresh copy per request keeps one interpreter's language list
+    from leaking into another's request, and lets the context trim count the
+    exact schema the runner will attach.
+    """
+    schema = copy.deepcopy(tool_schema)
+    schema["function"]["parameters"]["properties"]["language"]["enum"] = [
+        language.name.lower() for language in llm.interpreter.computer.terminal.languages
+    ]
+    return schema
 
 
 def process_messages(messages):
@@ -101,14 +118,33 @@ def process_messages(messages):
     return processed_messages
 
 
+def tool_conversion_overhead(messages, model, known_endpoint=True):
+    """Tokens `process_messages` adds when it rewrites the history for the API.
+
+    Trimming runs on the legacy shape (``function_call``/``function`` turns),
+    but the request is sent in the modern shape: every call gains a generated
+    tool id, a ``type`` marker and a ``tool_calls`` wrapper, every result gains
+    a ``tool_call_id``, and a call without a result gains a synthetic tool
+    message.  Those additions count against the provider's context window, so
+    the trimmer has to reserve them or a conversation that fits on paper can
+    still be rejected once converted.
+
+    The delta is measured on a deep copy because ``process_messages`` mutates
+    the messages it is given in place.  It is non-negative and grows with the
+    number of converted turns, so reserving the delta for the whole untrimmed
+    history leaves at least as much room as the retained suffix needs.
+    """
+    converted = process_messages(copy.deepcopy(messages))
+    before = _count_message_tokens(messages, model, known_endpoint)
+    after = _count_message_tokens(converted, model, known_endpoint)
+    return max(0, after - before)
+
+
 def run_tool_calling_llm(llm, request_params):
     ## Setup
 
     # Add languages OI has access to
-    tool_schema["function"]["parameters"]["properties"]["language"]["enum"] = [
-        i.name.lower() for i in llm.interpreter.computer.terminal.languages
-    ]
-    request_params["tools"] = [tool_schema]
+    request_params["tools"] = [build_tool_schema(llm)]
 
     request_params["messages"] = process_messages(request_params["messages"])
 

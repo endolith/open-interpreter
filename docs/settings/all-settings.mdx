@@ -73,7 +73,7 @@ llm:
 
 ### Context Window
 
-Manually set the context window size in tokens for the model. For local models, using a smaller context window will use less RAM, which is more suitable for most devices.
+Manually set the context window size in tokens for the model. For local models, using a smaller context window will use less RAM, which is more suitable for most devices. When a conversation contains images, each one is estimated at a model-aware per-image token cost rather than at its raw base64 size, so a screenshot doesn't consume the whole window. These per-image costs are estimates, not exact provider billing: they vary by model and provider (for example, a low-detail image costs far more on `gpt-4o-mini` than on `gpt-4o`), and OI uses a conservative estimate when the model is unknown.
 
 <CodeGroup>
 
