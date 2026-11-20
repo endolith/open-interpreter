@@ -1,9 +1,9 @@
 from rich.box import MINIMAL
 from rich.console import Group
-from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
+from rich.text import Text
 
 from .base_block import BaseBlock
 
@@ -81,13 +81,16 @@ class CodeBlock(BaseBlock):
         # Create a panel for the code
         code_panel = Panel(code_table, box=MINIMAL, style="on #272722")
 
-        # Create a panel for the output (if there is any). Escape the text so
-        # Rich does not read [brackets] as markup (e.g. "file [note].txt").
+        # Create a panel for the output (if there is any). Wrap the text in a
+        # Text so Rich does not read [brackets] as markup (e.g. "file
+        # [note].txt"). Text is also the only option that survives a trailing
+        # backslash: Rich 15's escape() appends a backslash to a trailing one
+        # to keep the markup parser honest, which the panel then shows twice.
         if self.output == "" or self.output == "None":
             output_panel = ""
         else:
             output_panel = Panel(
-                escape(self.output), box=MINIMAL, style="#FFFFFF on #3b3b37"
+                Text(self.output), box=MINIMAL, style="#FFFFFF on #3b3b37"
             )
 
         # Create a group with the code table and output panel
