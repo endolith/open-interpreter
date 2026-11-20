@@ -161,6 +161,38 @@ def test_message_block_cursor_bullet():
     assert "\u25cf" not in _render(captured["panel"])
 
 
+def test_code_block_print_code_before_run_prints_panel_once():
+    """print_code_before_run draws the panel permanently, clears the pending
+    code, and leaves a fresh live display for the execution output, so a
+    command that writes directly to the terminal prints below the panel
+    instead of over it (issue #651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print") as print_panel:
+        block.print_code_before_run()
+
+        assert "print(1)" in _render(print_panel.call_args[0][0])
+        assert block.code == ""
+        assert block.live.is_started
+
+        # The panel is permanent; a second call must not print it again.
+        block.print_code_before_run()
+        # The panel is permanent; a second call must not print it again.
+        block.print_code_before_run()
+    panels = [c[0][0] for c in print_panel.call_args_list if "print(1)" in _render(c[0][0])]
+    assert len(panels) == 1
+
+
+def test_code_block_print_code_before_run_without_code_is_a_noop():
+    """print_code_before_run does nothing when there is no pending code."""
+    block = CodeBlock()
+    with mock.patch.object(block.live, "stop") as stop:
+        block.print_code_before_run()
+    stop.assert_not_called()
+
+
 def test_block_types_are_distinct():
     """MessageBlock and CodeBlock identify themselves with distinct types."""
     assert MessageBlock().type == "message"

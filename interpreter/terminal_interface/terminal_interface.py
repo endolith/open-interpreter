@@ -257,6 +257,8 @@ def terminal_interface(interpreter, message):
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
                             active_block.code = code
+                            if not interpreter.plain_text_display:
+                                active_block.print_code_before_run()
                         elif response.strip().lower() == "e":
                             # Edit
 
@@ -282,6 +284,8 @@ def terminal_interface(interpreter, message):
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
                             active_block.code = code
+                            if not interpreter.plain_text_display:
+                                active_block.print_code_before_run()
                         else:
                             # User declined to run code.
                             interpreter.messages.append(
