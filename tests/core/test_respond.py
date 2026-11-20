@@ -548,3 +548,46 @@ def test_alias_normalization_updates_the_code_message_not_trailing_reasoning():
 
     assert code["format"] == "python"
     assert "format" not in reasoning
+
+
+
+def _interpreter_before_first_llm_call():
+    """An interpreter with a user message and no pending code, so respond() calls the LLM."""
+    interpreter = _code_interpreter()
+    interpreter.messages = [{"role": "user", "type": "message", "content": "Hi"}]
+    interpreter.offline = False
+    return interpreter
+
+
+def _raise_auth_error(messages):
+    """Stand-in for a provider rejecting the credentials."""
+    raise Exception("Incorrect API key provided")
+    yield  # pragma: no cover - keeps the stub generator-shaped
+
+
+def test_auth_error_names_the_profile_api_key():
+    """When llm.api_key is configured, the auth error must explain the profile/CLI conflict."""
+    interpreter = _interpreter_before_first_llm_call()
+    interpreter.llm.api_key = "sk-profile"
+    interpreter.llm.run = _raise_auth_error
+
+    with pytest.raises(Exception) as excinfo:
+        list(respond(interpreter))
+
+    message = str(excinfo.value)
+    assert "There might be an issue with your API key(s)." in message
+    assert "`llm.api_key` set in your profile/config" in message
+    assert "--model" in message and "--api_key" in message
+
+
+def test_auth_error_omits_the_hint_when_no_key_is_configured():
+    """Without a configured llm.api_key there is no conflict to explain."""
+    interpreter = _interpreter_before_first_llm_call()
+    interpreter.llm.run = _raise_auth_error
+
+    with pytest.raises(Exception) as excinfo:
+        list(respond(interpreter))
+
+    message = str(excinfo.value)
+    assert "There might be an issue with your API key(s)." in message
+    assert "`llm.api_key` set in your profile/config" not in message
