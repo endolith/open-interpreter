@@ -356,6 +356,27 @@ def test_chat_handles_generator_exit():
     assert interpreter.responding is False
 
 
+def test_chat_resets_responding_when_approval_failure_escapes():
+    """A pytest.fail from the approval guard must not leave responding set.
+
+    ``pytest.fail`` raises ``Failed``, a BaseException, so it bypasses chat()'s
+    ``except Exception`` handler. Without an explicit reset the flag stays True
+    and a later ``wait()`` blocks forever on a turn that already ended.
+    """
+    interpreter = OpenInterpreter(disable_telemetry=True)
+
+    def refuse(*args, **kwargs):
+        """Simulate the guard refusing to run the model's code."""
+        pytest.fail("LLM-generated code was not approved")
+
+    with mock.patch.object(interpreter, "_streaming_chat", side_effect=refuse):
+        with pytest.raises(BaseException) as caught:
+            interpreter.chat(message="hello", stream=False, display=False)
+
+    assert "was not approved" in str(caught.value)
+    assert interpreter.responding is False
+
+
 def test_chat_sends_telemetry_on_error():
     """When chat errors and telemetry is on, an error telemetry event is sent."""
     interpreter = OpenInterpreter()

@@ -206,6 +206,12 @@ class AsyncInterpreter(OpenInterpreter):
 
             self.stop_event.clear()
             self._reset_respond_iterator()
+            # The worker can fail before any consumer has awaited output(), so
+            # the queue has to exist before it starts. Otherwise the error path
+            # dereferences None and the client gets neither the error nor the
+            # completion frame, and waits out its recv timeout.
+            if self.output_queue is None:
+                self.output_queue = janus.Queue()
             self.respond_thread = threading.Thread(
                 target=self.respond, args=(run_code,)
             )
@@ -215,6 +221,25 @@ class AsyncInterpreter(OpenInterpreter):
         if self.output_queue == None:
             self.output_queue = janus.Queue()
         return await self.output_queue.async_q.get()
+
+    def _report_turn_error(self, error: BaseException) -> None:
+        """Send a failed turn to the client and close the stream.
+
+        The ordinary ``Exception`` path and control-flow signals raised by the
+        integration harness (``pytest.fail`` raises ``Failed``, a BaseException)
+        both report through here so the client sees why the turn stopped instead
+        of waiting out its recv timeout.
+        """
+        error_message = {
+            "role": "server",
+            "type": "error",
+            "content": traceback.format_exc() + "\n" + str(error),
+        }
+        self.output_queue.sync_q.put(error_message)
+        self.output_queue.sync_q.put(complete_message)
+        print("\n\n--- SENT ERROR: ---\n\n")
+        print(error_message["content"])
+        print("\n\n--- (ERROR ABOVE WAS SENT) ---\n\n")
 
     def respond(self, run_code=None):
         for attempt in range(5):  # 5 attempts
@@ -336,18 +361,14 @@ class AsyncInterpreter(OpenInterpreter):
                     return
 
             except Exception as e:
-                error = traceback.format_exc() + "\n" + str(e)
-                error_message = {
-                    "role": "server",
-                    "type": "error",
-                    "content": traceback.format_exc() + "\n" + str(e),
-                }
-                self.output_queue.sync_q.put(error_message)
-                self.output_queue.sync_q.put(complete_message)
-                print("\n\n--- SENT ERROR: ---\n\n")
-                print(error)
-                print("\n\n--- (ERROR ABOVE WAS SENT) ---\n\n")
+                self._report_turn_error(e)
                 return
+            except BaseException as e:
+                # ``respond`` runs on a worker thread; a BaseException that
+                # bypasses the handler above would end that thread with no error
+                # or complete frame and leave the waiting client to time out.
+                self._report_turn_error(e)
+                raise
 
         error_message = {
             "role": "server",

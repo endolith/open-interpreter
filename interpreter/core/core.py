@@ -216,6 +216,13 @@ class OpenInterpreter:
                 )
 
             raise
+        except BaseException:
+            # Control-flow signals and the integration harness's refusal
+            # (``pytest.fail`` raises ``Failed``, a BaseException) bypass the
+            # handler above; leaving the flag set would make ``wait()`` block
+            # forever on a turn that already ended.
+            self.responding = False
+            raise
 
     def _streaming_chat(self, message=None, display=True):
         # Sometimes a little more code -> a much better experience!
