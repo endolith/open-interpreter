@@ -210,7 +210,7 @@ Alternativ können Sie Llamafile ohne Installation von Drittanbietersoftware nut
 interpreter --local
 ```
 
-Für eine ausführlichere Anleitung siehe [dieses Video von Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
+Für eine ausführlichere Anleitung siehe [dieses Video von Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU)
 
 **So führen Sie LM Studio im Hintergrund aus.**
 

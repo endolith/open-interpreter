@@ -210,7 +210,7 @@ interpreter --api_base "http://localhost:1234/v1" --api_key "fake_key"
 interpreter --local
 ```
 
-有关更详细的指南，请参阅 [Mike Bird 的这段视频](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
+有关更详细的指南，请参阅 [Mike Bird 的这段视频](https://www.youtube.com/watch?v=CEs51hGWuGU)
 
 **如何在后台运行 LM Studio。**
 

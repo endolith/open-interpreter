@@ -210,7 +210,7 @@ interpreter --api_base "http://localhost:1234/v1" --api_key "fake_key"
 interpreter --local
 ```
 
-अधिक विस्तृत गाइड के लिए [Mike Bird का यह वीडियो](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H) देखें
+अधिक विस्तृत गाइड के लिए [Mike Bird का यह वीडियो](https://www.youtube.com/watch?v=CEs51hGWuGU) देखें
 
 **LM Studio को पृष्ठभूमि में कैसे चलाएँ।**
 

@@ -210,7 +210,7 @@ Hoặc bạn có thể dùng Llamafile mà không cần cài phần mềm bên t
 interpreter --local
 ```
 
-Để xem hướng dẫn chi tiết hơn, hãy xem [video này của Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
+Để xem hướng dẫn chi tiết hơn, hãy xem [video này của Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU)
 
 **Cách chạy LM Studio ở chế độ nền.**
 

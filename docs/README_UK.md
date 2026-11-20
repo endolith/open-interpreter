@@ -210,7 +210,7 @@ interpreter --api_base "http://localhost:1234/v1" --api_key "fake_key"
 interpreter --local
 ```
 
-Для детальнішого посібника перегляньте [це відео від Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU&si=cN7f6QhfT4edfG5H)
+Для детальнішого посібника перегляньте [це відео від Mike Bird](https://www.youtube.com/watch?v=CEs51hGWuGU)
 
 **Як запустити LM Studio у фоновому режимі.**
 
