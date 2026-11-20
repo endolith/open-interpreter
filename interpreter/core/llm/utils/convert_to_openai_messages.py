@@ -30,6 +30,13 @@ def convert_to_openai_messages(
     The DeepSeek backfill is gated separately in llm.py.
     """
     new_messages = []
+    # Reasoning attached to an assistant record that is dropped as an empty
+    # separator still belongs to the turn: the old transcript merged it into
+    # the next assistant message (function_calling=False), and thinking
+    # providers expect reasoning on the assistant records they receive, so
+    # carry it to the next retained assistant message instead of losing it
+    # with the whitespace.
+    dropped_reasoning = []
 
     # if function_calling == False:
     #     prev_message = None
@@ -341,6 +348,45 @@ def convert_to_openai_messages(
 
         if isinstance(new_message["content"], str):
             new_message["content"] = new_message["content"].strip()
+
+        # DeepSeek (and OpenRouter's BYOK relay for it) rejects an assistant message
+        # that has neither non-empty content nor tool_calls with a 400
+        # ("Invalid assistant message: content or tool_calls must be set"). A
+        # whitespace-only assistant message — most commonly the loop-mode "\n\n"
+        # separator that respond() stores in history, or whitespace-padded content
+        # left over from a partial stream — would otherwise be emitted as `content: ""`
+        # with no tool_calls. It carries no information to the model, so drop it rather
+        # than send a malformed request. Messages with tool or function calls (e.g. a
+        # `code` message under function calling) or non-empty content are always kept.
+        if (
+            new_message.get("role") == "assistant"
+            and not new_message.get("tool_calls")
+            and not new_message.get("function_call")
+            and not str(new_message.get("content", "") or "").strip()
+        ):
+            reasoning = new_message.get("reasoning_content")
+            # A relay can send a list or dict here. `_fill_reasoning_content`
+            # normalizes such values to "" later, so carry only the string form
+            # rather than passing the value to the join below, which would
+            # raise TypeError.
+            if isinstance(reasoning, str) and reasoning:
+                dropped_reasoning.append(reasoning)
+            continue
+
+        if new_message.get("role") == "assistant" and dropped_reasoning:
+            previous = new_message.get("reasoning_content")
+            new_message["reasoning_content"] = "\n".join(
+                dropped_reasoning
+                + (
+                    [previous]
+                    if isinstance(previous, str) and previous
+                    else []
+                )
+            )
+            dropped_reasoning = []
+        elif new_message.get("role") != "assistant":
+            # Reasoning from an assistant turn does not belong to another role.
+            dropped_reasoning = []
 
         new_messages.append(new_message)
 
