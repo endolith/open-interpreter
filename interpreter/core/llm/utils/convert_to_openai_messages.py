@@ -357,7 +357,14 @@ def convert_to_openai_messages(
                 "role": current_role,
                 "content": separator.join(current_content),
             }
-            reasoning = "\n".join(value for value in current_reasoning if value)
+            # A relay can store reasoning_content as a list or dict. The
+            # normalization in `_fill_reasoning_content` runs after conversion,
+            # so it cannot protect this join; treat non-strings as empty here.
+            reasoning = "\n".join(
+                value
+                for value in current_reasoning
+                if isinstance(value, str) and value
+            )
             if reasoning:
                 combined["reasoning_content"] = reasoning
             combined_messages.append(combined)
