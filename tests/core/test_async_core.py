@@ -3139,3 +3139,66 @@ class TestConfirmationDigestValues(TestCase):
             confirmation_digest({"format": "", "content": ""}),
         )
 
+
+
+class TestAsyncInputMessageOpenState(TestCase):
+    """Binary frames require a message opened by "start" and not yet closed by "end"."""
+
+    def test_binary_chunk_appends_while_a_message_is_open(self):
+        """A binary frame during an open message appends its bytes."""
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+
+        async def run():
+            """Open a message, then send one binary frame into it."""
+            await interpreter.input({"role": "user", "start": True})
+            await interpreter.input(b"\x00\x01")
+
+        asyncio.run(run())
+
+        assert interpreter.messages[0]["content"] == b"\x00\x01"
+
+    def test_binary_chunk_after_end_is_rejected(self):
+        """A binary frame after "end" cannot mutate the completed message."""
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+        interpreter.output_queue = janus.Queue()
+
+        async def run():
+            """Open a message, close it, then try to append to the closed one."""
+            await interpreter.input({"role": "user", "start": True})
+            await interpreter.input(b"\x00")
+            interpreter.respond = lambda *args, **kwargs: None
+            await interpreter.input({"role": "user", "end": True})
+            with pytest.raises(ValueError, match="open message"):
+                await interpreter.input(b"\x01")
+
+        asyncio.run(run())
+        assert interpreter.messages[0]["content"] == b"\x00"
+
+    def test_ignored_start_chunk_does_not_reopen_binary_input(self):
+        """An "active_line" start does not reopen the message "end" already closed.
+
+        accumulate() drops progress-only chunks, so their "start" flag must not
+        put the interpreter back into an open-message state: a later binary
+        frame would otherwise append to a completed message.
+        """
+        import asyncio
+
+        interpreter = AsyncInterpreter()
+        interpreter.output_queue = janus.Queue()
+
+        async def run():
+            """Close a message, then send a progress-only start and a binary frame."""
+            await interpreter.input({"role": "user", "start": True})
+            await interpreter.input(b"\x00")
+            interpreter.respond = lambda *args, **kwargs: None
+            await interpreter.input({"role": "user", "end": True})
+            await interpreter.input({"role": "user", "start": True, "format": "active_line"})
+            with pytest.raises(ValueError, match="open message"):
+                await interpreter.input(b"\x01")
+
+        asyncio.run(run())
+        assert interpreter.messages[0]["content"] == b"\x00"
