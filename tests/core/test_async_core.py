@@ -543,6 +543,49 @@ class TestAsyncInputLifecycle(TestCase):
         self.assertTrue(self.interpreter._approval_event.is_set())
         self.assertFalse(self.interpreter._approval_granted)
 
+    def test_untyped_start_before_a_go_command_keeps_the_pending_approval(self):
+        """The documented untyped envelope must not cancel a go approval (#305).
+
+        `{"role": "user", "start": true}` is also used for control commands, so
+        the teardown must wait for the content chunk before deciding the turn is
+        a new message.
+        """
+        payload = {"format": "python", "content": "print(1)"}
+        digest = confirmation_digest(payload)
+        self.interpreter.pending_confirmation = payload
+        self.interpreter.pending_confirmation_digest = digest
+        self.interpreter._approval_granted = False
+        self.interpreter.respond_thread = mock.MagicMock()
+        self.interpreter.respond_thread.is_alive.return_value = True
+
+        self._feed(
+            {"role": "user", "start": True},
+            {"role": "user", "type": "command", "content": f"go:{digest}"},
+            {"role": "user", "type": "command", "end": True},
+        )
+
+        self.assertTrue(self.interpreter._approval_granted)
+        self.interpreter.respond_thread.join.assert_not_called()
+        self.assertFalse(self.interpreter.stop_event.is_set())
+
+    def test_untyped_start_before_a_new_message_still_cancels_the_approval(self):
+        """A real new message still supersedes the pending approval (#305)."""
+        payload = {"format": "python", "content": "print(1)"}
+        self.interpreter.pending_confirmation = payload
+        self.interpreter.pending_confirmation_digest = confirmation_digest(payload)
+        self.interpreter._approval_granted = False
+        self.interpreter.respond_thread = mock.MagicMock()
+        self.interpreter.respond_thread.is_alive.return_value = True
+
+        self._feed(
+            {"role": "user", "start": True},
+            {"role": "user", "type": "message", "content": "never mind"},
+        )
+
+        self.assertTrue(self.interpreter._approval_event.is_set())
+        self.assertFalse(self.interpreter._approval_granted)
+        self.interpreter.respond_thread.join.assert_called_once()
+
     def test_non_command_start_without_a_running_thread_never_joins(self):
         """With no respond thread in flight the start chunk only accumulates.
 
@@ -3139,3 +3182,24 @@ class TestConfirmationDigestValues(TestCase):
             confirmation_digest({"format": "", "content": ""}),
         )
 
+
+
+def test_untyped_start_and_end_without_content_joins_the_old_thread():
+    """An empty deferred turn must not leave the previous response running."""
+    import asyncio
+
+    interpreter = AsyncInterpreter()
+    interpreter.output_queue = janus.Queue()
+    # With a pending approval the untyped start defers its teardown.
+    interpreter.pending_confirmation = {"format": "python", "content": "print(1)"}
+    old_thread = interpreter.respond_thread = mock.MagicMock()
+    old_thread.is_alive.return_value = True
+    interpreter.respond = lambda *args, **kwargs: None
+
+    async def run():
+        await interpreter.input({"role": "user", "start": True})
+        await interpreter.input({"role": "user", "end": True})
+
+    asyncio.run(run())
+
+    old_thread.join.assert_called_once()
