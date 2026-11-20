@@ -52,3 +52,31 @@ def test_html_run_chunk_dicts_are_exact():
     ]
     to_png.assert_called_once_with(code)
 
+
+def test_html_run_omits_image_when_the_browser_cannot_render():
+    """HTML.run() yields no image chunk when rendering returns None.
+
+    html_to_png_base64() reports a missing or failing headless browser by
+    returning None. An image chunk whose content is None would hand the
+    assistant a broken attachment, so the chunk is omitted and the console
+    line above still tells it the HTML is on screen.
+    """
+    html = HTML()
+    code = "<html><body>Hi</body></html>"
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.html.html_to_png_base64",
+        return_value=None,
+    ) as to_png:
+        chunks = list(html.run(code))
+
+    assert chunks == [
+        {
+            "type": "console",
+            "format": "output",
+            "content": "HTML being displayed on the user's machine...",
+            "recipient": "assistant",
+        },
+        {"type": "code", "format": "html", "content": code, "recipient": "user"},
+    ]
+    to_png.assert_called_once_with(code)
+
