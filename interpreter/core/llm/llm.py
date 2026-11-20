@@ -13,6 +13,7 @@ litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
 
 import json
 import logging
+import re
 import subprocess
 import time
 
@@ -540,6 +541,117 @@ def _fill_reasoning_content(params):
             last_reasoning = None
 
 
+# A model that is unavailable is unavailable permanently (a typo, a retired
+# name), so matching the bare word "unavailable" turned a typo into four
+# pointless attempts. These phrases are checked first, and before the generic
+# retryable markers, because a message can contain both ("Model is
+# unavailable. Please try again later.") and the permanent cause must win.
+# "was not found" and "does not exist" are deliberately absent: they describe
+# any missing resource ("Backend was not found"), so only the model-scoped
+# pattern below may treat a missing model as permanent.
+_PERMANENT_MARKERS = (
+    "model is unavailable",
+    "model unavailable",
+    "model not available",
+    "model not found",
+    "no such model",
+    "unknown model",
+    "invalid api key",
+    "incorrect api key",
+    "invalid_api_key",
+)
+
+# Unavailability that genuinely clears on its own. Matched as phrases rather
+# than as the single word "unavailable", so the classification says what it
+# means and "temporarily unavailable" is never read as a permanent model typo.
+_TEMPORARY_UNAVAILABLE_PHRASES = (
+    "temporarily unavailable",
+    "temporarily not available",
+    "service unavailable",
+    "service is unavailable",
+    "provider unavailable",
+)
+
+# 4xx statuses that do clear on their own: request timeout, too early, and
+# throttling. A 429 that means quota exhaustion is handled separately below.
+_RETRYABLE_4XX_STATUSES = (408, 425, 429)
+
+# A 429 is throttling and clears on its own, with one exception: the account's
+# billing quota is exhausted. The bare word "quota" is not that exception --
+# per-minute quota messages ("Requests-per-minute quota exceeded; retry
+# shortly") are ordinary throttling -- so match a cause that names the billing
+# state instead.
+_PERMANENT_429_PHRASES = (
+    "insufficient_quota",
+    "exceeded your current quota",
+)
+
+# A provider names the bad model in the message ("The model `foo` was not
+# found"), so a literal phrase cannot match across the name. The negative word
+# must follow the model name directly (optionally through an auxiliary verb):
+# letting arbitrary text intervene made "Request for model gpt-4o failed: endpoint
+# not found" look like a rejection of the model when the endpoint was the missing
+# resource. A message that merely mentions a model ("Unknown error while
+# requesting model gpt-4o") must keep the historical retry behaviour.
+_MODEL_REJECTION_PATTERN = re.compile(
+    r"\b(?:no such|unknown)\s+model\b|"
+    r"\bmodel\b\s*:?\s*(?:`[^`]+`|'[^']+'|\"[^\"]+\"|[^\s;!,]+)\s*"
+    r"(?:(?:is|was|has been)\s+)?"
+    r"(?:not found|not available|unavailable|does not exist)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_permanent_provider_error(error):
+    """
+    Return True when a provider error cannot succeed on a retry.
+
+    Retrying a permanent failure (auth, missing model, malformed request,
+    exhausted quota) four times only delays the message the user needs, so the
+    retry loop raises it immediately. Anything this cannot positively identify
+    as permanent keeps the historical retry behaviour: an unrecognised failure
+    may still be a transient connection blip, and dropping that retry would
+    make the client less resilient than it was before.
+
+    Structured providers expose the HTTP status as an integer, so that is
+    preferred. Substring matching is only the fallback for errors that carry no
+    status at all (plain strings, connection failures, bare JSON bodies).
+    """
+    message = str(error).lower()
+    for attr in ("status_code", "http_status"):
+        status = getattr(error, attr, None)
+        if isinstance(status, int) and status > 0:
+            if status in _RETRYABLE_4XX_STATUSES or 500 <= status <= 599:
+                if status == 429 and any(
+                    phrase in message for phrase in _PERMANENT_429_PHRASES
+                ):
+                    # Billing quota exhaustion is a 429 that never clears;
+                    # retrying hides the billing hint behind four attempts.
+                    return True
+                return False
+            if 400 <= status <= 499:
+                return True
+            # A nonsense status (e.g. 200 on an exception) says nothing about
+            # retryability, but it must not stop the other attribute from
+            # deciding: a proxy can report 200 in one field while the real
+            # upstream error is a usable 5xx/4xx in the other. Only when
+            # neither attribute is usable do the text heuristics apply.
+            continue
+    # An explicit permanent cause wins over a temporary-sounding remainder:
+    # "invalid api key; service temporarily unavailable" is an auth failure,
+    # and retrying it four times only delays the error the user needs.
+    if any(marker in message for marker in _PERMANENT_MARKERS):
+        return True
+    if any(phrase in message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES):
+        return False
+    # Checked after the outage phrases so that "model temporarily unavailable"
+    # stays retryable; a model rejection that also claims a temporary outage is
+    # contradictory, and the explicit outage phrase is the more specific signal.
+    if _MODEL_REJECTION_PATTERN.search(message):
+        return True
+    return False
+
+
 def fixed_litellm_completions(**params):
     """
     Just uses a dummy API key, since we use litellm without an API key sometimes.
@@ -594,6 +706,14 @@ def fixed_litellm_completions(**params):
                 )
                 # So, let's try one more time with a dummy API key:
                 params["api_key"] = "x"
+                # The missing key was the problem, not the request, so this
+                # attempt is not evidence of a permanent failure: retry it.
+                continue
+            if _is_permanent_provider_error(e):
+                # Auth, missing model, malformed request, exhausted quota:
+                # a retry cannot help, so surface the error now instead of
+                # spending three more attempts on it.
+                raise
             if attempt == 1:
                 # Try turning up the temperature?
                 params["temperature"] = params.get("temperature", 0.0) + 0.1
