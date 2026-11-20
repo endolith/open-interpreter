@@ -14,4 +14,5 @@ The following magic commands will work:
 - %reset: Resets the current session's conversation.
 - %undo: Removes the previous user message and the AI's response from the message history.
 - %tokens [prompt]: (Experimental) Calculate the tokens that will be sent with the next prompt as context and estimate their cost. Optionally calculate the tokens and estimated cost of a prompt if one is provided. Relies on LiteLLM's cost_per_token() method for estimated costs.
+- %usage: Show token usage from the last model response, including prompt/completion totals and provider detail fields when returned.
 - %help: Show the help message.

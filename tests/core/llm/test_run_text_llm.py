@@ -1,3 +1,4 @@
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -684,3 +685,110 @@ def test_four_tick_opener_split_across_deltas():
     )
     result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
     assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+def test_new_completion_clears_stale_usage():
+    """A new model call must not report the previous completion's usage."""
+    llm = _make_llm([{"choices": [{"delta": {"content": "hi"}}]}])
+    llm.last_completion_usage = {"total_tokens": 1}
+
+    assert _text_of(list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))) == "hi"
+    assert llm.last_completion_usage is None
+
+
+def test_usage_chunk_after_closing_fence_is_recorded():
+    """The final usage-only chunk is drained after the closing code fence."""
+    llm = _make_llm(
+        [
+            {"choices": [{"delta": {"content": "```python\n"}}]},
+            {"choices": [{"delta": {"content": "print(1)\n"}}]},
+            {"choices": [{"delta": {"content": "```\n"}}]},
+            {"choices": [], "usage": {"total_tokens": 9}},
+        ]
+    )
+
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert result == [
+        {"type": "code", "format": "python", "content": "print(1)\n"},
+    ]
+    assert llm.last_completion_usage == {"total_tokens": 9}
+
+
+def _streaming_llm(chunks, error):
+    """Build an llm whose completions yields chunks, then raises error."""
+
+    def completions(**params):
+        for chunk in chunks:
+            yield chunk
+        raise error
+
+    return SimpleNamespace(
+        completions=completions,
+        execution_instructions=None,
+        interpreter=SimpleNamespace(verbose=False, os=False),
+    )
+
+
+def test_stream_error_after_closing_fence_keeps_the_code_block():
+    """A provider error while draining usage must not discard a finished reply.
+
+    respond() executes a code block only after llm.run finishes, so an
+    exception raised after the closing fence would skip code the model already
+    sent. The remaining chunks only carry usage, so the error ends the drain.
+    """
+    llm = _streaming_llm(
+        [{"choices": [{"delta": {"content": "```python\nprint(1)\n```\n"}}]}],
+        RuntimeError("late provider error"),
+    )
+
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+
+
+def test_stream_error_before_closing_fence_still_propagates():
+    """An error before the reply is complete must still reach the caller.
+
+    Only errors after the closing fence are recoverable; a stream that fails
+    mid-reply has not produced a complete code block, so it must surface.
+    """
+    llm = _streaming_llm(
+        [{"choices": [{"delta": {"content": "```python\nprint(1)\n"}}]}],
+        RuntimeError("mid-stream provider error"),
+    )
+
+    with pytest.raises(RuntimeError, match="mid-stream provider error"):
+        list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+
+def test_stop_event_ends_the_drain_after_the_closing_fence():
+    """A cancellation during the usage drain must stop consuming the stream.
+
+    Nothing is yielded once the reply is complete, so core's per-chunk
+    stop_event check cannot see the cancellation until the provider closes the
+    stream; a long trailing explanation would keep the turn alive. The drain
+    stops as soon as the event is set.
+    """
+    stop_event = threading.Event()
+    pulled = []
+
+    def completions(**params):
+        yield {"choices": [{"delta": {"content": "```python\nprint(1)\n```\n"}}]}
+        # The user cancels while the drain is in progress.
+        stop_event.set()
+        pulled.append("first trailing chunk")
+        yield {"choices": [{"delta": {"content": "trailing prose"}}]}
+        pulled.append("second trailing chunk")
+        yield {"choices": [], "usage": {"total_tokens": 9}}
+
+    llm = SimpleNamespace(
+        completions=completions,
+        execution_instructions=None,
+        interpreter=SimpleNamespace(verbose=False, os=False, stop_event=stop_event),
+    )
+
+    result = list(run_text_llm(llm, {"messages": [{"content": "sys"}]}))
+
+    assert result == [{"type": "code", "format": "python", "content": "print(1)\n"}]
+    assert pulled == ["first trailing chunk"]
