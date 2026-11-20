@@ -7,6 +7,7 @@ import sys
 
 from interpreter import OpenInterpreter
 from interpreter.terminal_interface import magic_commands
+from interpreter.terminal_interface.utils.declined_code import DECLINED_CODE_MESSAGE
 from tests.helpers import TEST_LLM_MODEL
 
 
@@ -303,20 +304,17 @@ def test_markdown_export_delegates(tmp_path):
     export.assert_called_once_with(interpreter.messages, export_path)
 
 
-def test_jupyter_exports_notebook(tmp_path):
-    """%jupyter builds a notebook from messages and writes it to Downloads."""
+def _export_jupyter_cells(interpreter, tmp_path):
+    """Run %jupyter with a stubbed nbformat and return the notebook's cells."""
     import types
 
-    interpreter = _interpreter(
-        messages=[
-            {"role": "user", "type": "message", "content": "question"},
-            {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
-        ]
-    )
     captured = {}
 
     v4_module = types.ModuleType("nbformat.v4")
-    v4_module.new_markdown_cell = lambda content: {"cell_type": "markdown", "source": content}
+    v4_module.new_markdown_cell = lambda content: {
+        "cell_type": "markdown",
+        "source": content,
+    }
     v4_module.new_code_cell = lambda content: mock.Mock(metadata={}, source=content)
     v4_module.new_notebook = lambda: captured.setdefault("nb", {"cells": []})
 
@@ -336,12 +334,62 @@ def test_jupyter_exports_notebook(tmp_path):
             ):
                 magic_commands.jupyter(interpreter, "")
 
-    cells = captured["nb"]["cells"]
+    return captured["nb"]["cells"], nbformat_module
+
+
+def test_jupyter_exports_notebook(tmp_path):
+    """%jupyter builds a notebook from messages and writes it to Downloads."""
+    interpreter = _interpreter(
+        messages=[
+            {"role": "user", "type": "message", "content": "question"},
+            {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
+        ]
+    )
+
+    cells, nbformat_module = _export_jupyter_cells(interpreter, tmp_path)
     assert len(cells) == 2
     assert cells[0]["source"].startswith("> question")
     assert cells[1].metadata == {"language": "python"}
     nbformat_module.write.assert_called_once()
     interpreter.display_message.assert_called()
+
+
+def test_jupyter_skips_ordinary_console_output(tmp_path):
+    """%jupyter does not export console output that is not a refusal.
+
+    Console stdout belongs to the code cell that produced it and is already in
+    the notebook as that cell's output, so only the refused-run marker is
+    translated into a markdown cell.
+    """
+    interpreter = _interpreter(
+        messages=[
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "print(4)",
+            },
+            {
+                "role": "assistant",
+                "type": "console",
+                "format": "output",
+                "content": "4\n",
+                "recipient": "user",
+            },
+            {
+                "role": "computer",
+                "type": "console",
+                "format": "output",
+                "content": "4\n",
+                "recipient": "assistant",
+            },
+        ]
+    )
+
+    cells, _ = _export_jupyter_cells(interpreter, tmp_path)
+
+    assert len(cells) == 1
+    assert cells[0].metadata == {"language": "python"}
 
 
 def test_install_and_import_returns_existing_module():
@@ -547,40 +595,50 @@ def test_markdown_without_conversation_filename_asks_for_path(monkeypatch, capsy
 def test_jupyter_handles_assistant_markdown_and_default_language(tmp_path):
     """%jupyter renders assistant messages as markdown and defaults code
     cells without a format to python."""
-    import types
-
     interpreter = _interpreter(
         messages=[
             {"role": "assistant", "type": "message", "content": "assistant note"},
             {"role": "assistant", "type": "code", "content": "print(2)"},
         ]
     )
-    captured = {}
 
-    v4_module = types.ModuleType("nbformat.v4")
-    v4_module.new_markdown_cell = lambda content: {
-        "cell_type": "markdown",
-        "source": content,
-    }
-    v4_module.new_code_cell = lambda content: mock.Mock(metadata={}, source=content)
-    v4_module.new_notebook = lambda: captured.setdefault("nb", {"cells": []})
+    cells, _ = _export_jupyter_cells(interpreter, tmp_path)
 
-    nbformat_module = types.ModuleType("nbformat")
-    nbformat_module.write = mock.Mock()
-    nbformat_module.v4 = v4_module
-
-    with mock.patch.object(
-        magic_commands, "install_and_import", return_value=nbformat_module
-    ):
-        with mock.patch.object(
-            magic_commands, "get_downloads_path", return_value=str(tmp_path)
-        ):
-            with mock.patch.dict(
-                "sys.modules",
-                {"nbformat": nbformat_module, "nbformat.v4": v4_module},
-            ):
-                magic_commands.jupyter(interpreter, "")
-
-    cells = captured["nb"]["cells"]
     assert cells[0] == {"cell_type": "markdown", "source": "assistant note"}
     assert cells[1].metadata == {"language": "python"}
+
+
+def test_jupyter_keeps_declined_code_refusal_visible(tmp_path):
+    """%jupyter keeps the refusal beside a code cell the user declined.
+
+    The notebook still exports the proposed code as an executable cell, so
+    without the refusal a reader (or a Run All) would see code that looks
+    approved. Refusals are recorded as console output, which the exporter
+    otherwise skips, so it has to translate the refusal into a markdown cell.
+    """
+    interpreter = _interpreter(
+        messages=[
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "print(3)",
+            },
+            {
+                "role": "computer",
+                "type": "console",
+                "format": "output",
+                "content": DECLINED_CODE_MESSAGE,
+                "recipient": "assistant",
+            },
+        ]
+    )
+
+    cells, _ = _export_jupyter_cells(interpreter, tmp_path)
+
+    assert len(cells) == 2
+    assert cells[0].metadata == {"language": "python"}
+    assert cells[1] == {
+        "cell_type": "markdown",
+        "source": f"> {DECLINED_CODE_MESSAGE}",
+    }

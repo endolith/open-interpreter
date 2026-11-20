@@ -25,6 +25,7 @@ from .components.message_block import MessageBlock
 from .magic_commands import handle_magic_command
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
+from .utils.declined_code import DECLINED_CODE_MESSAGE
 from .utils.display_output import display_output
 from .utils.find_image_path import find_image_path
 
@@ -283,12 +284,17 @@ def terminal_interface(interpreter, message):
                             active_block.language = language
                             active_block.code = code
                         else:
-                            # User declined to run code.
+                            # Record the refusal as the execute call's result,
+                            # paired with the assistant's code message: %undo
+                            # only pops role="user" messages, so role="computer"
+                            # keeps the declined turn attached to its call.
                             interpreter.messages.append(
                                 {
-                                    "role": "user",
-                                    "type": "message",
-                                    "content": "I have declined to run this code.",
+                                    "role": "computer",
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": DECLINED_CODE_MESSAGE,
+                                    "recipient": "assistant",
                                 }
                             )
                             break
