@@ -90,3 +90,27 @@ def test_html_to_png_base64_temp_filename_is_ten_digits_and_png(tmp_path, monkey
     assert len(stem) == 10
     assert stem.isdigit()
 
+
+
+def test_html_to_png_base64_silences_the_headless_browser(tmp_path, monkeypatch):
+    """The renderer asks html2image to suppress the browser's own output.
+
+    Without disable_logging the browser subprocess inherits our stdout and
+    stderr, so a container without a D-Bus socket prints "Failed to connect to
+    the bus" for every render, plus its own "bytes written to file" line, into
+    the user's console and buries the assistant output.
+    """
+    monkeypatch.setattr(
+        html_to_png_base64, "get_storage_path", lambda: str(tmp_path)
+    )
+    mock_hti = mock.Mock()
+    mock_hti.output_path = None
+    mock_hti.screenshot = lambda html_str, save_as, size: (
+        tmp_path / save_as
+    ).write_bytes(b"x")
+
+    with mock.patch.object(html_to_png_base64, "html2image") as lazy:
+        lazy.Html2Image.return_value = mock_hti
+        html_to_png_base64.html_to_png_base64("<html></html>")
+
+    lazy.Html2Image.assert_called_once_with(disable_logging=True)
