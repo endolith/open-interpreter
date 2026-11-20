@@ -10,6 +10,7 @@ except ImportError:
 
 import os
 import platform
+import litellm
 import random
 import re
 import subprocess
@@ -560,6 +561,14 @@ def terminal_interface(interpreter, message):
                 continue
             else:
                 break
+        except litellm.exceptions.APIConnectionError as e:
+            if "active_block" in locals() and active_block:
+                active_block.end()
+                active_block = None
+            if interactive:
+                interpreter.display_message(f"\n> Provider error: {e}\n")
+                continue
+            raise
         except:
             if interpreter.debug:
                 system_info(interpreter)

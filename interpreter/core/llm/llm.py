@@ -565,7 +565,18 @@ def fixed_litellm_completions(**params):
     for attempt in range(attempts):
         started = False
         try:
-            for chunk in litellm.completion(**params):
+            completion = litellm.completion(**params)
+            if completion is None:
+                # A provider/wrapper can return nothing at all. Iterating None
+                # raises TypeError from inside the stream, which is not
+                # classified as a provider fault and kills the REPL; report the
+                # actual failure so the retry handler can surface it.
+                raise litellm.exceptions.APIConnectionError(
+                    message="litellm.completion returned no response",
+                    llm_provider=params.get("custom_llm_provider") or "litellm",
+                    model=params.get("model") or "",
+                )
+            for chunk in completion:
                 started = True
                 yield chunk
             return  # If the completion is successful, exit the function
