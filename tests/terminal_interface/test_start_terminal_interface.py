@@ -6,6 +6,7 @@ import pytest
 
 from interpreter.terminal_interface.start_terminal_interface import (
     get_argument_dictionary,
+    main,
     set_attributes,
     start_terminal_interface,
 )
@@ -101,6 +102,58 @@ def test_start_terminal_interface_version_flag_returns_early(monkeypatch, capsys
 
     assert result is None
     assert "Open Interpreter" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("flag", ["--version", "--help", "-h"])
+def test_main_fast_exit_flags_run_on_the_stub(monkeypatch, capsys, flag):
+    """main() serves --version/--help from a stub without importing interpreter.
+
+    The MagicMock tests above cannot catch a stub that lacks an object the
+    argument table dereferences (decision_model crashed both flags), so this
+    goes through main() itself.
+    """
+    monkeypatch.setattr(sys, "argv", ["oi", flag])
+
+    try:
+        main()
+    except SystemExit as exit_:
+        assert exit_.code in (0, None)
+
+    out = capsys.readouterr().out
+    assert "Open Interpreter" in out or "usage:" in out
+
+
+def test_main_fast_exit_stub_resolves_settings_it_does_not_know(monkeypatch):
+    """The fast-exit stub must answer any object the argument table touches.
+
+    The table is built inside start_terminal_interface() and dereferences one
+    object per setting (interpreter.llm, interpreter.decision_model, ...). A
+    stub with a fixed attribute list breaks --help/--version every time a
+    setting is added: c55c92c added decision_model and crashed both flags until
+    the list was patched by hand. Reaching for an attribute no such list could
+    predict pins the mechanism rather than today's list, so the next addition
+    fails here instead of in the field.
+    """
+    import interpreter.terminal_interface.start_terminal_interface as sti
+
+    seen = {}
+
+    def standing_in_for_the_argument_table(interpreter):
+        # A setting that was not in the stub's hardcoded list. Its own
+        # attributes must resolve too, since a setting can be nested.
+        seen["attr"] = interpreter.some_future_setting
+        seen["nested"] = interpreter.some_future_setting.attr_name
+        raise SystemExit(0)
+
+    monkeypatch.setattr(sti, "start_terminal_interface", standing_in_for_the_argument_table)
+    monkeypatch.setattr(sys, "argv", ["oi", "--help"])
+
+    try:
+        main()
+    except SystemExit as exit_:
+        assert exit_.code in (0, None)
+
+    assert set(seen) == {"attr", "nested"}, "the stub must answer unknown settings"
 
 
 def test_start_terminal_interface_renames_deprecated_debug_mode_flag(

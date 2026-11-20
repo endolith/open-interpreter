@@ -718,15 +718,20 @@ def main():
     # (argparse calls sys.exit), so skip the heavy interpreter import entirely.
     _FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
     if _FAST_EXIT_FLAGS.intersection(sys.argv):
+        # The argument table dereferences interpreter.<obj> for every setting
+        # (llm, decision_model, ...) before argparse can exit. A stub with a
+        # fixed attribute list breaks --help/--version each time a new object
+        # joins that table (c55c92c added decision_model and crashed both), so
+        # missing attributes resolve to further stubs instead.
         class _Stub:
-            pass
-        _stub = _Stub()
-        _stub.llm = _Stub()
-        # The argument definitions bind --code_evaluation_* to these objects
-        # before argparse runs, so the stub needs them even though no flag
-        # handling is reached.
-        _stub.decision_model = _Stub()
-        start_terminal_interface(_stub)
+            def __getattr__(self, name):
+                if name.startswith("__"):
+                    raise AttributeError(name)
+                value = _Stub()
+                setattr(self, name, value)
+                return value
+
+        start_terminal_interface(_Stub())
         return  # unreachable; already exited
 
     from interpreter import interpreter
