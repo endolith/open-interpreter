@@ -434,6 +434,72 @@ def test_load_fetches_context_window_from_litellm():
     assert llm.max_tokens == 1600
 
 
+def test_load_applies_deepseek_environment(monkeypatch):
+    """DeepSeek model loading reads DEEPSEEK_API_KEY and the optional base URL."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("DEEPSEEK_API_BASE", "https://deepseek.example/v1")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+
+    llm.load()
+
+    assert llm.api_key == "deepseek-key"
+    assert llm.api_base == "https://deepseek.example/v1"
+
+
+def test_load_keeps_explicit_deepseek_config(monkeypatch):
+    """Explicit llm.api_key/api_base values win over the environment."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+    monkeypatch.setenv("DEEPSEEK_API_BASE", "https://env.example/v1")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.api_key = "explicit-key"
+    llm.api_base = "https://explicit.example/v1"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+
+    llm.load()
+
+    assert llm.api_key == "explicit-key"
+    assert llm.api_base == "https://explicit.example/v1"
+
+
+def test_switching_away_from_deepseek_drops_env_credentials(monkeypatch):
+    """DeepSeek env credentials must not follow the model to another provider."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("DEEPSEEK_API_BASE", "https://deepseek.example/v1")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+    llm.load()
+    assert llm.api_key == "deepseek-key"
+
+    llm.model = "gpt-4o-mini"
+
+    assert llm.api_key is None
+    assert llm.api_base is None
+
+
+def test_switching_away_from_deepseek_keeps_explicit_overrides(monkeypatch):
+    """A key set after load is the user's and survives a model switch."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm.context_window = 8000
+    llm.max_tokens = 1000
+    llm.load()
+    llm.api_key = "explicit-key"
+    llm.api_base = "https://proxy.example"
+
+    llm.model = "gpt-4o-mini"
+
+    assert llm.api_key == "explicit-key"
+    assert llm.api_base == "https://proxy.example"
+
+
 def test_load_ollama_downloads_and_pings_model():
     """llm.load for an ollama model pulls it if missing, reads its context
     window, and pings it to force a load."""
@@ -974,3 +1040,29 @@ def test_run_prepends_empty_system_message():
 
     assert captured["params"]["messages"][0]["role"] == "system"
     assert captured["params"]["messages"][0]["content"] == ""
+
+def test_a_rejected_model_change_keeps_the_previous_model_and_its_cleanup():
+    """An invalid assignment must not corrupt the state the key cleanup reads.
+
+    The setter wrote `_model` before validating, so `None` raised on `.lower()`
+    after the switch was already recorded: the DeepSeek key was never cleared,
+    and because `previous` was now None the *next* switch skipped the cleanup
+    too, letting that key follow the user to an unrelated provider.
+    """
+    llm = Llm(_interp())
+    llm.model = "deepseek/deepseek-chat"
+    llm._deepseek_env_api_key = "sk-deepseek"
+    llm._deepseek_env_api_base = "https://api.deepseek.com"
+    llm.api_key = "sk-deepseek"
+    llm.api_base = "https://api.deepseek.com"
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        llm.model = None
+
+    assert llm.model == "deepseek/deepseek-chat"
+    assert llm.api_key == "sk-deepseek"
+
+    llm.model = "gpt-4o-mini"
+
+    assert llm.api_key is None
+    assert llm.api_base is None
