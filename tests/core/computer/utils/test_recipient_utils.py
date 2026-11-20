@@ -69,3 +69,59 @@ def test_content_containing_a_colon_is_preserved():
     recipient, content = parse_for_recipient(tagged)
     assert recipient == "assistant"
     assert content == "http://example.com"
+
+def test_parse_preserves_payload_containing_the_marker():
+    """Content that itself contains @@@ survives a round-trip (#376).
+
+    Splitting on every @@@ cut the payload at its first occurrence; the parser
+    must use the fixed prefix/separator and the final end marker instead.
+    """
+    text = "first @@@ middle @@@CONTENT: not a separator @@@END-ish last"
+    recipient, parsed = parse_for_recipient(format_to_recipient(text, "user"))
+
+    assert recipient == "user"
+    assert parsed == text
+
+
+def test_prefix_and_end_without_content_separator_is_plain_text():
+    """An envelope missing the content separator is left untouched."""
+    content = "@@@RECIPIENT:user@@@END"
+    recipient, parsed = parse_for_recipient(content)
+
+    assert recipient is None
+    assert parsed == content
+
+
+def test_partial_end_marker_is_plain_text():
+    """An envelope whose input ends with a longer marker is left unchanged."""
+    content = "@@@RECIPIENT:user@@@CONTENT:hello@@@END-ish"
+
+    assert parse_for_recipient(content) == (None, content)
+
+
+def test_payload_ending_with_the_marker_round_trips():
+    """A payload whose own text ends in @@@END survives the round trip.
+
+    format_to_recipient appends its own @@@END, so this input encodes to two
+    markers back to back. Stripping exactly one marker by length is what keeps
+    the payload's copy; an rsplit-based parser would also look right here while
+    dropping the payload's marker.
+    """
+    text = "done@@@END"
+    recipient, parsed = parse_for_recipient(format_to_recipient(text, "user"))
+
+    assert recipient == "user"
+    assert parsed == text
+
+
+def test_trailing_bytes_after_end_marker_are_plain_text():
+    """An envelope with anything after @@@END passes through unchanged.
+
+    The guard requires the message to end with the marker, so a stray trailing
+    newline or other trailing text is treated as ordinary text instead of being
+    split at the prefix. Returning plain text is the safe direction when the end
+    of the payload cannot be located.
+    """
+    content = "@@@RECIPIENT:user@@@CONTENT:hello@@@END trailing"
+
+    assert parse_for_recipient(content) == (None, content)
