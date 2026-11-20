@@ -32,6 +32,34 @@ def _pending_code_message(messages):
     return None
 
 
+def _discard_streamed_code(messages):
+    """Drop assistant code stored for a turn whose generator failed before it finished.
+
+    The caller stores each yielded code chunk as it arrives, so a generator that
+    refuses the stream (for example the tool-calling guards raising on a code
+    replacement) has already left partial code in the transcript. A loop-mode
+    iteration or a later respond() call that starts without a new user message
+    keys off that message and would run exactly the code the generator refused
+    to run, so the partial block is removed before the error propagates.
+    """
+    index = len(messages) - 1
+    while index >= 0:
+        message = messages[index]
+        if message.get("type") == "code" and message.get("role") == "assistant":
+            del messages[index]
+        elif (
+            message.get("type") == "message"
+            and not (message.get("content") or "").strip()
+            and message.get("reasoning_content")
+        ):
+            # Reasoning-only chunks can land after the code block; keep looking
+            # past them for the code this turn stored.
+            pass
+        else:
+            break
+        index -= 1
+
+
 def respond(interpreter):
     """
     Yields chunks.
@@ -122,6 +150,7 @@ def respond(interpreter):
                 ) != transcript_before_llm
 
             except litellm.exceptions.BudgetExceededError:
+                _discard_streamed_code(interpreter.messages)
                 interpreter.display_message(
                     f"""> Max budget exceeded
 
@@ -134,6 +163,7 @@ def respond(interpreter):
                 break
 
             except Exception as e:
+                _discard_streamed_code(interpreter.messages)
                 error_message = str(e).lower()
                 if (
                     interpreter.offline == False

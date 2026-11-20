@@ -548,3 +548,31 @@ def test_alias_normalization_updates_the_code_message_not_trailing_reasoning():
 
     assert code["format"] == "python"
     assert "format" not in reasoning
+
+
+def test_rejected_streamed_code_is_not_left_pending():
+    """Code streamed before a generator failure must not stay executable.
+
+    The caller stores yielded chunks as they arrive, so a tool-calling guard
+    that raises after yielding code has already put a partial block in the
+    transcript. In loop mode the next pass sees pending code and runs it
+    without asking the model again, which would execute exactly the code the
+    guard refused. respond() must remove that turn's stored code before the
+    error escapes.
+    """
+    interpreter = _code_interpreter(code="1+1")
+    interpreter.messages = [{"role": "user", "type": "message", "content": "hi"}]
+
+    def run(_messages):
+        yield {"type": "code", "format": "python", "content": "print(1)"}
+        raise TypeError("replaced code already streamed")
+
+    interpreter.llm = SimpleNamespace(run=run, supports_vision=False, max_budget=0)
+
+    with pytest.raises(TypeError, match="replaced code already streamed"):
+        for chunk in respond(interpreter):
+            if chunk.get("type") == "code":
+                interpreter.messages.append({"role": "assistant", **chunk})
+
+    assert _pending_code_message(interpreter.messages) is None
+    assert [m for m in interpreter.messages if m.get("type") == "code"] == []
