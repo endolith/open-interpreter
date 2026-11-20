@@ -395,6 +395,62 @@ class TestAsyncApprovalBinding(TestCase):
 
         self.assertFalse(self.interpreter._approve_pending_confirmation("deadbeef"))
 
+    def test_cancel_pending_confirmation_requires_pending_state(self):
+        """Cancelling is a no-op when no confirmation is currently pending."""
+        self.assertFalse(self.interpreter.cancel_pending_confirmation())
+
+    def test_cancel_pending_confirmation_releases_a_parked_thread(self):
+        """Cancelling clears the pending payload and wakes the approval event.
+
+        A client that disconnected will never send "go", so the respond thread
+        must stop waiting on the event. It then sees _approval_granted False
+        and unwinds through the normal "not granted" path without emitting
+        another complete chunk.
+        """
+        payload = {"type": "code", "format": "python", "content": "print(1)"}
+        self.interpreter.pending_confirmation = payload
+        self.interpreter.pending_confirmation_digest = confirmation_digest(payload)
+
+        self.assertTrue(self.interpreter.cancel_pending_confirmation())
+        self.assertIsNone(self.interpreter.pending_confirmation)
+        self.assertIsNone(self.interpreter.pending_confirmation_digest)
+        self.assertFalse(self.interpreter._approval_granted)
+        self.assertTrue(self.interpreter._approval_event.is_set())
+
+    def test_disconnect_cancel_during_publish_is_not_lost(self):
+        """A teardown cancel between publishing and parking must still release.
+
+        respond() publishes the pending payload, puts the confirmation chunk,
+        and then parks on the approval event. If a client disconnects in that
+        window, teardown sets the event and clears the payload. When the clear
+        happened after the put, respond() then cleared the event again and the
+        thread waited forever with no payload a later "go" could approve.
+        Clearing before publishing keeps the teardown's signal visible.
+        """
+        confirmation = {
+            "type": "confirmation",
+            "content": {"type": "code", "format": "python", "content": "print(1)"},
+        }
+        self.interpreter._respond_iterator = iter([confirmation])
+        self.interpreter.print = False
+        self.interpreter.auto_run = False
+
+        def put(item):
+            """Simulate the endpoint teardown racing the chunk delivery."""
+            if item.get("type") == "confirmation":
+                self.interpreter.cancel_pending_confirmation()
+
+        self.interpreter.output_queue = mock.MagicMock()
+        self.interpreter.output_queue.sync_q.put = put
+
+        worker = threading.Thread(target=self.interpreter.respond, daemon=True)
+        worker.start()
+        worker.join(2)
+        self.assertFalse(
+            worker.is_alive(),
+            "respond thread must unwind when teardown cancels during publish",
+        )
+
 
 class TestAsyncInputCommandHandling(TestCase):
     def setUp(self):

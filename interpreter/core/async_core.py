@@ -135,6 +135,29 @@ class AsyncInterpreter(OpenInterpreter):
         self._approval_event.set()
         return True
 
+    def cancel_pending_confirmation(self) -> bool:
+        """
+        Cancel a code confirmation that is still waiting on a client answer.
+
+        A websocket client can disconnect while the server is parked waiting
+        for "go"/"stop". Nothing will ever deliver that answer, so the respond
+        thread would stay blocked on the approval event, holding the output
+        queue, until the next connection starts a turn. Declining here lets
+        the parked thread unwind through the normal "not granted" path.
+
+        Returns True if a pending confirmation was cancelled, False if there
+        was nothing waiting.
+        """
+
+        if self.pending_confirmation is None:
+            return False
+        self._cancel_pending_approval()
+        # Clear the payload as well: a late "go" arriving after the client is
+        # gone must not approve code it never saw, and no thread is waiting on
+        # it once the event is set.
+        self._clear_pending_confirmation()
+        return True
+
     async def input(self, chunk):
         """
         Accumulates LMC chunks onto interpreter.messages.
@@ -247,6 +270,13 @@ class AsyncInterpreter(OpenInterpreter):
                         if run_code:
                             run_code = False
                         elif not self.auto_run:
+                            # Clear before publishing: a disconnecting client's
+                            # teardown can set the event between the put below
+                            # and the clear that used to live here, and that
+                            # clear would swallow the signal, parking this
+                            # thread forever with no payload left to approve.
+                            self._approval_granted = False
+                            self._approval_event.clear()
                             self.pending_confirmation = chunk["content"]
                             self.pending_confirmation_digest = confirmation_digest(
                                 chunk["content"]
@@ -261,8 +291,6 @@ class AsyncInterpreter(OpenInterpreter):
                             self.output_queue.sync_q.put(chunk)
                             sent_chunks = True
 
-                            self._approval_granted = False
-                            self._approval_event.clear()
                             self.output_queue.sync_q.put(complete_message)
                             self._approval_event.wait()
 
@@ -601,8 +629,14 @@ def create_router(async_interpreter):
 
         try:  # solving it ;)/ # killian super wrote this
 
+            # Auth is disabled when the env var says so; otherwise the flag flips
+            # once this socket completes the handshake. Endpoint teardown must
+            # know whether that happened, or any unauthenticated socket could
+            # cancel the shared interpreter's approval state.
+            authenticated = os.getenv("INTERPRETER_REQUIRE_AUTH") == "False"
+
             async def receive_input():
-                authenticated = False
+                nonlocal authenticated
                 while True:
                     try:
                         if websocket.client_state != WebSocketState.CONNECTED:
@@ -820,6 +854,14 @@ def create_router(async_interpreter):
                             await task
                         except asyncio.CancelledError:
                             pass
+                # A client can leave while a code confirmation is pending. The
+                # answer will never arrive on this connection, so release the
+                # respond thread instead of leaving it parked until the next
+                # turn's "start" chunk tears it down. Only an authenticated
+                # socket may touch shared approval state, otherwise any client
+                # could deny another client's approvals by reconnecting.
+                if authenticated:
+                    async_interpreter.cancel_pending_confirmation()
             for task in done:
                 task.result()  # re-raise anything the finished task failed with
 
