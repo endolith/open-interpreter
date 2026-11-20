@@ -290,6 +290,43 @@ def test_value_error_signals_the_interface_to_stop_not_retry(capsys, panels):
     assert interpreter._stopped_retrying is True, "a turn that cannot proceed must tell the interactive loop to stop"
 
 
+def test_value_error_from_system_message_assembly_is_a_panel(
+    capsys, panels, monkeypatch
+):
+    """A required-setting ValueError raised while building the prompt is handled too.
+
+    assemble_system_message() calls llm.load() to choose the tool-calling or
+    text prompt, and load() is where the per-provider key checks raise. That
+    happens before llm.run(), outside the handler the tests above exercise, so
+    a missing DASHSCOPE_API_KEY or OPENCODE_GO_API_KEY crashed the session
+    with a traceback instead of showing the panel.
+    """
+    import interpreter.core.respond as respond_module
+
+    error = ValueError(
+        "The dashscope-us/ and dashscope-intl/ model prefixes require a "
+        "DashScope API key. Set DASHSCOPE_API_KEY."
+    )
+
+    def raise_on_assembly(interpreter):
+        raise error
+
+    monkeypatch.setattr(respond_module, "assemble_system_message", raise_on_assembly)
+    llm = _FakeLlm([])
+    interpreter = _FakeInterpreter(llm)
+
+    try:
+        list(respond(interpreter))
+    except ValueError:
+        pytest.fail("a load-time ValueError must not escape respond()")
+
+    output = capsys.readouterr().out + "".join(panels)
+    assert "Configuration error" in output
+    assert "DASHSCOPE_API_KEY" in output
+    assert interpreter._stopped_retrying is True
+    assert llm.calls == 0, "the LLM must not be called once setup has failed"
+
+
 def test_respond_resets_stale_stop_flag_at_turn_start(capsys, panels):
     """A stop flag left over from a previous failed turn must not kill the next one.
 
