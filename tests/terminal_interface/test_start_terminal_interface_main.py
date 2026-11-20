@@ -11,7 +11,6 @@ def _patch_interpreter():
     """Create a mock interpreter and a patch context that injects it into main()."""
     interpreter = mock.MagicMock()
     interpreter.offline = False
-    interpreter.disable_telemetry = False
     interpreter.messages = [1, 2, 3, 4, 5]
     interpreter.llm.model = "gpt-4o"
     return interpreter, mock.patch("interpreter.interpreter", interpreter)

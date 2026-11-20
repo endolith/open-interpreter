@@ -1,6 +1,8 @@
 import sys
 from unittest import mock
 
+import pytest
+
 from interpreter.terminal_interface.start_terminal_interface import (
     get_argument_dictionary,
     set_attributes,
@@ -124,7 +126,6 @@ def _patch_module(monkeypatch):
     interpreter.safe_mode = "off"
     interpreter.offline = True  # skips the update check
     interpreter.messages = []
-    interpreter.disable_telemetry = False
     interpreter.chat = mock.Mock()
     interpreter.server = mock.Mock()
     interpreter.computer = mock.Mock()
@@ -419,15 +420,21 @@ def test_start_terminal_interface_vision_model_disables_functions(monkeypatch):
     assert interpreter.llm.supports_functions is False
 
 
-def test_start_terminal_interface_disable_telemetry_env(monkeypatch):
-    """DISABLE_TELEMETRY=true sets disable_telemetry even without the flag."""
+def test_start_terminal_interface_has_no_telemetry_flag(monkeypatch):
+    """The CLI rejects --disable_telemetry instead of half-applying it.
+
+    Telemetry was removed, so the flag, its `dt` nickname, and the
+    DISABLE_TELEMETRY environment override are gone. Had the argument spec been
+    left registered, argparse would still accept the flag and `set_attributes`
+    would set the attribute dynamically, leaving behind the appearance of an
+    opt-out for nothing that is collected.
+    """
     sti, interpreter = _patch_module(monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["oi"])
+    monkeypatch.setattr(sys, "argv", ["oi", "--disable_telemetry"])
     monkeypatch.setenv("DISABLE_TELEMETRY", "true")
 
-    start_terminal_interface(interpreter)
-
-    assert interpreter.disable_telemetry is True
+    with pytest.raises(SystemExit):
+        start_terminal_interface(interpreter)
 
 
 def _profile_applying(**settings):
@@ -464,44 +471,6 @@ def test_start_terminal_interface_profile_safe_mode_survives_argparse_default(
     assert interpreter.safe_mode == "ask"
 
 
-def test_start_terminal_interface_profile_disable_telemetry_survives_default(
-    monkeypatch,
-):
-    """A profile's disable_telemetry survives when neither flag nor env var is set.
-
-    The argparse default (False) used to re-enable telemetry after the profile
-    had disabled it.
-    """
-    sti, interpreter = _patch_module(monkeypatch)
-    monkeypatch.delenv("DISABLE_TELEMETRY", raising=False)
-    monkeypatch.setattr(
-        sti,
-        "profile",
-        mock.Mock(side_effect=_profile_applying(disable_telemetry=True)),
-    )
-    monkeypatch.setattr(sys, "argv", ["oi"])
-
-    start_terminal_interface(interpreter)
-
-    assert interpreter.disable_telemetry is True
-
-
-def test_start_terminal_interface_telemetry_env_false_keeps_profile_choice(monkeypatch):
-    """An explicit DISABLE_TELEMETRY=false does not re-enable telemetry a profile disabled."""
-    sti, interpreter = _patch_module(monkeypatch)
-    monkeypatch.setenv("DISABLE_TELEMETRY", "false")
-    monkeypatch.setattr(
-        sti,
-        "profile",
-        mock.Mock(side_effect=_profile_applying(disable_telemetry=True)),
-    )
-    monkeypatch.setattr(sys, "argv", ["oi"])
-
-    start_terminal_interface(interpreter)
-
-    assert interpreter.disable_telemetry is True
-
-
 def test_start_terminal_interface_safe_mode_flag_overrides_profile(monkeypatch):
     """An explicitly passed --safe_mode still beats the profile's value."""
     sti, interpreter = _patch_module(monkeypatch)
@@ -513,22 +482,6 @@ def test_start_terminal_interface_safe_mode_flag_overrides_profile(monkeypatch):
     start_terminal_interface(interpreter)
 
     assert interpreter.safe_mode == "off"
-
-
-def test_start_terminal_interface_disable_telemetry_flag_overrides_profile(monkeypatch):
-    """An explicitly passed --disable_telemetry beats a profile that leaves telemetry on."""
-    sti, interpreter = _patch_module(monkeypatch)
-    monkeypatch.delenv("DISABLE_TELEMETRY", raising=False)
-    monkeypatch.setattr(
-        sti,
-        "profile",
-        mock.Mock(side_effect=_profile_applying(disable_telemetry=False)),
-    )
-    monkeypatch.setattr(sys, "argv", ["oi", "--disable_telemetry"])
-
-    start_terminal_interface(interpreter)
-
-    assert interpreter.disable_telemetry is True
 
 
 def test_start_terminal_interface_safe_mode_flag_disables_auto_run(monkeypatch):
@@ -571,3 +524,4 @@ def test_start_terminal_interface_safe_mode_off_leaves_auto_run_on(monkeypatch):
     start_terminal_interface(interpreter)
 
     assert interpreter.auto_run is True
+
