@@ -2,6 +2,25 @@ from rich.box import MINIMAL
 from rich.console import Group
 from rich.panel import Panel
 from rich.syntax import Syntax
+
+
+def _active_line_in_display(code, active_line, language):
+    """Map a preprocessed active line onto the verbatim display lines.
+
+    Python's preprocessing strips leading blank lines before numbering lines,
+    while the panel now renders them. Shift the highlight down by the number of
+    leading blank lines so it still lands on the statement being run.
+    """
+    if active_line is None:
+        return None
+    if not language or language.lower() not in ("python", "py"):
+        return active_line
+    leading = 0
+    for line in code.split("\n"):
+        if line.strip():
+            break
+        leading += 1
+    return active_line + leading
 from rich.table import Table
 
 from .base_block import BaseBlock
@@ -53,10 +72,15 @@ class CodeBlock(BaseBlock):
         ):
             code += "●"
 
-        # Add each line of code to the table
-        code_lines = code.strip().split("\n")
+        # Add each line of code to the table. Split without stripping: leading
+        # and trailing blank lines are part of the code (an append/edit block
+        # can start with them), and the panel must show what will run.
+        code_lines = code.split("\n")
+        active_line = _active_line_in_display(
+            self.code, self.active_line, self.language
+        )
         for i, line in enumerate(code_lines, start=1):
-            if i == self.active_line and (
+            if i == active_line and (
                 self.highlight_active_line
                 if self.highlight_active_line is not None
                 else True
