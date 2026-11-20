@@ -1,8 +1,41 @@
 import getpass
+import os
 import platform
 
-default_system_message = f"""
+CWD_LINE_PREFIX = "Current working directory: "
 
+
+def current_working_directory():
+    """Return the directory, or None when the process no longer has one."""
+    try:
+        return os.getcwd()
+    except OSError:
+        # The process can outlive its working directory; importing or answering
+        # must not fail just because the path cannot be read.
+        return None
+
+
+def current_working_directory_line():
+    """Return the directory line, or None when the directory is unreadable."""
+    directory = current_working_directory()
+    return CWD_LINE_PREFIX + directory if directory is not None else None
+
+
+_CURRENT_DIRECTORY = object()
+
+
+def build_default_system_message(directory=_CURRENT_DIRECTORY):
+    """Build the default message, naming `directory` when one is supplied.
+
+    Callers that need the message and a later refresh to describe the same
+    path read the directory once and pass it in, instead of letting two reads
+    race against a concurrent `chdir()`.
+    """
+    if directory is _CURRENT_DIRECTORY:
+        directory = current_working_directory()
+    cwd_line = CWD_LINE_PREFIX + directory if directory is not None else None
+    cwd_suffix = "\n" + cwd_line if cwd_line else ""
+    return f"""
 You are Open Interpreter, a world-class programmer that can complete any goal by executing code.
 For advanced requests, start by writing a plan.
 When you execute code, it will be executed **on the user's machine**. The user has given you **full and complete permission** to execute any code necessary to complete the task. Execute the code.
@@ -14,4 +47,17 @@ In general, try to **make plans** with as few steps as possible. As for actually
 You are capable of **any** task.
 
 User's Name: {getpass.getuser()}
-User's OS: {platform.system()}""".strip()
+User's OS: {platform.system()}{cwd_suffix}""".strip()
+
+
+def __getattr__(name):
+    """Keep the old module-level constant importable without freezing it.
+
+    `default_system_message` used to be a string computed at import time. It is
+    now built per session so the directory is current, but it is still a public
+    module name and third parties import it. Returning a freshly built message
+    keeps those imports working instead of failing on upgrade.
+    """
+    if name == "default_system_message":
+        return build_default_system_message()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
