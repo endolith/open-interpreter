@@ -471,10 +471,11 @@ def _fill_reasoning_content(params):
 
     DeepSeek/OpenRouter require the field on every prior assistant message when
     the request carries tools, including turns where the model did not think;
-    a missing field or "" on a tool_calls message is a 400. The fill is gated
-    on the request carrying tools (without them the field is ignored), on a
-    DeepSeek model id or real thinking history, and off when reasoning is
-    explicitly disabled.
+    a missing field or "" on a tool request -- either the modern
+    ``tool_calls`` shape or the legacy ``function_call`` shape our conversion
+    emits -- is a 400. The fill is gated on the request carrying tools
+    (without them the field is ignored), on a DeepSeek model id or real
+    thinking history, and off when reasoning is explicitly disabled.
 
     Adapted from develop commits 654c27d405 and d3c2245642.
     """
@@ -522,15 +523,21 @@ def _fill_reasoning_content(params):
                     msg["reasoning_content"] = ""
                 if (rc or "").strip() in (placeholder, legacy_placeholder):
                     last_reasoning = None
-                    if msg.get("tool_calls"):
+                    if msg.get("tool_calls") or msg.get("function_call"):
                         msg["reasoning_content"] = placeholder
                     else:
                         msg["reasoning_content"] = ""
                 else:
                     last_reasoning = rc
-                    if not (rc or "").strip() and msg.get("tool_calls"):
+                    # Conversion emits the legacy `function_call` shape rather
+                    # than `tool_calls`, so both must get the placeholder: a
+                    # tool request whose filler-only reasoning stripped to ""
+                    # is a 400 on DeepSeek either way.
+                    if not (rc or "").strip() and (
+                        msg.get("tool_calls") or msg.get("function_call")
+                    ):
                         msg["reasoning_content"] = placeholder
-            elif msg.get("tool_calls"):
+            elif msg.get("tool_calls") or msg.get("function_call"):
                 msg["reasoning_content"] = (
                     last_reasoning if last_reasoning else placeholder
                 )
