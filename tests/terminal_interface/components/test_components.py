@@ -124,6 +124,43 @@ def test_code_block_shows_output_panel_only_when_present():
     assert captured_without["group"].renderables[2] == ""
 
 
+def test_code_block_escapes_bracket_markup_in_output():
+    """CodeBlock.refresh renders output containing square brackets literally.
+
+    Rich reads ``[note]`` as a style tag and drops it, so an output line that
+    happens to look like markup (e.g. "file [note].txt") reaches the user as
+    "file .txt" unless the text is escaped before it reaches the Panel.
+    """
+    block = CodeBlock()
+    block.code = "x = 1"
+    block.output = "file [note].txt"
+    captured = {}
+    block.live.update = lambda group: captured.update(group=group)
+    block.live.refresh = lambda: None
+    block.refresh(cursor=False)
+    assert "file [note].txt" in _render(captured["group"])
+
+
+def test_code_block_keeps_a_trailing_backslash_in_output():
+    """A trailing backslash in output is rendered once, not doubled.
+
+    Rich 15's ``escape()`` appends an extra backslash when a string ends with
+    one, and the markup parser renders both, so an escaped Windows path
+    ("C:\\temp\\") reaches the user as "C:\\temp\\\\". Wrapping the output in a
+    Text avoids markup parsing altogether, which keeps the path readable.
+    """
+    block = CodeBlock()
+    block.code = "x = 1"
+    block.output = "C:\\temp\\"
+    captured = {}
+    block.live.update = lambda group: captured.update(group=group)
+    block.live.refresh = lambda: None
+    block.refresh(cursor=False)
+    rendered = _render(captured["group"])
+    assert "C:\\temp\\" in rendered
+    assert "C:\\temp\\\\" not in rendered
+
+
 def test_code_block_stores_interpreter_highlight_flag():
     """CodeBlock reads the interpreter's highlight_active_line at construction."""
     block = CodeBlock(interpreter=SimpleNamespace(highlight_active_line=False))
