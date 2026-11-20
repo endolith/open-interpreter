@@ -3,7 +3,10 @@ from unittest import mock
 
 import pytest
 
-from interpreter.terminal_interface.terminal_interface import terminal_interface
+from interpreter.terminal_interface.terminal_interface import (
+    _print_run_panel,
+    terminal_interface,
+)
 
 
 def _make_interpreter():
@@ -330,6 +333,64 @@ def test_terminal_interface_confirming_code_builds_code_block():
     assert block.return_value.code == "print(1)"
 
 
+def test_terminal_interface_prints_run_panel_before_dispatch():
+    """The run panel is printed before the generator is resumed to run the code.
+
+    A command that writes straight to the terminal (sudo's password prompt)
+    cannot be repainted by the live display, so the panel must already be
+    permanent before dispatch or the prompt appears above (or erases) it (issue #651).
+    """
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    interpreter = _make_interpreter()
+    interpreter.auto_run = False
+    events = []
+
+    def chat(message, display=False, stream=True):
+        """Emulate a confirmation followed by code dispatch to order the events."""
+        yield {
+            "type": "confirmation",
+            "role": "assistant",
+            "content": {"format": "python", "content": "import os; os.system('sudo ls')"},
+        }
+        events.append("dispatched")
+        yield {"type": "code", "role": "assistant", "end": True, "format": "python"}
+
+    interpreter.chat = chat
+
+    def print_panel():
+        """Record that the run panel was printed."""
+        events.append("panel")
+
+    with mock.patch.object(ti, "CodeBlock") as block:
+        block.return_value.print_code_before_run.side_effect = print_panel
+        with mock.patch("builtins.input", return_value="y"):
+            list(terminal_interface(interpreter, "run code"))
+
+    assert events == ["panel", "dispatched"]
+
+
+def test_print_run_panel_prints_panel_before_dispatch():
+    """A rendered run prints the code panel before dispatching the command."""
+    interpreter = _make_interpreter()
+    block = mock.Mock()
+
+    _print_run_panel(block, interpreter)
+
+    block.print_code_before_run.assert_called_once_with()
+
+
+def test_print_run_panel_skips_plain_text_display():
+    """Plain-text mode draws no panels, so it never prints a run panel."""
+    interpreter = _make_interpreter()
+    interpreter.plain_text_display = True
+    block = mock.Mock()
+
+    _print_run_panel(block, interpreter)
+
+    block.print_code_before_run.assert_not_called()
+
+
 def test_terminal_interface_lone_confirmation_does_not_crash():
     """A confirmation with no preceding start chunk still builds its block (issue #248).
 
@@ -414,7 +475,11 @@ def test_terminal_interface_safe_mode_ask_scans_when_user_consents():
 
 
 def test_terminal_interface_edit_code_uses_editor_and_updates_message():
-    """Answering e to a confirmation opens $EDITOR and feeds edits back to the LLM."""
+    """Answering e to a confirmation opens $EDITOR and feeds edits back to the LLM.
+
+    The block that runs the edited code receives the interpreter, so it honors
+    the active-line highlighting opt-out like the approved path (issue #651).
+    """
     import interpreter.terminal_interface.terminal_interface as ti
 
     interpreter = _make_interpreter()
@@ -437,7 +502,7 @@ def test_terminal_interface_edit_code_uses_editor_and_updates_message():
         }
 
     interpreter.chat = chat
-    with mock.patch.object(ti, "CodeBlock"):
+    with mock.patch.object(ti, "CodeBlock") as block:
         with mock.patch.object(ti.subprocess, "call", side_effect=fake_editor) as call:
             with mock.patch.dict(os.environ, {"EDITOR": "vim"}):
                 with mock.patch("builtins.input", return_value="e"):
@@ -445,6 +510,7 @@ def test_terminal_interface_edit_code_uses_editor_and_updates_message():
 
     call.assert_called_once()
     assert "edited = 2" in interpreter.messages[-1]["content"]
+    assert block.call_args_list[-1] == mock.call(interpreter)
 
 
 def test_terminal_interface_computer_visual_chunk_appends_console_output():
