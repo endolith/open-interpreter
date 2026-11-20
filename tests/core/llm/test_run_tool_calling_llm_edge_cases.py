@@ -392,3 +392,111 @@ def test_double_escaped_arguments_still_produce_a_code_chunk():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "code", "format": "bash", "content": "echo hi"}
     ]
+
+def test_non_string_tool_call_arguments_do_not_end_the_stream():
+    """A decoded `function_call.arguments` must not swallow later chunks.
+
+    Some providers stream the arguments of a legacy `function_call` as a
+    JSON value rather than a string. Feeding that to `parse_partial_json`
+    raises `TypeError` in its character loop, which ended the generator and
+    dropped the rest of the turn. The guard skips that chunk so a following
+    content delta is still delivered.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "function_call": {
+                            "name": "execute",
+                            "arguments": [1, 2],
+                        }
+                    }
+                }
+            ]
+        }
+        yield {"choices": [{"delta": {"content": "stream continues"}}]}
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "stream continues"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "code_value",
+    ['{"nested": 1}', "[1, 2]"],
+    ids=["object", "list"],
+)
+def test_non_string_code_argument_does_not_crash_the_stream(code_value):
+    """A `code` value that is not a string must be skipped, not sliced.
+
+    `parse_partial_json` returns whatever shape the model streamed, so a
+    model that starts streaming `"code": {` or `"code": [` can hand back an
+    object or a list. Indexing that with a slice raised `KeyError: slice(...)`
+    and killed the generator mid-turn. Skipping the chunk lets the stream
+    keep running; nothing executable can be yielded from a non-string value.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": %s}'
+                                    % code_value,
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
+
+
+def test_string_code_argument_still_yields_the_code_chunk():
+    """The non-string guard must not swallow ordinary string `code` values.
+
+    Paired with the skip test above: if the guard were written the other way
+    round (only yielding when the value is *not* a string) this chunk would
+    disappear, so assert the normal path still emits the code.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": "print(1)"}',
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
