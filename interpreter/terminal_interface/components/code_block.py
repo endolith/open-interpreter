@@ -1,5 +1,6 @@
 from rich.box import MINIMAL
 from rich.console import Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -24,6 +25,7 @@ class CodeBlock(BaseBlock):
         self.language = ""
         self.output = ""
         self.code = ""
+        self.code_printed = False
         self.active_line = None
         self.margin_top = True
 
@@ -32,10 +34,43 @@ class CodeBlock(BaseBlock):
         self.refresh(cursor=False)
         super().end()
 
-    def refresh(self, cursor=True):
-        if not self.code and not self.output:
+    def print_code_before_run(self):
+        """Print the code panel permanently before the command is dispatched.
+
+        The run block normally first renders when the first execution chunk
+        arrives. A command that writes straight to the terminal (sudo's
+        password prompt, for instance) can therefore print before the panel
+        is drawn, and the panel then repaints over its line. Printing the
+        panel here, and starting a fresh live display for the output, keeps
+        it above everything the command itself prints.
+        """
+        if not self.code or self.code_printed:
             return
 
+        console = self.live.console
+        self.live.stop()
+        console.print(self._render_group(cursor=False))
+        # A new live display starts below the printed panel, so later refreshes
+        # can only repaint the execution output, never the panel or the
+        # command's own terminal output above it.
+        self.live = Live(
+            auto_refresh=False, console=console, vertical_overflow="visible"
+        )
+        self.live.start()
+        # The panel is permanent now, so the live region shows only the output.
+        # Keep the source around: the active-line handler looks up the current
+        # action through this block's code.
+        self.code_printed = True
+
+    def refresh(self, cursor=True):
+        if not self.output and (not self.code or self.code_printed):
+            return
+
+        self.live.update(self._render_group(cursor=cursor))
+        self.live.refresh()
+
+    def _render_group(self, cursor=True):
+        """Build the Rich renderable for the current code and output."""
         # Get code
         code = self.code
 
@@ -86,13 +121,12 @@ class CodeBlock(BaseBlock):
         else:
             output_panel = Panel(self.output, box=MINIMAL, style="#FFFFFF on #3b3b37")
 
-        # Create a group with the code table and output panel
-        group_items = [code_panel, output_panel]
+        # Create a group with the code table and output panel. Once the panel
+        # has been printed permanently, only the output belongs in the live
+        # region; rendering the code again would duplicate it.
+        group_items = [] if self.code_printed else [code_panel]
+        group_items.append(output_panel)
         if self.margin_top:
             # This adds some space at the top. Just looks good!
             group_items = [""] + group_items
-        group = Group(*group_items)
-
-        # Update the live display
-        self.live.update(group)
-        self.live.refresh()
+        return Group(*group_items)
