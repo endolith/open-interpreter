@@ -29,6 +29,14 @@ class SubprocessLanguage(BaseLanguage):
     def detect_end_of_execution(self, line):
         return None
 
+    def detect_error_end_of_execution(self, line):
+        """Whether a line without an end marker proves the run ended.
+
+        Called for stdout and stderr alike, because some interpreters print a
+        fatal parser diagnostic to stdout instead of the marker.
+        """
+        return False
+
     def line_postprocessor(self, line):
         return line
 
@@ -240,7 +248,11 @@ class SubprocessLanguage(BaseLanguage):
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
                         )
-                elif self.detect_end_of_execution(line):
+                elif self.detect_end_of_execution(
+                    line
+                ) or self.detect_error_end_of_execution(line):
+                    # Both checks are stream-agnostic by design: irb can print
+                    # a parser diagnostic to stdout instead of the end marker.
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = line.replace("##end_of_execution##", "").strip()
                     if line:

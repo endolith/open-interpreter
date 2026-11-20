@@ -1,3 +1,5 @@
+from io import StringIO
+
 from interpreter.core.computer.terminal.languages.ruby import Ruby
 
 
@@ -70,3 +72,44 @@ def test_ruby_line_postprocessor_consumes_exactly_the_code_line_count():
 
     ruby.line_postprocessor("second")
     assert ruby.code_line_count == start - 2
+
+
+def test_ruby_preprocess_rescues_exceptions_but_re_raises_signals():
+    """The wrapper reports explicit Exception but never swallows signals or exits.
+
+    `rescue Exception` alone would capture Ctrl-C and process exits, turning an
+    interrupted run into an execution error. Re-raising those two first keeps
+    their behavior while still printing the marker for other Exception
+    subclasses.
+    """
+    ruby = Ruby()
+    code = ruby.preprocess_code("raise Exception")
+    assert "rescue SignalException, SystemExit" in code
+    assert "rescue Exception => e" in code
+    assert code.index("rescue SignalException") < code.index("rescue Exception")
+
+
+def test_ruby_detect_end_of_execution_covers_syntax_errors():
+    """A real irb parser diagnostic ends the run; program output does not."""
+    ruby = Ruby()
+    irb_error = (
+        "<internal:kernel>:187:in `loop': (irb):1: syntax error, "
+        "unexpected end-of-input (SyntaxError)"
+    )
+    assert ruby.detect_end_of_execution(irb_error) is False
+    assert ruby.detect_error_end_of_execution(irb_error) is True
+    # A program printing the class name is not a parser error.
+    assert ruby.detect_error_end_of_execution("(SyntaxError)") is False
+    assert ruby.detect_error_end_of_execution("the program printed syntax error") is False
+
+
+def test_ruby_syntax_error_ends_on_either_stream():
+    """irb may print a parser error to stdout (Ruby 3.2) or stderr; either ends it."""
+    irb_error = "(irb):1: syntax error, unexpected end-of-input (SyntaxError)\n"
+    stdout_ruby = Ruby()
+    stdout_ruby.handle_stream_output(StringIO(irb_error), is_error_stream=False)
+    assert stdout_ruby.done.is_set()
+
+    stderr_ruby = Ruby()
+    stderr_ruby.handle_stream_output(StringIO(irb_error), is_error_stream=True)
+    assert stderr_ruby.done.is_set()
