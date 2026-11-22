@@ -297,3 +297,35 @@ def test_a_recent_message_suppresses_the_question(monkeypatch):
     completion = _run_listener(lang, monkeypatch, completion_response=[])
 
     assert completion.call_count == 0, "the question must not repeat immediately"
+
+
+def test_dashscope_stdin_call_checks_the_key_before_sending(monkeypatch):
+    """A DashScope stdin question must not fall back to OPENAI_API_KEY.
+
+    _maybe_send_input builds its own params instead of calling Llm.run(), so
+    run()'s per-request key check does not cover it. If llm.api_key was cleared
+    after load, the openai provider would fill it from OPENAI_API_KEY and send
+    that credential to aliyuncs.com.
+    """
+    lang = _language()
+    check = mock.Mock(
+        side_effect=ValueError("DASHSCOPE_API_KEY is required")
+    )
+    lang.interpreter.llm = SimpleNamespace(
+        model="dashscope-us/qwen3-max",
+        api_key=None,
+        wire_model_name=lambda: "qwen3-max",
+        wire_provider=lambda: "openai",
+        api_base="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+        api_version=None,
+        extra_headers=None,
+        _require_dashscope_api_key=check,
+    )
+    completion = mock.Mock()
+    monkeypatch.setattr(jl.litellm, "completion", completion)
+
+    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY is required"):
+        lang._maybe_send_input()
+
+    check.assert_called_once_with()
+    completion.assert_not_called()
