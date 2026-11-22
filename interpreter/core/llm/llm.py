@@ -1133,7 +1133,10 @@ Continuing...
             model_name, _dashscope_default_base = dashscope_route
             if self.api_base is None:
                 self.api_base = _dashscope_default_base
-            if self.api_key is None:
+            # A falsy check, not "is None": a profile that carries api_key=""
+            # (or a caller that cleared it to an empty string) must still pick
+            # up the environment key, as the request path does.
+            if not self.api_key:
                 self.api_key = os.environ.get("DASHSCOPE_API_KEY")
             # These routes are sent with custom_llm_provider="openai" (see
             # wire_provider), and LiteLLM's openai provider fills an unset

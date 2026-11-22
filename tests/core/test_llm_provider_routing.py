@@ -139,6 +139,30 @@ def test_dashscope_profile_key_is_used_without_env(interpreter, monkeypatch):
     assert interpreter.llm.model == "dashscope-us/qwen3-max"
 
 
+@pytest.mark.parametrize("prefix", ["dashscope-us", "dashscope-intl"])
+def test_empty_api_key_does_not_shadow_dashscope_env_key(
+    interpreter, monkeypatch, prefix
+):
+    """An empty llm.api_key must still consult DASHSCOPE_API_KEY.
+
+    Profiles can carry api_key="" and callers can clear a key to the empty
+    string. Comparing only against None treated that as an explicit "no key":
+    the environment lookup was skipped and the guard then rejected a
+    configuration that had a perfectly good DASHSCOPE_API_KEY.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-never-leave")
+
+    interpreter.llm.model = f"{prefix}/qwen3-max"
+    interpreter.llm.api_key = ""
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == "sk-test-dashscope"
+
+
 class _FakeOpenRouterResponse:
     def __init__(self, modalities_by_id):
         self.modalities_by_id = modalities_by_id
