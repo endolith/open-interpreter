@@ -160,6 +160,49 @@ def _message_interpreter():
     return interpreter
 
 
+def test_respond_reports_empty_llm_turn():
+    """A turn whose stream stores nothing ends with a notice, not silence (#629)."""
+    interpreter = _message_interpreter()
+    interpreter.llm.run = lambda msgs: iter([])
+    list(respond(interpreter))
+
+    interpreter.display_message.assert_called_once()
+    assert "no usable output" in interpreter.display_message.call_args[0][0]
+
+
+def test_respond_streamed_reply_does_not_report_empty_turn():
+    """A reply that reaches the transcript must not trigger the empty-turn notice."""
+    interpreter = _message_interpreter()
+
+    def run(msgs):
+        interpreter.messages.append(
+            {"role": "assistant", "type": "message", "content": "hello"}
+        )
+        return iter([{"type": "message", "content": "hello"}])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    interpreter.display_message.assert_not_called()
+
+
+def test_respond_empty_llm_turn_reports_once_in_loop_mode():
+    """An empty reply breaks loop mode after one notice instead of spinning."""
+    interpreter = _message_interpreter()
+    interpreter.loop = True
+    calls = {"n": 0}
+
+    def run(msgs):
+        calls["n"] += 1
+        return iter([])
+
+    interpreter.llm.run = run
+    list(respond(interpreter))
+
+    assert calls["n"] == 1
+    interpreter.display_message.assert_called_once()
+
+
 def test_respond_assembles_full_system_message():
     """respond() builds the system message from the base, language-specific
     messages, custom instructions, and the computer API message."""

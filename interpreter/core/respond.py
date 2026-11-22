@@ -507,6 +507,13 @@ def respond(interpreter):
                 continue
 
             # Doesn't want to run code. We're done!
+            if not llm_made_progress:
+                # The reply was stored nowhere (an unusable tool call, for
+                # instance), so the turn would otherwise end with no output at
+                # all and no hint that the model's call was dropped (#629).
+                interpreter.display_message(
+                    "> The model returned no usable output; nothing was executed."
+                )
             break
 
     return
