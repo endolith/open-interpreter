@@ -2,6 +2,11 @@ import re
 from pathlib import Path
 from .subprocess_language import SubprocessLanguage
 
+# irb prints this once per session when it starts echoing piped input. It is a
+# session banner, not part of any block's echo, so it must not consume a line
+# from the echo window.
+_IRB_BANNER_RE = re.compile(r"Switch to(?: non)? inspect mode\.\s*$")
+
 
 class Ruby(SubprocessLanguage):
     file_extension = "rb"
@@ -38,17 +43,42 @@ ensure
   puts "##end_of_execution##\\n"
 end
 """
-        self.code_line_count = len(processed_code.split("\n"))
+        # The window must span exactly the lines irb echoes back. split("\n")
+        # adds a phantom trailing element for the final newline, so the window
+        # closed one line too late on every block after the first -- once the
+        # one-time session banner was no longer there to spend that extra line,
+        # it ate the block's first real output line.
+        self.code_line_count = len(processed_code.splitlines())
         #print(processed_code)
         return processed_code
 
     def line_postprocessor(self, line):
+        # Control markers close the echoed-input window. irb echoes the
+        # submitted block and adds its own banner, so the line count drifts;
+        # letting the window swallow an exact marker loses the completion
+        # signal and the next run waits forever. The echoed source lines are
+        # not exact markers (they read `puts "##end_of_execution##\n"`), so
+        # this exemption cannot mistake an echo for the real marker.
+        stripped = line.strip()
+        if self.code_line_count > 0 and _IRB_BANNER_RE.fullmatch(stripped):
+            # One-time session banner: consume it without spending a source line,
+            # or the echoed block's last line would leak as output.
+            return None
+        if (
+            re.fullmatch(r"##active_line\d+##", stripped)
+            or stripped.startswith("##execution_error##")
+            or stripped == "##end_of_execution##"
+        ):
+            self.code_line_count = 0
+            return line
         # If the line count attribute is set and non-zero, decrement and skip the line
         if hasattr(self, "code_line_count") and self.code_line_count > 0:
             self.code_line_count -= 1
             return None
-        if "nil" in line:
-           return None
+        # irb prints a bare `nil` for a nil result. Match only that value so
+        # strings such as "vanilla" or "nilpotent" survive as real output.
+        if stripped in ("nil", "=> nil"):
+            return None
         return line
 
     def detect_active_line(self, line):
