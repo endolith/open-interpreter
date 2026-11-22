@@ -1,13 +1,103 @@
+import re
+import shutil
+
+import pytest
+
 from interpreter.core.computer.terminal.languages.ruby import Ruby
 
 
 def test_ruby_preprocess_code_wraps_in_begin_rescue():
-    """Ruby code is wrapped in begin/rescue with active-line and end-of-execution markers."""
+    """Ruby code is wrapped in begin/rescue with active-line and completion markers.
+
+    The completion markers are unique to the block, so they are matched through
+    the instance rather than spelled as the historical fixed strings.
+    """
     ruby = Ruby()
     result = ruby.preprocess_code("puts 1")
     assert "begin" in result
-    assert "##end_of_execution##" in result
+    assert re.fullmatch(r"##end_of_execution_[0-9a-f]{8}##", ruby._end_marker)
+    assert re.fullmatch(r"##execution_error_[0-9a-f]{8}##", ruby._error_marker)
+    assert ruby._end_marker in result
+    assert ruby._error_marker in result
     assert "##active_line1##" in result
+
+
+def test_ruby_line_postprocessor_before_preprocess_does_not_crash():
+    """A line can reach the postprocessor before preprocess_code() runs.
+
+    run() preprocesses first, but the reader thread starts at session start and
+    irb prints its banner immediately; a restarted session can also deliver
+    lines before the next block is preprocessed. Reading an attribute that
+    __init__ had not set raised AttributeError inside the reader, which aborts
+    the stream and kills the session. Construction must leave it defined.
+    """
+    ruby = Ruby()
+
+    assert ruby.code_line_count == 0
+    assert ruby._end_marker == "##end_of_execution##"
+    assert ruby._error_marker == "##execution_error##"
+    # No block is running, so the banner is ordinary text rather than an echo.
+    assert ruby.line_postprocessor("Switch to inspect mode.\n") == (
+        "Switch to inspect mode.\n"
+    )
+    assert ruby.line_postprocessor("nil\n") is None
+
+
+def test_ruby_completion_markers_are_unique_per_block():
+    """Each block gets its own marker strings so echoed input cannot forge them.
+
+    irb echoes the submitted source before running it, comments included, so a
+    fixed marker taken from that source would end the block early. A fresh
+    nonce per block means no submitted line can match the completion marker.
+    """
+    ruby = Ruby()
+    first = ruby.preprocess_code("1+1")
+    first_end = ruby._end_marker
+    first_error = ruby._error_marker
+    second = ruby.preprocess_code("2+2")
+
+    assert first_end != ruby._end_marker
+    assert first_error != ruby._error_marker
+    assert first_end in first
+    assert first_end not in second
+
+
+def test_ruby_echoed_comment_matching_the_old_marker_cannot_end_the_block():
+    """A user comment spelling the historical marker is skipped like any echo.
+
+    The comment is echoed back verbatim before it is compiled, so matching the
+    fixed ##end_of_execution## string used to close the window and report
+    completion while irb had not run the rest of the block yet. Only the
+    block's own marker may end it.
+    """
+    ruby = Ruby()
+    processed = ruby.preprocess_code('##end_of_execution##\nputs "after"')
+    start = ruby.code_line_count
+    assert start > 0
+
+    for raw in processed.splitlines():
+        assert ruby.line_postprocessor(raw + "\n") is None
+
+    assert ruby.code_line_count == 0
+    assert ruby.line_postprocessor("after\n") == "after\n"
+
+
+def test_ruby_error_marker_is_translated_for_the_shared_reader():
+    """The block's error marker becomes the canonical one the reader detects.
+
+    subprocess_language.detect_end_of_execution() only knows the fixed strings,
+    and handle_stream_output() strips the fixed end marker from output. Ruby
+    must translate its per-block marker back before returning the line.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("raise 'boom'")
+    assert ruby.code_line_count > 0
+
+    line = ruby.line_postprocessor(ruby._error_marker + "\n")
+
+    assert line == "##execution_error##\n"
+    assert ruby.code_line_count == 0
+    assert ruby.detect_end_of_execution(line) is True
 
 
 def test_ruby_line_postprocessor_skips_echoed_code():
@@ -70,3 +160,176 @@ def test_ruby_line_postprocessor_consumes_exactly_the_code_line_count():
 
     ruby.line_postprocessor("second")
     assert ruby.code_line_count == start - 2
+
+
+def test_ruby_end_marker_survives_a_drifted_echo_window():
+    """An exact end marker is passed through even while the skip window is open.
+
+    irb echoes more lines than the wrapped block contains (banner, blanks,
+    wrapped lines), so the counter can still be positive when the real end
+    marker arrives. Skipping it leaves run() waiting forever for a completion
+    signal that was already consumed, so the postprocessor must let exact
+    control markers through and close the window.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    assert ruby.code_line_count > 0
+
+    line = ruby.line_postprocessor(ruby._end_marker + "\n")
+
+    assert line == "##end_of_execution##\n"
+    assert ruby.code_line_count == 0
+
+
+def test_ruby_active_line_marker_survives_a_drifted_echo_window():
+    """An exact active-line marker bypasses the skip window and resets it.
+
+    The same drift that swallowed the end marker also dropped the highlight
+    marker, so later runs showed no active line even while executing.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    assert ruby.code_line_count > 0
+
+    line = ruby.line_postprocessor("##active_line1##\n")
+
+    assert line == "##active_line1##\n"
+    assert ruby.code_line_count == 0
+
+
+def test_ruby_echoed_marker_source_is_still_skipped():
+    """The wrapper echo that spells the marker inside `puts` stays in the window.
+
+    irb echoes the submitted source, including the `puts "marker"` wrapper line.
+    That text is not an exact marker (the runtime line has no `puts` prefix),
+    so treating it as completion would end the block while irb is still
+    reading the input.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    assert ruby.code_line_count > 0
+
+    wrapper_line = f'    puts "{ruby._end_marker}\\n"\n'
+    assert ruby.line_postprocessor(wrapper_line) is None
+    assert ruby.line_postprocessor('    puts "##end_of_execution##\\n"\n') is None
+
+
+def test_ruby_nil_substring_is_real_output():
+    """Only a bare nil result is filtered, not output that contains `nil`.
+
+    The old substring test discarded real values such as "vanilla" and
+    "nilpotent" because they contain the letters n-i-l.
+    """
+    ruby = Ruby()
+    ruby.code_line_count = 0
+
+    assert ruby.line_postprocessor("vanilla\n") == "vanilla\n"
+    assert ruby.line_postprocessor("nilpotent\n") == "nilpotent\n"
+    assert ruby.line_postprocessor("nil\n") is None
+    assert ruby.line_postprocessor("=> nil\n") is None
+
+
+def test_ruby_echo_window_counts_echoed_lines_not_split_segments():
+    """The skip window spans exactly the lines irb echoes back.
+
+    split("\n") yields a phantom trailing element for the wrapper's final
+    newline, so the window stayed open one line past the echo. On the first
+    block irb's session banner spent that extra line; on later blocks it ate
+    the block's first real output line.
+    """
+    ruby = Ruby()
+    processed = ruby.preprocess_code('puts "C"; puts "D"')
+
+    assert ruby.code_line_count == len(processed.rstrip("\n").split("\n"))
+    assert ruby.code_line_count == len(processed.splitlines())
+
+
+def test_ruby_session_banner_does_not_consume_a_source_line():
+    """irb's one-time banner is consumed without spending an echoed line.
+
+    If the banner counted as an echoed line, the window would close before the
+    last echoed source line and leak that line into the output as text.
+    """
+    ruby = Ruby()
+    ruby.preprocess_code("1+1")
+    start = ruby.code_line_count
+
+    assert ruby.line_postprocessor("Switch to inspect mode.\n") is None
+    assert ruby.code_line_count == start
+
+
+def test_ruby_echo_window_closes_before_the_first_output_line():
+    """After the echoed block, the first real output line is not swallowed.
+
+    Feeds every echoed line (as irb prints them on a block after the banner)
+    and then the first output line; the window must already be closed.
+    """
+    ruby = Ruby()
+    processed = ruby.preprocess_code('puts "C"; puts "D"')
+    for raw in processed.splitlines():
+        assert ruby.line_postprocessor(raw + "\n") is None
+
+    assert ruby.code_line_count == 0
+    assert ruby.line_postprocessor("C\n") == "C\n"
+
+
+def _started_ruby_or_skip():
+    """Start an irb-backed Ruby session, skipping when the REPL is unavailable."""
+    if shutil.which("irb") is None:
+        pytest.skip("irb not installed; Ruby REPL coverage needs it")
+
+    ruby = Ruby()
+    try:
+        ruby.start_process()
+    except OSError as exc:
+        # On Windows CI `shutil.which("irb")` can resolve a shim that Popen
+        # still cannot launch; an absent REPL is a skip, not a failure.
+        pytest.skip(f"irb could not be started: {exc}")
+    return ruby
+
+
+def _run_output(ruby, code):
+    """Return only the program output chunks produced by one ruby.run() block."""
+    return "".join(
+        str(chunk["content"])
+        for chunk in ruby.run(code)
+        if chunk.get("format") == "output"
+    )
+
+
+def _output_lines(text):
+    """Return the non-blank lines the user would see as program output."""
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def test_ruby_later_blocks_keep_their_first_output_line():
+    """Live irb: a session's second block prints both output lines, exactly.
+
+    The skipped line only appeared after the one-time banner was gone, so a
+    single-block test cannot catch it. Asserting the exact lines also rejects
+    echoed Ruby source that leaks into the output as text.
+    """
+    ruby = _started_ruby_or_skip()
+    try:
+        first = _run_output(ruby, 'puts "A"; puts "B"')
+        second = _run_output(ruby, 'puts "C"; puts "D"')
+    finally:
+        ruby.terminate()
+
+    assert _output_lines(first) == ["A", "B"]
+    assert _output_lines(second) == ["C", "D"]
+
+
+def test_ruby_live_comment_matching_the_marker_does_not_end_the_block():
+    """Live irb: a comment spelling the historical marker does not finish early.
+
+    irb echoes the comment before compiling it; only the block's own per-run
+    marker may close the window, so the code after the comment still runs.
+    """
+    ruby = _started_ruby_or_skip()
+    try:
+        output = _run_output(ruby, '##end_of_execution##\nputs "after"')
+    finally:
+        ruby.terminate()
+
+    assert _output_lines(output) == ["after"]
