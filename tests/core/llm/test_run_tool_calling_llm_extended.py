@@ -3,6 +3,10 @@ from types import SimpleNamespace
 import pytest
 
 from interpreter.core.llm.run_tool_calling_llm import run_tool_calling_llm
+from interpreter.core.llm.utils.tool_call_errors import (
+    TOOL_CALL_ERROR_PREFIX,
+    UNRUNNABLE_TOOL_CALL_KEY,
+)
 
 
 class Lang:
@@ -211,19 +215,42 @@ def test_review_content_in_single_chunk_is_buffered_not_yielded():
     ]
 
 
-def test_unparseable_arguments_are_skipped():
-    """When tool arguments are not valid JSON, nothing is emitted and the stream continues."""
+def test_unparseable_arguments_are_reported():
+    """Unparseable tool arguments become an error the model can see.
+
+    Dropping them emitted nothing and appended nothing, so the turn ended as
+    if the model had stayed silent (#629). The failure is now stored as
+    assistant text so the next turn can retry.
+    """
     llm = _make_llm([_chunk({"tool_calls": [_tool_call("execute", "not json")]})])
-    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {
+            "type": "message",
+            "content": (
+                f"{TOOL_CALL_ERROR_PREFIX} `execute` produced no code to run. "
+                "It needs both `language` and `code`; retry with "
+                "`execute(language, code)`."
+            ),
+            UNRUNNABLE_TOOL_CALL_KEY: True,
+        }
+    ]
 
 
 def test_unparseable_arguments_verbose_prints_warning(capsys):
-    """In verbose mode, unparseable tool arguments trigger the 'Arguments not a dict.' notice."""
+    """Unparseable tool arguments are reported, and verbose mode echoes that.
+
+    The stdout notice stays (it explains why parsing failed); the assistant-text
+    report is what the next turn actually sees.
+    """
     llm = _make_llm(
         [_chunk({"tool_calls": [_tool_call("execute", "not json")]})], verbose=True
     )
-    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
-    assert "Arguments not a dict." in capsys.readouterr().out
+    chunks = list(run_tool_calling_llm(llm, {"messages": []}))
+    assert len(chunks) == 1
+    assert chunks[0]["content"].startswith(TOOL_CALL_ERROR_PREFIX)
+    out = capsys.readouterr().out
+    assert "Arguments not a dict." in out
+    assert TOOL_CALL_ERROR_PREFIX in out
 
 
 def test_auth_requires_review_layer(monkeypatch):
@@ -314,7 +341,11 @@ def test_reasoning_only_delta_yields_standalone_message():
 
 
 def test_reasoning_preserved_when_delta_has_tool_call():
-    """Reasoning survives the tool-call transform, which replaces the delta (issue #215)."""
+    """Reasoning survives the tool-call transform, which replaces the delta (issue #215).
+
+    The unsupported name in the same delta also reports itself, after the
+    reasoning chunk, so the turn is not silently empty.
+    """
     llm = _make_llm(
         [
             _chunk(
@@ -326,7 +357,16 @@ def test_reasoning_preserved_when_delta_has_tool_call():
         ]
     )
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
-        {"type": "message", "content": "", "reasoning_content": "r"}
+        {"type": "message", "content": "", "reasoning_content": "r"},
+        {
+            "type": "message",
+            "content": (
+                f"{TOOL_CALL_ERROR_PREFIX} `other` is not supported. "
+                "Call `execute` with a `language` and `code` block instead; "
+                "other APIs must be called from inside that code."
+            ),
+            UNRUNNABLE_TOOL_CALL_KEY: True,
+        },
     ]
 
 

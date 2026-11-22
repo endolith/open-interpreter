@@ -6,6 +6,7 @@ from .utils.normalize_double_escaped_arguments import (
     normalize_double_escaped_arguments,
 )
 from .utils.parse_partial_json import parse_partial_json
+from .utils.tool_call_errors import TOOL_CALL_ERROR_PREFIX, UNRUNNABLE_TOOL_CALL_KEY
 
 tool_schema = {
     "type": "function",
@@ -174,6 +175,11 @@ def run_tool_calling_llm(llm, request_params):
     language = None
     code = ""
     function_call_detected = False
+    # Whether any tool-call entry carried a function object at all, even one
+    # with no usable name or arguments. Kept apart from
+    # `function_call_detected` because that flag also gates the review/auth
+    # behaviour, which an empty entry should not switch on.
+    tool_call_entry_seen = False
     accumulated_review = ""
     review_category = None
     buffer = ""
@@ -232,6 +238,11 @@ def run_tool_calling_llm(llm, request_params):
                     function = getattr(tool_call, "function", None)
                 if not function:
                     continue
+                # Record that a tool-call entry arrived before deciding
+                # whether it is usable. A model that sends a tool call with
+                # neither a name nor arguments would otherwise be skipped
+                # here and end the turn silently, exactly like #629.
+                tool_call_entry_seen = True
                 # A nameless continuation still belongs to a call in
                 # progress: merge_deltas skips its None name and appends
                 # the arguments to the accumulated call.
@@ -388,7 +399,12 @@ def run_tool_calling_llm(llm, request_params):
                     ):
                         language = arguments["language"]
 
-                    if language is not None and "code" in arguments:
+                    # A non-string `code` (seen with malformed provider output)
+                    # must not reach the slice below: the exception would skip
+                    # the report and the turn would end blank (#629).
+                    if language is not None and isinstance(
+                        arguments.get("code"), str
+                    ):
                         # Calculate the delta (new characters only)
                         code_delta = arguments["code"][len(code) :]
                         # Update the code
@@ -414,6 +430,48 @@ def run_tool_calling_llm(llm, request_params):
             "content": buffer,
         }
         buffer = ""
+
+    # A call this build cannot run used to vanish: no code was streamed, so
+    # nothing was appended and the turn ended as if the model had said
+    # nothing (#629). Store the failure as assistant text so the next turn
+    # sees it and can retry through `execute`, and so `--no-loop` sessions
+    # are not left with a blank reply.
+    # Providers that stream the legacy `function_call` delta shape never set
+    # `function_call_detected` (only the tool_calls conversion does), so check
+    # the accumulated call as well or those calls still vanish. Likewise, an
+    # entry with no name and no arguments is skipped by the conversion loop,
+    # so `tool_call_entry_seen` keeps that case from ending the turn silently.
+    if (
+        function_call_detected
+        or tool_call_entry_seen
+        or accumulated_deltas.get("function_call")
+    ) and not code:
+        function_name = (
+            accumulated_deltas.get("function_call", {}).get("name") or ""
+        )
+        if function_name in ("execute", "python", "functions"):
+            error = (
+                f"{TOOL_CALL_ERROR_PREFIX} `{function_name}` produced no code to run. "
+                "It needs both `language` and `code`; retry with "
+                "`execute(language, code)`."
+            )
+        elif function_name:
+            error = (
+                f"{TOOL_CALL_ERROR_PREFIX} `{function_name}` is not supported. "
+                "Call `execute` with a `language` and `code` block instead; "
+                "other APIs must be called from inside that code."
+            )
+        else:
+            error = (
+                f"{TOOL_CALL_ERROR_PREFIX} could not be run: it arrived without "
+                "a function name. Retry with `execute(language, code)`."
+            )
+        # Mark the report for this call so respond() can tell a genuine report from
+        # ordinary assistant text that merely quotes it. respond() strips the key
+        # before the chunk reaches the stored message.
+        yield {"type": "message", "content": error, UNRUNNABLE_TOOL_CALL_KEY: True}
+        if llm.interpreter.verbose:
+            print(error)
 
     if os.getenv("INTERPRETER_REQUIRE_AUTHENTICATION", "False").lower() == "true":
         print("function_call_detected", function_call_detected)
