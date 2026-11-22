@@ -311,7 +311,14 @@ def test_capture_output_yields_queued_items_then_stops():
     """_capture_output() yields enqueued chunks and breaks once finish_flag is set and the queue empties."""
     lang = JupyterLanguage.__new__(JupyterLanguage)
     lang.finish_flag = True
-    lang.listener_thread = threading.Thread
+    # A live listener instance (the class itself used to stand in here): the
+    # consumer asks is_alive() to tell a dead listener from a live one, and a
+    # dead one would take the early exit instead of this test's finish_flag path.
+    listener_stays_alive = threading.Event()
+    lang.listener_thread = threading.Thread(
+        target=listener_stays_alive.wait, daemon=True
+    )
+    lang.listener_thread.start()
     lang.computer = SimpleNamespace(
         interpreter=SimpleNamespace(stop_event=threading.Event())
     )
@@ -427,7 +434,30 @@ def test_terminate_stops_channels_and_shuts_down_kernel():
     lang = JupyterLanguage.__new__(JupyterLanguage)
     calls = []
     lang.kc = SimpleNamespace(stop_channels=lambda: calls.append("stop_channels"))
-    lang.km = SimpleNamespace(shutdown_kernel=lambda: calls.append("shutdown_kernel"))
+    lang.km = SimpleNamespace(
+        shutdown_kernel=lambda **_: calls.append("shutdown_kernel")
+    )
+    lang.terminate()
+    assert calls == ["stop_channels", "shutdown_kernel"]
+
+
+def test_terminate_shuts_the_kernel_down_when_channels_fail_to_stop():
+    """terminate() must still shut the kernel down if stopping channels raises.
+
+    terminate() also runs on interpreter exit and after an interrupted startup,
+    where a skipped shutdown would leave the kernel process running.
+    """
+    lang = JupyterLanguage.__new__(JupyterLanguage)
+    calls = []
+
+    def fail_stop_channels():
+        calls.append("stop_channels")
+        raise RuntimeError("channels already closed")
+
+    lang.kc = SimpleNamespace(stop_channels=fail_stop_channels)
+    lang.km = SimpleNamespace(
+        shutdown_kernel=lambda **_: calls.append("shutdown_kernel")
+    )
     lang.terminate()
     assert calls == ["stop_channels", "shutdown_kernel"]
 
@@ -683,6 +713,35 @@ def test_init_cleans_up_when_warmup_is_interrupted():
                     JupyterLanguage(mock.Mock())
 
     cleanup.assert_called_once_with()
+
+
+def test_ensure_kernel_does_not_start_a_replacement_during_warmup(monkeypatch):
+    """Kernel recovery must not re-enter `__init__` while it is warming up.
+
+    The warm-up calls run(), which calls _ensure_kernel(). If the kernel dies
+    there and recovery re-runs `__init__`, the new construction warms up again
+    and can nest another restart; a kernel that keeps dying after its channels
+    pass would spawn processes per level. The warm-up run reports the death
+    instead, and later runs still recover.
+    """
+    lang = _make_language()
+    lang.computer = SimpleNamespace()
+    lang._startup_warmup = True
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    restarts = []
+
+    def reinit(self, computer):
+        restarts.append(computer)
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", reinit)
+    lang._ensure_kernel()
+
+    assert restarts == []
+
+    # Once the warm-up is over, the same dead kernel is recovered.
+    lang._startup_warmup = False
+    lang._ensure_kernel()
+    assert len(restarts) == 1
 
 
 def test_ctrl_c_during_preprocessing_is_not_swallowed():

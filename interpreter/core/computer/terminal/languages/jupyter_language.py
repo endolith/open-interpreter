@@ -21,6 +21,15 @@ from ..base_language import BaseLanguage
 
 DEBUG_MODE = False
 
+# How long a run waits for the client channels to come up before giving up.
+# A dead client means the kernel never started, so the wait must end rather
+# than spin; tests shrink it.
+KERNEL_WAIT_SECONDS = 10
+
+# One wording for "the kernel died under us": the listener and the consumer both
+# report it, and whichever gets there first is the one the user sees.
+_KERNEL_EXIT_NOTICE = "The Python kernel exited. It will restart on the next run."
+
 # When running from an executable, ipykernel calls itself infinitely
 # This is a workaround to detect it and launch it manually
 if "ipykernel_launcher" in sys.argv:
@@ -92,16 +101,40 @@ class JupyterLanguage(BaseLanguage):
     # messages. Class-level so a freshly built language is in a known state.
     _execution_id = None
     _listener_generation = 0
+    # True once __init__ has finished wiring the kernel. A manager can be alive
+    # while its channels never came up, so liveness alone must not mark it
+    # reusable. Class-level defaults keep hand-built instances (tests, custom
+    # languages) treated as ready.
+    _kernel_ready = True
+    _kernel_restart_error = None
 
     def __init__(self, computer):
         self.computer = computer
 
+        self._kernel_ready = False
         self.km = KernelManager(kernel_name="python3")
         self.km.start_kernel()
         self.kc = self.km.client()
         self.kc.start_channels()
-        while not self.kc.is_alive():
+        # A replacement process can exit before its channels come up. A bare
+        # `while not is_alive(): sleep` then waits forever, so the caller never
+        # reaches its own timeout and can never report the failure.
+        deadline = time.time() + KERNEL_WAIT_SECONDS
+        while not self.kc.is_alive() and time.time() < deadline:
+            if not self._kernel_is_alive():
+                break
             time.sleep(0.1)
+        if not self.kc.is_alive():
+            # Terminal never receives this instance, so its normal terminate()
+            # path cannot reach the channels and process started above. Release
+            # each resource independently — a channels failure must not strand
+            # the kernel process — but keep the startup error as the one the
+            # caller sees.
+            self._release_kernel_resources(now=True)
+            raise RuntimeError(
+                "The Python kernel did not start; its channels never came up."
+            )
+        self._kernel_ready = True
         time.sleep(0.5)
 
         self.listener_thread = None
@@ -156,8 +189,28 @@ import matplotlib.pyplot as plt
         # self.run(code)
 
     def terminate(self):
-        self.kc.stop_channels()
-        self.km.shutdown_kernel()
+        self._release_kernel_resources(now=False)
+
+    def _release_kernel_resources(self, *, now):
+        """Stop the channels and shut the kernel down, each independently.
+
+        If one step raises (the channels may already be closed, or the process
+        already gone), the other must still be attempted: a leaked kernel
+        process keeps consuming resources for the rest of the session, and the
+        constructor's failure path has no later chance to release it.
+        """
+        kc = getattr(self, "kc", None)
+        if kc is not None:
+            try:
+                kc.stop_channels()
+            except Exception:
+                pass
+        km = getattr(self, "km", None)
+        if km is not None:
+            try:
+                km.shutdown_kernel(now=now)
+            except Exception:
+                pass
 
     def _cleanup_after_interrupted_startup(self):
         """Stop the listener and kernel when Ctrl-C interrupts __init__ warm-up."""
@@ -167,8 +220,80 @@ import matplotlib.pyplot as plt
             listener.join(timeout=10)
         self.terminate()
 
+    def _kernel_is_alive(self):
+        """Whether the kernel process is still running.
+
+        Client channels can stay open after the process exits, so checking
+        `kc.is_alive()` is not enough: `os._exit(0)` leaves them open and the
+        run then waits forever for an idle message that cannot arrive.
+        """
+        km = getattr(self, "km", None)
+        if km is None:
+            return True
+        try:
+            return bool(km.is_alive())
+        except Exception as error:
+            # Fail open: a spurious restart would discard the user's live
+            # session state. Under verbose, surface the failure so a probe that
+            # fails consistently is distinguishable from a healthy kernel.
+            if getattr(getattr(self, "computer", None), "verbose", False):
+                print(f"Kernel liveness check failed: {error}")
+            return True
+
+    def _ensure_kernel(self):
+        """Recreate the kernel after a hard exit, with OI's setup applied.
+
+        Re-running `__init__` is deliberate: a bare restart would leave the new
+        kernel without the matplotlib backend or the display formatter, and the
+        model depends on both.
+        """
+        # `__init__` warms up by calling run(), which asks this method to
+        # recover. Recovering there re-enters `__init__` from inside its own
+        # warm-up; if the replacement keeps dying after its channels pass, the
+        # nesting repeats and each level starts another kernel process. The
+        # warm-up run reports the death instead, and later user runs (once the
+        # flag is cleared) still recover normally.
+        if getattr(self, "_startup_warmup", False):
+            return
+        # Completeness, not liveness: a manager whose channels never came up is
+        # alive enough to pass an is_alive() check but cannot serve a run.
+        if self._kernel_is_alive() and getattr(self, "_kernel_ready", True):
+            return
+        self.finish_flag = True
+        self._release_kernel_resources(now=True)
+        try:
+            self.__init__(self.computer)
+        except Exception as exc:
+            # Escaping from here would abort run() before it can say what went
+            # wrong, and would leave the half-built manager to be reused.
+            self._kernel_restart_error = exc
+            self._kernel_ready = False
+            return
+        self._kernel_restart_error = None
+        self._kernel_ready = True
+
     def run(self, code):
-        while not self.kc.is_alive():
+        self._ensure_kernel()
+        restart_error = getattr(self, "_kernel_restart_error", None)
+        if restart_error is not None:
+            # The liveness check can pass on a manager that never finished
+            # setup, so report the recorded failure instead of proceeding.
+            self._kernel_restart_error = None
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": f"The Python kernel could not be restarted: {restart_error}",
+            }
+            return
+        if not self._kernel_is_alive():
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": "The Python kernel could not be restarted.",
+            }
+            return
+        deadline = time.time() + KERNEL_WAIT_SECONDS
+        while not self.kc.is_alive() and time.time() < deadline:
             time.sleep(0.1)
 
         self.last_output_time = time.time()
@@ -278,6 +403,18 @@ import matplotlib.pyplot as plt
             # overwrites self._execution_id.
             max_retries = 100
             while True:
+                # A hard exit (os._exit, OOM, segfault) leaves the channels
+                # open with no idle coming; stop waiting and report it.
+                if not self._kernel_is_alive():
+                    message_queue.put(
+                        {
+                            "type": "console",
+                            "format": "output",
+                            "content": _KERNEL_EXIT_NOTICE,
+                        }
+                    )
+                    self.finish_flag = True
+                    return
                 if generation != self._listener_generation:
                     # A newer request started: stop consuming the channel so
                     # the current listener gets this run's messages.
@@ -351,6 +488,9 @@ import matplotlib.pyplot as plt
                 except Exception as e:
                     max_retries -= 1
                     if max_retries < 0:
+                        # Nothing will set it from this thread again, so let
+                        # the consumer leave its loop instead of waiting.
+                        self.finish_flag = True
                         raise
                     print("Jupyter error, retrying:", str(e))
                     continue
@@ -438,6 +578,10 @@ import matplotlib.pyplot as plt
         return line, None
 
     def _capture_output(self, message_queue):
+        # Whether the exit notice has reached the caller during this capture.
+        # The listener usually queues it, but the dead-kernel fallback can also
+        # produce it; tracking the flag here keeps it from being said twice.
+        exit_notice_delivered = False
         while True:
             time.sleep(0.1)
 
@@ -454,9 +598,42 @@ import matplotlib.pyplot as plt
                     output = message_queue.get(timeout=0.1)
                     if DEBUG_MODE:
                         print(output)
+                    if output.get("content") == _KERNEL_EXIT_NOTICE:
+                        exit_notice_delivered = True
                     yield output
 
                 except queue.Empty:
+                    if not self._kernel_is_alive():
+                        drained = []
+                        while not message_queue.empty():
+                            drained.append(message_queue.get())
+                        for chunk in drained:
+                            if chunk.get("content") == _KERNEL_EXIT_NOTICE:
+                                exit_notice_delivered = True
+                            yield chunk
+                        self.finish_flag = True
+                        # The listener may not have enqueued its notice yet, and
+                        # waiting for it could block on a thread that already
+                        # died. Deliver it here instead — unless it was already
+                        # yielded, in which case a second copy would repeat the
+                        # same sentence in non-streaming output.
+                        if not exit_notice_delivered:
+                            exit_notice_delivered = True
+                            yield {
+                                "type": "console",
+                                "format": "output",
+                                "content": _KERNEL_EXIT_NOTICE,
+                            }
+                        break
+                    if (
+                        self.listener_thread is not None
+                        and not self.listener_thread.is_alive()
+                        and message_queue.empty()
+                    ):
+                        # The listener died without setting finish_flag; the
+                        # run must not wait forever for output that cannot come.
+                        self.finish_flag = True
+                        break
                     if self.finish_flag:
                         time.sleep(0.1)
 
