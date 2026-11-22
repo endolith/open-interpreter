@@ -125,6 +125,12 @@ class JupyterLanguage(BaseLanguage):
                 break
             time.sleep(0.1)
         if not self.kc.is_alive():
+            # Terminal never receives this instance, so its normal terminate()
+            # path cannot reach the channels and process started above. Release
+            # each resource independently — a channels failure must not strand
+            # the kernel process — but keep the startup error as the one the
+            # caller sees.
+            self._release_kernel_resources(now=True)
             raise RuntimeError(
                 "The Python kernel did not start; its channels never came up."
             )
@@ -183,8 +189,28 @@ import matplotlib.pyplot as plt
         # self.run(code)
 
     def terminate(self):
-        self.kc.stop_channels()
-        self.km.shutdown_kernel()
+        self._release_kernel_resources(now=False)
+
+    def _release_kernel_resources(self, *, now):
+        """Stop the channels and shut the kernel down, each independently.
+
+        If one step raises (the channels may already be closed, or the process
+        already gone), the other must still be attempted: a leaked kernel
+        process keeps consuming resources for the rest of the session, and the
+        constructor's failure path has no later chance to release it.
+        """
+        kc = getattr(self, "kc", None)
+        if kc is not None:
+            try:
+                kc.stop_channels()
+            except Exception:
+                pass
+        km = getattr(self, "km", None)
+        if km is not None:
+            try:
+                km.shutdown_kernel(now=now)
+            except Exception:
+                pass
 
     def _cleanup_after_interrupted_startup(self):
         """Stop the listener and kernel when Ctrl-C interrupts __init__ warm-up."""
@@ -221,20 +247,20 @@ import matplotlib.pyplot as plt
         kernel without the matplotlib backend or the display formatter, and the
         model depends on both.
         """
+        # `__init__` warms up by calling run(), which asks this method to
+        # recover. Recovering there re-enters `__init__` from inside its own
+        # warm-up; if the replacement keeps dying after its channels pass, the
+        # nesting repeats and each level starts another kernel process. The
+        # warm-up run reports the death instead, and later user runs (once the
+        # flag is cleared) still recover normally.
+        if getattr(self, "_startup_warmup", False):
+            return
         # Completeness, not liveness: a manager whose channels never came up is
         # alive enough to pass an is_alive() check but cannot serve a run.
         if self._kernel_is_alive() and getattr(self, "_kernel_ready", True):
             return
         self.finish_flag = True
-        try:
-            if getattr(self, "kc", None):
-                self.kc.stop_channels()
-        except Exception:
-            pass
-        try:
-            self.km.shutdown_kernel(now=True)
-        except Exception:
-            pass
+        self._release_kernel_resources(now=True)
         try:
             self.__init__(self.computer)
         except Exception as exc:
