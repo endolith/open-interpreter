@@ -161,6 +161,166 @@ def test_message_block_cursor_bullet():
     assert "\u25cf" not in _render(captured["panel"])
 
 
+def test_code_block_print_code_before_run_prints_panel_once():
+    """print_code_before_run draws the panel permanently, keeps the source for
+    the active-line handler to resolve the current action, and leaves a fresh
+    live display for the execution output, so a command that writes directly
+    to the terminal prints below the panel instead of over it (issue #651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print") as print_panel:
+        block.print_code_before_run()
+
+        assert "print(1)" in _render(print_panel.call_args[0][0])
+        assert block.code == "print(1)"
+        assert block.code_printed is True
+        assert block.live.is_started
+
+        # The panel is permanent; a second call must not print it again.
+        block.print_code_before_run()
+    panels = [c[0][0] for c in print_panel.call_args_list if "print(1)" in _render(c[0][0])]
+    assert len(panels) == 1
+
+
+def test_code_block_after_panel_print_renders_only_output():
+    """After the panel is printed permanently, the live region renders only the
+    execution output; the code must not appear a second time (issue #651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+    block.output = "hello"
+
+    rendered = _render(block._render_group(cursor=False))
+    assert "print(1)" not in rendered
+    assert "hello" in rendered
+
+
+def test_code_block_refresh_after_panel_print_renders_only_output():
+    """refresh after the panel is printed updates the live region with the
+    execution output alone, not the code again (issue #651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+    block.output = "hello"
+
+    with mock.patch.object(block.live, "update") as update:
+        block.refresh(cursor=False)
+
+    update.assert_called_once()
+    assert "hello" in _render(update.call_args[0][0])
+    assert "print(1)" not in _render(update.call_args[0][0])
+
+
+def test_code_block_refresh_after_panel_print_without_output_is_a_noop():
+    """After the panel is printed, an empty output leaves nothing to refresh."""
+    block = CodeBlock()
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+
+    with mock.patch.object(block.live, "update") as update:
+        block.refresh()
+
+    update.assert_not_called()
+
+
+def test_code_block_print_code_before_run_without_code_is_a_noop():
+    """print_code_before_run does nothing when there is no pending code."""
+    block = CodeBlock()
+    with mock.patch.object(block.live, "stop") as stop:
+        block.print_code_before_run()
+    stop.assert_not_called()
+
+
+def test_code_block_after_panel_print_highlights_active_line():
+    """After the panel is printed permanently, the live region still shows the
+    executing line, highlighted, without drawing the rest of the code again
+    (issue #651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)\nprint(2)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+    block.active_line = 2
+    block.output = "hello"
+
+    group = block._render_group(cursor=False)
+    active_panel = group.renderables[0]
+    assert isinstance(active_panel, Panel)
+    assert [row.style for row in active_panel.renderable.rows] == ["black on white"]
+
+    rendered = _render(group)
+    assert "print(2)" in rendered
+    assert "print(1)" not in rendered
+    assert "hello" in rendered
+
+
+def test_code_block_refresh_after_panel_print_shows_active_line_without_output():
+    """Before any output arrives, refresh still repaints the active line so the
+    execution highlight is visible during approved and edited runs (#651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+    block.active_line = 1
+    captured = {}
+    block.live.update = lambda group: captured.update(group=group)
+    block.live.refresh = lambda: None
+
+    block.refresh(cursor=False)
+
+    assert "print(1)" in _render(captured["group"])
+
+
+def test_code_block_after_panel_print_skips_highlight_when_disabled():
+    """With active-line highlighting disabled, the printed panel keeps its
+    existing behavior and the live region renders only the output (#651)."""
+    block = CodeBlock(interpreter=SimpleNamespace(highlight_active_line=False))
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+    block.active_line = 1
+    block.output = "hello"
+
+    rendered = _render(block._render_group(cursor=False))
+    assert "print(1)" not in rendered
+    assert "hello" in rendered
+
+
+def test_code_block_end_after_panel_print_clears_highlight_without_output():
+    """Ending a printed run with no output repaints the live region so the
+    single-line highlight does not survive in the stopped display (#651)."""
+    block = CodeBlock()
+    block.margin_top = False
+    block.language = "python"
+    block.code = "print(1)"
+    with mock.patch.object(block.live.console, "print"):
+        block.print_code_before_run()
+    block.active_line = 1
+    captured = {}
+    block.live.update = lambda group: captured.update(group=group)
+    block.live.refresh = lambda: None
+
+    with mock.patch.object(block.live, "stop"):
+        block.end()
+
+    assert block.active_line is None
+    assert "print(1)" not in _render(captured["group"])
+
+
 def test_block_types_are_distinct():
     """MessageBlock and CodeBlock identify themselves with distinct types."""
     assert MessageBlock().type == "message"

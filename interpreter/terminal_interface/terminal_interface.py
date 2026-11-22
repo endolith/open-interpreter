@@ -45,6 +45,12 @@ except:
     pass
 
 
+def _print_run_panel(block, interpreter):
+    """Print the run panel before dispatch, unless plain-text mode draws none."""
+    if not interpreter.plain_text_display:
+        block.print_code_before_run()
+
+
 def terminal_interface(interpreter, message):
     # Auto run and offline (this.. this isn't right) don't display messages.
     # Probably worth abstracting this to something like "debug_cli" at some point.
@@ -257,6 +263,7 @@ def terminal_interface(interpreter, message):
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
                             active_block.code = code
+                            _print_run_panel(active_block, interpreter)
                         elif response.strip().lower() == "e":
                             # Edit
 
@@ -278,10 +285,11 @@ def terminal_interface(interpreter, message):
 
                             # Delete the temporary file
                             os.unlink(tf.name)
-                            active_block = CodeBlock()
+                            active_block = CodeBlock(interpreter)
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
                             active_block.code = code
+                            _print_run_panel(active_block, interpreter)
                         else:
                             # User declined to run code.
                             interpreter.messages.append(
