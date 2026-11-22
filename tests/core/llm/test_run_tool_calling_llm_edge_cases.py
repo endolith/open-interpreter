@@ -392,3 +392,238 @@ def test_double_escaped_arguments_still_produce_a_code_chunk():
     assert list(run_tool_calling_llm(llm, {"messages": []})) == [
         {"type": "code", "format": "bash", "content": "echo hi"}
     ]
+
+
+def test_non_string_tool_call_arguments_do_not_end_the_stream():
+    """A decoded `function_call.arguments` must not swallow later chunks.
+
+    Some providers stream the arguments of a legacy `function_call` as a
+    JSON value rather than a string. Feeding that to `parse_partial_json`
+    raises `TypeError` in its character loop, which ended the generator and
+    dropped the rest of the turn. The guard skips that chunk so a following
+    content delta is still delivered.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "function_call": {
+                            "name": "execute",
+                            "arguments": [1, 2],
+                        }
+                    }
+                }
+            ]
+        }
+        yield {"choices": [{"delta": {"content": "stream continues"}}]}
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "stream continues"}
+    ]
+
+
+def test_object_shaped_function_call_arguments_are_dropped():
+    """A Delta-shaped `function_call` object must be read like a dict.
+
+    litellm can hand over the function call as an object rather than a plain
+    dict. The sanitizer has to read its attributes, discard the non-string
+    `arguments`, and keep the turn alive; otherwise the decoded list stays in
+    the accumulator and the next string fragment raises `TypeError` (#646).
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "function_call": SimpleNamespace(
+                            name="execute", arguments=[1, 2]
+                        )
+                    }
+                }
+            ]
+        }
+        yield {"choices": [{"delta": {"content": "stream continues"}}]}
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "message", "content": "stream continues"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "code_value",
+    ['{"nested": 1}', "[1, 2]"],
+    ids=["object", "list"],
+)
+def test_non_string_code_argument_does_not_crash_the_stream(code_value):
+    """A `code` value that is not a string must be skipped, not sliced.
+
+    `parse_partial_json` returns whatever shape the model streamed, so a
+    model that starts streaming `"code": {` or `"code": [` can hand back an
+    object or a list. Indexing that with a slice raised `KeyError: slice(...)`
+    and killed the generator mid-turn. Skipping the chunk lets the stream
+    keep running; nothing executable can be yielded from a non-string value.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": %s}'
+                                    % code_value,
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == []
+
+
+def test_string_code_argument_still_yields_the_code_chunk():
+    """The non-string guard must not swallow ordinary string `code` values.
+
+    Paired with the skip test above: if the guard were written the other way
+    round (only yielding when the value is *not* a string) this chunk would
+    disappear, so assert the normal path still emits the code.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments='{"language": "python", "code": "print(1)"}',
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+def test_rejected_list_arguments_do_not_poison_later_string_fragments():
+    """A list `arguments` delta must not break the following string fragment.
+
+    The parse guard only skips the chunk; `merge_deltas` had already stored
+    the list in `accumulated_deltas`, so the next string fragment evaluated
+    `[1, 2] + "..."` and raised `TypeError`, ending the stream before the
+    code chunk could be yielded. Rejecting non-string values before the
+    accumulator lets the string fragment start the value instead.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "function_call": {
+                            "name": "execute",
+                            "arguments": [1, 2],
+                        }
+                    }
+                }
+            ]
+        }
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "function_call": {
+                            "arguments": '{"language": "python", "code": "print(1)"}',
+                        }
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
+
+
+def test_rejected_list_tool_call_arguments_do_not_poison_later_fragments():
+    """The same list-arguments guard covers the converted `tool_calls` shape.
+
+    The accumulator sees the call after it is rebuilt from `tool_calls`, so
+    a decoded list there took the same `[...] + "..."` path as the legacy
+    `function_call` form. A string continuation must still be emitted as
+    code.
+    """
+    llm = _make_llm()
+
+    def chat(*args, **kwargs):
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    name="execute",
+                                    arguments=[1, 2],
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            SimpleNamespace(
+                                id="toolu_1",
+                                function=SimpleNamespace(
+                                    arguments='{"language": "python", "code": "print(1)"}',
+                                ),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+    llm.completions = chat
+
+    assert list(run_tool_calling_llm(llm, {"messages": []})) == [
+        {"type": "code", "format": "python", "content": "print(1)"}
+    ]
