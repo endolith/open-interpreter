@@ -125,6 +125,13 @@ class JupyterLanguage(BaseLanguage):
                 break
             time.sleep(0.1)
         if not self.kc.is_alive():
+            # Terminal never receives this instance, so its normal terminate()
+            # path cannot reach the channels and process started above. Release
+            # them here, but keep the startup error as the one the caller sees.
+            try:
+                self.terminate()
+            except Exception:
+                pass
             raise RuntimeError(
                 "The Python kernel did not start; its channels never came up."
             )
@@ -221,6 +228,14 @@ import matplotlib.pyplot as plt
         kernel without the matplotlib backend or the display formatter, and the
         model depends on both.
         """
+        # `__init__` warms up by calling run(), which asks this method to
+        # recover. Recovering there re-enters `__init__` from inside its own
+        # warm-up; if the replacement keeps dying after its channels pass, the
+        # nesting repeats and each level starts another kernel process. The
+        # warm-up run reports the death instead, and later user runs (once the
+        # flag is cleared) still recover normally.
+        if getattr(self, "_startup_warmup", False):
+            return
         # Completeness, not liveness: a manager whose channels never came up is
         # alive enough to pass an is_alive() check but cannot serve a run.
         if self._kernel_is_alive() and getattr(self, "_kernel_ready", True):

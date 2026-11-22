@@ -692,6 +692,35 @@ def test_init_cleans_up_when_warmup_is_interrupted():
     cleanup.assert_called_once_with()
 
 
+def test_ensure_kernel_does_not_start_a_replacement_during_warmup(monkeypatch):
+    """Kernel recovery must not re-enter `__init__` while it is warming up.
+
+    The warm-up calls run(), which calls _ensure_kernel(). If the kernel dies
+    there and recovery re-runs `__init__`, the new construction warms up again
+    and can nest another restart; a kernel that keeps dying after its channels
+    pass would spawn processes per level. The warm-up run reports the death
+    instead, and later runs still recover.
+    """
+    lang = _make_language()
+    lang.computer = SimpleNamespace()
+    lang._startup_warmup = True
+    lang.km = SimpleNamespace(is_alive=lambda: False)
+    restarts = []
+
+    def reinit(self, computer):
+        restarts.append(computer)
+
+    monkeypatch.setattr(JupyterLanguage, "__init__", reinit)
+    lang._ensure_kernel()
+
+    assert restarts == []
+
+    # Once the warm-up is over, the same dead kernel is recovered.
+    lang._startup_warmup = False
+    lang._ensure_kernel()
+    assert len(restarts) == 1
+
+
 def test_ctrl_c_during_preprocessing_is_not_swallowed():
     """A cancelled block must not run when Ctrl-C lands while preprocessing.
 

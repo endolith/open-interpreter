@@ -692,6 +692,33 @@ def test_init_reports_a_kernel_that_exits_before_its_channels_open(monkeypatch):
             JupyterLanguage(SimpleNamespace())
 
 
+def test_init_releases_the_kernel_when_channels_never_open(monkeypatch):
+    """Construction that fails before channels open must not leak the manager.
+
+    `__init__` has already started the process and its channels when it raises
+    for channels that never come up. Terminal never receives the instance, so
+    its normal terminate() path cannot reach them; construction has to release
+    them before propagating the error.
+    """
+    monkeypatch.setattr(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KERNEL_WAIT_SECONDS",
+        0.05,
+    )
+    manager = mock.Mock()
+    manager.is_alive.return_value = True
+    manager.client.return_value.is_alive.return_value = False
+
+    with mock.patch(
+        "interpreter.core.computer.terminal.languages.jupyter_language.KernelManager",
+        return_value=manager,
+    ):
+        with pytest.raises(RuntimeError, match="channels never came up"):
+            JupyterLanguage(SimpleNamespace())
+
+    manager.client.return_value.stop_channels.assert_called_once_with()
+    manager.shutdown_kernel.assert_called_once_with()
+
+
 def test_capture_output_does_not_repeat_the_exit_notice():
     """A notice read through the normal queue path is not emitted a second time.
 
