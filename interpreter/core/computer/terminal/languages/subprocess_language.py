@@ -241,8 +241,12 @@ class SubprocessLanguage(BaseLanguage):
                             {"type": "console", "format": "output", "content": line}
                         )
                 elif self.detect_end_of_execution(line):
-                    # Sometimes there's a little extra on the same line, so be sure to send that out
-                    line = line.replace("##end_of_execution##", "").strip()
+                    # Sometimes there's a little extra on the same line, so be sure to send that out.
+                    # Remove only the line terminator and trailing formatting: the
+                    # leading spaces are the program's output (e.g. Ruby's
+                    # `print "  hi"` leaves the marker after the printed text), so
+                    # stripping them would silently rewrite what the user printed.
+                    line = line.replace("##end_of_execution##", "").rstrip()
                     if line:
                         self.output_queue.put(
                             {"type": "console", "format": "output", "content": line}
