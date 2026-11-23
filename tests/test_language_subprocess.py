@@ -129,6 +129,11 @@ def test_java_subprocess_smoke(interpreter):
 def test_html_runtime_smoke(interpreter):
     """HTML execution yields console + code + image chunks (via html2image/Chrome)."""
     require_chrome_for_html()
+    # toolbox.run() executes no LLM call, so the lazy `supports_vision`
+    # auto-detection (which happens during message conversion) never runs and
+    # the display language would fall back to showing source. Opt in to the
+    # screenshot path this test is about.
+    interpreter.llm.supports_vision = True
     try:
         chunks = list(
             interpreter.toolbox.run(
@@ -149,6 +154,8 @@ def test_html_runtime_smoke(interpreter):
 def test_react_runtime_smoke(interpreter):
     """React code is injected into the CDN-backed HTML template and screenshotted."""
     require_chrome_for_html()
+    # See test_html_runtime_smoke: opt in to the screenshot path explicitly.
+    interpreter.llm.supports_vision = True
     try:
         chunks = list(interpreter.toolbox.run("react", _REACT_SMOKE))
     except FileNotFoundError as exc:
