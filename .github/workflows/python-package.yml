@@ -138,7 +138,7 @@ jobs:
         run: command -v google-chrome || command -v google-chrome-stable
       - name: Install and test
         run: |
-          uv pip install --system -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev,web]"
           if [ "${{ matrix.python-version }}" = "3.14" ]; then
             pytest -m "not integration and not windows_ci and not darwin_ci" \
               -q -rs --junitxml=test-results.xml \
@@ -191,7 +191,7 @@ jobs:
       - name: Install and test
         shell: bash
         run: |
-          uv pip install --system -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev,web]"
           pytest -m "not integration and not darwin_ci" -q -rs \
             --junitxml=test-results.xml \
             --cov=interpreter \
@@ -226,7 +226,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
       - name: Install and test
         run: |
-          uv pip install --system -e ".[server,dev]"
+          uv pip install --system -e ".[server,dev,web]"
           pytest -m "not integration and not windows_ci" -q -rs \
             --junitxml=test-results.xml \
             --cov=interpreter \
@@ -356,7 +356,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Install
-        run: uv pip install --system -e ".[server,dev]"
+        run: uv pip install --system -e ".[server,dev,web]"
 
       - name: Require the provider key for the selected model
         env:

@@ -27,14 +27,19 @@ Most unit tests here were written after the fact by an AI, assuming the code was
 correct — so a surprising failure is more often a bad test than a regression (see
 Testing below). Check which before assuming either way.
 
-**CI does not run for this branch, and that is expected.**
-`.github/workflows/python-package.yml` triggers only on `push` and `pull_request`
-against `main`, so pushing to `classic/develop` runs nothing. The "CI is green"
-line in the done checklist is a standing non-item here — do not wait for a run
-that will never start, and do not claim one. Verify locally instead:
+**CI runs on pull requests into any branch, but not on direct pushes to
+`classic/develop`.** `.github/workflows/python-package.yml` triggers on `push` only
+for `main`, while its bare `pull_request:` trigger has no branch filter — so a PR
+targeting `classic/develop` does run the full lint/test matrix, and its checks are
+real. Direct pushes to `classic/develop` start nothing. Verify a direct commit
+locally:
 
     python -m ruff check interpreter tests     # the same lint gate CI runs
     python -m pytest -m "not integration" -q
+
+The workflow installs `.[server,dev,web]`; a dependency a test needs must be
+declared in one of those extras or the test must skip with a clear reason when
+it is absent — never rely on the developer's machine having it.
 
 The branch **is** lint-clean: `ruff check interpreter tests` passes, so any error it
 reports is one you introduced. That was not always true. Six standing

@@ -72,8 +72,20 @@ server = [
     "janus>=2.0.0,<3.0.0",
     "uvicorn>=0.54.0,<0.55.0",
 ]
+# Backends for the web toolbox's search/answer/fetch actions (web.py imports
+# these lazily, so a base install keeps working without them). The distributions
+# are named differently from their import names: linkup-sdk -> linkup,
+# tavily-python -> tavily. The serpapi backend's distribution,
+# google-search-results, is deliberately not listed: it ships a top-level
+# `tests` package that shadows this project's own tests namespace and breaks
+# the suite, so the one test that needs it skips instead.
+web = [
+    "linkup-sdk>=0.24.0,<0.25.0",
+    "tavily-python>=0.7.26,<0.9.0",
+]
 dev = [
     "black>=23.10.1,<24.0.0",
+    "hypothesis>=6.167.1,<7.0.0",
     "isort>=5.12.0,<6.0.0",
     "pre-commit>=4.6.2,<5.0.0",
     "pytest>=9.1.1,<10.0.0",

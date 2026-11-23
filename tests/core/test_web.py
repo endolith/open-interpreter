@@ -3,6 +3,8 @@ import unittest
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from interpreter.core.toolbox.web.web import (
     Web,
     ResultItem,
@@ -768,6 +770,13 @@ class TestWebToolbox(unittest.TestCase):
 
     def test_serpapi_search_timeout_guard(self):
         """Verify a stalled serpapi call fails fast despite the SDK's 60000s default."""
+        pytest.importorskip(
+            "serpapi",
+            reason=(
+                "google-search-results is not installed: it ships a top-level tests/ "
+                "package that shadows this suite's own tests package"
+            ),
+        )
         with patch.dict(os.environ, {"SERPAPI_API_KEY": "fake_key"}):
             with patch("serpapi.GoogleSearch") as MockSearch:
                 import time

@@ -56,10 +56,10 @@ Once you've forked the code and created a new branch for your work, you can run 
 
 1. CD into the project folder by running `cd open-interpreter`.
 2. Create a virtual environment with `python -m venv .venv` and activate it (`source .venv/bin/activate` on Linux/macOS, `.venv\Scripts\activate` on Windows).
-3. Install dependencies by running `pip install -e ".[dev]"`.
+3. Install dependencies by running `pip install -e ".[dev,web]"` (the `web` extra bundles the search backends that the web toolbox tests exercise).
 4. Run the program with `interpreter`. Run tests with `pytest -s -x`.
 
-Prefer conda? Create an env with `conda create -n open-interpreter python=3.12` and activate it, then run the same `pip install -e ".[dev]"`. Conda also lets you scope API keys to the env so they only exist while it's activated (`conda env config vars set OPENAI_API_KEY=...`).
+Prefer conda? Create an env with `conda create -n open-interpreter python=3.12` and activate it, then run the same `pip install -e ".[dev,web]"`. Conda also lets you scope API keys to the env so they only exist while it's activated (`conda env config vars set OPENAI_API_KEY=...`).
 
 ### Integration tests locally
 
@@ -108,7 +108,7 @@ If you wish to install new dependencies into the project, add them to the `depen
 
 ### Installing Developer Dependencies
 
-If you need to install dependencies specific to development, like testing tools, formatting tools, etc., add them to the `dev` entry of the `[project.optional-dependencies]` table in `pyproject.toml`, then run `pip install -e ".[dev]"`.
+If you need to install dependencies specific to development, like testing tools, formatting tools, etc., add them to the `dev` entry of the `[project.optional-dependencies]` table in `pyproject.toml`, then run `pip install -e ".[dev]"`. Dependencies a feature imports at runtime (such as the web toolbox's search backends) belong in that feature's own extra, and the extras installed by the CI workflow must include it, otherwise tests that use the feature fail on CI instead of skipping.
 
 ## Code Formatting and Linting
 
