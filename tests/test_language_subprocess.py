@@ -35,6 +35,7 @@ import pytest
 
 from interpreter import OpenInterpreter
 from tests.helpers import (
+    chrome_screenshot_diagnostic,
     chunks_of_type,
     console_output_text,
     require_bash_compatible_shell,
@@ -43,6 +44,8 @@ from tests.helpers import (
 )
 
 pytestmark = pytest.mark.linux_ci
+
+_HTML_SMOKE = '<html><body style="font-size:32px">html_ok</body></html>'
 
 _JAVA_SMOKE = """class JavaOk {
     public static void main(String[] args) {
@@ -135,16 +138,20 @@ def test_html_runtime_smoke(interpreter):
     # screenshot path this test is about.
     interpreter.llm.supports_vision = True
     try:
-        chunks = list(
-            interpreter.toolbox.run(
-                "html", '<html><body style="font-size:32px">html_ok</body></html>'
-            )
-        )
+        chunks = list(interpreter.toolbox.run("html", _HTML_SMOKE))
     except FileNotFoundError as exc:
         pytest.skip(f"html2image screenshot failed: {exc}")
     assert chunks_of_type(chunks, "console")
     assert chunks_of_type(chunks, "code")[0]["format"] == "html"
     images = chunks_of_type(chunks, "image")
+    if not images:
+        # No image chunk means html_to_png_base64 returned None, which it does
+        # silently for any browser failure. Distinguish "this machine cannot
+        # render" (skip) from "rendering works but the language dropped it"
+        # (a real defect) by repeating the render with its output captured.
+        reason = chrome_screenshot_diagnostic(_HTML_SMOKE)
+        if reason:
+            pytest.skip(f"headless Chrome cannot render HTML here: {reason}")
     assert len(images) == 1
     assert images[0]["format"] == "base64.png"
     assert len(images[0]["content"]) > 50
@@ -161,8 +168,15 @@ def test_react_runtime_smoke(interpreter):
     except FileNotFoundError as exc:
         pytest.skip(f"html2image screenshot failed: {exc}")
     assert chunks_of_type(chunks, "console")
-    assert chunks_of_type(chunks, "code")[0]["format"] == "html"
+    code_chunks = chunks_of_type(chunks, "code")
+    assert code_chunks[0]["format"] == "html"
     images = chunks_of_type(chunks, "image")
+    if not images:
+        # See test_html_runtime_smoke. React's HTML needs the unpkg CDN, so
+        # the reason may be a blocked network rather than a broken browser.
+        reason = chrome_screenshot_diagnostic(code_chunks[0]["content"])
+        if reason:
+            pytest.skip(f"headless Chrome cannot render React here: {reason}")
     assert len(images) == 1
     assert images[0]["format"] == "base64.png"
     assert len(images[0]["content"]) > 50

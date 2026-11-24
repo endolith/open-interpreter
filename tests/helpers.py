@@ -31,6 +31,117 @@ def require_chrome_for_html():
     pytest.skip("google-chrome or chromium not installed (needed for HTML/React e2e)")
 
 
+def _run_chrome_screenshot(executable, html, headless, flags, output_dir, size, timeout):
+    """Render ``html`` with one executable; return None on success, else why not.
+
+    Mirrors html2image's ``ChromiumHeadless.screenshot`` command and captures
+    the output the product discards.
+    """
+    import subprocess
+    import tempfile
+    import uuid
+
+    output_path = os.path.join(output_dir, f"chrome-probe-{uuid.uuid4().hex}.png")
+    workdir = tempfile.mkdtemp(prefix="oi-chrome-probe-")
+    input_path = os.path.join(workdir, "probe.html")
+    try:
+        with open(input_path, "w", encoding="utf-8") as file:
+            file.write(html)
+        command = [
+            executable,
+            headless,
+            f"--screenshot={output_path}",
+            f"--window-size={size[0]},{size[1]}",
+            *flags,
+            input_path,
+        ]
+        try:
+            completed = subprocess.run(
+                command, capture_output=True, text=True, timeout=timeout
+            )
+        except FileNotFoundError:
+            return f"{executable} is not runnable"
+        except subprocess.TimeoutExpired:
+            return f"{executable} timed out after {timeout}s"
+
+        try:
+            size_bytes = os.path.getsize(output_path)
+        except OSError:
+            size_bytes = 0
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+
+    if completed.returncode == 0 and size_bytes > 0:
+        return None
+    output = (completed.stderr or completed.stdout).strip()
+    parts = [
+        f"{executable} exited {completed.returncode}"
+        + (" (signal)" if completed.returncode < 0 else ""),
+        "wrote no file" if not size_bytes else f"wrote {size_bytes} bytes",
+        f"output: {output[:250]}" if output else "no output",
+    ]
+    return ", ".join(parts)
+
+
+def chrome_screenshot_diagnostic(html, size=(960, 540), timeout=90):
+    """Return None when the html2image screenshot pipeline works, else why not.
+
+    ``html_to_png_base64`` deliberately swallows every exception and runs the
+    browser with stdout/stderr discarded, so a machine that cannot render
+    reaches these tests as a missing image chunk with no explanation. This
+    repeats the same invocation with the browser's output captured, so the
+    callers can skip with the actual reason instead of asserting blindly.
+
+    html2image resolves the browser itself (on Linux it prefers ``chromium``
+    over ``google-chrome``), so when that executable fails but another one is
+    installed, both outcomes are reported: it distinguishes a broken default
+    browser from a machine with no working browser at all. The returned string
+    is one line, safe to put in a skip reason.
+    """
+    import html2image
+
+    from interpreter.terminal_interface.utils.local_storage_path import (
+        get_storage_path,
+    )
+
+    def summarize(*parts):
+        text = " | ".join(str(part) for part in parts if part)
+        return " ".join(text.split())[:500]
+
+    try:
+        browser = html2image.Html2Image(disable_logging=True).browser
+    except Exception as exc:
+        return summarize("html2image found no browser:", type(exc).__name__, exc)
+
+    headless = "--headless"
+    if browser.use_new_headless is not None:
+        headless += "=new" if browser.use_new_headless else "=old"
+
+    output_dir = get_storage_path()
+    failure = _run_chrome_screenshot(
+        browser.executable, html, headless, browser.flags, output_dir, size, timeout
+    )
+    if failure is None:
+        return None
+
+    details = [failure]
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        path = shutil.which(name)
+        if not path:
+            continue
+        if os.path.basename(browser.executable) == name or path == browser.executable:
+            continue
+        other = _run_chrome_screenshot(
+            path, html, headless, browser.flags, output_dir, size, timeout
+        )
+        details.append(f"{name}: " + ("renders fine" if other is None else other))
+    return summarize(*details)
+
+
 _BASH_COMPATIBLE_SHELL_NAMES = frozenset(
     {"bash", "sh", "dash", "zsh", "ksh", "ash"}
 )
