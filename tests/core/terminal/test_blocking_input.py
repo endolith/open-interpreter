@@ -223,7 +223,11 @@ def test_flag_off_means_code_is_written_verbatim():
 def test_null_device_path_matches_the_platform():
     """The redirect target must exist on the platform this runs on."""
     bash = Bash()
-    assert os.path.exists(bash.null_device_path), bash.null_device_path
+    # Git Bash resolves /dev/null inside the shell even though the Win32
+    # filesystem has no such path, so only probe the host filesystem on POSIX.
+    assert bash.null_device_path == "/dev/null"
+    if os.name == "posix":
+        assert os.path.exists(bash.null_device_path), bash.null_device_path
 
 @needs_bash
 def test_run_rejects_input_before_the_kernel_is_touched():
