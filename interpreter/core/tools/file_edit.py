@@ -398,6 +398,37 @@ def _write_temp_script(code, suffix, prefix="oi-edit-"):
     return path
 
 
+def _sed_argv(sed, script_path, target):
+    """Build sed's argv, asking for byte-exact I/O on Windows.
+
+    MSYS/GNU sed opens files in text mode on Windows unless ``--binary`` is
+    given, so every CR is stripped before the script sees the line: ``^foo$``
+    misses on CRLF files and unchanged targets preview as whole-file rewrites.
+    ``--binary`` is GNU-only (BSD/macOS sed rejects it), so it is Windows-only.
+    """
+    argv = [sed]
+    if platform.system() == "Windows":
+        argv.append("--binary")
+    argv.extend(["-f", script_path, target])
+    return argv
+
+
+def _gawk_argv(gawk, prog_path, target):
+    """Build gawk's argv, asking for byte-exact I/O on Windows.
+
+    gawk reads files in text mode on Windows unless ``BINMODE=3``, which
+    strips the CR from every input line, so a field that carries it (``$1``
+    on a CRLF file) loses that CR even though the wrapper restores the line
+    breaks. ``-v`` assignments are processed before the program file, so the
+    assignment must precede ``-f``.
+    """
+    argv = [gawk]
+    if platform.system() == "Windows":
+        argv.extend(["-v", "BINMODE=3"])
+    argv.extend(["-f", prog_path, target])
+    return argv
+
+
 def run_sed(target, code):
     """Apply a sed script (-f file), replacing the file atomically.
 
@@ -413,7 +444,7 @@ def run_sed(target, code):
     script_path = _write_temp_script(code, ".sed")
     try:
         result = subprocess.run(
-            [sed, "-f", script_path, target],
+            _sed_argv(sed, script_path, target),
             capture_output=True,
         )
     finally:
@@ -453,7 +484,7 @@ def run_gawk(target, code):
     prog_path = _write_temp_script(code, ".awk")
     try:
         result = subprocess.run(
-            [gawk, "-f", prog_path, target],
+            _gawk_argv(gawk, prog_path, target),
             capture_output=True,
         )
     finally:
@@ -1011,7 +1042,7 @@ def dry_run_edit(language, code, target):
         script_path = _write_temp_script(code, ".sed")
         try:
             result = subprocess.run(
-                [sed, "-f", script_path, target],
+                _sed_argv(sed, script_path, target),
                 capture_output=True,
             )
         finally:
@@ -1027,7 +1058,7 @@ def dry_run_edit(language, code, target):
         prog_path = _write_temp_script(code, ".awk")
         try:
             result = subprocess.run(
-                [gawk, "-f", prog_path, target],
+                _gawk_argv(gawk, prog_path, target),
                 capture_output=True,
             )
         finally:
