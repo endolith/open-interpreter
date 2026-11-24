@@ -41,8 +41,17 @@ def test_version_import_path_loads_no_third_party_packages():
 _CORE_SCRIPT = """
 import sys
 
+# Only count modules this import adds: anything site or a .pth loaded first is
+# not this package's startup cost, and it could not be deferred anyway.
+_preexisting = set(sys.modules)
 import interpreter.core.core  # noqa: F401
-print(",".join(name for name in {modules!r} if name in sys.modules))
+print(
+    ",".join(
+        name
+        for name in {modules!r}
+        if name in sys.modules and name not in _preexisting
+    )
+)
 """
 
 
@@ -225,11 +234,18 @@ def test_display_import_leaves_pyautogui_unimported():
 _PLACEHOLDER_SCRIPT = """
 import sys
 
+# Only count modules this import adds: anything site or a .pth loaded first is
+# not this package's startup cost, and it could not be deferred anyway.
+_preexisting = set(sys.modules)
 import interpreter.core.core  # noqa: F401
 real = []
 for name in {modules!r}:
     mod = sys.modules.get(name)
-    if mod is not None and type(mod).__name__ != "_LazyPlaceholder":
+    if (
+        mod is not None
+        and name not in _preexisting
+        and type(mod).__name__ != "_LazyPlaceholder"
+    ):
         real.append(name)
 print(",".join(real))
 """
@@ -357,8 +373,16 @@ def test_core_import_leaves_pprint_and_glob_deferred():
     skills.py` imported glob for `Skills.run()`, which returns immediately unless
     skill importing is enabled. pprint is removed and glob is resolved inside
     that method, so neither should appear in sys.modules after construction.
+
+    glob can only be asserted below 3.13: CPython 3.13's `pathlib` imports it at
+    module scope (`from glob import _StringGlobber, _no_recurse_symlinks`), and
+    `terminal_interface/utils/oi_dir.py` imports `platformdirs`, which imports
+    `pathlib`, so glob is unavoidable there regardless of this package.
     """
-    script = _CORE_SCRIPT.format(modules=("pprint", "glob"))
+    modules = ("pprint", "glob")
+    if sys.version_info >= (3, 13):
+        modules = ("pprint",)
+    script = _CORE_SCRIPT.format(modules=modules)
     result = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=False
     )
