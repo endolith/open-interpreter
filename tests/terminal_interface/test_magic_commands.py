@@ -2,7 +2,6 @@ import json
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
 import sys
 
 from interpreter import OpenInterpreter
@@ -141,6 +140,9 @@ def test_get_downloads_path_uses_home_on_posix(monkeypatch, tmp_path):
     """Non-Windows path uses expanduser('~')/Downloads and creates the folder."""
     from interpreter.terminal_interface.utils import downloads_path as dp
 
+    # The implementation branches on sys.platform, which is "win32" on the
+    # Windows runner, so pin the non-Windows branch instead of inheriting it.
+    monkeypatch.setattr(dp.sys, "platform", "linux")
     monkeypatch.setattr(
         dp.platformdirs, "user_downloads_dir", lambda: str(tmp_path / "Downloads")
     )
@@ -149,13 +151,17 @@ def test_get_downloads_path_uses_home_on_posix(monkeypatch, tmp_path):
     assert (tmp_path / "Downloads").exists()
 
 
-@pytest.mark.windows_ci
 def test_get_downloads_path_windows(monkeypatch, tmp_path):
-    """On Windows, get_downloads_path uses USERPROFILE/Downloads and creates the folder."""
-    monkeypatch.setattr(magic_commands.os, "name", "nt")
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    """On Windows, get_downloads_path asks the shell for Downloads and creates the folder."""
+    from interpreter.terminal_interface.utils import downloads_path as dp
+
+    monkeypatch.setattr(dp.sys, "platform", "win32")
+    monkeypatch.setattr(
+        dp, "_windows_downloads_dir", lambda: str(tmp_path / "Downloads")
+    )
     downloads = magic_commands.get_downloads_path()
     assert downloads == str(tmp_path / "Downloads")
+    assert (tmp_path / "Downloads").exists()
 
 
 def test_handle_count_tokens_displays_estimate(capsys):
@@ -519,9 +525,7 @@ def test_markdown_default_path_uses_downloads(monkeypatch, tmp_path):
     ) as export:
         magic_commands.markdown(interpreter, "")
 
-    export.assert_called_once_with(
-        interpreter.messages, f"{tmp_path}/chat.md"
-    )
+    export.assert_called_once_with(interpreter.messages, str(tmp_path / "chat.md"))
 
 
 def test_markdown_without_conversation_filename_asks_for_path(monkeypatch, capsys):
