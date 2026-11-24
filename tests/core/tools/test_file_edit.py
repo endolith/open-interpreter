@@ -10,9 +10,11 @@ from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _assert_mikefarah_yq,
     _detect_newline_style,
+    _gawk_argv,
     _normalize_to_style,
     _poke_prepare_script,
     _reject_wrong_os_path,
+    _sed_argv,
     _validate_target,
     _write_temp_script,
     _yq_eval_argv_candidates,
@@ -265,8 +267,13 @@ class TestRunSed(unittest.TestCase):
             os.chmod(target, 0o755)
             run_sed(target, "s/foo/bar/")
             self.assertEqual(open(target, encoding="utf-8").read(), "bar\n")
-            self.assertTrue(os.access(target, os.X_OK))
-            self.assertEqual(oct(os.stat(target).st_mode & 0o777), "0o755")
+            if os.name == "posix":
+                # Windows has no executable bit — chmod only toggles the
+                # read-only flag there — so the mode assertion is POSIX-only.
+                self.assertTrue(os.access(target, os.X_OK))
+                self.assertEqual(
+                    oct(os.stat(target).st_mode & 0o777), "0o755"
+                )
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
@@ -391,6 +398,121 @@ class TestRunGawk(unittest.TestCase):
             self.assertIn("no changes", result)
             self.assertEqual(open(target, encoding="utf-8").read(), "hello\n")
 
+
+class TestToolBinaryModeArgs(unittest.TestCase):
+    """Windows needs explicit byte-exact I/O, or CRLF targets are mistreated.
+
+    MSYS sed/gawk open files in text mode on Windows and strip every CR,
+    which makes line anchors miss and unchanged CRLF files look rewritten.
+    The argv builders must request binary mode on Windows and stay unchanged
+    elsewhere (BSD sed rejects ``--binary``).
+    """
+
+    def test_sed_argv_adds_binary_on_windows(self):
+        """sed on Windows must get --binary before the script and target."""
+        with mock.patch(
+            "interpreter.core.tools.file_edit.platform.system",
+            return_value="Windows",
+        ):
+            args = _sed_argv("sed.exe", "script.sed", "target.bat")
+        self.assertEqual(
+            args, ["sed.exe", "--binary", "-f", "script.sed", "target.bat"]
+        )
+
+    def test_sed_argv_is_unchanged_off_windows(self):
+        """BSD/macOS sed rejects --binary, so other platforms must not get it."""
+        with mock.patch(
+            "interpreter.core.tools.file_edit.platform.system",
+            return_value="Linux",
+        ):
+            args = _sed_argv("sed", "script.sed", "target.txt")
+        self.assertEqual(args, ["sed", "-f", "script.sed", "target.txt"])
+
+    def test_gawk_argv_sets_binmode_before_the_program_file_on_windows(self):
+        """BINMODE=7 must precede -f; -v assignments apply in order.
+
+        gawk treats 7 as 3 (it only tests bits 1 and 2), while mawk needs
+        bit 4 to keep RS/ORS at LF instead of CRLF. Pinning 7 keeps the
+        fallback-to-awk case correct, where awk may be mawk.
+        """
+        with mock.patch(
+            "interpreter.core.tools.file_edit.platform.system",
+            return_value="Windows",
+        ):
+            args = _gawk_argv("gawk.exe", "prog.awk", "target.bat")
+        self.assertEqual(
+            args,
+            ["gawk.exe", "-v", "BINMODE=7", "-f", "prog.awk", "target.bat"],
+        )
+
+    def test_gawk_argv_is_unchanged_off_windows(self):
+        """BINMODE is a Windows text-mode concern; POSIX I/O is already binary."""
+        with mock.patch(
+            "interpreter.core.tools.file_edit.platform.system",
+            return_value="Linux",
+        ):
+            args = _gawk_argv("gawk", "prog.awk", "target.txt")
+        self.assertEqual(args, ["gawk", "-f", "prog.awk", "target.txt"])
+
+    def test_run_sed_builds_its_argv_with_the_builder(self):
+        """The runner must use the builder, or the flag never reaches sed.
+
+        The builder's flag logic is pinned by the tests above; this only
+        checks the wiring, so it need not fake the host platform. The
+        resolver is stubbed for the same reason: it probes for a real
+        executable and would fail this wiring check on a host without sed.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                completed = mock.Mock(
+                    returncode=0, stdout=b"bar\n", stderr=b""
+                )
+                run_mock.return_value = completed
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._resolve_sed",
+                    return_value="sed",
+                ), mock.patch(
+                    "interpreter.core.tools.file_edit._sed_argv",
+                    return_value=["sentinel-sed-argv"],
+                ), mock.patch(
+                    "interpreter.core.tools.file_edit"
+                    "._atomic_replace_from_stdout"
+                ):
+                    run_sed(target, "s/foo/bar/")
+        self.assertEqual(run_mock.call_args[0][0], ["sentinel-sed-argv"])
+
+    def test_run_gawk_builds_its_argv_with_the_builder(self):
+        """The runner must use the builder, or BINMODE never reaches gawk.
+
+        As with sed, the resolver is stubbed so a host without gawk cannot
+        turn this wiring check into a FileNotFoundError.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                completed = mock.Mock(
+                    returncode=0, stdout=b"bar\n", stderr=b""
+                )
+                run_mock.return_value = completed
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._resolve_gawk",
+                    return_value="gawk",
+                ), mock.patch(
+                    "interpreter.core.tools.file_edit._gawk_argv",
+                    return_value=["sentinel-gawk-argv"],
+                ), mock.patch(
+                    "interpreter.core.tools.file_edit"
+                    "._atomic_replace_from_stdout"
+                ):
+                    run_gawk(target, "{ print }")
+        self.assertEqual(run_mock.call_args[0][0], ["sentinel-gawk-argv"])
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
 class TestRunYq(unittest.TestCase):
