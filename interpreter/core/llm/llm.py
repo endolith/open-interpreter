@@ -906,6 +906,13 @@ Continuing...
         if quirks.stream_options:
             params["stream_options"] = stream_options
 
+        # load() checks the DashScope key once, but callers (profiles, notebooks,
+        # the HTTP server) can clear llm.api_key afterwards while _is_loaded
+        # stays true. Re-check per request so the OpenAI-compatible transport
+        # cannot fall back to an unrelated OPENAI_API_KEY.
+        if self.model.lower().startswith(("dashscope-us/", "dashscope-intl/")):
+            self._require_dashscope_api_key()
+
         # Optional inputs
         if self.api_key:
             params["api_key"] = self.api_key
@@ -1103,6 +1110,30 @@ Continuing...
         modalities = (entry.get("architecture") or {}).get("input_modalities") or []
         return "image" in modalities
 
+    def _require_dashscope_api_key(self):
+        """Fill a missing DashScope key from the environment, or refuse.
+
+        A falsy check, not "is None": a profile that carries api_key=""
+        (or a caller that cleared it to an empty string) must still pick
+        up the environment key, as the request path does.
+
+        Called at load time and again before every request, because a caller
+        can clear api_key after load() while _is_loaded stays true. These
+        routes are sent with custom_llm_provider="openai", and LiteLLM's
+        openai provider fills an unset api_key from OPENAI_API_KEY -- without
+        this check the user's OpenAI credential would be sent to
+        aliyuncs.com, the same leak opencode_go/ guards against.
+        """
+        if not self.api_key:
+            self.api_key = os.environ.get("DASHSCOPE_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "The dashscope-us/ and dashscope-intl/ model prefixes require a "
+                "DashScope API key. Set DASHSCOPE_API_KEY, or set llm.api_key in "
+                "your profile. (OPENAI_API_KEY is never used for DashScope -- it "
+                "is a different credential and would be sent to Alibaba Cloud.)"
+            )
+
     def load(self):
         if self._is_loaded:
             return
@@ -1131,10 +1162,12 @@ Continuing...
             )
         if dashscope_route is not None:
             model_name, _dashscope_default_base = dashscope_route
+            self._require_dashscope_api_key()
+            # Only after the key check: a rejected load must not leave the
+            # Alibaba endpoint on self.api_base, where a later model switch to
+            # an OpenAI route would send OPENAI_API_KEY there.
             if self.api_base is None:
                 self.api_base = _dashscope_default_base
-            if self.api_key is None:
-                self.api_key = os.environ.get("DASHSCOPE_API_KEY")
             # Qwen3.5 is a unified vision-language architecture — there are no separate
             # VL variants because every model in the family natively supports image input.
             # Keep this explicit: it also covers variants the registry has not listed.

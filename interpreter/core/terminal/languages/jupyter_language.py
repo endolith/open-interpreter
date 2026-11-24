@@ -673,6 +673,14 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         # dashscope-intl/ are OI route names that LiteLLM cannot resolve alone
         # (it has no provider for them, or knows the model under another
         # spelling), and the endpoint/key below belong to that route.
+        # This path builds its own request instead of going through Llm.run(),
+        # so the per-request DashScope key check there does not cover it. A key
+        # cleared after load would leave the openai provider to fill api_key
+        # from OPENAI_API_KEY and send it to aliyuncs.com.
+        if self.interpreter.llm.model.lower().startswith(
+            ("dashscope-us/", "dashscope-intl/")
+        ):
+            self.interpreter.llm._require_dashscope_api_key()
         params = {
             "messages": messages,
             "model": self.interpreter.llm.wire_model_name(),

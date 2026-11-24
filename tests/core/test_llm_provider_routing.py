@@ -95,6 +95,108 @@ def test_dashscope_us_load_keeps_truthful_model_and_parks_wire_name(
     assert interpreter.llm.supports_vision is True
 
 
+@pytest.mark.parametrize("prefix", ["dashscope-us", "dashscope-intl"])
+def test_dashscope_without_key_refuses_instead_of_leaking_openai_key(
+    interpreter, monkeypatch, prefix
+):
+    """A DashScope route with no DashScope key must raise, not fall back.
+
+    load() keeps the dashscope-*/ route name but sends with
+    custom_llm_provider="openai" and an aliyuncs.com api_base. LiteLLM's openai
+    provider resolves an unset api_key from OPENAI_API_KEY, so leaving api_key as None would send the user's OpenAI
+    credential to Alibaba Cloud. The error must name DASHSCOPE_API_KEY so the
+    user knows what to set.
+    """
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-never-leave")
+
+    interpreter.llm.model = f"{prefix}/qwen3-max"
+    interpreter.llm.api_key = None
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+
+    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
+        interpreter.llm.load()
+    assert interpreter.llm.api_key is None
+    # A rejected load must not leave the Alibaba endpoint behind: switching
+    # llm.model to an OpenAI route afterwards would send OPENAI_API_KEY there.
+    assert interpreter.llm.api_base is None
+
+
+def test_dashscope_profile_key_is_used_without_env(interpreter, monkeypatch):
+    """An explicit llm.api_key satisfies the DashScope key requirement.
+
+    The guard against leaking OPENAI_API_KEY must not reject users who put
+    their DashScope key in a profile instead of the environment.
+    """
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+    interpreter.llm.model = "dashscope-us/qwen3-max"
+    interpreter.llm.api_key = "sk-dashscope-from-profile"
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == "sk-dashscope-from-profile"
+    assert interpreter.llm.model == "dashscope-us/qwen3-max"
+
+
+@pytest.mark.parametrize("prefix", ["dashscope-us", "dashscope-intl"])
+def test_empty_api_key_does_not_shadow_dashscope_env_key(
+    interpreter, monkeypatch, prefix
+):
+    """An empty llm.api_key must still consult DASHSCOPE_API_KEY.
+
+    Profiles can carry api_key="" and callers can clear a key to the empty
+    string. Comparing only against None treated that as an explicit "no key":
+    the environment lookup was skipped and the guard then rejected a
+    configuration that had a perfectly good DASHSCOPE_API_KEY.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-never-leave")
+
+    interpreter.llm.model = f"{prefix}/qwen3-max"
+    interpreter.llm.api_key = ""
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == "sk-test-dashscope"
+
+
+@pytest.mark.parametrize("prefix", ["dashscope-us", "dashscope-intl"])
+def test_request_rechecks_dashscope_key_after_api_key_cleared(
+    interpreter, monkeypatch, prefix
+):
+    """A key cleared after load() must fail the request, not leak OPENAI_API_KEY.
+
+    run() only calls load() when _is_loaded is false, so a caller that clears
+    llm.api_key afterwards leaves the loaded route without a key. These routes
+    are sent with custom_llm_provider="openai", whose transport resolves an
+    unset api_key from OPENAI_API_KEY and would send that credential to
+    aliyuncs.com.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-dashscope")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-never-leave")
+
+    interpreter.llm.model = f"{prefix}/qwen3-max"
+    interpreter.llm.api_key = None
+    interpreter.llm.api_base = None
+    interpreter.llm._is_loaded = False
+    interpreter.llm.load()
+
+    interpreter.llm.api_key = None
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+    messages = [
+        {"role": "system", "type": "message", "content": "You are helpful."},
+        {"role": "user", "type": "message", "content": "hi"},
+    ]
+    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
+        next(interpreter.llm.run(messages))
+
 
 class _FakeOpenRouterResponse:
     def __init__(self, modalities_by_id):
