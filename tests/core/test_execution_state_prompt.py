@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from interpreter.core.default_system_message import default_system_message
+from interpreter.core.default_system_message import _cli_lang, default_system_message
 from interpreter.core.utils.assemble_system_message import assemble_system_message
 from interpreter.core.llm.run_tool_calling_llm import edit_tool_schema, tool_schema
 from interpreter.core.terminal.base_language import (
@@ -123,7 +123,9 @@ class TestExecutionStatePrompt(unittest.TestCase):
 
         fence = assemble_system_message(_prompt_interpreter(False))
         self.assertIn("fenced code block", fence)
-        self.assertIn("```bash", fence)
+        # The walkthrough fences name the platform's own CLI language, so the
+        # example is ```cmd on Windows and ```bash everywhere else.
+        self.assertIn(f"```{_cli_lang}", fence)
         self.assertNotIn("[code:", fence)
         self.assertNotIn("call to the execute tool", fence)
 
