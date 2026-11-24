@@ -6,6 +6,7 @@ import pytest
 
 from interpreter.terminal_interface.start_terminal_interface import (
     get_argument_dictionary,
+    main,
     set_attributes,
     start_terminal_interface,
 )
@@ -101,6 +102,25 @@ def test_start_terminal_interface_version_flag_returns_early(monkeypatch, capsys
 
     assert result is None
     assert "Open Interpreter" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("flag", ["--version", "--help", "-h"])
+def test_main_fast_exit_flags_run_on_the_stub(monkeypatch, capsys, flag):
+    """main() serves --version/--help from a stub without importing interpreter.
+
+    The MagicMock tests above cannot catch a stub that lacks an object the
+    argument table dereferences (decision_model crashed both flags), so this
+    goes through main() itself.
+    """
+    monkeypatch.setattr(sys, "argv", ["oi", flag])
+
+    try:
+        main()
+    except SystemExit as exit_:
+        assert exit_.code in (0, None)
+
+    out = capsys.readouterr().out
+    assert "Open Interpreter" in out or "usage:" in out
 
 
 def test_start_terminal_interface_renames_deprecated_debug_mode_flag(

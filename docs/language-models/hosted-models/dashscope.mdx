@@ -75,6 +75,8 @@ Set the following environment variables [(click here to learn how)](https://chat
 | -------------------- | ----------- | ------------- |
 | `DASHSCOPE_API_KEY` | API key for DashScope compatible-mode. | [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/get-api-key) |
 
+A DashScope key is required: if neither `DASHSCOPE_API_KEY` nor `llm.api_key` is set, Open Interpreter stops with an error. It never falls back to `OPENAI_API_KEY`, which would otherwise be sent to Alibaba Cloud.
+
 You can override the base URL manually if needed:
 
 ```python
