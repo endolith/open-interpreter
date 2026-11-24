@@ -1,7 +1,49 @@
+import ntpath
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from .subprocess_language import SubprocessLanguage
+
+
+def _irb_start_cmd():
+    r"""Build an irb launch command CreateProcess accepts.
+
+    Popen(["irb"]) relies on PATH lookup of the launcher script, which POSIX
+    does itself. Windows resolves executables through CreateProcess, which
+    only accepts .exe images — a Ruby launcher (.bat/.cmd) fails with
+    WinError 2 — so the resolved launcher runs through cmd.exe instead. When
+    irb cannot be resolved the bare name is kept, so a missing Ruby still
+    fails the same way it did before.
+
+    The launcher is handed over in /s mode wrapped in its own quote pair:
+    cmd strips exactly the outer pair and leaves the path quoted, so it stays
+    one command. list2cmdline only quotes on whitespace, so without this a
+    path such as ``C:\Ruby&Tools\bin\irb.cmd`` would split on ``&`` and one
+    with parentheses would break where they appear.
+    """
+    launcher = shutil.which("irb")
+    if launcher and os.name == "nt" and launcher.lower().endswith((".bat", ".cmd")):
+        return [
+            os.environ.get("COMSPEC", "cmd.exe"),
+            "/d",
+            "/s",
+            "/c",
+            f'""{launcher}""',
+        ]
+    return ["irb"]
+
+
+def _taskkill_path():
+    """Absolute taskkill.exe path, so teardown does not depend on PATH.
+
+    Built with ntpath rather than os.path so the result is the Windows path
+    it would be on the host that uses it, and the tests can assert it from
+    any platform.
+    """
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    return ntpath.join(root, "System32", "taskkill.exe")
 
 # irb prints this once per session when it starts echoing piped input. It is a
 # session banner, not part of any block's echo, so it must not consume a line
@@ -15,7 +57,35 @@ class Ruby(SubprocessLanguage):
 
     def __init__(self):
         super().__init__()
-        self.start_cmd = ["irb"] 
+        self.start_cmd = _irb_start_cmd()
+        # True only for the cmd.exe-wrapped form. With the plain ["irb"] form
+        # the process is irb itself, so the base terminate() already stops it.
+        self._launched_through_cmd = self.start_cmd != ["irb"]
+
+    def terminate(self):
+        """Stop irb, taking the cmd.exe wrapper's tree down on Windows.
+
+        cmd.exe does not propagate termination to the program it launched, so
+        terminating the wrapper alone leaves irb alive holding the pipes.
+        taskkill /T ends the whole tree; the base implementation then reaps the
+        wrapper and closes the streams.
+        """
+        if self._launched_through_cmd and self.process and os.name == "nt":
+            try:
+                subprocess.run(
+                    [
+                        _taskkill_path(),
+                        "/T",
+                        "/F",
+                        "/PID",
+                        str(self.process.pid),
+                    ],
+                    capture_output=True,
+                    timeout=5,
+                )
+            except Exception:
+                pass
+        super().terminate()
 
     def preprocess_code(self, code):
         """

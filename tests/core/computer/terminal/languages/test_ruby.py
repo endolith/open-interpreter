@@ -1,4 +1,5 @@
 import shutil
+from unittest import mock
 
 import pytest
 
@@ -46,9 +47,143 @@ def test_ruby_detect_end_of_execution():
     assert ruby.detect_end_of_execution("running") is False
 
 
-def test_ruby_start_cmd_is_irb():
-    """Ruby starts the irb REPL via ["irb"]."""
+def test_ruby_start_cmd_is_irb(monkeypatch):
+    """With no resolvable launcher, Ruby keeps the bare ["irb"] name."""
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: None,
+    )
     assert Ruby().start_cmd == ["irb"]
+
+
+def test_ruby_start_cmd_keeps_a_direct_launcher_on_posix(monkeypatch):
+    """A launcher POSIX can execute itself must not be routed through cmd.exe."""
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: "/usr/bin/irb",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "posix")
+    assert Ruby().start_cmd == ["irb"]
+
+
+def test_ruby_start_cmd_wraps_a_batch_launcher_on_windows(monkeypatch):
+    """Windows cannot run a .bat/.cmd launcher directly; cmd.exe must run it.
+
+    Popen(["irb"]) fails with WinError 2 there because CreateProcess only
+    loads .exe images, so the resolved launcher is handed to cmd.exe.
+    """
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: r"C:\Ruby\bin\irb.BAT",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    monkeypatch.delenv("COMSPEC", raising=False)
+    assert Ruby().start_cmd == [
+        "cmd.exe",
+        "/d",
+        "/s",
+        "/c",
+        r'""C:\Ruby\bin\irb.BAT""',
+    ]
+
+
+def test_ruby_start_cmd_quotes_a_launcher_with_cmd_metacharacters(monkeypatch):
+    """A path with &, parentheses, or spaces survives cmd's command splitter.
+
+    list2cmdline only quotes on whitespace and cmd strips the quotes it is
+    given, so those characters would otherwise split the launch into extra
+    commands; the inner quote pair is what keeps the path intact.
+    """
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: r"C:\Users\John (Work)\Ruby&Tools\bin\irb.cmd",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    monkeypatch.delenv("COMSPEC", raising=False)
+    cmd = Ruby().start_cmd
+    assert cmd[:4] == ["cmd.exe", "/d", "/s", "/c"]
+    assert cmd[4] == r'""C:\Users\John (Work)\Ruby&Tools\bin\irb.cmd""'
+
+
+def test_ruby_start_cmd_honors_comspec(monkeypatch):
+    """The Windows command processor comes from COMSPEC when it is set."""
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: r"C:\Ruby\bin\irb.cmd",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    monkeypatch.setenv("COMSPEC", r"D:\Windows\system32\cmd.exe")
+    assert Ruby().start_cmd[0] == r"D:\Windows\system32\cmd.exe"
+
+
+def test_ruby_terminate_kills_the_cmd_wrapper_tree_on_windows(monkeypatch):
+    """Killing cmd.exe alone leaves the batch-launched irb running.
+
+    cmd.exe does not terminate the program it launched, so terminate() must
+    taskkill the tree before the base implementation reaps the wrapper.
+    """
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return mock.Mock(returncode=0)
+
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.subprocess.run", fake_run
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    monkeypatch.setenv("SystemRoot", r"D:\Windows")
+    ruby = Ruby()
+    ruby.start_cmd = ["cmd.exe", "/d", "/s", "/c", r'""C:\Ruby\bin\irb.cmd""']
+    ruby._launched_through_cmd = True
+    ruby.process = mock.Mock(pid=4321)
+
+    ruby.terminate()
+
+    assert calls[0] == [
+        r"D:\Windows\System32\taskkill.exe",
+        "/T",
+        "/F",
+        "/PID",
+        "4321",
+    ]
+
+
+def test_ruby_terminate_skips_taskkill_off_windows(monkeypatch):
+    """POSIX has no cmd.exe wrapper, so terminate() must not shell out."""
+    calls = []
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.subprocess.run",
+        lambda *args, **kwargs: calls.append(args),
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "posix")
+    ruby = Ruby()
+    ruby.start_cmd = ["cmd.exe", "/d", "/s", "/c", r'""x""']
+    ruby._launched_through_cmd = True
+    ruby.process = mock.Mock(pid=4321)
+
+    ruby.terminate()
+
+    assert calls == []
+
+
+def test_ruby_terminate_skips_taskkill_for_the_bare_irb_form(monkeypatch):
+    """The plain ["irb"] process is irb itself; there is no wrapper to kill."""
+    calls = []
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which", lambda _name: None
+    )
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.subprocess.run",
+        lambda *args, **kwargs: calls.append(args),
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    ruby = Ruby()
+    ruby.process = mock.Mock(pid=4321)
+
+    ruby.terminate()
+
+    assert calls == []
 
 
 def test_ruby_detect_end_of_execution_covers_error_marker():
