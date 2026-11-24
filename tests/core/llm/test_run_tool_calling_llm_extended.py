@@ -1,4 +1,5 @@
 import base64
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -90,9 +91,11 @@ _PNG_1PX = base64.b64decode(
 
 
 def _view_image_llm(path, auto_run, approval=None):
-    llm = _make_llm(
-        [_chunk({"tool_calls": [_tool_call("view_image", '{"path": "%s"}' % path)]})]
-    )
+    # Serialize the arguments rather than interpolating the path: a Windows
+    # path's backslashes are escapes inside JSON ("\U", "\t"), so a raw
+    # "%s" would make the tool call unparseable on that platform.
+    arguments = json.dumps({"path": str(path)})
+    llm = _make_llm([_chunk({"tool_calls": [_tool_call("view_image", arguments)]})])
     llm.interpreter.auto_run = auto_run
     if approval is not None:
         llm.interpreter._view_image_approval = approval
