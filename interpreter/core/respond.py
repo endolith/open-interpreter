@@ -302,11 +302,41 @@ def respond(interpreter):
         temporary_provider_error_retries = 0
         last_temporary_provider_error_signature = None
 
+    def report_configuration_error(error):
+        """Render a required-setting ValueError as a panel and stop the turn.
+
+        Yields the stop_live_display chunk, prints the error alone in a red
+        "Configuration error" panel, and sets _stopped_retrying so the
+        interactive loop exits instead of re-serving the undelivered turn.
+        """
+        interpreter._stopped_retrying = True
+        clear_temporary_retry_status()
+        from rich.markdown import Markdown
+
+        yield {"type": "stop_live_display"}
+        print("")  # Newline so panel top border is not cut off
+        rich_print(
+            Panel(
+                Markdown(str(error)),
+                border_style="red",
+                title="Configuration error",
+                title_align="left",
+            )
+        )
+        print("")  # Add space after error
+
     while True:
         ## RENDER SYSTEM MESSAGE ##
 
         ## Rendering ↓
-        rendered_system_message = assemble_system_message(interpreter)
+        # Assembly loads the model (to pick the tool-calling or text prompt),
+        # so a required-setting ValueError from llm.load() surfaces here,
+        # before the llm.run() handler below exists to catch it.
+        try:
+            rendered_system_message = assemble_system_message(interpreter)
+        except ValueError as e:
+            yield from report_configuration_error(e)
+            return
         ## Rendering ↑
 
         # Store the actual rendered system message for %info command (before converting to dict)
@@ -381,22 +411,7 @@ def respond(interpreter):
                 # pops the undelivered message and exits, which is the right
                 # outcome for a fix-it-outside-of-OI problem -- retrying inside
                 # the session cannot help.
-                interpreter._stopped_retrying = True
-                clear_temporary_retry_status()
-                error_str = str(e)
-                from rich.markdown import Markdown
-
-                yield {"type": "stop_live_display"}
-                print("")  # Newline so panel top border is not cut off
-                rich_print(
-                    Panel(
-                        Markdown(error_str),
-                        border_style="red",
-                        title="Configuration error",
-                        title_align="left",
-                    )
-                )
-                print("")  # Add space after error
+                yield from report_configuration_error(e)
                 return
 
             except litellm.exceptions.BudgetExceededError:
