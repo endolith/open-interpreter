@@ -46,9 +46,54 @@ def test_ruby_detect_end_of_execution():
     assert ruby.detect_end_of_execution("running") is False
 
 
-def test_ruby_start_cmd_is_irb():
-    """Ruby starts the irb REPL via ["irb"]."""
+def test_ruby_start_cmd_is_irb(monkeypatch):
+    """With no resolvable launcher, Ruby keeps the bare ["irb"] name."""
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: None,
+    )
     assert Ruby().start_cmd == ["irb"]
+
+
+def test_ruby_start_cmd_keeps_a_direct_launcher_on_posix(monkeypatch):
+    """A launcher POSIX can execute itself must not be routed through cmd.exe."""
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: "/usr/bin/irb",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "posix")
+    assert Ruby().start_cmd == ["irb"]
+
+
+def test_ruby_start_cmd_wraps_a_batch_launcher_on_windows(monkeypatch):
+    """Windows cannot run a .bat/.cmd launcher directly; cmd.exe must run it.
+
+    Popen(["irb"]) fails with WinError 2 there because CreateProcess only
+    loads .exe images, so the resolved launcher is handed to cmd.exe.
+    """
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: r"C:\Ruby\bin\irb.BAT",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    monkeypatch.delenv("COMSPEC", raising=False)
+    assert Ruby().start_cmd == [
+        "cmd.exe",
+        "/d",
+        "/c",
+        r"C:\Ruby\bin\irb.BAT",
+    ]
+
+
+def test_ruby_start_cmd_honors_comspec(monkeypatch):
+    """The Windows command processor comes from COMSPEC when it is set."""
+    monkeypatch.setattr(
+        "interpreter.core.terminal.languages.ruby.shutil.which",
+        lambda _name: r"C:\Ruby\bin\irb.cmd",
+    )
+    monkeypatch.setattr("interpreter.core.terminal.languages.ruby.os.name", "nt")
+    monkeypatch.setenv("COMSPEC", r"D:\Windows\system32\cmd.exe")
+    assert Ruby().start_cmd[0] == r"D:\Windows\system32\cmd.exe"
 
 
 def test_ruby_detect_end_of_execution_covers_error_marker():

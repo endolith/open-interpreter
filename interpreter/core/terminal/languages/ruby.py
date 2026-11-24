@@ -1,7 +1,24 @@
 import os
 import re
+import shutil
 from pathlib import Path
 from .subprocess_language import SubprocessLanguage
+
+
+def _irb_start_cmd():
+    """Build an irb launch command CreateProcess accepts.
+
+    Popen(["irb"]) relies on PATH lookup of the launcher script, which POSIX
+    does itself. Windows resolves executables through CreateProcess, which
+    only accepts .exe images — a Ruby launcher (.bat/.cmd) fails with
+    WinError 2 — so the resolved launcher runs through cmd.exe instead. When
+    irb cannot be resolved the bare name is kept, so a missing Ruby still
+    fails the same way it did before.
+    """
+    launcher = shutil.which("irb")
+    if launcher and os.name == "nt" and launcher.lower().endswith((".bat", ".cmd")):
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", launcher]
+    return ["irb"]
 
 # irb prints this once per session when it starts echoing piped input. It is a
 # session banner, not part of any block's echo, so it must not consume a line
@@ -15,7 +32,7 @@ class Ruby(SubprocessLanguage):
 
     def __init__(self):
         super().__init__()
-        self.start_cmd = ["irb"] 
+        self.start_cmd = _irb_start_cmd()
 
     def preprocess_code(self, code):
         """
