@@ -183,12 +183,19 @@ class TestShellStateIsReportedToTheModel:
 
     def test_state_line_is_emitted_after_a_real_command(self):
         """End to end through run(): the report reaches the consumer."""
+        import pathlib
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
             bash = Bash()
+            # Quoted, forward-slash spelling so bash can actually cd there. A
+            # native `C:\...` path is all escape sequences to bash, which strips
+            # the backslashes and fails. Compare the basename because bash
+            # reports its own spelling of the directory (`/c/Users/...` on Git
+            # Bash for a native `C:\Users\...`), which differs from `tmp`.
+            target = pathlib.Path(tmp).as_posix()
             try:
-                chunks = list(bash.run(f"cd {tmp} && echo marker-ok"))
+                chunks = list(bash.run(f'cd "{target}" && echo marker-ok'))
             finally:
                 bash.terminate()
             joined = "\n".join(
@@ -198,7 +205,7 @@ class TestShellStateIsReportedToTheModel:
             )
             assert "Shell state" in joined, f"no state line in {joined!r}"
             assert (
-                tmp in joined
+                os.path.basename(tmp) in joined
             ), "the reported cwd must be the directory we cd'd into"
 
     def test_state_line_does_not_reintroduce_the_marker(self):

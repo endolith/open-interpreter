@@ -1,4 +1,5 @@
 import os
+import pathlib
 import platform
 import tempfile
 import shutil
@@ -261,7 +262,9 @@ class TestTerminalLanguages(unittest.TestCase):
 
     def test_bash_resolve_bash_executable(self):
         path = resolve_bash_executable()
-        self.assertTrue(path.endswith("bash") or path.endswith("bash.exe"))
+        # Case-insensitive: on Windows `shutil.which` returns `bash.EXE`, and the
+        # comparator must not depend on which spelling the launcher has.
+        self.assertTrue(path.lower().endswith(("bash", "bash.exe")))
 
     def test_bash_init_initializes_subprocess_state(self):
         """Bash() must set the SubprocessLanguage attributes run() relies on (process, start_cmd, output_queue, done)."""
@@ -638,9 +641,35 @@ class TestTerminalLanguages(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             bash = Bash()
             bash.cwd = "/home/user/project"
-            result = bash._strip_redundant_cd(f"cd {d}\npwd")
-            self.assertEqual(result, f"cd {d}\npwd")
+            # Spelled the way a model must spell a native path for bash: quoted,
+            # with forward slashes. Unquoted `C:\Users\...` is all escape
+            # sequences to bash, which strips the backslashes and fails to cd.
+            target = pathlib.Path(d).as_posix()
+            result = bash._strip_redundant_cd(f'cd "{target}"\npwd')
+            self.assertEqual(result, f'cd "{target}"\npwd')
             self.assertEqual(bash.cwd, d)
+
+    def test_bash_tracking_stores_the_spelling_it_was_given(self):
+        """Tracking keeps the target as spelled; only the redundancy check folds case.
+
+        Regression: the tracked cwd was stored normcased, so on Windows the
+        state line reported a fake lowercase `c:\\users\\...` path. normcase
+        lowercases only on Windows, so the comparison is stubbed here to make
+        the storage rule observable on every platform.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "MixedCase")
+            os.mkdir(sub)
+            bash = Bash()
+            bash.cwd = d
+            target = pathlib.Path(sub).as_posix()
+            with patch(
+                "interpreter.core.terminal.languages.cwd_tracking.os.path.normcase",
+                side_effect=lambda path: path.lower(),
+            ):
+                result = bash._strip_redundant_cd(f'cd "{target}" && ls')
+            self.assertEqual(result, f'cd "{target}" && ls')
+            self.assertEqual(bash.cwd, sub)
 
     def test_bash_cd_to_nonexistent_directory_kept_and_not_tracked(self):
         """A `cd` to a directory that doesn't exist is kept and doesn't change tracking."""
@@ -667,7 +696,8 @@ class TestTerminalLanguages(unittest.TestCase):
             bash.cwd = d
             self.assertEqual(bash._strip_redundant_cd("cd sub\nls"), "cd sub\nls")
             self.assertEqual(bash.cwd, sub)
-            self.assertEqual(bash._strip_redundant_cd(f"cd {sub}\nls"), "ls")
+            target = pathlib.Path(sub).as_posix()
+            self.assertEqual(bash._strip_redundant_cd(f'cd "{target}"\nls'), "ls")
 
     def test_bash_quoted_redundant_cd_in_chain_stripped(self):
         """A quoted redundant target (`cd "/path" && cmd`) is stripped like an unquoted one."""
@@ -757,8 +787,12 @@ class TestTerminalLanguages(unittest.TestCase):
             os.mkdir(sub)
             bash = Bash()
             bash.cwd = d
-            result = bash._strip_redundant_cd(f"cd {d} && cd {sub} && ls")
-            self.assertEqual(result, f"cd {sub} && ls")
+            d_target = pathlib.Path(d).as_posix()
+            sub_target = pathlib.Path(sub).as_posix()
+            result = bash._strip_redundant_cd(
+                f'cd "{d_target}" && cd "{sub_target}" && ls'
+            )
+            self.assertEqual(result, f'cd "{sub_target}" && ls')
             self.assertEqual(bash.cwd, sub)
 
     def test_bash_cd_target_with_trailing_slash_stripped(self):
@@ -1010,18 +1044,19 @@ class TestTerminalLanguages(unittest.TestCase):
             os.mkdir(sub)
             bash = Bash()
             bash.cwd = d
+            target = pathlib.Path(sub).as_posix()
 
             # Peek (respond): a cd to a different existing dir is kept and does
             # NOT advance the tracked cwd — it hasn't actually run yet.
-            stripped, notice = bash.strip_boilerplate(f"cd {sub} && ls")
-            self.assertEqual(stripped, f"cd {sub} && ls")
+            stripped, notice = bash.strip_boilerplate(f'cd "{target}" && ls')
+            self.assertEqual(stripped, f'cd "{target}" && ls')
             self.assertIsNone(notice)
             self.assertEqual(bash.cwd, d)
 
             # Actual run (preprocess): the same cd is still not redundant
             # (tracked cwd unchanged), so it is kept and the cwd advances.
             result = bash._strip_redundant_cd(stripped, track=True)
-            self.assertEqual(result, f"cd {sub} && ls")
+            self.assertEqual(result, f'cd "{target}" && ls')
             self.assertEqual(bash.cwd, sub)
 
     def test_code_block_title_marks_tool_calls_and_edits(self):
@@ -1733,7 +1768,10 @@ class TestCwdParsingFuzz(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             sub = os.path.join(d, "sub dir")
             os.mkdir(sub)
-            esc = sub.replace(" ", "\\ ")
+            # Relative spelling: a native `C:\...` path here would be read by
+            # bash as escape sequences, and this test is about the `\ `-escaped
+            # space, not about Windows separators.
+            esc = "sub\\ dir"
             b = Bash()
             b.cwd = d
             result = b._strip_redundant_cd(f"cd {esc} && ls")

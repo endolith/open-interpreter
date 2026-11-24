@@ -356,17 +356,29 @@ class CwdTrackingMixin:
             # the client's env, so special-case them.
             return True
         expanded = os.path.expandvars(os.path.expanduser(target))
-        resolved = self._resolve_target(expanded)
-        if resolved == self._resolve_target(self.cwd):
+        absolute = self._abs_target(expanded)
+        if os.path.normcase(absolute) == self._resolve_target(self.cwd):
             return True
         # Only trust the new cwd if the directory exists, so a failed `cd`
         # doesn't desync our tracking from the shell's real state. When
         # ``track`` is False (respond's peek), never advance the cwd — the cd
-        # hasn't actually run yet.
-        if track and os.path.isdir(resolved):
-            self.cwd = resolved
+        # hasn't actually run yet. Store the spelling it was given, not the
+        # normcased one used for comparison: the state line reports this path to
+        # the model, and a folded `c:\users\...` would misstate where it is.
+        if track and os.path.isdir(absolute):
+            self.cwd = absolute
         return False
 
+    def _abs_target(self, path):
+        """Absolute, normalized spelling of ``path``, keeping its original case."""
+        return os.path.normpath(os.path.abspath(os.path.join(self.cwd, path)))
+
     def _resolve_target(self, path):
-        joined = os.path.abspath(os.path.join(self.cwd, path))
-        return os.path.normcase(os.path.normpath(joined))
+        """``path`` as an absolute path, case-folded for comparison.
+
+        Separate from ``_abs_target`` because the two differ on Windows, where
+        ``normcase`` lowercases: ``C:\\Users`` and ``c:\\users`` are the same
+        directory for a redundant-cd check, but the tracked cwd must keep its
+        case.
+        """
+        return os.path.normcase(self._abs_target(path))
