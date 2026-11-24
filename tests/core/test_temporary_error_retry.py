@@ -129,6 +129,32 @@ def test_bodiless_400_stops_after_one_retry(capsys, panels):
     assert "Error code: 400" in output, "the user must be told the request was rejected"
 
 
+def test_error_panel_emits_a_role_less_live_display_stop(capsys, panels):
+    """The directive that stops the live display is not a message.
+
+    An error panel has to be printed after the live display is stopped, and the
+    stop travels through the chunk stream as {"type": "stop_live_display"} with
+    no role. It is a display directive, not conversation content: consumers that
+    filter on role (the interface, the server, message storage) must be able to
+    ignore it, so it may not carry a role and must never be appended to the
+    history. Streaming consumers that assert every chunk is a message have to
+    account for it explicitly.
+    """
+    llm = _FakeLlm([_bodiless_400(), _bodiless_400(), _bodiless_400()])
+
+    interpreter = _FakeInterpreter(llm)
+    chunks = list(respond(interpreter))
+
+    directives = [chunk for chunk in chunks if chunk.get("type") == "stop_live_display"]
+    assert directives, "an error panel must stop the live display before printing"
+    assert all(set(chunk) == {"type"} for chunk in directives), directives
+    assert not any(
+        message.get("type") == "stop_live_display"
+        for message in interpreter.messages
+    ), "a display directive must never be stored as a message"
+    assert "Error code: 400" in capsys.readouterr().out + "".join(panels)
+
+
 def test_descriptive_400_is_not_auto_retried(capsys, panels):
     """A 400 that explains itself is a real complaint and stays actionable.
 

@@ -1097,6 +1097,13 @@ def test_generator():
             display=True,
         ):
             print(chunk)
+            # Display directives are not messages: the live-display stop that an
+            # error panel emits is {"type": "stop_live_display"} with no role, and
+            # the interface consumes it instead of storing it. Skip it rather than
+            # failing on a chunk that is deliberately outside the message schema.
+            if "role" not in chunk:
+                assert chunk.get("type") == "stop_live_display", chunk
+                continue
             # Check if chunk has the right schema
             assert "role" in chunk, "Chunk missing 'role'"
             assert "type" in chunk, "Chunk missing 'type'"
